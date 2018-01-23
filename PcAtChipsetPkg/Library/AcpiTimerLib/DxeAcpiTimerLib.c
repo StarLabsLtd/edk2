@@ -12,9 +12,27 @@
 
 **/
 
-#include <Base.h>
+#include <PiDxe.h>
 #include <Library/TimerLib.h>
 #include <Library/BaseLib.h>
+#include <Library/HobLib.h>
+
+extern GUID mFrequencyHobGuid;
+
+/**
+  The constructor function enables ACPI IO space.
+
+  If ACPI I/O space not enabled, this function will enable it.
+  It will always return RETURN_SUCCESS.
+
+  @retval EFI_SUCCESS   The constructor always returns RETURN_SUCCESS.
+
+**/
+RETURN_STATUS
+EFIAPI
+AcpiTimerLibConstructor (
+  VOID
+  );
 
 /**
   Calculate TSC frequency.
@@ -54,8 +72,41 @@ InternalGetPerformanceCounterFrequency (
   VOID
   ) 
 {
-  if (mPerformanceCounterFrequency == 0) {
+  return  mPerformanceCounterFrequency;
+}
+
+/**
+  The constructor function enables ACPI IO space, and caches PerformanceCounterFrequency. 
+
+  @param  ImageHandle   The firmware allocated handle for the EFI image.
+  @param  SystemTable   A pointer to the EFI System Table.
+
+  @retval EFI_SUCCESS   The constructor always returns RETURN_SUCCESS.
+
+**/
+EFI_STATUS
+EFIAPI
+DxeAcpiTimerLibConstructor (
+  IN EFI_HANDLE        ImageHandle,
+  IN EFI_SYSTEM_TABLE  *SystemTable
+  )
+{
+  EFI_HOB_GUID_TYPE   *GuidHob;
+
+  //
+  // Enable ACPI IO space.
+  //
+  AcpiTimerLibConstructor ();
+
+  //
+  // Initialize PerformanceCounterFrequency
+  //
+  GuidHob = GetFirstGuidHob (&mFrequencyHobGuid);
+  if (GuidHob != NULL) {
+    mPerformanceCounterFrequency = *(UINT64*)GET_GUID_HOB_DATA (GuidHob);
+  } else {
     mPerformanceCounterFrequency = InternalCalculateTscFrequency ();
   }
-  return  mPerformanceCounterFrequency;
+
+  return EFI_SUCCESS;
 }
