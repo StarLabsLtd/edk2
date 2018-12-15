@@ -18,3 +18,9 @@
 [LibraryClasses.common]
   TableHelperLib|DynamicTablesPkg/Library/Common/TableHelperLib/TableHelperLib.inf
 
+[Components.common]
+  #
+  # Dynamic Table Factory Dxe
+  #
+  DynamicTablesPkg/Drivers/DynamicTableFactoryDxe/DynamicTableFactoryDxe.inf
+
