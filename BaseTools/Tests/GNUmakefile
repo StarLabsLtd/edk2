@@ -14,7 +14,7 @@
 all: test
 
 test:
-	@if command -v $(PYTHON) >/dev/null 1; then $(PYTHON) RunTests.py; else python RunTests.py; fi
+	@if command -v $(PYTHON_COMMAND) >/dev/null 1; then $(PYTHON_COMMAND) RunTests.py; else python RunTests.py; fi
 
 clean:
 	find . -name '*.pyc' -exec rm '{}' ';'
