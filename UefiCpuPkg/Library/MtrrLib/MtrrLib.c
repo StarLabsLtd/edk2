@@ -2961,6 +2961,10 @@ IsMtrrSupported (
   VOID
   )
 {
+  if (PcdGetBool(PcdCpuDisableMtrrProgramming)) {
+    return FALSE;
+  }
+
   return MtrrLibIsMtrrSupported (NULL, NULL);
 }
 
