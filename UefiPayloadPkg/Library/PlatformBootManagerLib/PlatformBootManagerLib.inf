@@ -33,6 +33,7 @@
   SecurityPkg/SecurityPkg.dec
   UefiPayloadPkg/UefiPayloadPkg.dec
   ShellPkg/ShellPkg.dec
+  SecurityPkg/SecurityPkg.dec
 
 [LibraryClasses]
   BaseLib
@@ -51,6 +52,7 @@
   PlatformHookLib
   CapsuleLib
   HobLib
+  Tcg2PhysicalPresenceLib
 
 [Guids]
   gEfiEndOfDxeEventGroupGuid

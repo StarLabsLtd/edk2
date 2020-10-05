@@ -371,6 +371,11 @@ PlatformBootManagerAfterConsole (
   }
 
   //
+  // Process TPM PPI request
+  //
+  Tcg2PhysicalPresenceLibProcessRequest (NULL);
+
+  //
   // Register UEFI Shell
   //
   PlatformRegisterFvBootOption (&gUefiShellFileGuid, L"UEFI Shell", LOAD_OPTION_ACTIVE);
