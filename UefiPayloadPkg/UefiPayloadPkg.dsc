@@ -70,6 +70,11 @@
   DEFINE   BOOTLOADER                 = SBL
 
   #
+  # SHIMLAYER: Build ShimLayer for coreboot
+  #
+  DEFINE SHIMLAYER                    = FALSE
+
+  #
   # CPU options
   #
   DEFINE MAX_LOGICAL_PROCESSORS       = 1024
@@ -288,7 +293,7 @@
   DebugAgentLib|MdeModulePkg/Library/DebugAgentLibNull/DebugAgentLibNull.inf
 !endif
   PlatformSupportLib|UefiPayloadPkg/Library/PlatformSupportLibNull/PlatformSupportLibNull.inf
-!if $(UNIVERSAL_PAYLOAD) == FALSE
+!if $(UNIVERSAL_PAYLOAD) == FALSE || $(SHIMLAYER) == TRUE
   !if $(BOOTLOADER) == "COREBOOT"
     BlParseLib|UefiPayloadPkg/Library/CbParseLib/CbParseLib.inf
   !else
@@ -345,6 +350,8 @@
 !if $(MULTIPLE_DEBUG_PORT_SUPPORT) == TRUE
   SerialPortLib|UefiPayloadPkg/Library/BaseSerialPortLibHob/BaseSerialPortLibHob.inf
 !endif
+  LzmaDecompressLib|MdeModulePkg/Library/LzmaCustomDecompressLib/LzmaCommonDecompressLib.inf
+  ElfLoaderLib|UefiPayloadPkg/PayloadLoaderPeim/ElfLoaderLib.inf
 
 [LibraryClasses.common.DXE_CORE]
   DxeHobListLib|UefiPayloadPkg/Library/DxeHobListLibNull/DxeHobListLibNull.inf
@@ -627,7 +634,18 @@
 ################################################################################
 
 !if "IA32" in "$(ARCH)"
+  !if $(BOOTLOADER) == "COREBOOT"
+  [PcdsFixedAtBuild]
+    gUefiPayloadPkgTokenSpaceGuid.PcdLinuxCommandLine|L"loglevel=7 earlyprintk=serial,ttyS0,115200 console=ttyS0,115200 disable_mtrr_cleanup"
+    gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFdMemBase|0x00800000
+    gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFdMemSize|0x00100000
+    gUefiPayloadPkgTokenSpaceGuid.PcdSystemMemoryUefiRegionSize|0x04000000
+  !endif
+
   [Components.IA32]
+  !if $(BOOTLOADER) == "COREBOOT" && $(SHIMLAYER) == TRUE
+    UefiPayloadPkg/ShimLayer/ShimLayer.inf
+  !endif
   !if $(UNIVERSAL_PAYLOAD) == TRUE
     !if $(UNIVERSAL_PAYLOAD_FORMAT) == "ELF"
       UefiPayloadPkg/UefiPayloadEntry/UniversalPayloadEntry.inf
