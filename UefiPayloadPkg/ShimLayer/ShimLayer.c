@@ -619,6 +619,30 @@ ConvertCbmemToHob (
   return EFI_SUCCESS;
 }
 
+/**
+  This function relocate elf file to an align base address.
+
+**/
+EFI_STATUS
+RelocateElfImage (
+  IN OUT ELF_IMAGE_CONTEXT  *ElfCt
+  )
+{
+  UINTN DestSize;
+  VOID  *DestAddress;
+
+  DestSize    = ElfCt->FileSize;
+  DestAddress = AllocatePages(EFI_SIZE_TO_PAGES(DestSize));
+  CopyMem (DestAddress, ElfCt->FileBase, DestSize);
+
+  //
+  // Replace Address
+  //
+  ElfCt->FileBase     = DestAddress;
+
+  return EFI_SUCCESS; 
+}
+
 EFI_STATUS
 LoadPayload (
   OUT    EFI_PHYSICAL_ADDRESS  *ImageAddressArg   OPTIONAL,
@@ -638,6 +662,14 @@ LoadPayload (
   UNIVERSAL_PAYLOAD_EXTRA_DATA  *ExtraData;
 
   Status = ParseElfImage (_binary_UniversalPayload_elf_start, &Context);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  //
+  // Relocated Elf to an align base address
+  //
+  RelocateElfImage (&Context);
   if (EFI_ERROR (Status)) {
     return Status;
   }
