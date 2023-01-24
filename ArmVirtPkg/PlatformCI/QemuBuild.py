@@ -27,5 +27,8 @@ class CommonPlatform():
 
     DscName = os.path.join("ArmVirtPkg", "ArmVirtQemu.dsc")
 
+    # this platform produces a bootable NOR flash image
+    FvQemuArg = " -pflash "
+
 import PlatformBuildLib
 PlatformBuildLib.CommonPlatform = CommonPlatform
