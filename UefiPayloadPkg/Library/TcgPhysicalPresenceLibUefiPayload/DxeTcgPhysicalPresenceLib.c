@@ -265,7 +265,7 @@ GetTpmCapability (
   TPM_PERMANENT_FLAGS  *TpmPermanentFlags;
   UINT8                RecvBuffer[40];
 
-  //
+          //
   // Fill request header
   //
   TpmRsp = (TPM_RSP_COMMAND_HDR *)RecvBuffer;
@@ -1266,6 +1266,11 @@ ExecutePendingTpmRequest (
     NewFlags.PPFlags      = (UINT8)NewPPFlags;
   } else {
     if (!RequestConfirmed) {
+      // Clear screen
+      if (gST != NULL && gST->ConOut != NULL) {
+        gST->ConOut->ClearScreen (gST->ConOut);
+      }
+
       //
       // Print confirm text and wait for approval.
       //
