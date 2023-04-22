@@ -1368,9 +1368,8 @@ ExecutePendingTpmRequest (
       return;
   }
 
-  Print (L"Rebooting system to make TPM settings in effect\n");
-
-  Flush_PPI_Cache12(TRUE);  //Need to Flush cache to RAM otherwise mPpi are not stored in RAM.
+  Print (L"\n\nRebooting system to apply changes to TPM settings\n");
+    Flush_PPI_Cache12(TRUE);  //Need to Flush cache to RAM otherwise mPpi are not stored in RAM.
 
   gRT->ResetSystem (EfiResetCold, EFI_SUCCESS, 0, NULL);
   ASSERT (FALSE);
