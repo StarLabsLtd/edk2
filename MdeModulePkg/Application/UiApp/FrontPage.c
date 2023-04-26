@@ -507,7 +507,10 @@ UpdateFrontPageBannerStrings (
 {
   UINT8                    StrIndex;
   CHAR16                   *NewString;
+  CHAR16                   *Vendor;
   CHAR16                   *FirmwareVersionString;
+  UINT8                    EcMajorVersion;
+  UINT8                    EcMinorVersion;
   EFI_STATUS               Status;
   EFI_SMBIOS_HANDLE        SmbiosHandle;
   EFI_SMBIOS_PROTOCOL      *Smbios;
@@ -518,6 +521,7 @@ UpdateFrontPageBannerStrings (
   EFI_SMBIOS_TABLE_HEADER  *Record;
   UINT64                   InstalledMemory;
   BOOLEAN                  FoundCpu;
+  CHAR16                   EcVersion[9];
 
   InstalledMemory = 0;
   FoundCpu        = 0;
@@ -525,11 +529,6 @@ UpdateFrontPageBannerStrings (
   //
   // Update default banner string.
   //
-  NewString = HiiGetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_CUSTOMIZE_BANNER_LINE4_LEFT), NULL);
-  UiCustomizeFrontPageBanner (4, TRUE, &NewString);
-  HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_CUSTOMIZE_BANNER_LINE4_LEFT), NewString, NULL);
-  FreePool (NewString);
-
   NewString = HiiGetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_CUSTOMIZE_BANNER_LINE4_RIGHT), NULL);
   UiCustomizeFrontPageBanner (4, FALSE, &NewString);
   HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_CUSTOMIZE_BANNER_LINE4_RIGHT), NewString, NULL);
@@ -573,6 +572,11 @@ UpdateFrontPageBannerStrings (
     HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_BIOS_VERSION), NewString, NULL);
     FreePool (NewString);
 
+    NewString = HiiGetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_EC_VERSION), NULL);
+    UiCustomizeFrontPageBanner (4, TRUE, &NewString);
+    HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_EC_VERSION), NewString, NULL);
+    FreePool (NewString);
+
     NewString = HiiGetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_MEMORY_SIZE), NULL);
     UiCustomizeFrontPageBanner (3, FALSE, &NewString);
     HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_MEMORY_SIZE), NewString, NULL);
@@ -585,9 +589,18 @@ UpdateFrontPageBannerStrings (
   Status       = Smbios->GetNext (Smbios, &SmbiosHandle, NULL, &Record, NULL);
   while (!EFI_ERROR (Status)) {
     if (Record->Type == SMBIOS_TYPE_BIOS_INFORMATION) {
+      CHAR16 *BiosVersion;
       Type0Record = (SMBIOS_TABLE_TYPE0 *)Record;
       StrIndex    = Type0Record->BiosVersion;
-      GetOptionalStringByIndex ((CHAR8 *)((UINT8 *)Type0Record + Type0Record->Hdr.Length), StrIndex, &NewString);
+      GetOptionalStringByIndex ((CHAR8 *)((UINT8 *)Type0Record + Type0Record->Hdr.Length), StrIndex, &BiosVersion);
+
+      StrIndex    = Type0Record->Vendor;
+      GetOptionalStringByIndex ((CHAR8 *)((UINT8 *)Type0Record + Type0Record->Hdr.Length), StrIndex, &Vendor);
+
+      NewString = (CHAR16 *)AllocateZeroPool(100 * sizeof(CHAR16));
+      UnicodeSPrint(NewString, 200 * sizeof(CHAR16), L"%-20s%8s", L"coreboot version:", BiosVersion);
+      FreePool (BiosVersion);
+      FreePool (Vendor);
 
       FirmwareVersionString = (CHAR16 *)PcdGetPtr (PcdFirmwareVersionString);
       if (*FirmwareVersionString != 0x0000 ) {
@@ -600,6 +613,35 @@ UpdateFrontPageBannerStrings (
         HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_BIOS_VERSION), NewString, NULL);
         FreePool (NewString);
       }
+
+      // Use the values from PcdEcMajorFirmwareVersion and PcdEcMinorFirmwareVersion if available
+      EcMajorVersion = PcdGet8(PcdEcMajorFirmwareVersion);
+      EcMinorVersion = PcdGet8(PcdEcMinorFirmwareVersion);
+      if (EcMajorVersion != 0x00 || EcMinorVersion != 0x00) {
+        NewString = (CHAR16 *)AllocateZeroPool (100 * sizeof(CHAR16));
+
+        UnicodeSPrint(EcVersion, sizeof(EcVersion), L"%d.%02d", EcMajorVersion, EcMinorVersion);
+        UnicodeSPrint(NewString, 100 * sizeof(CHAR16), L"%-20s%8s", L"EC version:", EcVersion);
+      } else {
+        // If PcdEcMajorFirmwareVersion and PcdEcMinorFirmwareVersion are 0x00,
+        // use the values from the Type 0 record
+        UINT8 MajorVersion;
+        UINT8 MinorVersion;
+
+        MajorVersion = Type0Record->EmbeddedControllerFirmwareMajorRelease;
+        MinorVersion = Type0Record->EmbeddedControllerFirmwareMinorRelease;
+
+        if (MajorVersion != 0x00 || MinorVersion != 0x00) {
+          NewString = (CHAR16 *)AllocateZeroPool(100 * sizeof(CHAR16));
+          CHAR16 EcVersion[9];
+          UnicodeSPrint(EcVersion, sizeof(EcVersion), L"%d.%02d", Type0Record->EmbeddedControllerFirmwareMajorRelease, Type0Record->EmbeddedControllerFirmwareMinorRelease);
+          UnicodeSPrint(NewString, 100 * sizeof(CHAR16), L"%-20s%8s", L"EC version:", EcVersion);
+        }
+      }
+
+      UiCustomizeFrontPageBanner (4, TRUE, &NewString);
+      HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_EC_VERSION), NewString, NULL);
+      FreePool (NewString);
     }
 
     if (Record->Type == SMBIOS_TYPE_SYSTEM_INFORMATION) {
