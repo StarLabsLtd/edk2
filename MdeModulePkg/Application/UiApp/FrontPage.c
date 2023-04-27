@@ -522,6 +522,7 @@ UpdateFrontPageBannerStrings (
   EFI_SMBIOS_TABLE_HEADER  *Record;
   UINT64                   InstalledMemory;
   BOOLEAN                  FoundCpu;
+  CHAR16                   EcVersion[9];
 
   InstalledMemory = 0;
   FoundCpu        = 0;
