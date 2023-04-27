@@ -36,7 +36,7 @@ formset
     banner
       title = STRING_TOKEN(STR_FRONT_PAGE_CPU_SPEED),
       line  2,
-      align right;
+      align center;
 
     banner
       title = STRING_TOKEN(STR_FRONT_PAGE_BIOS_VERSION),
@@ -46,7 +46,7 @@ formset
     banner
       title = STRING_TOKEN(STR_FRONT_PAGE_MEMORY_SIZE),
       line  3,
-      align right;
+      align center;
 
     banner
       title = STRING_TOKEN(STR_FRONT_PAGE_EC_VERSION),
@@ -56,7 +56,7 @@ formset
     banner
       title = STRING_TOKEN(STR_CUSTOMIZE_BANNER_LINE4_RIGHT),
       line  4,
-      align right;
+      align center;
 
     banner
       title = STRING_TOKEN(STR_CUSTOMIZE_BANNER_LINE5_LEFT),
@@ -66,7 +66,7 @@ formset
     banner
       title = STRING_TOKEN(STR_CUSTOMIZE_BANNER_LINE5_RIGHT),
       line  5,
-      align right;
+      align center;
 
     label LABEL_FRONTPAGE_INFORMATION;
     //
