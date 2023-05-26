@@ -655,24 +655,26 @@ UpdateFrontPageBannerStrings (
     }
 
     if ((Record->Type == SMBIOS_TYPE_PROCESSOR_INFORMATION) && !FoundCpu) {
-      Type4Record = (SMBIOS_TABLE_TYPE4 *)Record;
-      //
-      // The information in the record should be only valid when the CPU Socket is populated.
-      //
-      if ((Type4Record->Status & SMBIOS_TYPE4_CPU_SOCKET_POPULATED) == SMBIOS_TYPE4_CPU_SOCKET_POPULATED) {
-        StrIndex = Type4Record->ProcessorVersion;
-        GetOptionalStringByIndex ((CHAR8 *)((UINT8 *)Type4Record + Type4Record->Hdr.Length), StrIndex, &NewString);
-        UiCustomizeFrontPageBanner (2, TRUE, &NewString);
-        HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_CPU_MODEL), NewString, NULL);
-        FreePool (NewString);
+        Type4Record = (SMBIOS_TABLE_TYPE4 *)Record;
+        //
+        // The information in the record should be only valid when the CPU Socket is populated.
+        //
+        if ((Type4Record->Status & SMBIOS_TYPE4_CPU_SOCKET_POPULATED) == SMBIOS_TYPE4_CPU_SOCKET_POPULATED) {
+            StrIndex = Type4Record->ProcessorVersion;
+            GetOptionalStringByIndex ((CHAR8 *)((UINT8 *)Type4Record + Type4Record->Hdr.Length), StrIndex, &NewString);
 
-        ConvertProcessorToString (Type4Record->CurrentSpeed, 6, &NewString);
-        UiCustomizeFrontPageBanner (2, FALSE, &NewString);
-        HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_CPU_SPEED), NewString, NULL);
-        FreePool (NewString);
+            CHAR16 *PrependedNewString = (CHAR16 *)AllocateZeroPool (100 * sizeof(CHAR16));  // Allocate fixed size
 
-        FoundCpu = TRUE;
-      }
+            UnicodeSPrint(PrependedNewString, 100 * sizeof(CHAR16), L"%-24s%s", L"Processor:", NewString);
+
+            FreePool(NewString);
+
+            UiCustomizeFrontPageBanner (2, TRUE, &PrependedNewString);
+            HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_CPU_MODEL), PrependedNewString, NULL);
+            FreePool(PrependedNewString);
+
+            FoundCpu = TRUE;
+        }
     }
 
     if ( Record->Type == SMBIOS_TYPE_MEMORY_ARRAY_MAPPED_ADDRESS ) {
