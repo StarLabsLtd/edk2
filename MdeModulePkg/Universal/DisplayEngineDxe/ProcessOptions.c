@@ -655,10 +655,10 @@ CreateSharedPopUp (
     }
 
     PrintStringAt (
-      ((DimensionsWidth - GetStringWidth (String) / 2) / 2) + gStatementDimensions.LeftColumn + 1,
-      Index + 1,
-      String
-      );
+                   ((DimensionsWidth - GetStringWidth (String) / 2) / 2) + gStatementDimensions.LeftColumn + 1,
+                   Index + 1,
+                   String
+                   );
     gST->ConOut->SetAttribute (gST->ConOut, GetPopupColor ());
     PrintCharAt (Start, Index + 1, Character);
     PrintCharAt (End - 1, Index + 1, Character);
@@ -1028,6 +1028,35 @@ PrintMismatchMenuInfo (
   }
 }
 
+#define MAX_OPTION_STR_LEN  16
+
+CHAR16 *
+PadOptionString (
+  CHAR16  *StringPtr
+  )
+{
+  CHAR16  PadChar = L' ';
+
+  // Calculate the number of pad characters needed
+  UINTN  CurrentLen = StrLen (StringPtr);
+
+  // Create a new string with enough space for the original, the padding, and the null terminator
+  CHAR16  *PaddedString = AllocateZeroPool ((MAX_OPTION_STR_LEN + 1) * sizeof (CHAR16));
+
+  // Add a single padding character at the beginning
+  PaddedString[0] = PadChar;
+
+  // Copy the original string into the new string starting from the index 1
+  StrCpyS (PaddedString + 1, CurrentLen + 1, StringPtr);
+
+  // Add the remaining padding characters at the end
+  for (UINTN i = CurrentLen + 1; i < MAX_OPTION_STR_LEN; i++) {
+    PaddedString[i] = PadChar;
+  }
+
+  return PaddedString;
+}
+
 /**
   Process a Question's Option (whether selected or un-selected).
 
@@ -1178,6 +1207,12 @@ ProcessOptions (
           NewStrCat (OptionString[0], MaxLen, Character);
           StringPtr = GetToken (OneOfOption->OptionOpCode->Option, gFormData->HiiHandle);
           ASSERT (StringPtr != NULL);
+
+          // Pad the string
+          CHAR16  *PaddedStringPtr = PadOptionString (StringPtr);
+          FreePool (StringPtr);
+          StringPtr = PaddedStringPtr;
+
           NewStrCat (OptionString[0], MaxLen, StringPtr);
           Character[0] = RIGHT_ONEOF_DELIMITER;
           NewStrCat (OptionString[0], MaxLen, Character);
@@ -1218,6 +1253,12 @@ ProcessOptions (
             NewStrCat (OptionString[0], MaxLen, Character);
             StringPtr = GetToken (OneOfOption->OptionOpCode->Option, gFormData->HiiHandle);
             ASSERT (StringPtr != NULL);
+
+            // Pad the string
+            CHAR16  *PaddedStringPtr = PadOptionString (StringPtr);
+            FreePool (StringPtr);
+            StringPtr = PaddedStringPtr;
+
             NewStrCat (OptionString[0], MaxLen, StringPtr);
             Character[0] = RIGHT_ONEOF_DELIMITER;
             NewStrCat (OptionString[0], MaxLen, Character);
@@ -1339,6 +1380,12 @@ ProcessOptions (
         NewStrCat (OptionString[0], MaxLen, Character);
         StringPtr = GetToken (OneOfOption->OptionOpCode->Option, gFormData->HiiHandle);
         ASSERT (StringPtr != NULL);
+
+        // Pad the string
+        CHAR16  *PaddedStringPtr = PadOptionString (StringPtr);
+        FreePool (StringPtr);
+        StringPtr = PaddedStringPtr;
+
         NewStrCat (OptionString[0], MaxLen, StringPtr);
         Character[0] = RIGHT_ONEOF_DELIMITER;
         NewStrCat (OptionString[0], MaxLen, Character);
