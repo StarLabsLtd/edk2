@@ -1408,18 +1408,29 @@ ProcessOptions (
         //
         return EFI_SUCCESS;
       } else {
+        CHAR16  *TempString;
+
+        if (QuestionValue->Value.b) {
+          TempString = CHECK_ON;
+        } else {
+          TempString = CHECK_OFF;
+        }
+
+        // Pad the string
+        CHAR16  *PaddedStringPtr = PadOptionString (TempString);
+
+        // Prepare the OptionString with delimiters and the padded string
+        MaxLen        = BufferSize / sizeof (CHAR16);
         *OptionString = AllocateZeroPool (BufferSize);
         ASSERT (*OptionString);
 
-        *OptionString[0] = LEFT_CHECKBOX_DELIMITER;
+        Character[0] = LEFT_CHECKBOX_DELIMITER;
+        NewStrCat (OptionString[0], MaxLen, Character);
+        NewStrCat (OptionString[0], MaxLen, PaddedStringPtr);
+        Character[0] = RIGHT_CHECKBOX_DELIMITER;
+        NewStrCat (OptionString[0], MaxLen, Character);
 
-        if (QuestionValue->Value.b) {
-          *(OptionString[0] + 1) = CHECK_ON;
-        } else {
-          *(OptionString[0] + 1) = CHECK_OFF;
-        }
-
-        *(OptionString[0] + 2) = RIGHT_CHECKBOX_DELIMITER;
+        FreePool (PaddedStringPtr);
       }
 
       break;
