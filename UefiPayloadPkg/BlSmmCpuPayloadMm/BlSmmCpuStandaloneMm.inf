@@ -1,0 +1,99 @@
+## @file
+#  Payload MM Support on Bootloader SMM
+#
+#  This module forms the interface between bootloader SMM and payload MM.
+#  It also supplements a payload MM core with the CPU protocols.
+#
+#  (Based on PiSmmCpuStandaloneMm and up-to-date as of Dec 7, 2023)
+#
+#  Copyright (c) 2023, 9elements GmbH.<BR>
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001A
+  BASE_NAME                      = BlSmmCpuStandaloneMm
+  FILE_GUID                      = CC10E983-2296-49AA-AB4B-3653AD2AE873
+  MODULE_TYPE                    = MM_STANDALONE
+  VERSION_STRING                 = 1.0
+  PI_SPECIFICATION_VERSION       = 0x00010032
+  ENTRY_POINT                    = BlSmmCpuStandaloneMmEntry
+
+#
+# The following information is for reference only and not required by the build tools.
+#
+#  VALID_ARCHITECTURES           = X64
+#
+
+[Sources]
+  BlSmmCpuStandaloneMm.c
+  BlSmmCpuPayloadMm.c
+  MpService.c
+  CpuS3.c
+  SmmProfile.c
+  SmmCpuMemoryManagement.c
+  #SmmMp.c
+  NonMmramMapStandaloneMm.c
+
+[Sources.X64]
+  X64/PageTbl.c
+  X64/SmmFuncsArch.c
+  X64/SmmProfileArch.c
+  X64/SmiEntry.nasm
+  X64/SmiException.nasm
+  X64/Cet.nasm
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  UefiCpuPkg/UefiCpuPkg.dec
+  UefiPayloadPkg/UefiPayloadPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  CpuExceptionHandlerLib
+  CpuLib
+  CpuPageTableLib
+  DebugAgentLib
+  DebugLib
+  HobLib
+  MemoryAllocationLib
+  PayloadMmHelperLib
+  PeCoffGetEntryPointLib
+  PerformanceLib
+  ReportStatusCodeLib
+  SmmCpuPlatformHookLib
+  MmServicesTableLib
+  SynchronizationLib
+  StandaloneMmDriverEntryPoint
+
+[Protocols]
+  gEfiSmmAccess2ProtocolGuid            ## CONSUMES
+  gEfiSmmConfigurationProtocolGuid      ## PRODUCES
+  gEfiSmmReadyToLockProtocolGuid        ## NOTIFY
+  gEdkiiSmmMemoryAttributeProtocolGuid  ## PRODUCES
+
+[Guids]
+  gPayloadMmInterfaceInfoGuid
+  gS3CommunicationGuid
+  gEdkiiPiSmmMemoryAttributesTableGuid     ## CONSUMES ## SystemTable
+  gMpInformation2HobGuid                   ## CONSUMES # Assume the HOB must has been created
+  gEfiSmmSmramMemoryGuid
+  gMmProfileDataHobGuid
+
+[FeaturePcd]
+  gUefiCpuPkgTokenSpaceGuid.PcdCpuSmmBlockStartupThisAp  ## CONSUMES
+  gUefiCpuPkgTokenSpaceGuid.PcdCpuSmmStackGuard          ## CONSUMES
+
+[Pcd]
+  gUefiCpuPkgTokenSpaceGuid.PcdCpuSmmStackSize                        ## CONSUMES
+  gEfiMdeModulePkgTokenSpaceGuid.PcdNullPointerDetectionPropertyMask  ## CONSUMES
+  gEfiMdeModulePkgTokenSpaceGuid.PcdHeapGuardPropertyMask             ## CONSUMES
+
+[FixedPcd]
+  gUefiCpuPkgTokenSpaceGuid.PcdCpuSmmMpTokenCountPerChunk             ## CONSUMES
+
+[Depex]
+  TRUE
