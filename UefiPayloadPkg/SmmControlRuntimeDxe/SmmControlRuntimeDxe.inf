@@ -41,6 +41,7 @@
 
 [Guids]
   gSmmRegisterInfoGuid
+  gPayloadMmInterfaceInfoGuid
   gEfiEventVirtualAddressChangeGuid
 
 [Protocols]
