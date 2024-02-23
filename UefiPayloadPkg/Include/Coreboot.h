@@ -297,6 +297,55 @@ struct cb_smmstorev2 {
   UINT8     unused[3];       /* Set to zero */
 } __attribute__ ((packed));
 
+#define CB_TAG_PAYLOAD_MM_INTERFACE_INFO  0x003b
+struct cb_payload_mm_interface_info {
+  UINT32    tag;
+  UINT32    size;
+  UINT8     revision;      /* The version of this table. Currently "0" */
+  UINT8     bootloader_smm_is_64bit;  /* Whether the bootloader's SMM is 64-bit code. This aids the payload
+             determine if mode switching is required. */
+  UINT8     apm_cmd;      /* The command byte to write to the APM I/O port */
+  UINT8     pad;
+};
+
+#define CB_TAG_PAYLOAD_MM_SMRAM_REGION  0x003c
+struct cb_pld_mm_smram_descriptor {
+  struct cbuint64    physical_start;  /* Physical address of the descriptor */
+  struct cbuint64    physical_size;  /* Size of the described region */
+};
+
+struct cb_payload_mm_smram_region {
+  UINT32                               tag;
+  UINT32                               size;
+  struct cb_pld_mm_smram_descriptor    descriptor;  /* A variable-length array of descriptors */
+};
+
+#define CB_TAG_PAYLOAD_MM_SHARED_MEM  0x003d
+struct cb_payload_mm_shared_mem {
+  UINT32                               tag;
+  UINT32                               size;
+  struct cb_pld_mm_smram_descriptor    comm_buffer;  /* The shared memory */
+};
+
+#define CB_TAG_PLD_MM_SPI_CONTROLLER_INFO  0x003e
+struct cb_pld_generic_register {
+  UINT8              address_space_id;    /* The address space where this register is found.
+               Follows the ACPI types */
+  UINT8              register_bit_width;  /* The width of this register */
+  UINT8              register_bit_offset;  /* The offset into this register to use */
+  UINT8              reserved;
+  struct cbuint64    address;      /* The address of this register. Exact location depends on the address space */
+  struct cbuint64    value;      /* An optional value to set in this register */
+};
+
+struct cb_pld_mm_spi_controller_info {
+  UINT32                            tag;
+  UINT32                            size;
+  UINT16                            revision;    /* The version of this table. Currently "0" */
+  UINT16                            flags;    /* A set of flags to describe this SPI controller, defined above */
+  struct cb_pld_generic_register    spi_address;  /* The address of the PCIe SPI controller, if present */
+};
+
 /*
  * Machine-friendly version of a system firmware component.  A component is
  * identified by a GUID.  coreboot is an obvious main component but there could
