@@ -407,6 +407,7 @@
   !endif
 !endif
   CfrHelpersLib|UefiPayloadPkg/Library/CfrHelpersLib/CfrHelpersLib.inf
+  PayloadMmHelperLib|UefiPayloadPkg/Library/PayloadMmHelperLib/PayloadMmHelperLib.inf
 
   DebugLib|MdeModulePkg/Library/PeiDxeDebugLibReportStatusCode/PeiDxeDebugLibReportStatusCode.inf
 !if $(OPAL_PASSWORD_ENABLE) == TRUE && $(BOOTLOADER) == "COREBOOT"
