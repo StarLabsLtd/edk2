@@ -1,0 +1,43 @@
+## @file
+# Null instance of MM Platform HOB Producer Library Class.
+#
+# Copyright (c) 2024, Intel Corporation. All rights reserved.<BR>
+#
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+#
+##
+
+[Defines]
+  INF_VERSION                    = 0x00010017
+  BASE_NAME                      = MmPlatformHobProducerLibPayloadMm
+  FILE_GUID                      = DF64587B-5463-434D-B231-4551139CAD64
+  MODULE_TYPE                    = BASE
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = MmPlatformHobProducerLib
+
+#
+#  VALID_ARCHITECTURES           = IA32 X64
+#
+
+[Sources]
+  MmPlatformHobProducerLib.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  StandaloneMmPkg/StandaloneMmPkg.dec
+  UefiCpuPkg/UefiCpuPkg.dec
+  UefiPayloadPkg/UefiPayloadPkg.dec
+
+[LibraryClasses]
+  HobLib
+
+[Guids]
+  gPayloadMmInterfaceInfoGuid
+  gS3CommunicationGuid
+  gSpiFlashInfoGuid
+  gEfiFlashRegionMapInfoHobGuid
+  gUefiAcpiBoardInfoGuid
+  gUniversalPayloadSerialPortInfoGuid
+  gVariableFlashInfoHobGuid
