@@ -27,6 +27,8 @@ typedef struct {
 
 SMM_CONTROL2_REG  mSmiCtrlReg;
 
+BOOLEAN mBootloaderInitializedSmm = FALSE;
+
 /**
   Invokes SMI activation from either the preboot or runtime environment.
 
@@ -62,6 +64,10 @@ Activate (
     return EFI_INVALID_PARAMETER;
   }
 
+  if (mBootloaderInitializedSmm) {
+    goto DoIt;
+  }
+
   SmiEn         = IoRead32 (mSmiCtrlReg.Address);
   SmiEnableBits = (1 << mSmiCtrlReg.GblBitOffset) | (1 << mSmiCtrlReg.ApmBitOffset);
   if ((SmiEn & SmiEnableBits) != SmiEnableBits) {
@@ -71,6 +77,7 @@ Activate (
     IoWrite32 (mSmiCtrlReg.Address, SmiEn | SmiEnableBits);
   }
 
+DoIt:
   IoWrite8 (SMM_DATA_PORT, DataPort    == NULL ? 0 : *DataPort);
   IoWrite8 (SMM_CONTROL_PORT, CommandPort == NULL ? 0 : *CommandPort);
   return EFI_SUCCESS;
@@ -103,7 +110,7 @@ Deactivate (
 }
 
 ///
-/// SMM COntrol2 Protocol instance
+/// SMM Control2 Protocol instance
 ///
 EFI_SMM_CONTROL2_PROTOCOL  mSmmControl2 = {
   Activate,
@@ -206,6 +213,12 @@ SmmControlEntryPoint (
   PLD_GENERIC_REGISTER  *SmiApmEnReg;
   EFI_EVENT             Event;
 
+  GuidHob = GetFirstGuidHob (&gPayloadMmInterfaceInfoGuid);
+  if (GuidHob != NULL) {
+    mBootloaderInitializedSmm = TRUE;
+    goto InstallAndExit;
+  }
+
   GuidHob = GetFirstGuidHob (&gSmmRegisterInfoGuid);
   if (GuidHob == NULL) {
     return EFI_UNSUPPORTED;
@@ -235,6 +248,7 @@ SmmControlEntryPoint (
 
   mSmiCtrlReg.ApmBitOffset = SmiApmEnReg->Address.RegisterBitOffset;
 
+InstallAndExit:
   //
   // Install our protocol interfaces on the device's handle
   //
