@@ -224,15 +224,32 @@ INF MdeModulePkg/Universal/ResetSystemRuntimeDxe/ResetSystemRuntimeDxe.inf
 !if $(SMM_SUPPORT) == TRUE
   INF UefiPayloadPkg/SmmAccessDxe/SmmAccessDxe.inf
   INF UefiPayloadPkg/SmmControlRuntimeDxe/SmmControlRuntimeDxe.inf
-  INF UefiPayloadPkg/BlSupportSmm/BlSupportSmm.inf
   INF MdeModulePkg/Core/PiSmmCore/PiSmmIpl.inf
   INF MdeModulePkg/Core/PiSmmCore/PiSmmCore.inf
-  INF UefiCpuPkg/CpuIo2Smm/CpuIo2Smm.inf
+  INF MdeModulePkg/Universal/ReportStatusCodeRouter/Smm/ReportStatusCodeRouterSmm.inf
+  INF MdeModulePkg/Universal/StatusCodeHandler/Smm/StatusCodeHandlerSmm.inf
   INF UefiCpuPkg/PiSmmCpuDxeSmm/PiSmmCpuDxeSmm.inf
   INF UefiPayloadPkg/PchSmiDispatchSmm/PchSmiDispatchSmm.inf
+  INF UefiPayloadPkg/BlSupportSmm/BlSupportSmm.inf
+  INF UefiCpuPkg/CpuIo2Smm/CpuIo2Smm.inf
 !if $(PERFORMANCE_MEASUREMENT_ENABLE)
-  INF  MdeModulePkg/Universal/Acpi/FirmwarePerformanceDataTableSmm/FirmwarePerformanceSmm.inf
+  INF MdeModulePkg/Universal/Acpi/FirmwarePerformanceDataTableSmm/FirmwarePerformanceSmm.inf
 !endif
+!endif
+
+#
+# Payload MM Support
+#
+!if $(PAYLOAD_MM_SUPPORT) == TRUE
+  INF UefiPayloadPkg/SmmAccessDxe/SmmAccessDxe.inf
+  INF UefiPayloadPkg/SmmControlRuntimeDxe/SmmControlRuntimeDxe.inf
+  INF StandaloneMmPkg/Drivers/MmCommunicationDxe/MmCommunicationDxe.inf
+  INF StandaloneMmPkg/Drivers/MmCommunicationNotifyDxe/MmCommunicationNotifyDxe.inf
+  INF StandaloneMmPkg/Drivers/StandaloneMmIplPei/StandaloneMmIplDxe.inf
+
+  FILE FV_IMAGE = 3195FA50-FA76-44FB-A7D7-A79C34B803DA {
+    SECTION FV_IMAGE = MMFV
+  }
 !endif
 
 !if $(VARIABLE_SUPPORT) == "EMU"
@@ -242,9 +259,11 @@ INF MdeModulePkg/Universal/ResetSystemRuntimeDxe/ResetSystemRuntimeDxe.inf
   INF MdeModulePkg/Universal/FaultTolerantWriteDxe/FaultTolerantWriteDxe.inf
   INF MdeModulePkg/Universal/Variable/RuntimeDxe/VariableRuntimeDxe.inf
 !elseif $(VARIABLE_SUPPORT) == "SPI"
+!if $(SMM_SUPPORT) == TRUE
   INF UefiPayloadPkg/FvbRuntimeDxe/FvbSmm.inf
   INF MdeModulePkg/Universal/FaultTolerantWriteDxe/FaultTolerantWriteSmm.inf
   INF MdeModulePkg/Universal/Variable/RuntimeDxe/VariableSmm.inf
+!endif
   INF MdeModulePkg/Universal/Variable/RuntimeDxe/VariableSmmRuntimeDxe.inf
 !endif
 
@@ -464,6 +483,56 @@ INF  FILE_GUID = $(CAPSULE_MAIN_FW_GUID) FmpDevicePkg/FmpDxe/FmpDxe.inf
 INF MdeModulePkg/Universal/EsrtDxe/EsrtDxe.inf
 !endif
 
+!if $(PAYLOAD_MM_SUPPORT) == TRUE
+
+[FV.MMFV]
+FvNameGuid         = CDF87DCC-3398-4DE9-B487-C15DA0B44E1D
+BlockSize          = $(FD_BLOCK_SIZE)
+FvForceRebase      = FALSE
+FvAlignment        = 16
+ERASE_POLARITY     = 1
+MEMORY_MAPPED      = TRUE
+STICKY_WRITE       = TRUE
+LOCK_CAP           = TRUE
+LOCK_STATUS        = TRUE
+WRITE_DISABLED_CAP = TRUE
+WRITE_ENABLED_CAP  = TRUE
+WRITE_STATUS       = TRUE
+WRITE_LOCK_CAP     = TRUE
+WRITE_LOCK_STATUS  = TRUE
+READ_DISABLED_CAP  = TRUE
+READ_ENABLED_CAP   = TRUE
+READ_STATUS        = TRUE
+READ_LOCK_CAP      = TRUE
+READ_LOCK_STATUS   = TRUE
+
+APRIORI DXE {
+  INF MdeModulePkg/Universal/ReportStatusCodeRouter/Smm/ReportStatusCodeRouterStandaloneMm.inf
+  INF MdeModulePkg/Universal/StatusCodeHandler/Smm/StatusCodeHandlerStandaloneMm.inf
+}
+
+INF StandaloneMmPkg/Core/StandaloneMmCore.inf
+
+INF MdeModulePkg/Universal/ReportStatusCodeRouter/Smm/ReportStatusCodeRouterStandaloneMm.inf
+INF MdeModulePkg/Universal/StatusCodeHandler/Smm/StatusCodeHandlerStandaloneMm.inf
+
+INF UefiPayloadPkg/BlSmmCpuPayloadMm/BlSmmCpuStandaloneMm.inf
+#INF UefiPayloadPkg/PchSmiDispatchSmm/PchSmiDispatchSmm.inf
+
+INF UefiCpuPkg/CpuIo2Smm/CpuIo2StandaloneMm.inf
+
+!if $(PERFORMANCE_MEASUREMENT_ENABLE) == TRUE
+  INF MdeModulePkg/Universal/Acpi/FirmwarePerformanceDataTableSmm/FirmwarePerformanceStandaloneMm.inf
+!endif
+
+!if $(VARIABLE_SUPPORT) == "SPI"
+  INF UefiPayloadPkg/FvbRuntimeDxe/FvbStandaloneMm.inf
+  INF MdeModulePkg/Universal/FaultTolerantWriteDxe/FaultTolerantWriteStandaloneMm.inf
+  INF MdeModulePkg/Universal/Variable/RuntimeDxe/VariableStandaloneMm.inf
+!endif
+
+!endif
+
 !if $(UNIVERSAL_PAYLOAD) == TRUE
 !if $(SECURE_BOOT_ENABLE) == TRUE
 
@@ -606,6 +675,20 @@ FILE FREEFORM = 701649dd-8739-40b9-bbdb-9ca434fdcd3b {
     VERSION  STRING="$(INF_VERSION)" Optional BUILD_NUM=$(BUILD_NUMBER)
   }
 
+[Rule.Common.MM_CORE_STANDALONE]
+  FILE MM_CORE_STANDALONE = $(NAMED_GUID) {
+    PE32     PE32                    $(INF_OUTPUT)/$(MODULE_NAME).efi
+    UI       STRING="$(MODULE_NAME)" Optional
+    VERSION  STRING="$(INF_VERSION)" Optional BUILD_NUM=$(BUILD_NUMBER)
+  }
+
+[Rule.Common.MM_STANDALONE]
+  FILE MM_STANDALONE = $(NAMED_GUID) {
+    SMM_DEPEX SMM_DEPEX Optional       $(INF_OUTPUT)/$(MODULE_NAME).depex
+    PE32      PE32                     $(INF_OUTPUT)/$(MODULE_NAME).efi
+    UI        STRING="$(MODULE_NAME)" Optional
+    VERSION   STRING="$(INF_VERSION)" Optional BUILD_NUM=$(BUILD_NUMBER)
+  }
 [Rule.Common.UEFI_DRIVER]
   FILE DRIVER = $(NAMED_GUID) {
     DXE_DEPEX    DXE_DEPEX Optional      $(INF_OUTPUT)/$(MODULE_NAME).depex
