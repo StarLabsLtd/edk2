@@ -1,0 +1,53 @@
+## @file
+#  Payload MM initialisation library for coreboot
+#
+#  Copyright (c) 2025, 9elements GmbH.<BR>
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001A
+  BASE_NAME                      = MmIplPlatformHookLibPayloadMm
+  FILE_GUID                      = 221A5797-82CC-4DC3-96BF-07682F2BB690
+  MODULE_TYPE                    = BASE
+  VERSION_STRING                 = 1.0
+  PI_SPECIFICATION_VERSION       = 0x00010032
+  LIBRARY_CLASS                  = MmIplPlatformHookLib|DXE_DRIVER
+  CONSTRUCTOR                    = MmIplPlatformHookLibConstructor
+
+[Sources]
+  PayloadMmInit.c
+  PayloadMmCmdInterface.c
+
+[Sources.X64]
+  X64/TriggerSmi.nasm
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  StandaloneMmPkg/StandaloneMmPkg.dec
+  UefiCpuPkg/UefiCpuPkg.dec
+  UefiPayloadPkg/UefiPayloadPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  DebugLib
+  HobLib
+  MemoryAllocationLib
+  PayloadMmHelperLib
+  PcdLib
+  UefiBootServicesTableLib
+
+[Protocols]
+  gEfiMmAccessProtocolGuid
+  gEfiMemoryAttributeProtocolGuid
+
+[Guids]
+  gPayloadMmInterfaceInfoGuid
+
+[Pcd]
+  gUefiCpuPkgTokenSpaceGuid.PcdCpuSmmStackSize  ## CONSUMES
+
+[Depex]
+  gEfiMemoryAttributeProtocolGuid
