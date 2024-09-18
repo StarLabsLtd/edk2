@@ -1,0 +1,54 @@
+## @file
+#  Enroll default PK, KEK, db, dbx.
+#
+#  Copyright (C) 2014-2019, Red Hat, Inc.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION                    = 1.28
+  BASE_NAME                      = EnrollDefaultKeys
+  FILE_GUID                      = A0BAA8A3-041D-48A8-BC87-C36D121B5E3D
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 0.1
+  ENTRY_POINT                    = DriverEntry
+
+[Sources]
+  AuthData.c
+  EnrollDefaultKeys.c
+  EnrollDefaultKeys.h
+
+[Packages]
+  MdeModulePkg/MdeModulePkg.dec
+  MdePkg/MdePkg.dec
+  SecurityPkg/SecurityPkg.dec
+  UefiPayloadPkg/UefiPayloadPkg.dec
+
+[Guids]
+  gEfiCertPkcs7Guid
+  gEfiCertSha256Guid
+  gEfiCertX509Guid
+  gEfiCustomModeEnableGuid
+  gEfiGlobalVariableGuid
+  gEfiImageSecurityDatabaseGuid
+  gEfiSecureBootEnableDisableGuid
+  gMicrosoftVendorGuid
+  gUefiPayloadPkKek1AppPrefixGuid
+
+[Protocols]
+  gEfiSmbiosProtocolGuid ## CONSUMES
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  DxeServicesLib
+  MemoryAllocationLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+  UefiLib
+  UefiRuntimeServicesTableLib
+
+[Depex]
+  AFTER gEfiVariableWriteArchProtocolGuid
