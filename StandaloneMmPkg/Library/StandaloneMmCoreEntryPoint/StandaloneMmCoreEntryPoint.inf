@@ -21,16 +21,6 @@
 #  VALID_ARCHITECTURES           = IA32 X64 IPF EBC (EBC is for build only)
 #
 
-[Sources.AARCH64, Sources.ARM]
-  Arm/StandaloneMmCoreEntryPoint.c
-  Arm/SetPermissions.c
-
-[Sources.AARCH64]
-  Arm/ModuleEntryPoint64.S
-
-[Sources.ARM]
-  Arm/ModuleEntryPoint32.S
-
 [Sources.X64]
   X64/StandaloneMmCoreEntryPoint.c
 
@@ -39,33 +29,14 @@
   MdeModulePkg/MdeModulePkg.dec
   StandaloneMmPkg/StandaloneMmPkg.dec
 
-[Packages.ARM, Packages.AARCH64]
-  ArmPkg/ArmPkg.dec
-
 [LibraryClasses]
   BaseLib
   DebugLib
-
-[LibraryClasses.ARM, LibraryClasses.AARCH64]
-  StandaloneMmMmuLib
-  ArmSvcLib
-  ArmTransferListLib
-  ArmFfaLib
 
 [Guids]
   gMpInformationHobGuid
   gEfiMmPeiMmramMemoryReserveGuid
   gEfiStandaloneMmNonSecureBufferGuid
-
-[Guids.ARM, Guids.AARCH64]
-  gEfiHobListGuid
-
-[Protocols.ARM, Protocols.AARCH64]
-  gEdkiiPiMmCpuDriverEpProtocolGuid
-  gEfiMmCommunication2ProtocolGuid
-
-[FixedPcd.ARM, FixedPcd.AARCH64]
-  gArmTokenSpaceGuid.PcdStMmStackSize
 
 #
 # This configuration fails for CLANGPDB, which does not support PIE in the GCC
