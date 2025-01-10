@@ -31,7 +31,7 @@
 	url = https://github.com/MIPI-Alliance/public-mipi-sys-t.git
 [submodule "CryptoPkg/Library/MbedTlsLib/mbedtls"]
 	path = CryptoPkg/Library/MbedTlsLib/mbedtls
-	url = https://github.com/ARMmbed/mbedtls
+	url = https://github.com/Mbed-TLS/mbedtls.git
 [submodule "SecurityPkg/DeviceSecurity/SpdmLib/libspdm"]
 	path = SecurityPkg/DeviceSecurity/SpdmLib/libspdm
 	url = https://github.com/DMTF/libspdm.git
