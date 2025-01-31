@@ -29,6 +29,8 @@ UiCustomizeFrontPage (
   IN VOID            *StartOpCodeHandle
   )
 {
+  UiCreateEmptyLine (HiiHandle, StartOpCodeHandle);
+
   //
   // Create "Select Language" menu with Oneof opcode.
   //
@@ -45,14 +47,14 @@ UiCustomizeFrontPage (
   UiListThirdPartyDrivers (HiiHandle, &gEfiIfrFrontPageGuid, NULL, StartOpCodeHandle);
 
   //
-  // Create empty line.
-  //
-  UiCreateEmptyLine (HiiHandle, StartOpCodeHandle);
-
-  //
   // Create "Continue" menu.
   //
   UiCreateContinueMenu (HiiHandle, StartOpCodeHandle);
+
+  //
+  // Create empty line.
+  //
+  UiCreateEmptyLine (HiiHandle, StartOpCodeHandle);
 
   //
   // Create reset menu.

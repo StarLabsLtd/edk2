@@ -670,9 +670,9 @@ UiListThirdPartyDrivers (
       gHiiDriverList[Index].DevicePathId
       );
 
-    if (gHiiDriverList[Index].EmptyLineAfter) {
-      UiCreateEmptyLine (HiiHandle, StartOpCodeHandle);
-    }
+
+    UiCreateEmptyLine (HiiHandle, StartOpCodeHandle);
+
 
     Index++;
   }

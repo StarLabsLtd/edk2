@@ -442,7 +442,7 @@ ConvertMemorySizeToString (
   StringBuffer = AllocateZeroPool (0x24);
   ASSERT (StringBuffer != NULL);
   UnicodeValueToStringS (StringBuffer, 0x24, LEFT_JUSTIFY, MemorySize, 10);
-  StrCatS (StringBuffer, 0x24 / sizeof (CHAR16), L" MB RAM");
+  StrCatS (StringBuffer, 0x24 / sizeof (CHAR16), L" MB");
 
   *String = (CHAR16 *)StringBuffer;
 
@@ -599,7 +599,7 @@ UpdateFrontPageBannerStrings (
       GetOptionalStringByIndex ((CHAR8 *)((UINT8 *)Type0Record + Type0Record->Hdr.Length), StrIndex, &Vendor);
 
       NewString = (CHAR16 *)AllocateZeroPool(100 * sizeof(CHAR16));
-      UnicodeSPrint(NewString, 200 * sizeof(CHAR16), L"%-24s%s", L"coreboot version:", BiosVersion);
+      UnicodeSPrint(NewString, 200 * sizeof(CHAR16), L"%-20s%s", L"coreboot version:", BiosVersion);
       FreePool (BiosVersion);
       FreePool (Vendor);
 
@@ -622,7 +622,7 @@ UpdateFrontPageBannerStrings (
         NewString = (CHAR16 *)AllocateZeroPool (100 * sizeof(CHAR16));
 
         UnicodeSPrint(EcVersion, sizeof(EcVersion), L"%d.%02d", EcMajorVersion, EcMinorVersion);
-        UnicodeSPrint(NewString, 100 * sizeof(CHAR16), L"%-24s%s", L"EC version:", EcVersion);
+        UnicodeSPrint(NewString, 100 * sizeof(CHAR16), L"%-20s%s", L"EC version:", EcVersion);
       } else {
         // If PcdEcMajorFirmwareVersion and PcdEcMinorFirmwareVersion are 0x00,
         // use the values from the Type 0 record
@@ -636,7 +636,7 @@ UpdateFrontPageBannerStrings (
           NewString = (CHAR16 *)AllocateZeroPool(100 * sizeof(CHAR16));
           CHAR16 EcVersion[9];
           UnicodeSPrint(EcVersion, sizeof(EcVersion), L"%d.%02d", Type0Record->EmbeddedControllerFirmwareMajorRelease, Type0Record->EmbeddedControllerFirmwareMinorRelease);
-          UnicodeSPrint(NewString, 100 * sizeof(CHAR16), L"%-24s%s", L"EC version:", EcVersion);
+          UnicodeSPrint(NewString, 100 * sizeof(CHAR16), L"%-20s%s", L"EC version:", EcVersion);
         }
       }
 
@@ -649,9 +649,12 @@ UpdateFrontPageBannerStrings (
       Type1Record = (SMBIOS_TABLE_TYPE1 *)Record;
       StrIndex    = Type1Record->ProductName;
       GetOptionalStringByIndex ((CHAR8 *)((UINT8 *)Type1Record + Type1Record->Hdr.Length), StrIndex, &NewString);
-      UiCustomizeFrontPageBanner (1, TRUE, &NewString);
-      HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_COMPUTER_MODEL), NewString, NULL);
+      CHAR16 *TmpBuffer = AllocateZeroPool (0x60);
+      UnicodeSPrint (TmpBuffer, 0x60 * sizeof (CHAR16), L"%20s %s", L"StarLabs", NewString);
+      UiCustomizeFrontPageBanner (1, TRUE, &TmpBuffer);
+      HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_COMPUTER_MODEL), TmpBuffer, NULL);
       FreePool (NewString);
+      FreePool (TmpBuffer);
     }
 
     if ((Record->Type == SMBIOS_TYPE_PROCESSOR_INFORMATION) && !FoundCpu) {
@@ -665,7 +668,7 @@ UpdateFrontPageBannerStrings (
 
             CHAR16 *PrependedNewString = (CHAR16 *)AllocateZeroPool (100 * sizeof(CHAR16));  // Allocate fixed size
 
-            UnicodeSPrint(PrependedNewString, 100 * sizeof(CHAR16), L"%-24s%s", L"Processor:", NewString);
+            UnicodeSPrint(PrependedNewString, 100 * sizeof(CHAR16), L"%-20s%s", L"Processor:", NewString);
 
             FreePool(NewString);
 
@@ -702,8 +705,11 @@ UpdateFrontPageBannerStrings (
   //
   ConvertMemorySizeToString ((UINT32)InstalledMemory, &NewString);
   UiCustomizeFrontPageBanner (3, FALSE, &NewString);
-  HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_MEMORY_SIZE), NewString, NULL);
+  CHAR16 *TmpBuffer = AllocateZeroPool (0x60);
+  UnicodeSPrint (TmpBuffer, 0x60 * sizeof (CHAR16), L"%-20s%s", L"Memory: ", NewString);
+  HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_MEMORY_SIZE), TmpBuffer, NULL);
   FreePool (NewString);
+  FreePool (TmpBuffer);
 }
 
 /**
