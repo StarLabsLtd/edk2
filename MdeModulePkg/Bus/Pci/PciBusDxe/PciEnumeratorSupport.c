@@ -416,10 +416,11 @@ DumpPciBars (
 
     DEBUG ((
       DEBUG_INFO,
-      "   BAR[%d]: Type = %s; Alignment = 0x%lx;\tLength = 0x%lx;\tOffset = 0x%02x\n",
+      "   BAR[%d]: Type = %s; Alignment = 0x%lx;\tBaseAddr = 0x%lx;\tLength = 0x%lx;\tOffset = 0x%02x\n",
       Index,
       mBarTypeStr[MIN (PciIoDevice->PciBar[Index].BarType, PciBarTypeMaxType)],
       PciIoDevice->PciBar[Index].Alignment,
+      PciIoDevice->PciBar[Index].BaseAddress,
       PciIoDevice->PciBar[Index].Length,
       PciIoDevice->PciBar[Index].Offset
       ));
@@ -432,10 +433,11 @@ DumpPciBars (
 
     DEBUG ((
       DEBUG_INFO,
-      " VFBAR[%d]: Type = %s; Alignment = 0x%lx;\tLength = 0x%lx;\tOffset = 0x%02x\n",
+      " VFBAR[%d]: Type = %s; Alignment = 0x%lx;\tBaseAddr = 0x%lx;\tLength = 0x%lx;\tOffset = 0x%02x\n",
       Index,
       mBarTypeStr[MIN (PciIoDevice->VfPciBar[Index].BarType, PciBarTypeMaxType)],
       PciIoDevice->VfPciBar[Index].Alignment,
+      PciIoDevice->VfPciBar[Index].BaseAddress,
       PciIoDevice->VfPciBar[Index].Length,
       PciIoDevice->VfPciBar[Index].Offset
       ));
