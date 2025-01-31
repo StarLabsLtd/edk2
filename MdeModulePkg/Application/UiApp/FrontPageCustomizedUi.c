@@ -29,6 +29,8 @@ UiCustomizeFrontPage (
   IN VOID            *StartOpCodeHandle
   )
 {
+  UiCreateEmptyLine (HiiHandle, StartOpCodeHandle);
+
   //
   // Create "Select Language" menu with Oneof opcode.
   //
