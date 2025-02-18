@@ -36,6 +36,10 @@
   FdtLib
   PcdLib
   PrintLib
+  HobLib
+
+[Guids]
+  gEfiCfrSetupMenuFormGuid
 
 [Pcd]
   gUefiPayloadPkgTokenSpaceGuid.PcdBootloaderParameter
