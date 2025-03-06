@@ -599,7 +599,7 @@ UpdateFrontPageBannerStrings (
       GetOptionalStringByIndex ((CHAR8 *)((UINT8 *)Type0Record + Type0Record->Hdr.Length), StrIndex, &Vendor);
 
       NewString = (CHAR16 *)AllocateZeroPool(100 * sizeof(CHAR16));
-      UnicodeSPrint(NewString, 200 * sizeof(CHAR16), L"%-20s%8s", L"coreboot version:", BiosVersion);
+      UnicodeSPrint(NewString, 200 * sizeof(CHAR16), L"%-24s%s", L"coreboot version:", BiosVersion);
       FreePool (BiosVersion);
       FreePool (Vendor);
 
@@ -622,7 +622,7 @@ UpdateFrontPageBannerStrings (
         NewString = (CHAR16 *)AllocateZeroPool (100 * sizeof(CHAR16));
 
         UnicodeSPrint(EcVersion, sizeof(EcVersion), L"%d.%02d", EcMajorVersion, EcMinorVersion);
-        UnicodeSPrint(NewString, 100 * sizeof(CHAR16), L"%-20s%8s", L"EC version:", EcVersion);
+        UnicodeSPrint(NewString, 100 * sizeof(CHAR16), L"%-24s%s", L"EC version:", EcVersion);
       } else {
         // If PcdEcMajorFirmwareVersion and PcdEcMinorFirmwareVersion are 0x00,
         // use the values from the Type 0 record
@@ -636,7 +636,7 @@ UpdateFrontPageBannerStrings (
           NewString = (CHAR16 *)AllocateZeroPool(100 * sizeof(CHAR16));
           CHAR16 EcVersion[9];
           UnicodeSPrint(EcVersion, sizeof(EcVersion), L"%d.%02d", Type0Record->EmbeddedControllerFirmwareMajorRelease, Type0Record->EmbeddedControllerFirmwareMinorRelease);
-          UnicodeSPrint(NewString, 100 * sizeof(CHAR16), L"%-20s%8s", L"EC version:", EcVersion);
+          UnicodeSPrint(NewString, 100 * sizeof(CHAR16), L"%-24s%s", L"EC version:", EcVersion);
         }
       }
 
