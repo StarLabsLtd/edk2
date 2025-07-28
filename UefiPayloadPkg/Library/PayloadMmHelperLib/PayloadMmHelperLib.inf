@@ -1,0 +1,31 @@
+## @file
+#  Payload MM helper library
+#
+# TODO: Split the assembly trampolines into before-and-after components
+# for deduplication purposes.
+#
+#  Copyright (c) 2025, 9elements GmbH.<BR>
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001A
+  BASE_NAME                      = PayloadMmHelperLib
+  FILE_GUID                      = F5ADC1D0-DD55-453F-91C4-2A1495C2DFBC
+  MODULE_TYPE                    = BASE
+  VERSION_STRING                 = 1.0
+  PI_SPECIFICATION_VERSION       = 0x00010032
+  LIBRARY_CLASS                  = PayloadMmHelperLib
+
+[Sources]
+  PayloadMmHelpers.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  UefiPayloadPkg/UefiPayloadPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  CpuLib
+  DebugLib
