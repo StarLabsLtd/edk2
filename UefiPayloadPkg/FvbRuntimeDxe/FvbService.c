@@ -935,60 +935,6 @@ IsFvHeaderValid (
 }
 
 /**
-  Get intial variable data.
-
-  @param[out]  VarData          Valid variable data.
-  @param[out]  VarSize          Valid variable size.
-
-  @retval RETURN_SUCCESS        Successfully found initial variable data.
-  @retval RETURN_NOT_FOUND      Failed to find the variable data file from FV.
-  @retval EFI_INVALID_PARAMETER VarData or VarSize is null.
-
-**/
-EFI_STATUS
-GetInitialVariableData (
-  OUT VOID   **VarData,
-  OUT UINTN  *VarSize
-  )
-{
-  EFI_STATUS                     Status;
-  VOID                           *ImageData;
-  UINTN                          ImageSize;
-  EFI_FIRMWARE_VOLUME_HEADER     *FvHeader;
-  VARIABLE_STORE_HEADER          *VariableStore;
-  AUTHENTICATED_VARIABLE_HEADER  *Variable;
-  UINTN                          VariableSize;
-  UINTN                          VarEndAddr;
-
-  if ((VarData == NULL) || (VarSize == NULL)) {
-    return EFI_INVALID_PARAMETER;
-  }
-
-  Status = GetSectionFromAnyFv (PcdGetPtr (PcdNvsDataFile), EFI_SECTION_RAW, 0, &ImageData, &ImageSize);
-  if (EFI_ERROR (Status)) {
-    return Status;
-  }
-
-  FvHeader      = (EFI_FIRMWARE_VOLUME_HEADER *)ImageData;
-  VariableStore = (VARIABLE_STORE_HEADER *)((UINT8 *)ImageData + FvHeader->HeaderLength);
-  VarEndAddr    = (UINTN)VariableStore + VariableStore->Size;
-  Variable      = (AUTHENTICATED_VARIABLE_HEADER *)HEADER_ALIGN (VariableStore + 1);
-  *VarData      = (VOID *)Variable;
-  while (((UINTN)Variable < VarEndAddr)) {
-    if (Variable->StartId != VARIABLE_DATA) {
-      break;
-    }
-
-    VariableSize = sizeof (AUTHENTICATED_VARIABLE_HEADER) + Variable->DataSize + Variable->NameSize;
-    Variable     = (AUTHENTICATED_VARIABLE_HEADER *)HEADER_ALIGN ((UINTN)Variable + VariableSize);
-  }
-
-  *VarSize = (UINTN)Variable - HEADER_ALIGN (VariableStore + 1);
-
-  return EFI_SUCCESS;
-}
-
-/**
   The function does the necessary initialization work for
   Firmware Volume Block Driver.
 

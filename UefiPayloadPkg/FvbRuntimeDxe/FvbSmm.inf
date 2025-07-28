@@ -39,7 +39,6 @@
   BaseMemoryLib
   DebugLib
   BaseLib
-  UefiLib
   SmmServicesTableLib
   UefiBootServicesTableLib
   UefiDriverEntryPoint
