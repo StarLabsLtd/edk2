@@ -13,7 +13,9 @@
 #include <Guid/FirmwareFileSystem2.h>
 #include <Guid/SystemNvDataGuid.h>
 #include <Guid/NvVariableInfoGuid.h>
+#include <Guid/VariableFlashInfo.h>
 #include <Library/HobLib.h>
+#include <Library/VariableFlashInfoLib.h>
 
 #define FVB_MEDIA_BLOCK_SIZE  0x1000
 
@@ -72,6 +74,14 @@ InitVariableStore (
   UINT32             FtwSpareSize;
   EFI_HOB_GUID_TYPE  *GuidHob;
   NV_VARIABLE_INFO   *NvVariableInfo;
+
+  //
+  // Exit early if this information is already known.
+  //
+  GuidHob = GetFirstGuidHob (&gVariableFlashInfoHobGuid);
+  if (GuidHob != NULL) {
+    return EFI_SUCCESS;
+  }
 
   //
   // Find SPI flash variable hob
@@ -139,8 +149,12 @@ GetFvHeaderTemplate (
 {
   EFI_FIRMWARE_VOLUME_HEADER  *FvHeader;
   UINTN                       FvSize;
+  EFI_PHYSICAL_ADDRESS        FtwSpareAddress;
+  UINT64                      FtwSpareLength;
 
-  FvSize                          = PcdGet32 (PcdFlashNvStorageFtwSpareSize) * 2;
+  GetVariableFlashFtwSpareInfo (&FtwSpareAddress, &FtwSpareLength);
+
+  FvSize                          = FtwSpareLength * 2;
   FvHeader                        = &mFvbMediaInfo.FvInfo;
   FvHeader->FvLength              = FvSize;
   FvHeader->BlockMap[0].NumBlocks = (UINT32)(FvSize / FvHeader->BlockMap[0].Length);
