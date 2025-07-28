@@ -45,12 +45,14 @@
   UefiDriverEntryPoint
   HobLib
   DxeServicesLib
+  VariableFlashInfoLib
 
 [Guids]
   gEfiFirmwareFileSystem2Guid                   # ALWAYS_CONSUMED
   gEfiSystemNvDataFvGuid                        # ALWAYS_CONSUMED
   gEfiAuthenticatedVariableGuid
   gNvVariableInfoGuid
+  gVariableFlashInfoHobGuid
 
   [Protocols]
   gEfiDevicePathProtocolGuid                    # PROTOCOL ALWAYS_PRODUCED
