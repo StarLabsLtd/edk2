@@ -25,6 +25,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Library/MemoryAllocationLib.h>
 #include <Library/PcdLib.h>
 #include <Library/FlashDeviceLib.h>
+#include <Library/VariableFlashInfoLib.h>
 #include <Library/DevicePathLib.h>
 #include <Library/HobLib.h>
 #include <Library/DxeServicesLib.h>

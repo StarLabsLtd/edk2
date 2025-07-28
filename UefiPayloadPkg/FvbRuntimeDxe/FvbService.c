@@ -897,9 +897,13 @@ IsFvHeaderValid (
 {
   UINT16                      Sum;
   EFI_FIRMWARE_VOLUME_HEADER  *FwVolHeader;
+  EFI_PHYSICAL_ADDRESS        NvVariableAddress;
+  UINT64                      NvVariableLength;
+
+  GetVariableFlashNvStorageInfo (&NvVariableAddress, &NvVariableLength);
 
   FwVolHeader = (EFI_FIRMWARE_VOLUME_HEADER *)(UINTN)FvBase;
-  if (FvBase == PcdGet32 (PcdFlashNvStorageVariableBase)) {
+  if (FvBase == NvVariableAddress) {
     if (CompareMem (&FwVolHeader->FileSystemGuid, &gEfiSystemNvDataFvGuid, sizeof (EFI_GUID)) != 0 ) {
       DEBUG ((DEBUG_INFO, "  --FileSystemGuid not match: %g\n", &FwVolHeader->FileSystemGuid));
       return FALSE;
@@ -1001,6 +1005,7 @@ FvbInitialize (
   EFI_FIRMWARE_VOLUME_HEADER  *FvHeader;
   EFI_FV_BLOCK_MAP_ENTRY      *BlockMap;
   EFI_PHYSICAL_ADDRESS        BaseAddress;
+  UINT64                      NvVariableLength;
   UINTN                       WriteAddr;
   EFI_STATUS                  Status;
   UINTN                       BufferSize;
@@ -1009,7 +1014,7 @@ FvbInitialize (
   VOID                        *VarData;
 
   InitVariableStore ();
-  BaseAddress = PcdGet32 (PcdFlashNvStorageVariableBase);
+  GetVariableFlashNvStorageInfo (&BaseAddress, &NvVariableLength);
   FvHeader    = (EFI_FIRMWARE_VOLUME_HEADER *)(UINTN)BaseAddress;
 
   //
@@ -1035,7 +1040,7 @@ FvbInitialize (
     //
     // Write back variable store header
     //
-    VariableStore.Size   = PcdGet32 (PcdFlashNvStorageVariableSize) - FvHeader->HeaderLength;
+    VariableStore.Size   = NvVariableLength - FvHeader->HeaderLength;
     VariableStore.Format = VARIABLE_STORE_FORMATTED;
     VariableStore.State  = VARIABLE_STORE_HEALTHY;
     CopyGuid (&VariableStore.Signature, &gEfiAuthenticatedVariableGuid);
