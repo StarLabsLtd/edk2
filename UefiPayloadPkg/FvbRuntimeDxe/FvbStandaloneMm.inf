@@ -1,0 +1,72 @@
+## @file
+# This driver installs the EFI_SMM_FIRMWARE_VOLUMEN_PROTOCOL.
+#
+#
+#  Copyright (c) 2014 - 2021, Intel Corporation. All rights reserved.<BR>
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+##
+
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = FvbStandaloneMm
+  FILE_GUID                      = C2BDAA5B-E881-4B74-8B3E-B537B3E2651A
+  MODULE_TYPE                    = MM_STANDALONE
+  VERSION_STRING                 = 1.0
+  PI_SPECIFICATION_VERSION       = 0x00010032
+  ENTRY_POINT                    = FvbStandaloneMmInitialize
+
+[Sources]
+  FvbInfo.c
+  FvbService.h
+  FvbService.c
+  FvbServiceStandaloneMm.c
+  FvbSmmCommon.h
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  StandaloneMmPkg/StandaloneMmPkg.dec
+  UefiCpuPkg/UefiCpuPkg.dec
+  UefiPayloadPkg/UefiPayloadPkg.dec
+
+[LibraryClasses]
+  FlashDeviceLib
+  PcdLib
+  MemoryAllocationLib
+  CacheMaintenanceLib
+  IoLib
+  BaseMemoryLib
+  DebugLib
+  BaseLib
+  MmServicesTableLib
+  StandaloneMmDriverEntryPoint
+  HobLib
+  FvLib
+  VariableFlashInfoLib
+
+[Guids]
+  gEfiFirmwareFileSystem2Guid                   # ALWAYS_CONSUMED
+  gEfiSystemNvDataFvGuid                        # ALWAYS_CONSUMED
+  gEfiAuthenticatedVariableGuid
+  gNvVariableInfoGuid
+  gVariableFlashInfoHobGuid
+
+  [Protocols]
+  gEfiDevicePathProtocolGuid                    # PROTOCOL ALWAYS_PRODUCED
+  gEfiSmmFirmwareVolumeBlockProtocolGuid        # PROTOCOL ALWAYS_PRODUCED
+
+[Pcd]
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFlashNvStorageVariableBase
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFlashNvStorageVariableSize
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFlashNvStorageFtwWorkingSize
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFlashNvStorageFtwSpareSize
+
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFlashNvStorageVariableBase64
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFlashNvStorageFtwWorkingBase
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFlashNvStorageFtwSpareBase
+  gUefiPayloadPkgTokenSpaceGuid.PcdNvsDataFile
+
+[Depex]
+  TRUE
