@@ -14,7 +14,7 @@
   FILE_GUID                      = BA7CA537-1C65-4a90-9379-622A24A08141
   MODULE_TYPE                    = DXE_DRIVER
   VERSION_STRING                 = 1.0
-  LIBRARY_CLASS                  = FlashDeviceLib | DXE_SMM_DRIVER DXE_RUNTIME_DRIVER
+  LIBRARY_CLASS                  = FlashDeviceLib | DXE_SMM_DRIVER MM_STANDALONE DXE_RUNTIME_DRIVER
 
 
 #
