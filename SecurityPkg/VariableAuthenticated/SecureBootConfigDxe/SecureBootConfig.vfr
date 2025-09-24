@@ -30,7 +30,9 @@ formset
     text
       help   = STRING_TOKEN(STR_SECURE_BOOT_STATE_HELP),
       text   = STRING_TOKEN(STR_SECURE_BOOT_STATE_PROMPT),
-        text   = STRING_TOKEN(STR_SECURE_BOOT_STATE_CONTENT);
+      text   = STRING_TOKEN(STR_SECURE_BOOT_STATE_CONTENT);
+
+    subtitle text = STRING_TOKEN(STR_NULL);
 
     //
     // Display of Check Box: Attempt Secure Boot
@@ -68,6 +70,8 @@ formset
          key    = KEY_SECURE_BOOT_OPTION;
     endif;
     endif;
+
+    subtitle text = STRING_TOKEN(STR_NULL);
 
     text
       help   = STRING_TOKEN(STR_SECURE_RESET_TO_DEFAULTS_HELP),
