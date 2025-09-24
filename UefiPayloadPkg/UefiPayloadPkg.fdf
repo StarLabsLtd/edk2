@@ -309,7 +309,6 @@ INF SecurityPkg/Tcg/Opal/OpalPassword/OpalPasswordDxe.inf
 !endif
 !endif
 INF MdeModulePkg/Universal/DisplayEngineDxe/DisplayEngineDxe.inf
-INF MdeModulePkg/Universal/PlatformDriOverrideDxe/PlatformDriOverrideDxe.inf
 INF MdeModulePkg/Universal/EbcDxe/EbcDxe.inf
 INF UefiPayloadPkg/BlSupportDxe/BlSupportDxe.inf
 
