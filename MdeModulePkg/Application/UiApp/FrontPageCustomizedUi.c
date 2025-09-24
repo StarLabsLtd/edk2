@@ -55,6 +55,11 @@ UiCustomizeFrontPage (
   UiCreateContinueMenu (HiiHandle, StartOpCodeHandle);
 
   //
+  // Create empty line.
+  //
+  UiCreateEmptyLine (HiiHandle, StartOpCodeHandle);
+
+  //
   // Create reset menu.
   //
   UiCreateResetMenu (HiiHandle, StartOpCodeHandle);
