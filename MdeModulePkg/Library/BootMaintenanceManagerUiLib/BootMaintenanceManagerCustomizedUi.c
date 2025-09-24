@@ -29,13 +29,9 @@ UiCustomizeBMMPage (
   //
   BmmCreateBootOptionMenu (HiiHandle, StartOpCodeHandle);
   //
-  // Create "Driver Option" menu.
+  // Create empty line.
   //
-  BmmCreateDriverOptionMenu (HiiHandle, StartOpCodeHandle);
-  //
-  // Create "Com Option" menu.
-  //
-  BmmCreateComOptionMenu (HiiHandle, StartOpCodeHandle);
+  BmmCreateEmptyLine (HiiHandle, StartOpCodeHandle);
   //
   // Create "Boot From File" menu.
   //
