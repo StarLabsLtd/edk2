@@ -463,10 +463,10 @@ EnrollDefaultKeys (
     EFI_IMAGE_SECURITY_DATABASE,
     &gEfiImageSecurityDatabaseGuid,
     &gEfiCertX509Guid,
-    DbMicrosoftUefi2011, DbMicrosoftUefi2011Size, DbMicrosoftWinuefi2023Size,
-    DbMicrosoftUefi2023, DbMicrosoftUefi2023Size, DbMicrosoftWinuefi2023Size,
-    DbMicrosoftWin2011, DbMicrosoftWin2011Size, DbMicrosoftWinuefi2023Size,
-    DbMicrosoftWinuefi2023, DbMicrosoftWinuefi2023Size, DbMicrosoftWinuefi2023Size,
+    DbMicrosoftUefi2011,    DbMicrosoftUefi2011Size,    &gMicrosoftVendorGuid,
+    DbMicrosoftUefi2023,    DbMicrosoftUefi2023Size,    &gMicrosoftVendorGuid,
+    DbMicrosoftWin2011,     DbMicrosoftWin2011Size,     &gMicrosoftVendorGuid,
+    DbMicrosoftWinuefi2023, DbMicrosoftWinuefi2023Size, &gMicrosoftVendorGuid,
     NULL);
   ASSERT_EFI_ERROR (Status);
 
@@ -474,9 +474,9 @@ EnrollDefaultKeys (
     EFI_KEY_EXCHANGE_KEY_NAME,
     &gEfiGlobalVariableGuid,
     &gEfiCertX509Guid,
-    KekMicrosoft2011, KekMicrosoft2011Size, gMicrosoftVendorGuid,
-    KekMicrosoft2023, KekMicrosoft2023Size, gMicrosoftVendorGuid,
-    KekMicrosoftUefi2023, KekMicrosoftUefi2023Size, gMicrosoftVendorGuid,
+    KekMicrosoft2011, KekMicrosoft2011Size, &gMicrosoftVendorGuid,
+    KekMicrosoft2023, KekMicrosoft2023Size, &gMicrosoftVendorGuid,
+    KekMicrosoftUefi2023, KekMicrosoftUefi2023Size, &gMicrosoftVendorGuid,
     NULL);
   ASSERT_EFI_ERROR (Status);
 
@@ -484,7 +484,7 @@ EnrollDefaultKeys (
     EFI_PLATFORM_KEY_NAME,
     &gEfiGlobalVariableGuid,
     &gEfiCertX509Guid,
-    PkMicrosoftOem2023, PkMicrosoftOem2023Size, gMicrosoftVendorGuid,
+    PkMicrosoftOem2023, PkMicrosoftOem2023Size, &gMicrosoftVendorGuid,
     NULL);
   ASSERT_EFI_ERROR (Status);
 
