@@ -10,6 +10,15 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include "PlatformBootManager.h"
 #include "PlatformConsole.h"
 #include <Protocol/FirmwareVolume2.h>
+#include <Protocol/SimpleFileSystem.h>
+#include <Guid/FileInfo.h>
+
+// Forward declaration
+STATIC
+VOID
+PlatformScanEspVendorsAndRegisterLoaders (
+  VOID
+  );
 
 /**
   Signal EndOfDxe event and install SMM Ready to lock protocol.
@@ -305,10 +314,10 @@ PlatformBootManagerAfterConsole (
   VOID
   )
 {
+  EFI_STATUS                     Status;
   EFI_GRAPHICS_OUTPUT_BLT_PIXEL  Black;
   EFI_GRAPHICS_OUTPUT_BLT_PIXEL  White;
   EDKII_PLATFORM_LOGO_PROTOCOL   *PlatformLogo;
-  EFI_STATUS                     Status;
 
   Black.Blue = Black.Green = Black.Red = Black.Reserved = 0;
   White.Blue = White.Green = White.Red = White.Reserved = 0xFF;
@@ -322,6 +331,10 @@ PlatformBootManagerAfterConsole (
 
   EfiBootManagerConnectAll ();
   EfiBootManagerRefreshAllBootOption ();
+
+  // Case-insensitive scan of ESP vendor directories under EFI/ and
+  // register common distro loaders even if the directory name contains capitals.
+  PlatformScanEspVendorsAndRegisterLoaders ();
 
   //
   // Active BOOT_ON_FLASH_UPDATE mode means that at least one capsule has been
@@ -371,6 +384,305 @@ PlatformBootManagerAfterConsole (
       );
   }
 }
+
+/**
+  Simple case-insensitive compare for Unicode strings.
+**/
+STATIC
+BOOLEAN
+StriEquals (
+  IN CONST CHAR16  *A,
+  IN CONST CHAR16  *B
+  )
+{
+  CHAR16  ca;
+  CHAR16  cb;
+
+  while ((*A != L'\0') && (*B != L'\0')) {
+    ca = *A;
+    cb = *B;
+    if ((ca >= L'A') && (ca <= L'Z')) {
+      ca = (CHAR16)(ca - L'A' + L'a');
+    }
+    if ((cb >= L'A') && (cb <= L'Z')) {
+      cb = (CHAR16)(cb - L'A' + L'a');
+    }
+    if (ca != cb) {
+      return FALSE;
+    }
+    A++;
+    B++;
+  }
+
+  return (*A == L'\0') && (*B == L'\0');
+}
+
+/**
+  Open a child directory by name (case-insensitive) under a given directory.
+**/
+STATIC
+EFI_STATUS
+OpenDirCaseInsensitive (
+  IN  EFI_FILE_PROTOCOL  *Parent,
+  IN  CONST CHAR16       *DirName,
+  OUT EFI_FILE_PROTOCOL  **OutDir
+  )
+{
+  EFI_STATUS    Status;
+  EFI_FILE_INFO *Info;
+  UINTN         InfoSize;
+  EFI_FILE_PROTOCOL *Dir;
+
+  if ((Parent == NULL) || (DirName == NULL) || (OutDir == NULL)) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  // Iterate entries in Parent to find a directory with matching name (case-insensitive)
+  InfoSize = SIZE_OF_EFI_FILE_INFO + 512;
+  Info     = AllocateZeroPool (InfoSize);
+  if (Info == NULL) {
+    return EFI_OUT_OF_RESOURCES;
+  }
+
+  Parent->SetPosition (Parent, 0);
+  while (TRUE) {
+    UINTN ReadSize = InfoSize;
+    Status = Parent->Read (Parent, &ReadSize, Info);
+    if (EFI_ERROR (Status) || (ReadSize == 0)) {
+      Status = EFI_NOT_FOUND;
+      break;
+    }
+
+    if ((Info->Attribute & EFI_FILE_DIRECTORY) != 0) {
+      // Skip . and .. entries
+      if ((StrCmp (Info->FileName, L".") == 0) || (StrCmp (Info->FileName, L"..") == 0)) {
+        continue;
+      }
+      if (StriEquals (Info->FileName, DirName)) {
+        Status = Parent->Open (
+                                Parent,
+                                &Dir,
+                                Info->FileName,
+                                EFI_FILE_MODE_READ,
+                                EFI_FILE_DIRECTORY
+                                );
+        if (!EFI_ERROR (Status)) {
+          *OutDir = Dir;
+        }
+        break;
+      }
+    }
+  }
+
+  FreePool (Info);
+  return Status;
+}
+
+/**
+  Test if a file exists within a directory (case-insensitive on FAT).
+**/
+STATIC
+BOOLEAN
+DirHasFile (
+  IN  EFI_FILE_PROTOCOL  *Dir,
+  IN  CONST CHAR16       *FileName
+  )
+{
+  EFI_STATUS         Status;
+  EFI_FILE_PROTOCOL  *Handle;
+
+  Status = Dir->Open (
+                        Dir,
+                        &Handle,
+                        (CHAR16 *)FileName,
+                        EFI_FILE_MODE_READ,
+                        0
+                        );
+  if (EFI_ERROR (Status)) {
+    return FALSE;
+  }
+  Handle->Close (Handle);
+  return TRUE;
+}
+
+/**
+  Compose a device path for a file on a filesystem handle.
+**/
+STATIC
+EFI_DEVICE_PATH_PROTOCOL *
+FsFileDevicePath (
+  IN EFI_HANDLE   FsHandle,
+  IN CONST CHAR16 *FilePath
+  )
+{
+  return FileDevicePath (FsHandle, (CHAR16 *)FilePath);
+}
+
+/**
+  Add a boot option if one with same attributes/description/filepath doesn’t already exist.
+**/
+STATIC
+VOID
+AddBootOptionIfAbsent (
+  IN EFI_DEVICE_PATH_PROTOCOL  *DevicePath,
+  IN CONST CHAR16              *Description
+  )
+{
+  EFI_STATUS                    Status;
+  EFI_BOOT_MANAGER_LOAD_OPTION  NewOption;
+  EFI_BOOT_MANAGER_LOAD_OPTION  *Existing;
+  UINTN                         ExistingCount;
+  BOOLEAN                       PathExists;
+
+  Status = EfiBootManagerInitializeLoadOption (
+             &NewOption,
+             LoadOptionNumberUnassigned,
+             LoadOptionTypeBoot,
+             LOAD_OPTION_ACTIVE,
+             (CHAR16 *)Description,
+             DevicePath,
+             NULL,
+             0
+             );
+  if (EFI_ERROR (Status)) {
+    return;
+  }
+
+  Existing   = EfiBootManagerGetLoadOptions (&ExistingCount, LoadOptionTypeBoot);
+  PathExists = FALSE;
+  // Prefer deduplication by file path regardless of description differences.
+  for (UINTN I = 0; I < ExistingCount; I++) {
+    if (GetDevicePathSize (Existing[I].FilePath) == GetDevicePathSize (NewOption.FilePath) &&
+        CompareMem (Existing[I].FilePath, NewOption.FilePath, GetDevicePathSize (NewOption.FilePath)) == 0)
+    {
+      PathExists = TRUE;
+      break;
+    }
+  }
+  if (!PathExists) {
+    EfiBootManagerAddLoadOptionVariable (&NewOption, (UINTN)-1);
+  }
+  EfiBootManagerFreeLoadOptions (Existing, ExistingCount);
+  EfiBootManagerFreeLoadOption (&NewOption);
+}
+
+/**
+  Scan ESPs for vendor directories under EFI/, case-insensitively, and add
+  boot options for common distro loaders regardless of directory capitalization.
+**/
+STATIC
+VOID
+PlatformScanEspVendorsAndRegisterLoaders (
+  VOID
+  )
+{
+  EFI_STATUS                          Status;
+  EFI_HANDLE                          *Handles;
+  UINTN                               HandleCount;
+  UINTN                               Index;
+  EFI_SIMPLE_FILE_SYSTEM_PROTOCOL     *Sfs;
+  EFI_FILE_PROTOCOL                   *Root;
+  EFI_FILE_PROTOCOL                   *EfiDir;
+  EFI_FILE_INFO                       *Info;
+  UINTN                               InfoSize;
+
+  // Candidates per-arch
+#if defined (MDE_CPU_X64)
+  CONST CHAR16 *Loaders[] = { L"shimx64.efi", L"grubx64.efi" };
+#elif defined (MDE_CPU_IA32)
+  CONST CHAR16 *Loaders[] = { L"shimia32.efi", L"grubia32.efi" };
+#elif defined (MDE_CPU_AARCH64)
+  CONST CHAR16 *Loaders[] = { L"shimaa64.efi", L"grubaa64.efi" };
+#elif defined (MDE_CPU_RISCV64)
+  CONST CHAR16 *Loaders[] = { L"bootriscv64.efi" };
+#else
+  CONST CHAR16 *Loaders[] = { L"bootx64.efi" }; // Fallback
+#endif
+
+  Status = gBS->LocateHandleBuffer (ByProtocol, &gEfiSimpleFileSystemProtocolGuid, NULL, &HandleCount, &Handles);
+  if (EFI_ERROR (Status)) {
+    return;
+  }
+
+  for (Index = 0; Index < HandleCount; Index++) {
+    if (gBS->HandleProtocol (Handles[Index], &gEfiSimpleFileSystemProtocolGuid, (VOID **)&Sfs) != EFI_SUCCESS) {
+      continue;
+    }
+    if (Sfs->OpenVolume (Sfs, &Root) != EFI_SUCCESS) {
+      continue;
+    }
+
+    // Find EFI directory case-insensitively
+    if (OpenDirCaseInsensitive (Root, L"EFI", &EfiDir) != EFI_SUCCESS) {
+      Root->Close (Root);
+      continue;
+    }
+
+    // Enumerate vendor subdirectories
+    InfoSize = SIZE_OF_EFI_FILE_INFO + 512;
+    Info     = AllocateZeroPool (InfoSize);
+    if (Info == NULL) {
+      EfiDir->Close (EfiDir);
+      Root->Close (Root);
+      continue;
+    }
+
+    EfiDir->SetPosition (EfiDir, 0);
+    while (TRUE) {
+      UINTN ReadSize = InfoSize;
+      Status = EfiDir->Read (EfiDir, &ReadSize, Info);
+      if (EFI_ERROR (Status) || (ReadSize == 0)) {
+        break;
+      }
+
+      if ((Info->Attribute & EFI_FILE_DIRECTORY) == 0) {
+        continue;
+      }
+      // Skip . and ..
+      if ((StrCmp (Info->FileName, L".") == 0) || (StrCmp (Info->FileName, L"..") == 0)) {
+        continue;
+      }
+
+      // Open the vendor directory
+      EFI_FILE_PROTOCOL *VendorDir;
+      if (EfiDir->Open (EfiDir, &VendorDir, Info->FileName, EFI_FILE_MODE_READ, EFI_FILE_DIRECTORY) != EFI_SUCCESS) {
+        continue;
+      }
+
+      // Try loader candidates
+      for (UINTN L = 0; L < ARRAY_SIZE (Loaders); L++) {
+        if (DirHasFile (VendorDir, Loaders[L])) {
+          // Build a file path like \EFI\<Vendor>\<Loader>
+          UINTN PathLen = StrLen (L"\\EFI\\") + StrLen (Info->FileName) + 1 + StrLen (Loaders[L]) + 1;
+          CHAR16 *Path  = AllocateZeroPool (PathLen * sizeof (CHAR16));
+          if (Path != NULL) {
+            UnicodeSPrint (Path, PathLen * sizeof (CHAR16), L"\\EFI\\%s\\%s", Info->FileName, Loaders[L]);
+            EFI_DEVICE_PATH_PROTOCOL *Dp = FsFileDevicePath (Handles[Index], Path);
+            if (Dp != NULL) {
+              // Description: use vendor directory name as-is.
+              AddBootOptionIfAbsent (Dp, Info->FileName);
+              FreePool (Dp);
+            }
+            FreePool (Path);
+          }
+          // Don't add multiple loaders per vendor; first hit wins.
+          break;
+        }
+      }
+
+      VendorDir->Close (VendorDir);
+    }
+
+    FreePool (Info);
+    EfiDir->Close (EfiDir);
+    Root->Close (Root);
+  }
+
+  if (Handles != NULL) {
+    FreePool (Handles);
+  }
+}
+
 
 /**
   This function is called each second during the boot manager waits the timeout.
