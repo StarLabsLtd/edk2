@@ -178,6 +178,9 @@ GetMerlinBatteryInfo (
   } else {
     *BatteryPresent    = FALSE;
     *BatteryPercentage = 0xFF;
+    *BatteryCharging   = FALSE;
+    DEBUG ((DEBUG_INFO, "EcAcpiBattery: [Merlin] No battery present\n"));
+    return EFI_SUCCESS;
   }
 
   // Determine charging status: BATTERY_CHARGING bit set
@@ -194,4 +197,3 @@ GetMerlinBatteryInfo (
 
   return EFI_SUCCESS;
 }
-

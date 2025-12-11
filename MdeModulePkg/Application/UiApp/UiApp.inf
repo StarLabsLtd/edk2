@@ -65,6 +65,7 @@
   gEfiBatteryStatusProtocolGuid                 ## CONSUMES
 
 [FeaturePcd]
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFrontPageBatteryStatusDisplay  ## CONSUMES
 
 [Pcd]
   gEfiMdePkgTokenSpaceGuid.PcdUefiVariableDefaultPlatformLangCodes  ## CONSUMES

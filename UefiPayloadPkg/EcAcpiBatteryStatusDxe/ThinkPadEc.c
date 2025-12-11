@@ -243,6 +243,8 @@ GetThinkPadBatteryInfo (
 
   if (!*BatteryPresent) {
     *BatteryPercentage = 0xFF;
+    *BatteryCharging   = FALSE;
+    DEBUG ((DEBUG_INFO, "EcAcpiBattery: [ThinkPad] No battery present\n"));
     return EFI_SUCCESS;
   }
 
