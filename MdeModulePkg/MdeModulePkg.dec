@@ -850,6 +850,12 @@
   # @Prompt Enable HII image support.
   gEfiMdeModulePkgTokenSpaceGuid.PcdSupportHiiImageProtocol|TRUE|BOOLEAN|0x00010100
 
+  ## Control whether the FrontPage shows battery status on the banner.<BR><BR>
+  #   TRUE  - Display battery percentage/charging state when available.<BR>
+  #   FALSE - Keep the original banner content and skip battery updates.<BR>
+  # @Prompt Enable FrontPage battery status display.
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFrontPageBatteryStatusDisplay|TRUE|BOOLEAN|0x00010087
+
   ## Indicates if USB KeyBoard Driver disables the default keyboard layout.
   #  The default keyboard layout serves as the backup when no keyboard layout can be retrieved
   #  from HII database.<BR><BR>

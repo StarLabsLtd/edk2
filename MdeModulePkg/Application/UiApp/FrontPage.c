@@ -25,6 +25,16 @@ BOOLEAN                             mFrontPageActive = FALSE;
 STATIC EFI_BATTERY_STATUS_PROTOCOL *mBatteryStatusProtocol = NULL;
 STATIC UINT8                        mLastBatteryPercentage = 0xFF;
 STATIC BOOLEAN                      mLastBatteryCharging = FALSE;
+STATIC BOOLEAN                      mLastBatteryPresent = FALSE;
+
+STATIC
+BOOLEAN
+IsBatteryStatusDisplayEnabled (
+  VOID
+  )
+{
+  return FeaturePcdGet (PcdFrontPageBatteryStatusDisplay);
+}
 //
 // Boot video resolution and text mode.
 //
@@ -283,6 +293,14 @@ GetBatteryInfoFromProtocol (
     return EFI_INVALID_PARAMETER;
   }
 
+  *BatteryPercentage = 0xFF;
+  *BatteryPresent    = FALSE;
+  *BatteryCharging   = FALSE;
+
+  if (!IsBatteryStatusDisplayEnabled ()) {
+    return EFI_UNSUPPORTED;
+  }
+
   // Try cached protocol instance first
   if (mBatteryStatusProtocol != NULL) {
     Status = mBatteryStatusProtocol->GetBatteryInfo (mBatteryStatusProtocol, BatteryPercentage, BatteryPresent, BatteryCharging);
@@ -328,6 +346,16 @@ UpdateBatteryString (
   CHAR16  *BatteryInfo;
   UINTN   InfoSize;
 
+  if (!IsBatteryStatusDisplayEnabled ()) {
+    return;
+  }
+
+  // If no battery is present or status is unknown, clear the string
+  if (!BatteryPresent || (BatteryPercentage == 0xFF)) {
+    HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_BATTERY_STATUS), L"", NULL);
+    return;
+  }
+
   // Allocate buffer for battery info: percentage (3) + "%" (1) + charging status (11) + null
   InfoSize = (3 + 1 + 11 + 1) * sizeof (CHAR16);
   BatteryInfo = AllocateZeroPool (InfoSize);
@@ -336,16 +364,10 @@ UpdateBatteryString (
   }
 
   // Format battery info: "XX%" or "XX% (Charging)"
-  if (BatteryPercentage != 0xFF) {
-    UnicodeSPrint (BatteryInfo, InfoSize, L"%d", BatteryPercentage);
-    StrCatS (BatteryInfo, InfoSize / sizeof (CHAR16), L"%");
-    if (BatteryCharging) {
-      StrCatS (BatteryInfo, InfoSize / sizeof (CHAR16), L" (Charging)");
-    }
-  } else {
-    // No battery or unknown
-    HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_BATTERY_STATUS), L"", NULL);
-    return;
+  UnicodeSPrint (BatteryInfo, InfoSize, L"%d", BatteryPercentage);
+  StrCatS (BatteryInfo, InfoSize / sizeof (CHAR16), L"%");
+  if (BatteryCharging) {
+    StrCatS (BatteryInfo, InfoSize / sizeof (CHAR16), L" (Charging)");
   }
 
   // Allocate buffer for formatted string matching EC version format
@@ -383,16 +405,23 @@ BatteryUpdateTimerCallback (
   CHAR16                          *BatteryString;
   BOOLEAN                         NeedsUpdate;
 
+  if (!IsBatteryStatusDisplayEnabled ()) {
+    return;
+  }
+
   // Get current battery status
   Status = GetBatteryInfoFromProtocol (&BatteryPercentage, &BatteryPresent, &BatteryCharging);
   if (EFI_ERROR (Status)) {
     // Battery Status Protocol not available or no battery present
-    return;
+    BatteryPresent    = FALSE;
+    BatteryPercentage = 0xFF;
+    BatteryCharging   = FALSE;
   }
 
   // Check if battery status has changed
   NeedsUpdate = (BatteryPercentage != mLastBatteryPercentage) ||
-                (BatteryCharging != mLastBatteryCharging);
+                (BatteryCharging != mLastBatteryCharging)     ||
+                (BatteryPresent != mLastBatteryPresent);
 
   // If status hasn't changed, no need to update
   if (!NeedsUpdate) {
@@ -402,6 +431,7 @@ BatteryUpdateTimerCallback (
   // Update the cache and HII string
   mLastBatteryPercentage = BatteryPercentage;
   mLastBatteryCharging   = BatteryCharging;
+  mLastBatteryPresent    = BatteryPresent;
   UpdateBatteryString (BatteryPercentage, BatteryPresent, BatteryCharging);
 
   // Only update screen if front page is currently active
@@ -435,10 +465,9 @@ BatteryUpdateTimerCallback (
 }
 
 /**
-  Create battery update timer if battery is present.
+  Create battery update timer when the Battery Status Protocol is available.
 
-  Checks if a battery is present and creates a periodic timer to update
-  the battery status display at 1Hz.
+  Creates a periodic timer to refresh the battery status display at 1Hz.
 
 **/
 STATIC
@@ -452,36 +481,44 @@ CreateBatteryUpdateTimer (
   BOOLEAN     BatteryPresent;
   BOOLEAN     BatteryCharging;
 
-  // Check if battery is present before creating timer
+  if (!IsBatteryStatusDisplayEnabled ()) {
+    return;
+  }
+
+  if (mBatteryUpdateTimer != NULL) {
+    return;
+  }
+
+  // Ensure the Battery Status Protocol is available before creating timer
   Status = GetBatteryInfoFromProtocol (&BatteryPercentage, &BatteryPresent, &BatteryCharging);
-  if (!EFI_ERROR (Status) && BatteryPresent && (BatteryPercentage != 0xFF)) {
-    // Battery is present, create timer
-    Status = gBS->CreateEvent (
-                    EVT_TIMER | EVT_NOTIFY_SIGNAL,
-                    TPL_CALLBACK,
-                    BatteryUpdateTimerCallback,
-                    NULL,
-                    &mBatteryUpdateTimer
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_INFO, "FrontPage: Battery Status Protocol not available, skipping timer creation\n"));
+    return;
+  }
+
+  Status = gBS->CreateEvent (
+                  EVT_TIMER | EVT_NOTIFY_SIGNAL,
+                  TPL_CALLBACK,
+                  BatteryUpdateTimerCallback,
+                  NULL,
+                  &mBatteryUpdateTimer
+                  );
+  if (!EFI_ERROR (Status) && (mBatteryUpdateTimer != NULL)) {
+    DEBUG ((DEBUG_INFO, "FrontPage: Battery timer created (present=%d)\n", BatteryPresent));
+    Status = gBS->SetTimer (
+                    mBatteryUpdateTimer,
+                    TimerPeriodic,
+                    10000000  // 1 second in 100-nanosecond units
                     );
-    if (!EFI_ERROR (Status) && (mBatteryUpdateTimer != NULL)) {
-      DEBUG ((DEBUG_INFO, "FrontPage: Battery present, creating update timer\n"));
-      Status = gBS->SetTimer (
-                      mBatteryUpdateTimer,
-                      TimerPeriodic,
-                      10000000  // 1 second in 100-nanosecond units
-                      );
-      if (EFI_ERROR (Status)) {
-        DEBUG ((DEBUG_WARN, "FrontPage: Failed to set battery timer: %r\n", Status));
-        gBS->CloseEvent (mBatteryUpdateTimer);
-        mBatteryUpdateTimer = NULL;
-      } else {
-        DEBUG ((DEBUG_INFO, "FrontPage: Battery timer set to periodic 1Hz\n"));
-      }
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_WARN, "FrontPage: Failed to set battery timer: %r\n", Status));
+      gBS->CloseEvent (mBatteryUpdateTimer);
+      mBatteryUpdateTimer = NULL;
     } else {
-      DEBUG ((DEBUG_WARN, "FrontPage: Failed to create battery timer event: %r\n", Status));
+      DEBUG ((DEBUG_INFO, "FrontPage: Battery timer set to periodic 1Hz\n"));
     }
   } else {
-    DEBUG ((DEBUG_INFO, "FrontPage: No battery present, skipping timer creation\n"));
+    DEBUG ((DEBUG_WARN, "FrontPage: Failed to create battery timer event: %r\n", Status));
   }
 }
 
@@ -547,12 +584,14 @@ InitializeFrontPage (
   //
   // Create timer event to update battery at 1Hz only if battery is present
   //
-  CreateBatteryUpdateTimer ();
+  if (IsBatteryStatusDisplayEnabled ()) {
+    CreateBatteryUpdateTimer ();
 
-  //
-  // Update battery status so it is displayed immediately when FrontPage is opened
-  //
-  BatteryUpdateTimerCallback (NULL, NULL);
+    //
+    // Update battery status so it is displayed immediately when FrontPage is opened
+    //
+    BatteryUpdateTimerCallback (NULL, NULL);
+  }
 
   return Status;
 }
@@ -802,6 +841,16 @@ UpdateFrontPageBannerStrings (
   UiCustomizeFrontPageBanner (5, TRUE, &NewString);
   HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_CUSTOMIZE_BANNER_LINE5_LEFT), NewString, NULL);
   FreePool (NewString);
+
+  if (!IsBatteryStatusDisplayEnabled ()) {
+    CHAR16  *BatteryBanner;
+
+    BatteryBanner = HiiGetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_CUSTOMIZE_BANNER_LINE5_LEFT), NULL);
+    if (BatteryBanner != NULL) {
+      HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_BATTERY_STATUS), BatteryBanner, NULL);
+      FreePool (BatteryBanner);
+    }
+  }
 
   NewString = HiiGetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_CUSTOMIZE_BANNER_LINE5_RIGHT), NULL);
   UiCustomizeFrontPageBanner (5, FALSE, &NewString);
