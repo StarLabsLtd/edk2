@@ -28,6 +28,22 @@ STATIC BOOLEAN                      mLastBatteryCharging = FALSE;
 STATIC BOOLEAN                      mLastBatteryPresent = FALSE;
 
 STATIC
+VOID
+EFIAPI
+BatteryUpdateTimerCallback (
+  IN EFI_EVENT  Event,
+  IN VOID       *Context
+  );
+
+STATIC
+EFI_STATUS
+GetBatteryInfoFromProtocol (
+  OUT UINT8    *BatteryPercentage,
+  OUT BOOLEAN  *BatteryPresent,
+  OUT BOOLEAN  *BatteryCharging
+  );
+
+STATIC
 BOOLEAN
 IsBatteryStatusDisplayEnabled (
   VOID
@@ -201,8 +217,67 @@ FrontPageCallback (
   // Track when front page form is open/closed
   if (Action == EFI_BROWSER_ACTION_FORM_OPEN) {
     mFrontPageActive = TRUE;
+
+    //
+    // Only run the battery timer while the FrontPage form is active. This avoids timer
+    // callbacks running while other formsets (e.g. Boot Manager) are being interacted with.
+    //
+    if (IsBatteryStatusDisplayEnabled ()) {
+      EFI_STATUS  Status;
+      UINT8       BatteryPercentage;
+      BOOLEAN     BatteryPresent;
+      BOOLEAN     BatteryCharging;
+
+      if (mBatteryUpdateTimer != NULL) {
+        Status = gBS->SetTimer (
+                        mBatteryUpdateTimer,
+                        TimerPeriodic,
+                        10000000  // 1 second in 100-nanosecond units
+                        );
+        if (EFI_ERROR (Status)) {
+          DEBUG ((DEBUG_WARN, "FrontPage: Failed to restart battery timer: %r\n", Status));
+        }
+      } else {
+        //
+        // Ensure the Battery Status Protocol is available before creating timer.
+        //
+        Status = GetBatteryInfoFromProtocol (&BatteryPercentage, &BatteryPresent, &BatteryCharging);
+        if (!EFI_ERROR (Status)) {
+          Status = gBS->CreateEvent (
+                          EVT_TIMER | EVT_NOTIFY_SIGNAL,
+                          TPL_CALLBACK,
+                          BatteryUpdateTimerCallback,
+                          NULL,
+                          &mBatteryUpdateTimer
+                          );
+          if (!EFI_ERROR (Status) && (mBatteryUpdateTimer != NULL)) {
+            DEBUG ((DEBUG_INFO, "FrontPage: Battery timer created (present=%d)\n", BatteryPresent));
+            Status = gBS->SetTimer (
+                            mBatteryUpdateTimer,
+                            TimerPeriodic,
+                            10000000  // 1 second in 100-nanosecond units
+                            );
+            if (EFI_ERROR (Status)) {
+              DEBUG ((DEBUG_WARN, "FrontPage: Failed to set battery timer: %r\n", Status));
+              gBS->CloseEvent (mBatteryUpdateTimer);
+              mBatteryUpdateTimer = NULL;
+            } else {
+              DEBUG ((DEBUG_INFO, "FrontPage: Battery timer set to periodic 1Hz\n"));
+            }
+          } else {
+            DEBUG ((DEBUG_WARN, "FrontPage: Failed to create battery timer event: %r\n", Status));
+            mBatteryUpdateTimer = NULL;
+          }
+        }
+      }
+
+      BatteryUpdateTimerCallback (NULL, NULL);
+    }
   } else if (Action == EFI_BROWSER_ACTION_FORM_CLOSE) {
     mFrontPageActive = FALSE;
+    if (mBatteryUpdateTimer != NULL) {
+      gBS->SetTimer (mBatteryUpdateTimer, TimerCancel, 0);
+    }
   }
 
   return UiFrontPageCallbackHandler (gFrontPagePrivate.HiiHandle, Action, QuestionId, Type, Value, ActionRequest);
@@ -409,6 +484,13 @@ BatteryUpdateTimerCallback (
     return;
   }
 
+  //
+  // Keep the callback entirely quiescent while the FrontPage form is not active.
+  //
+  if (!mFrontPageActive) {
+    return;
+  }
+
   // Get current battery status
   Status = GetBatteryInfoFromProtocol (&BatteryPercentage, &BatteryPresent, &BatteryCharging);
   if (EFI_ERROR (Status)) {
@@ -433,11 +515,6 @@ BatteryUpdateTimerCallback (
   mLastBatteryCharging   = BatteryCharging;
   mLastBatteryPresent    = BatteryPresent;
   UpdateBatteryString (BatteryPercentage, BatteryPresent, BatteryCharging);
-
-  // Only update screen if front page is currently active
-  if (!mFrontPageActive) {
-    return;
-  }
 
   // Get the updated string and render it directly on screen
   BatteryString = HiiGetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_BATTERY_STATUS), NULL);
@@ -470,58 +547,6 @@ BatteryUpdateTimerCallback (
   Creates a periodic timer to refresh the battery status display at 1Hz.
 
 **/
-STATIC
-VOID
-CreateBatteryUpdateTimer (
-  VOID
-  )
-{
-  EFI_STATUS  Status;
-  UINT8       BatteryPercentage;
-  BOOLEAN     BatteryPresent;
-  BOOLEAN     BatteryCharging;
-
-  if (!IsBatteryStatusDisplayEnabled ()) {
-    return;
-  }
-
-  if (mBatteryUpdateTimer != NULL) {
-    return;
-  }
-
-  // Ensure the Battery Status Protocol is available before creating timer
-  Status = GetBatteryInfoFromProtocol (&BatteryPercentage, &BatteryPresent, &BatteryCharging);
-  if (EFI_ERROR (Status)) {
-    DEBUG ((DEBUG_INFO, "FrontPage: Battery Status Protocol not available, skipping timer creation\n"));
-    return;
-  }
-
-  Status = gBS->CreateEvent (
-                  EVT_TIMER | EVT_NOTIFY_SIGNAL,
-                  TPL_CALLBACK,
-                  BatteryUpdateTimerCallback,
-                  NULL,
-                  &mBatteryUpdateTimer
-                  );
-  if (!EFI_ERROR (Status) && (mBatteryUpdateTimer != NULL)) {
-    DEBUG ((DEBUG_INFO, "FrontPage: Battery timer created (present=%d)\n", BatteryPresent));
-    Status = gBS->SetTimer (
-                    mBatteryUpdateTimer,
-                    TimerPeriodic,
-                    10000000  // 1 second in 100-nanosecond units
-                    );
-    if (EFI_ERROR (Status)) {
-      DEBUG ((DEBUG_WARN, "FrontPage: Failed to set battery timer: %r\n", Status));
-      gBS->CloseEvent (mBatteryUpdateTimer);
-      mBatteryUpdateTimer = NULL;
-    } else {
-      DEBUG ((DEBUG_INFO, "FrontPage: Battery timer set to periodic 1Hz\n"));
-    }
-  } else {
-    DEBUG ((DEBUG_WARN, "FrontPage: Failed to create battery timer event: %r\n", Status));
-  }
-}
-
 /**
   Initialize HII information for the FrontPage
 
@@ -580,18 +605,6 @@ InitializeFrontPage (
   // Update front page menus.
   //
   UpdateFrontPageForm ();
-
-  //
-  // Create timer event to update battery at 1Hz only if battery is present
-  //
-  if (IsBatteryStatusDisplayEnabled ()) {
-    CreateBatteryUpdateTimer ();
-
-    //
-    // Update battery status so it is displayed immediately when FrontPage is opened
-    //
-    BatteryUpdateTimerCallback (NULL, NULL);
-  }
 
   return Status;
 }
