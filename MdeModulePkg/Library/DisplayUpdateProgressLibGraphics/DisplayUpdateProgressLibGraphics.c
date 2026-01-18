@@ -122,7 +122,7 @@ DisplayUpdateProgressTextFallback (
   UINTN  Index;
   UINTN  CurrentAttribute;
 
-  if (gST == NULL || gST->ConOut == NULL || gST->ConOut->Mode == NULL) {
+  if ((gST == NULL) || (gST->ConOut == NULL) || (gST->ConOut->Mode == NULL)) {
     mTextPreviousProgress = Completion;
     return EFI_SUCCESS;
   }
