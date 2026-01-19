@@ -472,14 +472,16 @@ FreeTableMemory (
   EFI_ACPI_TABLE_LIST  *TableEntry
   )
 {
+  if (!TableEntry->NeedsFree) {
+    return;
+  }
+
   if (TableEntry->PoolAllocation) {
     gBS->FreePool (TableEntry->Table);
-  } else {
-    gBS->FreePages (
-           (EFI_PHYSICAL_ADDRESS)(UINTN)TableEntry->Table,
-           EFI_SIZE_TO_PAGES (TableEntry->TableSize)
-           );
+    return;
   }
+
+  gBS->FreePages (TableEntry->AllocBase, TableEntry->AllocPages);
 }
 
 /**
@@ -561,6 +563,9 @@ AddTableToList (
   AllocPhysAddress                 = 0xFFFFFFFF;
   CurrentTableList->TableSize      = CurrentTableSize;
   CurrentTableList->PoolAllocation = FALSE;
+  CurrentTableList->NeedsFree      = FALSE;
+  CurrentTableList->AllocBase      = 0;
+  CurrentTableList->AllocPages     = 0;
 
   if (PcdGetBool (PcdNoACPIReclaimMemory)) {
     AcpiAllocateMemoryType = EfiACPIMemoryNVS;
@@ -586,8 +591,8 @@ AddTableToList (
     //
     ASSERT ((EFI_PAGE_SIZE % 64) == 0);
     if (IsFromHob) {
-      AllocPhysAddress = (UINTN)Table;
-      Status           = EFI_SUCCESS;
+      CurrentTableList->Table = (EFI_ACPI_COMMON_HEADER *)(UINTN)Table;
+      Status                  = EFI_SUCCESS;
     } else {
       Status = gBS->AllocatePages (
                       AllocateMaxAddress,
@@ -595,6 +600,12 @@ AddTableToList (
                       EFI_SIZE_TO_PAGES (CurrentTableList->TableSize),
                       &AllocPhysAddress
                       );
+      if (!EFI_ERROR (Status)) {
+        CurrentTableList->Table      = (EFI_ACPI_COMMON_HEADER *)(UINTN)AllocPhysAddress;
+        CurrentTableList->NeedsFree  = TRUE;
+        CurrentTableList->AllocBase  = AllocPhysAddress;
+        CurrentTableList->AllocPages = EFI_SIZE_TO_PAGES (CurrentTableList->TableSize);
+      }
     }
   } else if (mAcpiTableAllocType == AllocateAnyPages) {
     //
@@ -608,17 +619,67 @@ AddTableToList (
                     (VOID **)&CurrentTableList->Table
                     );
     CurrentTableList->PoolAllocation = TRUE;
+    if (!EFI_ERROR (Status)) {
+      CurrentTableList->NeedsFree = TRUE;
+    }
   } else {
-    //
-    // All other tables are ACPI reclaim memory, no alignment requirements.
-    //
-    Status = gBS->AllocatePages (
-                    mAcpiTableAllocType,
-                    AcpiAllocateMemoryType,
-                    EFI_SIZE_TO_PAGES (CurrentTableList->TableSize),
-                    &AllocPhysAddress
-                    );
-    CurrentTableList->Table = (EFI_ACPI_COMMON_HEADER *)(UINTN)AllocPhysAddress;
+    BOOLEAN  UseInPlace;
+
+    UseInPlace = IsFromHob &&
+                 ((UINT64)(UINTN)Table < BASE_4GB) &&
+                 (((UINT64)(UINTN)Table + CurrentTableList->TableSize) <= BASE_4GB);
+
+    if (UseInPlace) {
+      EFI_PHYSICAL_ADDRESS  PageBase;
+      UINTN                 OffsetInPage;
+
+      CurrentTableList->Table = (EFI_ACPI_COMMON_HEADER *)(UINTN)Table;
+
+      //
+      // Make a best-effort attempt to reserve the memory backing this table,
+      // so it is not later used for unrelated allocations.
+      //
+      OffsetInPage = (UINTN)Table & EFI_PAGE_MASK;
+      PageBase     = (EFI_PHYSICAL_ADDRESS)((UINTN)Table & ~(UINTN)EFI_PAGE_MASK);
+      CurrentTableList->AllocPages = EFI_SIZE_TO_PAGES (OffsetInPage + CurrentTableList->TableSize);
+
+      Status = gBS->AllocatePages (
+                      AllocateAddress,
+                      AcpiAllocateMemoryType,
+                      CurrentTableList->AllocPages,
+                      &PageBase
+                      );
+      if (!EFI_ERROR (Status)) {
+        //
+        // Keep these pages reserved permanently (do not free on uninstall),
+        // as multiple ACPI tables may share the same backing pages.
+        //
+        CurrentTableList->AllocBase = PageBase;
+      } else {
+        //
+        // The bootloader may have already reserved this memory. Keep using the
+        // table in-place to avoid introducing new, non-deterministic
+        // allocations that can break hibernation resume.
+        //
+        Status = EFI_SUCCESS;
+      }
+    } else {
+      //
+      // All other tables are ACPI reclaim memory, no alignment requirements.
+      //
+      Status = gBS->AllocatePages (
+                      mAcpiTableAllocType,
+                      AcpiAllocateMemoryType,
+                      EFI_SIZE_TO_PAGES (CurrentTableList->TableSize),
+                      &AllocPhysAddress
+                      );
+      if (!EFI_ERROR (Status)) {
+        CurrentTableList->Table      = (EFI_ACPI_COMMON_HEADER *)(UINTN)AllocPhysAddress;
+        CurrentTableList->NeedsFree  = TRUE;
+        CurrentTableList->AllocBase  = AllocPhysAddress;
+        CurrentTableList->AllocPages = EFI_SIZE_TO_PAGES (CurrentTableList->TableSize);
+      }
+    }
   }
 
   //
@@ -629,15 +690,13 @@ AddTableToList (
     return EFI_OUT_OF_RESOURCES;
   }
 
-  if (!CurrentTableList->PoolAllocation) {
-    CurrentTableList->Table = (EFI_ACPI_COMMON_HEADER *)(UINTN)AllocPhysAddress;
-  }
-
   //
   // Initialize the table contents
   //
   CurrentTableList->Signature = EFI_ACPI_TABLE_LIST_SIGNATURE;
-  CopyMem (CurrentTableList->Table, Table, CurrentTableSize);
+  if (CurrentTableList->Table != (EFI_ACPI_COMMON_HEADER *)Table) {
+    CopyMem (CurrentTableList->Table, Table, CurrentTableSize);
+  }
   CurrentTableList->Handle  = AcpiTableInstance->CurrentHandle++;
   *Handle                   = CurrentTableList->Handle;
   CurrentTableList->Version = Version;
