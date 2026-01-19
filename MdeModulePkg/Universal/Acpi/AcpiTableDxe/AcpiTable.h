@@ -71,6 +71,9 @@ typedef struct {
   UINTN                     TableSize;
   UINTN                     Handle;
   BOOLEAN                   PoolAllocation;
+  BOOLEAN                   NeedsFree;
+  EFI_PHYSICAL_ADDRESS      AllocBase;
+  UINTN                     AllocPages;
 } EFI_ACPI_TABLE_LIST;
 
 //

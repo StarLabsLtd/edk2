@@ -468,6 +468,7 @@ ParseMemoryInfo (
   struct cb_memory_range  *Range;
   UINTN                   Index;
   MEMORY_MAP_ENTRY        MemoryMap;
+  RETURN_STATUS           Status;
 
   //
   // Get the coreboot memory table
@@ -483,7 +484,15 @@ ParseMemoryInfo (
     MemoryMap.Size = cb_unpack64 (Range->size);
     MemoryMap.Type = CbMemTypeToE820Type (Range->type);
     MemoryMap.Flag = 0;
-    MemInfoCallback (&MemoryMap, Params);
+
+    Status = MemInfoCallback (&MemoryMap, Params);
+    if (Status == EFI_ALREADY_STARTED) {
+      break;
+    }
+
+    if (RETURN_ERROR (Status)) {
+      return Status;
+    }
   }
 
   return RETURN_SUCCESS;
