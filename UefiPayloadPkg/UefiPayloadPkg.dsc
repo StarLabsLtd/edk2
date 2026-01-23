@@ -830,6 +830,8 @@
   !endif
 !endif
   gEfiMdeModulePkgTokenSpaceGuid.PcdMaxSizeNonPopulateCapsule|$(MAX_SIZE_NON_POPULATE_CAPSULE)
+  ## Whether capsules can include embedded drivers.
+  gEfiMdeModulePkgTokenSpaceGuid.PcdCapsuleEmbeddedDriverSupport|$(CAPSULE_SUPPORT)
 
   #
   # Enable these parameters to be set on the command line
