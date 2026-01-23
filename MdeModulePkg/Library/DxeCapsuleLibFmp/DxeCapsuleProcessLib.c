@@ -205,6 +205,15 @@ UpdateImageProgress (
 
   Status = DisplayUpdateProgress (Completion, Color);
 
+  //
+  // Some platforms perform capsule updates without graphics. In that case
+  // DisplayUpdateProgress() can return EFI_NOT_FOUND when GOP is not present.
+  // Do not fail the firmware update for that reason.
+  //
+  if (Status == EFI_NOT_FOUND) {
+    return EFI_SUCCESS;
+  }
+
   return Status;
 }
 
