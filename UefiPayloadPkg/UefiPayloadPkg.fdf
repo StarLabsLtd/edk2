@@ -432,6 +432,7 @@ INF ShellPkg/Application/Shell/Shell.inf
 # Capsules
 #
 !if $(CAPSULE_SUPPORT) == TRUE
+INF FmpDevicePkg/FmpDxe/FmpDxe.inf
 INF MdeModulePkg/Universal/EsrtDxe/EsrtDxe.inf
 !endif
 
