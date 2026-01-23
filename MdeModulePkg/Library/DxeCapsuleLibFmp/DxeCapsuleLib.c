@@ -1003,13 +1003,13 @@ SetFmpImageData (
   DEBUG ((DEBUG_INFO, "\n"));
 
   //
-  // Before calling SetImage(), reset the progress bar to 0%
+  // Before calling SetImage(), reset the progress bar to 0%.
+  //
+  // FmpDxe requires a non-NULL progress callback. If progress display is
+  // unavailable (e.g. no GOP), ignore the error but still pass the callback.
   //
   ProgressCallback = UpdateImageProgress;
-  Status           = UpdateImageProgress (0);
-  if (EFI_ERROR (Status)) {
-    ProgressCallback = NULL;
-  }
+  (VOID)UpdateImageProgress (0);
 
   Status = Fmp->SetImage (
                   Fmp,
