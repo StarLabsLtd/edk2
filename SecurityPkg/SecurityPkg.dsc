@@ -19,6 +19,15 @@
   BUILD_TARGETS                  = DEBUG|RELEASE|NOOPT
   SKUID_IDENTIFIER               = DEFAULT
 
+  #
+  # Optional build-time switch to enable the "Simple UI" mode for the OPAL/SED HII menu.
+  # This only provides a default for the PCD; code uses the PCD as the single source of truth.
+  #
+  # Example:
+  #   build -p SecurityPkg/SecurityPkg.dsc -a X64 -t GCC5 -b DEBUG -D TCG_STORAGE_SIMPLE_UI=ON
+  #
+  DEFINE TCG_STORAGE_SIMPLE_UI           = FALSE
+
 !include MdePkg/MdeLibs.dsc.inc
 
 [LibraryClasses]
@@ -210,6 +219,11 @@
 [PcdsDynamicHii.common.DEFAULT]
   gEfiSecurityPkgTokenSpaceGuid.PcdTcgPhysicalPresenceInterfaceVer|L"TCG2_VERSION"|gTcg2ConfigFormSetGuid|0x0|"1.3"|NV,BS
   gEfiSecurityPkgTokenSpaceGuid.PcdTpm2AcpiTableRev|L"TCG2_VERSION"|gTcg2ConfigFormSetGuid|0x8|3|NV,BS
+
+[PcdsFixedAtBuild.common.DEFAULT]
+!if "$(TCG_STORAGE_SIMPLE_UI)" == "TRUE" || "$(TCG_STORAGE_SIMPLE_UI)" == "ON" || "$(TCG_STORAGE_SIMPLE_UI)" == "1"
+  gEfiSecurityPkgTokenSpaceGuid.PcdTcgStorageSimpleUi|TRUE
+!endif
 
 [Components]
   SecurityPkg/Library/DxeImageVerificationLib/DxeImageVerificationLib.inf
