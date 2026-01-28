@@ -52,6 +52,7 @@
   DEFINE PAYLOAD_FB_HIDPI_WIDE_ASPECT_CAP_WIDTH   = 16
   DEFINE PAYLOAD_FB_HIDPI_WIDE_ASPECT_CAP_HEIGHT  = 9
   DEFINE CONNECT_ALL_DEVICES          = TRUE
+  DEFINE OPAL_PASSWORD_ENABLE         = FALSE
 
   #
   # Capsule updates
@@ -402,12 +403,26 @@
   CfrHelpersLib|UefiPayloadPkg/Library/CfrHelpersLib/CfrHelpersLib.inf
 
   DebugLib|MdeModulePkg/Library/PeiDxeDebugLibReportStatusCode/PeiDxeDebugLibReportStatusCode.inf
-!if $(LOCKBOX_SUPPORT) == TRUE
+!if $(LOCKBOX_SUPPORT) == TRUE || $(OPAL_PASSWORD_ENABLE) == TRUE
   LockBoxLib|MdeModulePkg/Library/SmmLockBoxLib/SmmLockBoxDxeLib.inf
 !else
   LockBoxLib|MdeModulePkg/Library/LockBoxNullLib/LockBoxNullLib.inf
 !endif
   FileExplorerLib|MdeModulePkg/Library/FileExplorerLib/FileExplorerLib.inf
+
+  Tcg2PhysicalPresenceLib|OvmfPkg/Library/Tcg2PhysicalPresenceLibNull/DxeTcg2PhysicalPresenceLib.inf
+
+!if $(OPAL_PASSWORD_ENABLE) == TRUE
+  TcgStorageCoreLib|SecurityPkg/Library/TcgStorageCoreLib/TcgStorageCoreLib.inf
+  TcgStorageOpalLib|SecurityPkg/Library/TcgStorageOpalLib/TcgStorageOpalLib.inf
+  #
+  # OpalPasswordDxe consumes Tcg2PhysicalPresenceLib for BlockSID support.
+  #
+  Tcg2PhysicalPresenceLib|SecurityPkg/Library/DxeTcg2PhysicalPresenceLib/DxeTcg2PhysicalPresenceLib.inf
+  Tcg2PpVendorLib|SecurityPkg/Library/Tcg2PpVendorLibNull/Tcg2PpVendorLibNull.inf
+  Tpm2CommandLib|SecurityPkg/Library/Tpm2CommandLib/Tpm2CommandLib.inf
+  Tpm2DeviceLib|SecurityPkg/Library/Tpm2DeviceLibRouter/Tpm2DeviceLibRouterDxe.inf
+!endif
 
 !if $(SECURE_BOOT_ENABLE) == TRUE
   PlatformSecureLib|SecurityPkg/Library/PlatformSecureLibNull/PlatformSecureLibNull.inf
@@ -1380,6 +1395,9 @@
 !endif
 
 [Components.X64]
+!if $(OPAL_PASSWORD_ENABLE) == TRUE
+  SecurityPkg/Tcg/Opal/OpalPassword/OpalPasswordDxe.inf
+!endif
   UefiCpuPkg/CpuDxe/CpuDxe.inf
 
 !if $(TIMER_SUPPORT) == "HPET"
