@@ -8,10 +8,121 @@
 **/
 
 #include <Guid/MemoryTypeInformation.h>
+#include <Guid/AcpiBoardInfoGuid.h>
+#include <IndustryStandard/Acpi30.h>
+#include <Pi/PiBootMode.h>
 #include <Library/BaseArchLibSupport.h>
+#include <Library/HobLib.h>
+#include <Library/IoLib.h>
 #include "UefiPayloadEntry.h"
 
 STATIC UINT32  mTopOfLowerUsableDram = 0;
+
+STATIC
+BOOLEAN
+PayloadAcpiWakeVectorPresent (
+  VOID
+  )
+{
+  EFI_HOB_GUID_TYPE                                    *GuidHob;
+  UNIVERSAL_PAYLOAD_ACPI_TABLE                         *AcpiTableHob;
+  EFI_ACPI_3_0_ROOT_SYSTEM_DESCRIPTION_POINTER         *Rsdp;
+  EFI_ACPI_DESCRIPTION_HEADER                          *Sdt;
+  EFI_ACPI_DESCRIPTION_HEADER                          *Table;
+  EFI_ACPI_3_0_FIXED_ACPI_DESCRIPTION_TABLE            *Fadt;
+  EFI_ACPI_3_0_FIRMWARE_ACPI_CONTROL_STRUCTURE         *Facs;
+  UINTN                                                Index;
+  UINTN                                                EntryCount;
+  UINTN                                                EntrySize;
+  UINT8                                                *EntryPtr;
+  EFI_PHYSICAL_ADDRESS                                 FacsAddress;
+
+  GuidHob = GetFirstGuidHob (&gUniversalPayloadAcpiTableGuid);
+  if (GuidHob == NULL) {
+    return FALSE;
+  }
+
+  AcpiTableHob = (UNIVERSAL_PAYLOAD_ACPI_TABLE *)GET_GUID_HOB_DATA (GuidHob);
+  if ((AcpiTableHob == NULL) || (AcpiTableHob->Rsdp == 0)) {
+    return FALSE;
+  }
+
+  Rsdp = (EFI_ACPI_3_0_ROOT_SYSTEM_DESCRIPTION_POINTER *)(UINTN)AcpiTableHob->Rsdp;
+  if (Rsdp->XsdtAddress != 0) {
+    Sdt       = (EFI_ACPI_DESCRIPTION_HEADER *)(UINTN)Rsdp->XsdtAddress;
+    EntrySize = sizeof (UINT64);
+  } else if (Rsdp->RsdtAddress != 0) {
+    Sdt       = (EFI_ACPI_DESCRIPTION_HEADER *)(UINTN)Rsdp->RsdtAddress;
+    EntrySize = sizeof (UINT32);
+  } else {
+    return FALSE;
+  }
+
+  if (Sdt->Length < sizeof (*Sdt)) {
+    return FALSE;
+  }
+
+  EntryPtr   = (UINT8 *)(Sdt + 1);
+  EntryCount = (Sdt->Length - sizeof (*Sdt)) / EntrySize;
+  Fadt       = NULL;
+  for (Index = 0; Index < EntryCount; Index++) {
+    if (EntrySize == sizeof (UINT64)) {
+      Table = (EFI_ACPI_DESCRIPTION_HEADER *)(UINTN)ReadUnaligned64 ((UINT64 *)(EntryPtr + Index * EntrySize));
+    } else {
+      Table = (EFI_ACPI_DESCRIPTION_HEADER *)(UINTN)ReadUnaligned32 ((UINT32 *)(EntryPtr + Index * EntrySize));
+    }
+
+    if ((Table != NULL) && (Table->Signature == EFI_ACPI_3_0_FIXED_ACPI_DESCRIPTION_TABLE_SIGNATURE)) {
+      Fadt = (EFI_ACPI_3_0_FIXED_ACPI_DESCRIPTION_TABLE *)Table;
+      break;
+    }
+  }
+
+  if (Fadt == NULL) {
+    return FALSE;
+  }
+
+  FacsAddress = (Fadt->XFirmwareCtrl != 0) ? (EFI_PHYSICAL_ADDRESS)Fadt->XFirmwareCtrl : (EFI_PHYSICAL_ADDRESS)Fadt->FirmwareCtrl;
+  if (FacsAddress == 0) {
+    return FALSE;
+  }
+
+  Facs = (EFI_ACPI_3_0_FIRMWARE_ACPI_CONTROL_STRUCTURE *)(UINTN)FacsAddress;
+  if ((Facs->Signature != EFI_ACPI_3_0_FIRMWARE_ACPI_CONTROL_STRUCTURE_SIGNATURE) ||
+      (Facs->Length < sizeof (*Facs)))
+  {
+    return FALSE;
+  }
+
+  return (Facs->FirmwareWakingVector != 0) || (Facs->XFirmwareWakingVector != 0);
+}
+
+STATIC
+BOOLEAN
+PayloadAcpiWakeStatusSet (
+  VOID
+  )
+{
+  EFI_HOB_GUID_TYPE  *GuidHob;
+  ACPI_BOARD_INFO    *AcpiBoardInfo;
+  UINT16             Pm1Sts;
+
+  GuidHob = GetFirstGuidHob (&gUefiAcpiBoardInfoGuid);
+  if (GuidHob == NULL) {
+    return FALSE;
+  }
+
+  AcpiBoardInfo = (ACPI_BOARD_INFO *)GET_GUID_HOB_DATA (GuidHob);
+  if ((AcpiBoardInfo == NULL) || (AcpiBoardInfo->PmEvtBase == 0)) {
+    return FALSE;
+  }
+
+  //
+  // WAK_STS is bit 15 in PM1_STS (PM1a_EVT_BLK + 0).
+  //
+  Pm1Sts = IoRead16 ((UINTN)AcpiBoardInfo->PmEvtBase);
+  return (Pm1Sts & BIT15) != 0;
+}
 
 EFI_MEMORY_TYPE_INFORMATION  mDefaultMemoryTypeInformation[] = {
   { EfiACPIReclaimMemory,   FixedPcdGet32 (PcdMemoryTypeEfiACPIReclaimMemory)   },
@@ -607,6 +718,28 @@ _ModuleEntryPoint (
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "BuildHobFromBl Status = %r\n", Status));
     return Status;
+  }
+
+  //
+  // For coreboot-driven resumes, use ACPI wake information to switch to S3
+  // boot mode, so DXE drivers can behave appropriately (e.g., OPAL resume unlock).
+  //
+  {
+    BOOLEAN  WakeVectorPresent;
+    BOOLEAN  WakeStatusSet;
+
+    WakeVectorPresent = PayloadAcpiWakeVectorPresent ();
+    WakeStatusSet     = PayloadAcpiWakeStatusSet ();
+
+    if (WakeVectorPresent || WakeStatusSet) {
+      DEBUG ((
+        DEBUG_INFO,
+        "UefiPayloadEntry: ACPI wake detected (WakeVector=%u WAK_STS=%u), setting BOOT_ON_S3_RESUME\n",
+        WakeVectorPresent ? 1 : 0,
+        WakeStatusSet ? 1 : 0
+        ));
+      HobInfo->BootMode = BOOT_ON_S3_RESUME;
+    }
   }
 
   // Build other HOBs required by DXE
