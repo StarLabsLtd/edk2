@@ -12,6 +12,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Guid/GlobalVariable.h>
 #include <IndustryStandard/Pci.h>
 #include <IndustryStandard/Usb.h>
+#include <Library/Tcg2PhysicalPresenceLib.h>
 #include <Protocol/FirmwareVolume2.h>
 #include <Protocol/PciIo.h>
 
@@ -523,6 +524,11 @@ PlatformBootManagerAfterConsole (
     gST->ConOut->ClearScreen (gST->ConOut);
     BootLogoEnableLogo ();
   }
+
+  //
+  // Ensure TCG2 physical presence variables are initialized for the OPAL BlockSID UI.
+  //
+  Tcg2PhysicalPresenceLibProcessRequest (NULL);
 
   //
   // Connecting removable media can perturb the memory map used for S4 resume.
