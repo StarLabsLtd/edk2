@@ -217,29 +217,40 @@ SecuritySendData (
 
   @param[in]      OpalDev             Opal object to determine if locked.
   @param[out]     BlockSidSupported   Whether device support BlockSid feature.
+  @param[out]     OpalBaseComId       Opal BaseComId discovered from device.
+  @param[out]     IsLocked            Whether device is locked.
 
 **/
 BOOLEAN
-IsOpalDeviceLocked (
+GetOpalDeviceStatus (
   OPAL_PEI_DEVICE  *OpalDev,
-  BOOLEAN          *BlockSidSupported
+  BOOLEAN          *BlockSidSupported,
+  UINT16           *OpalBaseComId,
+  BOOLEAN          *IsLocked
   )
 {
   OPAL_SESSION                    Session;
   OPAL_DISK_SUPPORT_ATTRIBUTE     SupportedAttributes;
   TCG_LOCKING_FEATURE_DESCRIPTOR  LockingFeature;
-  UINT16                          OpalBaseComId;
   TCG_RESULT                      Ret;
+
+  if ((BlockSidSupported == NULL) || (OpalBaseComId == NULL) || (IsLocked == NULL)) {
+    return FALSE;
+  }
+
+  *BlockSidSupported = FALSE;
+  *OpalBaseComId     = 0;
+  *IsLocked          = FALSE;
 
   Session.Sscp    = &OpalDev->Sscp;
   Session.MediaId = 0;
 
-  Ret = OpalGetSupportedAttributesInfo (&Session, &SupportedAttributes, &OpalBaseComId);
+  Ret = OpalGetSupportedAttributesInfo (&Session, &SupportedAttributes, OpalBaseComId);
   if (Ret != TcgResultSuccess) {
     return FALSE;
   }
 
-  Session.OpalBaseComId = OpalBaseComId;
+  Session.OpalBaseComId = *OpalBaseComId;
   *BlockSidSupported    = SupportedAttributes.BlockSid == 1 ? TRUE : FALSE;
 
   Ret = OpalGetLockingInfo (&Session, &LockingFeature);
@@ -247,7 +258,8 @@ IsOpalDeviceLocked (
     return FALSE;
   }
 
-  return OpalDeviceLocked (&SupportedAttributes, &LockingFeature);
+  *IsLocked = OpalDeviceLocked (&SupportedAttributes, &LockingFeature);
+  return TRUE;
 }
 
 /**
@@ -264,15 +276,30 @@ UnlockOpalPassword (
   TCG_RESULT    Result;
   OPAL_SESSION  Session;
   BOOLEAN       BlockSidSupport;
+  UINT16        OpalBaseComId;
+  BOOLEAN       IsLocked;
   UINT32        PpStorageFlags;
   BOOLEAN       BlockSIDEnabled;
 
   BlockSidSupport = FALSE;
-  if (IsOpalDeviceLocked (OpalDev, &BlockSidSupport)) {
+  OpalBaseComId   = 0;
+  IsLocked        = FALSE;
+  if (GetOpalDeviceStatus (OpalDev, &BlockSidSupport, &OpalBaseComId, &IsLocked) && IsLocked) {
+    DEBUG ((
+      DEBUG_INFO,
+      "OpalPassword: S3 unlock using BaseComId=0x%x PwdLen=%u\n",
+      OpalBaseComId,
+      OpalDev->Device->PasswordLength
+      ));
     ZeroMem (&Session, sizeof (Session));
     Session.Sscp          = &OpalDev->Sscp;
     Session.MediaId       = 0;
-    Session.OpalBaseComId = OpalDev->Device->OpalBaseComId;
+    //
+    // Don't rely on the BaseComId saved from the previous boot. Some devices may
+    // expose a different BaseComId after power state transitions (e.g. S3),
+    // causing unlock to fail even with the correct password.
+    //
+    Session.OpalBaseComId = OpalBaseComId;
 
     Result = OpalUtilUpdateGlobalLockingRange (
                &Session,
@@ -301,7 +328,7 @@ UnlockOpalPassword (
     ZeroMem (&Session, sizeof (Session));
     Session.Sscp          = &OpalDev->Sscp;
     Session.MediaId       = 0;
-    Session.OpalBaseComId = OpalDev->Device->OpalBaseComId;
+    Session.OpalBaseComId = OpalBaseComId;
     Result                = OpalBlockSid (&Session, TRUE);
     DEBUG ((
       DEBUG_INFO,
@@ -340,16 +367,20 @@ UnlockOpalPasswordDevices (
   DevInfoBuffer = &DummyData;
   DevInfoLength = sizeof (DummyData);
   Status        = RestoreLockBox (&mOpalDeviceLockBoxGuid, DevInfoBuffer, &DevInfoLength);
+  DEBUG ((DEBUG_INFO, "OpalPassword: RestoreLockBox(%g) initial Status=%r Len=0x%Lx\n", &mOpalDeviceLockBoxGuid, Status, (UINT64)DevInfoLength));
   if (Status == EFI_BUFFER_TOO_SMALL) {
     DevInfoBuffer = AllocatePages (EFI_SIZE_TO_PAGES (DevInfoLength));
     if (DevInfoBuffer != NULL) {
       Status = RestoreLockBox (&mOpalDeviceLockBoxGuid, DevInfoBuffer, &DevInfoLength);
+      DEBUG ((DEBUG_INFO, "OpalPassword: RestoreLockBox(%g) Status=%r Len=0x%Lx\n", &mOpalDeviceLockBoxGuid, Status, (UINT64)DevInfoLength));
     }
   }
 
   if ((DevInfoBuffer == NULL) || (DevInfoBuffer == &DummyData)) {
+    DEBUG ((DEBUG_INFO, "OpalPassword: No OPAL LockBox data\n"));
     return;
   } else if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_INFO, "OpalPassword: RestoreLockBox failed: %r\n", Status));
     FreePages (DevInfoBuffer, EFI_SIZE_TO_PAGES (DevInfoLength));
     return;
   }
@@ -359,8 +390,11 @@ UnlockOpalPasswordDevices (
   //
   Status = SscPpi->GetNumberofDevices (SscPpi, &SscDeviceNum);
   if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_INFO, "OpalPassword: GetNumberofDevices failed: %r\n", Status));
     goto Exit;
   }
+
+  DEBUG ((DEBUG_INFO, "OpalPassword: SSC devices=%Lu\n", (UINT64)SscDeviceNum));
 
   for (SscDeviceIndex = 1; SscDeviceIndex <= SscDeviceNum; SscDeviceIndex++) {
     Status = SscPpi->GetDevicePath (
@@ -369,6 +403,11 @@ UnlockOpalPasswordDevices (
                        &SscDevicePathLength,
                        &SscDevicePath
                        );
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_INFO, "OpalPassword: GetDevicePath(%Lu) failed: %r\n", (UINT64)SscDeviceIndex, Status));
+      continue;
+    }
+
     if (SscDevicePathLength <= sizeof (EFI_DEVICE_PATH_PROTOCOL)) {
       //
       // Device path validity check.
