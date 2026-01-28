@@ -16,6 +16,11 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include "OpalDriver.h"
 #include "OpalHii.h"
 
+VOID
+OpalDisableStorageRtd3IfOpalEnabled (
+  IN OPAL_DRIVER_DEVICE  *Dev
+  );
+
 EFI_GUID  mOpalDeviceLockBoxGuid = OPAL_DEVICE_LOCKBOX_GUID;
 
 BOOLEAN                mOpalEndOfDxe            = FALSE;
@@ -454,13 +459,13 @@ SendBlockSidCommand (
     //
     Itr = mOpalDriver.DeviceList;
     while (Itr != NULL) {
-      if (Itr->OpalDisk.SupportedAttributes.BlockSid) {
+      if (Itr->OpalDisk.SupportedAttributes.BlockSid && !Itr->OpalDisk.SentBlockSID) {
         ZeroMem (&Session, sizeof (Session));
         Session.Sscp          = Itr->OpalDisk.Sscp;
         Session.MediaId       = Itr->OpalDisk.MediaId;
         Session.OpalBaseComId = Itr->OpalDisk.OpalBaseComId;
 
-        DEBUG ((DEBUG_INFO, "OpalPassword: EndOfDxe point, send BlockSid command to device!\n"));
+        DEBUG ((DEBUG_INFO, "OpalPassword: Send BlockSid command to device!\n"));
         Result = OpalBlockSid (&Session, TRUE);  // HardwareReset must always be TRUE
         if (Result != TcgResultSuccess) {
           DEBUG ((DEBUG_ERROR, "OpalBlockSid fail\n"));
@@ -2682,10 +2687,6 @@ OpalEfiDriverBindingSupported (
   EFI_STATUS                             Status;
   EFI_STORAGE_SECURITY_COMMAND_PROTOCOL  *SecurityCommand;
 
-  if (mOpalEndOfDxe) {
-    return EFI_UNSUPPORTED;
-  }
-
   //
   // Test EFI_STORAGE_SECURITY_COMMAND_PROTOCOL on controller Handle.
   //
@@ -2864,6 +2865,8 @@ OpalEfiDriverBindingStart (
     goto Done;
   }
 
+  OpalDisableStorageRtd3IfOpalEnabled (Dev);
+
   AddDeviceToTail (Dev);
 
   //
@@ -2875,6 +2878,13 @@ OpalEfiDriverBindingStart (
   // Process OPAL request from last boot.
   //
   ProcessOpalRequest (Dev);
+
+  //
+  // If the device is connected after EndOfDxe, still send BlockSID if required.
+  //
+  if (mOpalEndOfDxe) {
+    SendBlockSidCommand ();
+  }
 
   return EFI_SUCCESS;
 
