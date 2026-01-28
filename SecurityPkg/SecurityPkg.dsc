@@ -19,6 +19,15 @@
   BUILD_TARGETS                  = DEBUG|RELEASE|NOOPT
   SKUID_IDENTIFIER               = DEFAULT
 
+  #
+  # Optional build-time switch to enable the "Simple UI" mode for the OPAL/SED HII menu.
+  # This only provides a default for the PCD; code uses the PCD as the single source of truth.
+  #
+  # Example:
+  #   build -p SecurityPkg/SecurityPkg.dsc -a X64 -t GCC5 -b DEBUG -D TCG_STORAGE_SIMPLE_UI=ON
+  #
+  DEFINE TCG_STORAGE_SIMPLE_UI           = FALSE
+
 !include MdePkg/MdeLibs.dsc.inc
 
 [LibraryClasses]
