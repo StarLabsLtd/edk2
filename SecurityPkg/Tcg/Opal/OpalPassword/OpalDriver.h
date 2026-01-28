@@ -37,6 +37,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Library/DevicePathLib.h>
 #include <Library/HiiLib.h>
 #include <Library/UefiHiiServicesLib.h>
+#include <Library/PcdLib.h>
 #include <Library/PciLib.h>
 #include <Library/LockBoxLib.h>
 #include <Library/TcgStorageOpalLib.h>
@@ -57,6 +58,11 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #define CONCAT(x, y)   CONCAT_(x, y)
 
 #define UNICODE_STR(x)  CONCAT( L, x )
+
+BOOLEAN
+TcgStorageIsSimpleUiEnabled (
+  VOID
+  );
 
 extern EFI_DRIVER_BINDING_PROTOCOL   gOpalDriverBinding;
 extern EFI_COMPONENT_NAME_PROTOCOL   gOpalComponentName;
