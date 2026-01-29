@@ -17,6 +17,7 @@
 #include <Library/UefiLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/UefiRuntimeServicesTableLib.h>
+#include <Protocol/FormBrowser2.h>
 #include <Guid/VariableFormat.h>
 
 SETUP_MENU_CALLBACK_DATA  mSetupMenuPrivate = {
@@ -31,6 +32,65 @@ SETUP_MENU_CALLBACK_DATA  mSetupMenuPrivate = {
 };
 
 EFI_GUID  mSetupMenuFormsetGuid = SETUP_MENU_FORMSET_GUID;
+
+STATIC CONST EFI_GUID  mSecureBootFormSetGuid = {
+  0x5daf50a5, 0xea81, 0x4de2, { 0x8f, 0x9b, 0xca, 0xbd, 0xa9, 0xcf, 0x5c, 0x14 }
+};
+
+STATIC CONST EFI_GUID  mTpmFormSetGuid = {
+  0x6339d487, 0x26ba, 0x424b, { 0x9a, 0x5d, 0x68, 0x7e, 0x25, 0xd7, 0x40, 0xbc }
+};
+
+STATIC CONST EFI_GUID  mBiosPasswordFormSetGuid = {
+  0x760e3022, 0xf149, 0x4560, { 0x9c, 0x6f, 0x33, 0xaa, 0x7d, 0x48, 0x75, 0xfa }
+};
+
+STATIC CONST EFI_GUID  mTcgDiskEncryptionFormSetGuid = {
+  0x410483cf, 0xf4f9, 0x4ece, { 0x84, 0x8a, 0x19, 0x58, 0xfd, 0x31, 0xce, 0xb7 }
+};
+
+STATIC BOOLEAN  mRefreshInProgress = FALSE;
+STATIC BOOLEAN  mRuntimeComponentsCreated = FALSE;
+
+STATIC
+EFI_STATUS
+OpenFormSet (
+  IN CONST EFI_GUID  *FormSetGuid
+  )
+{
+  EFI_STATUS                  Status;
+  EFI_FORM_BROWSER2_PROTOCOL  *FormBrowser2;
+  EFI_HII_HANDLE              *HiiHandles;
+  UINTN                       HandleCount;
+  EFI_BROWSER_ACTION_REQUEST  ActionRequest;
+
+  Status = gBS->LocateProtocol (&gEfiFormBrowser2ProtocolGuid, NULL, (VOID **)&FormBrowser2);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  HiiHandles = HiiGetHiiHandles (NULL);
+  if (HiiHandles == NULL) {
+    return EFI_OUT_OF_RESOURCES;
+  }
+
+  for (HandleCount = 0; HiiHandles[HandleCount] != NULL; HandleCount++) {
+  }
+
+  ActionRequest = EFI_BROWSER_ACTION_REQUEST_NONE;
+  Status        = FormBrowser2->SendForm (
+                                 FormBrowser2,
+                                 HiiHandles,
+                                 HandleCount,
+                                 (EFI_GUID *)FormSetGuid,
+                                 0,
+                                 NULL,
+                                 &ActionRequest
+                                 );
+
+  FreePool (HiiHandles);
+  return Status;
+}
 
 HII_VENDOR_DEVICE_PATH  mSetupMenuHiiVendorDevicePath = {
   {
@@ -341,5 +401,40 @@ SetupMenuCallback (
   OUT EFI_BROWSER_ACTION_REQUEST             *ActionRequest
   )
 {
+  (VOID)This;
+  (VOID)Type;
+  (VOID)Value;
+  (VOID)ActionRequest;
+
+  if (Action == EFI_BROWSER_ACTION_FORM_OPEN) {
+    if (!mRuntimeComponentsCreated && !mRefreshInProgress) {
+      mRefreshInProgress = TRUE;
+      CfrCreateRuntimeComponents ();
+      mRefreshInProgress = FALSE;
+      mRuntimeComponentsCreated = TRUE;
+    }
+  }
+
+  if (Action != EFI_BROWSER_ACTION_CHANGED) {
+    return EFI_SUCCESS;
+  }
+
+  switch (QuestionId) {
+    case 0x3100:
+      OpenFormSet (&mBiosPasswordFormSetGuid);
+      return EFI_SUCCESS;
+    case 0x3101:
+      OpenFormSet (&mSecureBootFormSetGuid);
+      return EFI_SUCCESS;
+    case 0x3102:
+      OpenFormSet (&mTcgDiskEncryptionFormSetGuid);
+      return EFI_SUCCESS;
+    case 0x3103:
+      OpenFormSet (&mTpmFormSetGuid);
+      return EFI_SUCCESS;
+    default:
+      break;
+  }
+
   return EFI_SUCCESS;
 }
