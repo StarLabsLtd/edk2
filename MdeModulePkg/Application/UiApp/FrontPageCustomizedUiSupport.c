@@ -37,7 +37,20 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #define FRONT_PAGE_KEY_CONTINUE  0x1000
 #define FRONT_PAGE_KEY_RESET     0x1001
 #define FRONT_PAGE_KEY_LANGUAGE  0x1002
+#define FRONT_PAGE_KEY_SETTINGS  0x1003
 #define FRONT_PAGE_KEY_DRIVER    0x2000
+
+STATIC CONST EFI_GUID  mCfrSetupMenuFormsetGuid = {
+  0x93e6fcd9, 0x8e17, 0x43df, { 0xb7, 0xf0, 0x91, 0x3e, 0x58, 0xb1, 0xa7, 0x89 }
+};
+
+STATIC CONST EFI_GUID  mBootManagerFormsetGuid = {
+  0x847bc3fe, 0xb974, 0x446d, { 0x94, 0x49, 0x5a, 0xd5, 0x41, 0x2e, 0x99, 0x3b }
+};
+
+STATIC CONST EFI_GUID  mBootMaintenanceManagerFormsetGuid = {
+  0x642237c7, 0x35d4, 0x472d, { 0x83, 0x65, 0x12, 0xe0, 0xcc, 0xf2, 0x7a, 0x22 }
+};
 
 typedef struct {
   EFI_STRING_ID    PromptId;
@@ -468,6 +481,32 @@ UiCreateResetMenu (
 }
 
 /**
+  Create Settings menu in the front page.
+
+  @param[in]    HiiHandle           The hii handle for the Uiapp driver.
+  @param[in]    StartOpCodeHandle   The opcode handle to save the new opcode.
+
+**/
+VOID
+UiCreateSettingsMenu (
+  IN EFI_HII_HANDLE  HiiHandle,
+  IN VOID            *StartOpCodeHandle
+  )
+{
+  HiiCreateGotoExOpCode (
+    StartOpCodeHandle,
+    0,
+    STRING_TOKEN (STR_SETTINGS),
+    STRING_TOKEN (STR_SETTINGS_HELP),
+    0,
+    FRONT_PAGE_KEY_SETTINGS,
+    0,
+    (EFI_GUID *)&mCfrSetupMenuFormsetGuid,
+    0
+    );
+}
+
+/**
   Extract device path for given HII handle and class guid.
 
   @param Handle          The HII handle.
@@ -595,6 +634,11 @@ UiListThirdPartyDrivers (
   UI_HII_DRIVER_INSTANCE  *DriverListPtr;
   EFI_STRING              NewName;
   BOOLEAN                 EmptyLineAfter;
+  BOOLEAN                 SettingsInserted;
+  BOOLEAN                 HasBootManager;
+  BOOLEAN                 HasBootMaintenance;
+  BOOLEAN                 SeenBootManager;
+  BOOLEAN                 SeenBootMaintenance;
 
   if (gHiiDriverList != NULL) {
     FreePool (gHiiDriverList);
@@ -617,6 +661,11 @@ UiListThirdPartyDrivers (
 
   DriverListPtr = gHiiDriverList;
   CurrentSize   = UI_HII_DRIVER_LIST_SIZE;
+  SettingsInserted = FALSE;
+  HasBootManager      = FALSE;
+  HasBootMaintenance  = FALSE;
+  SeenBootManager     = FALSE;
+  SeenBootMaintenance = FALSE;
 
   for (Index = 0, Count = 0; HiiHandles[Index] != NULL; Index++) {
     if (!RequiredDriver (HiiHandles[Index], ClassGuid, &Token, &TokenHelp, &gHiiDriverList[Count].FormSetGuid)) {
@@ -675,6 +724,20 @@ UiListThirdPartyDrivers (
 
   FreePool (HiiHandles);
 
+  //
+  // Prefer placing "Settings" below the boot-related menus.
+  //
+  Index = 0;
+  while (gHiiDriverList[Index].PromptId != 0) {
+    if (CompareGuid (&gHiiDriverList[Index].FormSetGuid, &mBootManagerFormsetGuid)) {
+      HasBootManager = TRUE;
+    } else if (CompareGuid (&gHiiDriverList[Index].FormSetGuid, &mBootMaintenanceManagerFormsetGuid)) {
+      HasBootMaintenance = TRUE;
+    }
+
+    Index++;
+  }
+
   Index = 0;
   while (gHiiDriverList[Index].PromptId != 0) {
     HiiCreateGotoExOpCode (
@@ -692,7 +755,28 @@ UiListThirdPartyDrivers (
     // Always add an empty line after each entry
     UiCreateEmptyLine (HiiHandle, StartOpCodeHandle);
 
+    if (CompareGuid (&gHiiDriverList[Index].FormSetGuid, &mBootManagerFormsetGuid)) {
+      SeenBootManager = TRUE;
+    } else if (CompareGuid (&gHiiDriverList[Index].FormSetGuid, &mBootMaintenanceManagerFormsetGuid)) {
+      SeenBootMaintenance = TRUE;
+    }
+
+    if (!SettingsInserted &&
+        ((HasBootManager && HasBootMaintenance && SeenBootManager && SeenBootMaintenance) ||
+         (HasBootManager && !HasBootMaintenance && SeenBootManager) ||
+         (!HasBootManager && HasBootMaintenance && SeenBootMaintenance)))
+    {
+      UiCreateSettingsMenu (HiiHandle, StartOpCodeHandle);
+      SettingsInserted = TRUE;
+      UiCreateEmptyLine (HiiHandle, StartOpCodeHandle);
+    }
+
     Index++;
+  }
+
+  if (!SettingsInserted) {
+    UiCreateSettingsMenu (HiiHandle, StartOpCodeHandle);
+    UiCreateEmptyLine (HiiHandle, StartOpCodeHandle);
   }
 
   return EFI_SUCCESS;
