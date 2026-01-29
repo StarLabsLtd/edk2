@@ -36,6 +36,7 @@
   HiiLib
   HobLib
   MemoryAllocationLib
+  LockBoxLib
   VariablePolicyHelperLib
   UefiHiiServicesLib
   UefiLib
