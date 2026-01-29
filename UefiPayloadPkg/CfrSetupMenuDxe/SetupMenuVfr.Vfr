@@ -19,6 +19,14 @@ formset
   form formid = SETUP_MENU_FORM_ID,
     title = STRING_TOKEN(STR_CFR_MENU_TITLE);
 
+    suppressif TRUE;
+      text
+        help  = STRING_TOKEN(STR_EMPTY_STRING),
+        text  = STRING_TOKEN(STR_EMPTY_STRING),
+        flags = INTERACTIVE,
+        key   = SETUP_MENU_REFRESH_KEY_ID;
+    endif;
+
     /**
       Sections for runtime components
 
