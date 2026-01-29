@@ -16,9 +16,454 @@
 #include <Library/HobLib.h>
 #include <Library/MemoryAllocationLib.h>
 #include <Library/VariablePolicyHelperLib.h>
+#include <Library/UefiBootServicesTableLib.h>
 #include <Library/UefiRuntimeServicesTableLib.h>
+#include <Library/PrintLib.h>
 #include <Guid/CfrSetupMenuGuid.h>
+#include <Guid/GlobalVariable.h>
 #include <Guid/VariableFormat.h>
+#include <Protocol/HiiConfigRouting.h>
+#include <Protocol/HiiDatabase.h>
+
+#define SECURITY_SECTION_NAME_ASCII  "Security"
+
+STATIC EFI_STRING_ID  mSecurityBiosPasswordPromptId   = 0;
+STATIC EFI_STRING_ID  mSecurityBiosPasswordStatusId   = 0;
+STATIC EFI_STRING_ID  mSecuritySecureBootPromptId     = 0;
+STATIC EFI_STRING_ID  mSecuritySecureBootStatusId     = 0;
+STATIC EFI_STRING_ID  mSecurityTcgDiskEncryptionId    = 0;
+STATIC EFI_STRING_ID  mSecurityTcgDiskEncryptionStatusId = 0;
+STATIC EFI_STRING_ID  mSecurityTpmPromptId            = 0;
+STATIC EFI_STRING_ID  mSecurityTpmStatusId            = 0;
+STATIC EFI_STRING_ID  mSecurityEntryHelpId            = 0;
+STATIC BOOLEAN        mSecurityLinksInserted          = FALSE;
+STATIC BOOLEAN        mSecurityLinksPending           = FALSE;
+
+STATIC CONST EFI_GUID  mOpalPackageListGuid = {
+  0xf0308176, 0x9058, 0x4153, { 0x93, 0x3d, 0xda, 0x2f, 0xdc, 0xc8, 0x3e, 0x44 }
+};
+
+STATIC CONST EFI_GUID  mSecureBootFormSetGuid = {
+  0x5daf50a5, 0xea81, 0x4de2, { 0x8f, 0x9b, 0xca, 0xbd, 0xa9, 0xcf, 0x5c, 0x14 }
+};
+
+STATIC CONST EFI_GUID  mBiosPasswordFormSetGuid = {
+  0x760e3022, 0xf149, 0x4560, { 0x9c, 0x6f, 0x33, 0xaa, 0x7d, 0x48, 0x75, 0xfa }
+};
+
+STATIC CONST EFI_GUID  mTpmFormSetGuid = {
+  0x6339d487, 0x26ba, 0x424b, { 0x9a, 0x5d, 0x68, 0x7e, 0x25, 0xd7, 0x40, 0xbc }
+};
+
+STATIC CONST EFI_GUID  mBiosPasswordVariableGuid = {
+  0xee24a7f7, 0x606b, 0x4724, { 0xb3, 0xc9, 0xf5, 0xae, 0x4a, 0x3b, 0x81, 0x65 }
+};
+
+STATIC CONST EFI_GUID  mOpalSetupVariableGuid = {
+  0xbbf1acd2, 0x28d8, 0x44ea, { 0xa2, 0x91, 0x58, 0xa2, 0x37, 0xfe, 0xdf, 0x1a }
+};
+
+STATIC
+BOOLEAN
+IsHiiPackageListPresent (
+  IN CONST EFI_GUID  *PackageListGuid
+  )
+{
+  EFI_HII_HANDLE  *HiiHandles;
+
+  if (PackageListGuid == NULL) {
+    return FALSE;
+  }
+
+  HiiHandles = HiiGetHiiHandles (PackageListGuid);
+  if (HiiHandles == NULL) {
+    return FALSE;
+  }
+
+  FreePool (HiiHandles);
+  return TRUE;
+}
+
+STATIC
+BOOLEAN
+IsTcgDiskEncryptionConfigPresent (
+  VOID
+  )
+{
+  return IsHiiPackageListPresent (&mOpalPackageListGuid);
+}
+
+STATIC
+VOID
+UpdateStatusString (
+  IN EFI_STRING_ID  StatusStringId,
+  IN CONST CHAR16   *StatusText
+  )
+{
+  if (StatusStringId == 0) {
+    return;
+  }
+
+  HiiSetString (mSetupMenuPrivate.HiiHandle, StatusStringId, (CHAR16 *)StatusText, NULL);
+}
+
+STATIC
+BOOLEAN
+IsSecureBootEnabled (
+  VOID
+  )
+{
+  EFI_STATUS  Status;
+  UINT8       SecureBoot;
+  UINTN       Size;
+
+  SecureBoot = 0;
+  Size       = sizeof (SecureBoot);
+  Status     = gRT->GetVariable (L"SecureBoot", &gEfiGlobalVariableGuid, NULL, &Size, &SecureBoot);
+  if (EFI_ERROR (Status) || (Size != sizeof (SecureBoot))) {
+    return FALSE;
+  }
+
+  return (SecureBoot != 0);
+}
+
+STATIC
+UINT8
+GetDetectedTpmDevice (
+  VOID
+  )
+{
+  EFI_STATUS  Status;
+  UINT8       Detected;
+  UINTN       Size;
+
+  Detected = 0;
+  Size     = sizeof (Detected);
+  Status   = gRT->GetVariable (L"TCG2_DEVICE_DETECTION", (EFI_GUID *)&mTpmFormSetGuid, NULL, &Size, &Detected);
+  if (EFI_ERROR (Status) || (Size != sizeof (Detected))) {
+    return 0xFF;
+  }
+
+  return Detected;
+}
+
+STATIC
+BOOLEAN
+IsBiosPasswordSet (
+  VOID
+  )
+{
+  EFI_STATUS  Status;
+  UINTN       Size;
+
+  //
+  // We only care if the variable exists. If it does, GetVariable returns
+  // EFI_BUFFER_TOO_SMALL when called with a NULL buffer.
+  //
+  Size   = 0;
+  Status = gRT->GetVariable (L"Password", (EFI_GUID *)&mBiosPasswordVariableGuid, NULL, &Size, NULL);
+  return (Status != EFI_NOT_FOUND);
+}
+
+STATIC
+BOOLEAN
+TryGetOpalSupportedDisks (
+  OUT UINT16  *SupportedDisks
+  )
+{
+  EFI_STATUS                       Status;
+  EFI_HII_HANDLE                   *HiiHandles;
+  EFI_HII_DATABASE_PROTOCOL        *HiiDatabase;
+  EFI_HII_CONFIG_ACCESS_PROTOCOL   *ConfigAccess;
+  EFI_HII_CONFIG_ROUTING_PROTOCOL  *ConfigRouting;
+  EFI_HANDLE                       DriverHandle;
+  EFI_STRING                       ConfigHdr;
+  EFI_STRING                       Request;
+  EFI_STRING                       Progress;
+  EFI_STRING                       Results;
+  UINT8                            Block[6];
+  UINTN                            BlockSize;
+
+  if (SupportedDisks == NULL) {
+    return FALSE;
+  }
+
+  *SupportedDisks = 0;
+  HiiHandles      = NULL;
+  Results         = NULL;
+  Request         = NULL;
+  ConfigHdr       = NULL;
+
+  HiiHandles = HiiGetHiiHandles (&mOpalPackageListGuid);
+  if (HiiHandles == NULL) {
+    return FALSE;
+  }
+
+  Status = gBS->LocateProtocol (&gEfiHiiDatabaseProtocolGuid, NULL, (VOID **)&HiiDatabase);
+  if (EFI_ERROR (Status)) {
+    FreePool (HiiHandles);
+    return FALSE;
+  }
+
+  Status = HiiDatabase->GetPackageListHandle (HiiDatabase, HiiHandles[0], &DriverHandle);
+  FreePool (HiiHandles);
+  if (EFI_ERROR (Status)) {
+    return FALSE;
+  }
+
+  Status = gBS->HandleProtocol (DriverHandle, &gEfiHiiConfigAccessProtocolGuid, (VOID **)&ConfigAccess);
+  if (EFI_ERROR (Status)) {
+    return FALSE;
+  }
+
+  ConfigHdr = HiiConstructConfigHdr (&mOpalSetupVariableGuid, L"OpalHiiConfig", DriverHandle);
+  if (ConfigHdr == NULL) {
+    return FALSE;
+  }
+
+  Request = AllocatePool (StrSize (ConfigHdr) + sizeof (L"&OFFSET=0000&WIDTH=0000"));
+  if (Request == NULL) {
+    FreePool (ConfigHdr);
+    return FALSE;
+  }
+
+  UnicodeSPrint (Request, StrSize (ConfigHdr) + sizeof (L"&OFFSET=0000&WIDTH=0000"), L"%s&OFFSET=%04x&WIDTH=%04x", ConfigHdr, 0, (UINT16)sizeof (Block));
+  FreePool (ConfigHdr);
+
+  Progress = Request;
+  Status   = ConfigAccess->ExtractConfig (ConfigAccess, Request, &Progress, &Results);
+  FreePool (Request);
+  if (EFI_ERROR (Status) || (Results == NULL)) {
+    if (Results != NULL) {
+      FreePool (Results);
+    }
+
+    return FALSE;
+  }
+
+  Status = gBS->LocateProtocol (&gEfiHiiConfigRoutingProtocolGuid, NULL, (VOID **)&ConfigRouting);
+  if (EFI_ERROR (Status)) {
+    FreePool (Results);
+    return FALSE;
+  }
+
+  ZeroMem (Block, sizeof (Block));
+  BlockSize = sizeof (Block);
+  Progress  = Results;
+  Status    = ConfigRouting->ConfigToBlock (ConfigRouting, Results, Block, &BlockSize, &Progress);
+  FreePool (Results);
+  //
+  // ConfigToBlock returns the largest byte index written, not the byte count.
+  // For a 6-byte block the successful result is 5.
+  //
+  if (EFI_ERROR (Status) || (BlockSize < (sizeof (Block) - 1))) {
+    DEBUG ((DEBUG_WARN, "TCG Disk Encryption: ConfigToBlock failed: %r BlockSize=%u\n", Status, (UINT32)BlockSize));
+    return FALSE;
+  }
+
+  *SupportedDisks = ReadUnaligned16 ((UINT16 *)(Block + 4));
+  return TRUE;
+}
+
+STATIC
+BOOLEAN
+GetTcgDiskEncryptionSupportedDisks (
+  OUT UINT16  *SupportedDisks
+  )
+{
+  EFI_HII_HANDLE  *HiiHandles;
+
+  if (SupportedDisks == NULL) {
+    return FALSE;
+  }
+
+  *SupportedDisks = 0;
+  HiiHandles      = HiiGetHiiHandles (&mOpalPackageListGuid);
+  if (HiiHandles == NULL) {
+    return FALSE;
+  }
+
+  FreePool (HiiHandles);
+  return TryGetOpalSupportedDisks (SupportedDisks);
+}
+
+STATIC
+CONST CHAR16 *
+GetTcgDiskEncryptionStatus (
+  VOID
+  )
+{
+  UINT16  SupportedDisks;
+
+  if (!GetTcgDiskEncryptionSupportedDisks (&SupportedDisks)) {
+    return L"Not Available";
+  }
+
+  return (SupportedDisks > 0) ? L"Setup" : L"Not Available";
+}
+
+STATIC
+VOID
+EnsureSecurityEntryStrings (
+  VOID
+  )
+{
+  if (mSecurityEntryHelpId == 0) {
+    mSecurityEntryHelpId = HiiSetString (mSetupMenuPrivate.HiiHandle, 0, L"Open configuration", NULL);
+  }
+
+  if (mSecurityBiosPasswordPromptId == 0) {
+    mSecurityBiosPasswordPromptId = HiiSetString (mSetupMenuPrivate.HiiHandle, 0, L"BIOS Password", NULL);
+  }
+
+  if (mSecurityBiosPasswordStatusId == 0) {
+    mSecurityBiosPasswordStatusId = HiiSetString (mSetupMenuPrivate.HiiHandle, 0, L"", NULL);
+  }
+
+  if (mSecuritySecureBootPromptId == 0) {
+    mSecuritySecureBootPromptId = HiiSetString (mSetupMenuPrivate.HiiHandle, 0, L"Secure Boot", NULL);
+  }
+
+  if (mSecuritySecureBootStatusId == 0) {
+    mSecuritySecureBootStatusId = HiiSetString (mSetupMenuPrivate.HiiHandle, 0, L"", NULL);
+  }
+
+  if (mSecurityTcgDiskEncryptionId == 0) {
+    mSecurityTcgDiskEncryptionId = HiiSetString (mSetupMenuPrivate.HiiHandle, 0, L"TCG Disk Encryption", NULL);
+  }
+
+  if (mSecurityTcgDiskEncryptionStatusId == 0) {
+    mSecurityTcgDiskEncryptionStatusId = HiiSetString (mSetupMenuPrivate.HiiHandle, 0, L"", NULL);
+  }
+
+  if (mSecurityTpmPromptId == 0) {
+    mSecurityTpmPromptId = HiiSetString (mSetupMenuPrivate.HiiHandle, 0, L"TPM", NULL);
+  }
+
+  if (mSecurityTpmStatusId == 0) {
+    mSecurityTpmStatusId = HiiSetString (mSetupMenuPrivate.HiiHandle, 0, L"", NULL);
+  }
+}
+
+VOID
+EFIAPI
+CfrUpdateSecurityMenuEntries (
+  VOID
+  )
+{
+  UINT8   DetectedTpm;
+  CONST CHAR16  *TpmStatus;
+  CONST CHAR16  *TcgStatus;
+
+  if ((mSecurityEntryHelpId == 0) ||
+      (mSecurityBiosPasswordPromptId == 0) ||
+      (mSecurityBiosPasswordStatusId == 0) ||
+      (mSecuritySecureBootPromptId == 0) ||
+      (mSecuritySecureBootStatusId == 0) ||
+      (mSecurityTcgDiskEncryptionId == 0) ||
+      (mSecurityTcgDiskEncryptionStatusId == 0) ||
+      (mSecurityTpmPromptId == 0) ||
+      (mSecurityTpmStatusId == 0))
+  {
+    return;
+  }
+
+  UpdateStatusString (mSecuritySecureBootStatusId, IsSecureBootEnabled () ? L"Enabled" : L"Disabled");
+  UpdateStatusString (mSecurityBiosPasswordStatusId, IsBiosPasswordSet () ? L"Set" : L"Not Set");
+
+  DetectedTpm = GetDetectedTpmDevice ();
+  switch (DetectedTpm) {
+    case 0:
+      TpmStatus = L"Not Found";
+      break;
+    case 1:
+      TpmStatus = L"TPM 1.2";
+      break;
+    case 2:
+      TpmStatus = L"TPM 2.0";
+      break;
+    default:
+      TpmStatus = L"Unknown";
+      break;
+  }
+
+  UpdateStatusString (mSecurityTpmStatusId, TpmStatus);
+
+  TcgStatus = GetTcgDiskEncryptionStatus ();
+  UpdateStatusString (mSecurityTcgDiskEncryptionStatusId, TcgStatus);
+}
+
+STATIC
+VOID
+InsertSecurityLinks (
+  IN VOID     *StartOpCodeHandle,
+  IN BOOLEAN  CreateSectionTitle,
+  IN BOOLEAN  AddTrailingSpacer
+  )
+{
+  EnsureSecurityEntryStrings ();
+
+  if (CreateSectionTitle) {
+    HiiCreateSubTitleOpCode (StartOpCodeHandle, STRING_TOKEN (STR_CFR_MENU_SECURITY_SECTION), 0, 0, 0);
+  }
+
+  //
+  // Keep alphabetized (coreboot UI convention).
+  //
+  if (IsHiiPackageListPresent (&mBiosPasswordFormSetGuid)) {
+    HiiCreateActionOpCode (
+      StartOpCodeHandle,
+      0x3100,
+      mSecurityBiosPasswordPromptId,
+      mSecurityEntryHelpId,
+      EFI_IFR_FLAG_CALLBACK,
+      mSecurityBiosPasswordStatusId
+      );
+  }
+
+  if (IsHiiPackageListPresent (&mSecureBootFormSetGuid)) {
+    HiiCreateActionOpCode (
+      StartOpCodeHandle,
+      0x3101,
+      mSecuritySecureBootPromptId,
+      mSecurityEntryHelpId,
+      EFI_IFR_FLAG_CALLBACK,
+      mSecuritySecureBootStatusId
+      );
+  }
+
+  if (IsTcgDiskEncryptionConfigPresent ()) {
+    UINT16  SupportedDisks;
+
+    SupportedDisks = 0;
+    GetTcgDiskEncryptionSupportedDisks (&SupportedDisks);
+    HiiCreateActionOpCode (
+      StartOpCodeHandle,
+      0x3102,
+      mSecurityTcgDiskEncryptionId,
+      mSecurityEntryHelpId,
+      (SupportedDisks > 0) ? EFI_IFR_FLAG_CALLBACK : 0,
+      mSecurityTcgDiskEncryptionStatusId
+      );
+  }
+
+  if (IsHiiPackageListPresent (&mTpmFormSetGuid)) {
+    HiiCreateActionOpCode (
+      StartOpCodeHandle,
+      0x3103,
+      mSecurityTpmPromptId,
+      mSecurityEntryHelpId,
+      EFI_IFR_FLAG_CALLBACK,
+      mSecurityTpmStatusId
+      );
+  }
+
+  if (AddTrailingSpacer) {
+    HiiCreateSubTitleOpCode (StartOpCodeHandle, STRING_TOKEN (STR_EMPTY_STRING), 0, 0, 0);
+  }
+
+  CfrUpdateSecurityMenuEntries ();
+}
 
 typedef struct {
   UINT8         *Data;
@@ -634,7 +1079,6 @@ CfrProduceStorageForOption (
   if (!(OptionFlags & CFR_OPTFLAG_VOLATILE)) {
     VariableAttributes |= EFI_VARIABLE_NON_VOLATILE;
   }
-
   if (OptionFlags & CFR_OPTFLAG_RUNTIME) {
     VariableAttributes |= EFI_VARIABLE_RUNTIME_ACCESS;
   }
@@ -833,8 +1277,27 @@ CfrProcessFormOption (
     Option->size
     ));
 
+  //
+  // If we were in the CFR "Security" section and encounter the next form,
+  // inject our Security links at the end of that section (so they merge with
+  // CFR-provided items such as BIOS Lock).
+  //
+  if (mSecurityLinksPending &&
+      (AsciiStriCmp ((CHAR8 *)CfrFormName->data, SECURITY_SECTION_NAME_ASCII) != 0))
+  {
+    InsertSecurityLinks (StartOpCodeHandle, FALSE, FALSE);
+    mSecurityLinksInserted = TRUE;
+    mSecurityLinksPending  = FALSE;
+  }
+
   CfrConvertVarBinaryToStrings (CfrFormName, &HiiFormNameString, &HiiFormNameStringId);
   FreePool (HiiFormNameString);
+
+  if (!mSecurityLinksInserted &&
+      (AsciiStriCmp ((CHAR8 *)CfrFormName->data, SECURITY_SECTION_NAME_ASCII) == 0))
+  {
+    mSecurityLinksPending = TRUE;
+  }
 
   if (Option->dependency_id) {
     CfrProduceHiiForDependency (
@@ -1422,6 +1885,8 @@ CfrCreateRuntimeComponents (
   //
   // For each HOB, create forms
   //
+  mSecurityLinksInserted = FALSE;
+  mSecurityLinksPending  = FALSE;
   GuidHob = GetFirstGuidHob (&gEfiCfrSetupMenuFormGuid);
   while (GuidHob != NULL) {
     CfrFormHob = GET_GUID_HOB_DATA (GuidHob);
@@ -1478,6 +1943,12 @@ CfrCreateRuntimeComponents (
       }
     }
 
+    if (mSecurityLinksPending) {
+      InsertSecurityLinks (StartOpCodeHandle, FALSE, FALSE);
+      mSecurityLinksInserted = TRUE;
+      mSecurityLinksPending  = FALSE;
+    }
+
     TempHiiBuffer = HiiCreateSubTitleOpCode (
                       StartOpCodeHandle,
                       STRING_TOKEN (STR_EMPTY_STRING),
@@ -1488,6 +1959,13 @@ CfrCreateRuntimeComponents (
     ASSERT (TempHiiBuffer != NULL);
 
     GuidHob = GetNextGuidHob (&gEfiCfrSetupMenuFormGuid, GET_NEXT_HOB (GuidHob));
+  }
+
+  //
+  // If the platform CFR didn't provide a "Security" section, add one at the end.
+  //
+  if (!mSecurityLinksInserted) {
+    InsertSecurityLinks (StartOpCodeHandle, TRUE, FALSE);
   }
 
   //

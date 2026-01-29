@@ -44,6 +44,7 @@
   UefiDriverEntryPoint
 
 [Guids]
+  gEfiGlobalVariableGuid
   gEfiCfrSetupMenuFormGuid
   gEficorebootNvDataGuid
   gEfiHiiPlatformSetupFormsetGuid               ## CONSUMES ## GUID (Indicate the formset class guid to be displayed)
@@ -51,7 +52,10 @@
 
 [Protocols]
   gEfiDevicePathProtocolGuid        ## PRODUCES
+  gEfiFormBrowser2ProtocolGuid      ## CONSUMES
   gEfiHiiConfigAccessProtocolGuid   ## PRODUCES
+  gEfiHiiConfigRoutingProtocolGuid  ## CONSUMES
+  gEfiHiiDatabaseProtocolGuid       ## CONSUMES
   gEdkiiVariablePolicyProtocolGuid  ## SOMETIMES_CONSUMES
 
 [Depex]
