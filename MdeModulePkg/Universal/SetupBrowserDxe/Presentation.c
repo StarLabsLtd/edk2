@@ -1573,6 +1573,14 @@ ProcessQuestionConfig (
   }
 
   //
+  // Only route well-formed <ConfigResp> strings. Some platform menus repurpose
+  // QuestionConfig as a display-only status string for ACTION questions.
+  //
+  if (StrnCmp (ConfigResp, L"GUID=", 5) != 0) {
+    return EFI_SUCCESS;
+  }
+
+  //
   // Send config to Configuration Driver
   //
   Status = mHiiConfigRouting->RouteConfig (
