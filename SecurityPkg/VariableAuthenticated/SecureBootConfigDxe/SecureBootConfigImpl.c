@@ -13,6 +13,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Protocol/HiiPopup.h>
 #include <Protocol/RealTimeClock.h>
 #include <Library/BaseCryptLib.h>
+#include <Library/PcdLib.h>
 #include <Library/SecureBootVariableLib.h>
 #include <Library/SecureBootVariableProvisionLib.h>
 
@@ -4545,6 +4546,7 @@ SecureBootCallback (
   ENROLL_KEY_ERROR                EnrollKeyErrorCode;
   EFI_HII_POPUP_PROTOCOL          *HiiPopup;
   EFI_HII_POPUP_SELECTION         UserSelection;
+  BOOLEAN                         SimpleUi;
 
   Status               = EFI_SUCCESS;
   SecureBootEnable     = NULL;
@@ -4559,6 +4561,7 @@ SecureBootCallback (
   }
 
   Private = SECUREBOOT_CONFIG_PRIVATE_FROM_THIS (This);
+  SimpleUi = PcdGetBool (PcdSecureBootConfigSimpleUi);
 
   gSecureBootPrivateData = Private;
 
@@ -4572,7 +4575,9 @@ SecureBootCallback (
   }
 
   if (Action == EFI_BROWSER_ACTION_FORM_OPEN) {
-    if (QuestionId == KEY_SECURE_BOOT_MODE) {
+    if ((!SimpleUi && (QuestionId == KEY_SECURE_BOOT_MODE)) ||
+        (SimpleUi && ((QuestionId == KEY_SECURE_BOOT_ENABLE) || (QuestionId == KEY_SECURE_BOOT_MODE) || (QuestionId == KEY_SECURE_BOOT_ADVANCED))))
+    {
       //
       // Update secure boot strings when opening this form
       //
@@ -4611,6 +4616,18 @@ SecureBootCallback (
       }
     }
 
+    if (SimpleUi && (QuestionId == KEY_SECURE_BOOT_ENABLE)) {
+      GetVariable2 (EFI_SECURE_BOOT_ENABLE_NAME, &gEfiSecureBootEnableDisableGuid, (VOID **)&SecureBootEnable, NULL);
+      if (SecureBootEnable != NULL) {
+        Value->u8 = *SecureBootEnable ? 1 : 0;
+        FreePool (SecureBootEnable);
+      } else {
+        Value->u8 = 0;
+      }
+
+      Status = EFI_SUCCESS;
+    }
+
     goto EXIT;
   }
 
@@ -4638,12 +4655,28 @@ SecureBootCallback (
               );
             Status = EFI_UNSUPPORTED;
           } else {
-            CreatePopUp (
-              EFI_LIGHTGRAY | EFI_BACKGROUND_BLUE,
-              &Key,
-              L"Configuration changed, please reset the platform to take effect!",
-              NULL
-              );
+            if (SimpleUi) {
+              do {
+                CreatePopUp (
+                  EFI_LIGHTGRAY | EFI_BACKGROUND_BLUE,
+                  &Key,
+                  L"Reboot required to apply the change.",
+                  L"Enter to continue, Esc to cancel.",
+                  NULL
+                  );
+              } while ((Key.UnicodeChar != CHAR_CARRIAGE_RETURN) && (Key.ScanCode != SCAN_ESC));
+
+              if (Key.UnicodeChar == CHAR_CARRIAGE_RETURN) {
+                gRT->ResetSystem (EfiResetCold, EFI_SUCCESS, 0, NULL);
+              }
+            } else {
+              CreatePopUp (
+                EFI_LIGHTGRAY | EFI_BACKGROUND_BLUE,
+                &Key,
+                L"Configuration changed, please reset the platform to take effect!",
+                NULL
+                );
+            }
           }
         }
 
@@ -4749,7 +4782,7 @@ SecureBootCallback (
         break;
 
       case KEY_SECURE_BOOT_DELETE_PK:
-        if (Value->u8) {
+        if (!SimpleUi && Value->u8) {
           CreatePopUp (
             EFI_LIGHTGRAY | EFI_BACKGROUND_BLUE,
             &Key,
@@ -5109,6 +5142,33 @@ SecureBootCallback (
         *ActionRequest = EFI_BROWSER_ACTION_REQUEST_FORM_APPLY;
         break;
       case KEY_SECURE_BOOT_DELETE_PK:
+        if (SimpleUi) {
+          CreatePopUp (
+            EFI_LIGHTGRAY | EFI_BACKGROUND_BLUE,
+            &Key,
+            L"Are you sure you want to delete PK? Secure boot will be disabled!",
+            L"Press 'Y' to delete PK and exit, 'N' to discard change and return",
+            NULL
+            );
+          if ((Key.UnicodeChar == 'y') || (Key.UnicodeChar == 'Y')) {
+            Status = DeletePlatformKey ();
+            if (EFI_ERROR (Status)) {
+              CreatePopUp (
+                EFI_LIGHTGRAY | EFI_BACKGROUND_BLUE,
+                &Key,
+                L"Only Physical Presence User could delete PK in custom mode!",
+                NULL
+                );
+            } else {
+              Status = UpdateSecureBootString (Private);
+              SecureBootExtractConfigFromVariable (Private, IfrNvData);
+            }
+          }
+
+          *ActionRequest = EFI_BROWSER_ACTION_REQUEST_FORM_APPLY;
+          break;
+        }
+
         GetVariable2 (EFI_SETUP_MODE_NAME, &gEfiGlobalVariableGuid, (VOID **)&SetupMode, NULL);
         if ((SetupMode == NULL) || ((*SetupMode) == SETUP_MODE)) {
           IfrNvData->DeletePk = TRUE;
@@ -5127,17 +5187,23 @@ SecureBootCallback (
         break;
       case KEY_SECURE_BOOT_RESET_TO_DEFAULT:
       {
+        EFI_STRING_ID  PopupStringId;
+
         Status = gBS->LocateProtocol (&gEfiHiiPopupProtocolGuid, NULL, (VOID **)&HiiPopup);
         if (EFI_ERROR (Status)) {
           return Status;
         }
+
+        PopupStringId = SimpleUi ?
+                        STRING_TOKEN (STR_SECUREBOOT_SIMPLE_RESET_TO_DEFAULTS_POPUP) :
+                        STRING_TOKEN (STR_RESET_TO_DEFAULTS_POPUP);
 
         Status = HiiPopup->CreatePopup (
                              HiiPopup,
                              EfiHiiPopupStyleInfo,
                              EfiHiiPopupTypeYesNo,
                              Private->HiiHandle,
-                             STRING_TOKEN (STR_RESET_TO_DEFAULTS_POPUP),
+                             PopupStringId,
                              &UserSelection
                              );
         if (UserSelection == EfiHiiPopupSelectionYes) {
@@ -5226,6 +5292,7 @@ InstallSecureBootConfigForm (
   EFI_HII_HANDLE                  HiiHandle;
   EFI_HANDLE                      DriverHandle;
   EFI_HII_CONFIG_ACCESS_PROTOCOL  *ConfigAccess;
+  VOID                            *FormBin;
 
   DriverHandle = NULL;
   ConfigAccess = &PrivateData->ConfigAccess;
@@ -5243,6 +5310,8 @@ InstallSecureBootConfigForm (
 
   PrivateData->DriverHandle = DriverHandle;
 
+  FormBin = PcdGetBool (PcdSecureBootConfigSimpleUi) ? (VOID *)SecureBootConfigSimpleBin : (VOID *)SecureBootConfigBin;
+
   //
   // Publish the HII package list
   //
@@ -5250,7 +5319,7 @@ InstallSecureBootConfigForm (
                 &gSecureBootConfigFormSetGuid,
                 DriverHandle,
                 SecureBootConfigDxeStrings,
-                SecureBootConfigBin,
+                FormBin,
                 NULL
                 );
   if (HiiHandle == NULL) {

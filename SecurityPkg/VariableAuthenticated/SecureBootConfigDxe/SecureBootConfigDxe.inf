@@ -29,6 +29,7 @@
   SecureBootConfigMisc.c
   SecureBootConfigImpl.h
   SecureBootConfig.vfr
+  SecureBootConfigSimple.vfr
   SecureBootConfigStrings.uni
   SecureBootConfigNvData.h
 
@@ -43,6 +44,7 @@
   BaseMemoryLib
   BaseCryptLib
   MemoryAllocationLib
+  PcdLib
   UefiLib
   UefiBootServicesTableLib
   UefiRuntimeServicesTableLib
@@ -120,6 +122,9 @@
   gEfiDevicePathProtocolGuid                    ## PRODUCES
   gEfiHiiPopupProtocolGuid
   gEfiRealTimeClockArchProtocolGuid             ## CONSUMES
+
+[Pcd]
+  gEfiSecurityPkgTokenSpaceGuid.PcdSecureBootConfigSimpleUi  ## CONSUMES
 
 [Depex]
   gEfiHiiConfigRoutingProtocolGuid  AND

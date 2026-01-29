@@ -11,6 +11,9 @@
 #string STR_SECUREBOOT_TITLE               #language en-US "Secure Boot Configuration"
 #string STR_SECUREBOOT_HELP                #language en-US "Press <Enter> to select Secure Boot options."
 
+#string STR_SECUREBOOT_SIMPLE_TITLE        #language en-US "Secure Boot"
+#string STR_SECUREBOOT_SIMPLE_HELP         #language en-US "Press <Enter> to configure Secure Boot."
+
 #string STR_NULL                           #language en-US ""
 #string STR_DBX_SUBTITLE_TEXT              #language en-US ""
 
@@ -24,6 +27,23 @@
 #string STR_SECURE_RESET_TO_DEFAULTS_HELP  #language en-US "Enroll keys with data from default variables"
 #string STR_SECURE_RESET_TO_DEFAULTS       #language en-US "Reset Secure Boot Keys"
 #string STR_RESET_TO_DEFAULTS_POPUP        #language en-US "Secure Boot Keys & databases will be initialized from defaults.\n Are you sure?"
+
+#string STR_SECUREBOOT_SIMPLE_STATE_PROMPT  #language en-US "Current status"
+#string STR_SECUREBOOT_SIMPLE_STATE_HELP    #language en-US "Shows whether Secure Boot is currently enabled or disabled."
+
+#string STR_SECUREBOOT_SIMPLE_ENABLE_PROMPT #language en-US "Secure Boot"
+#string STR_SECUREBOOT_SIMPLE_ENABLE_HELP   #language en-US "Enable or disable Secure Boot. Takes effect after reboot."
+
+#string STR_SECUREBOOT_SIMPLE_ENABLED       #language en-US "Enabled"
+#string STR_SECUREBOOT_SIMPLE_DISABLED      #language en-US "Disabled"
+
+#string STR_SECUREBOOT_SIMPLE_RESET_TO_DEFAULTS_HELP  #language en-US "Restore Secure Boot keys & databases from defaults."
+#string STR_SECUREBOOT_SIMPLE_RESET_TO_DEFAULTS       #language en-US "Restore factory Secure Boot keys"
+#string STR_SECUREBOOT_SIMPLE_RESET_TO_DEFAULTS_POPUP #language en-US "Secure Boot keys & databases will be restored from defaults.\n Are you sure?"
+
+#string STR_SECUREBOOT_SIMPLE_ADVANCED_PROMPT #language en-US "Advanced Options"
+#string STR_SECUREBOOT_SIMPLE_ADVANCED_HELP   #language en-US "Manage Secure Boot mode and keys."
+#string STR_SECUREBOOT_SIMPLE_ADVANCED_TITLE  #language en-US "Secure Boot (Advanced)"
 
 #string STR_SECURE_BOOT_ENROLL_SIGNATURE   #language en-US "Enroll Signature"
 #string STR_SECURE_BOOT_DELETE_SIGNATURE   #language en-US "Delete Signature"
