@@ -566,7 +566,6 @@ Tcg2Callback (
         HiiSetString (Private->HiiHandle, STRING_TOKEN (STR_TPM2_ACPI_HID_CONTENT), UnHidStr, NULL);
       }
     }
-
     return EFI_SUCCESS;
   }
 
@@ -582,14 +581,14 @@ Tcg2Callback (
         );
       if ((Key.UnicodeChar == 'y') || (Key.UnicodeChar == 'Y')) {
         do {
-            CreatePopUp (
-              EFI_LIGHTGRAY | EFI_BACKGROUND_BLUE,
-              &Key,
-              L"Reboot required to clear the TPM.",
-              L"Enter to continue, Esc to cancel.",
-              NULL
-              );
-          } while ((Key.UnicodeChar != CHAR_CARRIAGE_RETURN) && (Key.ScanCode != SCAN_ESC));
+          CreatePopUp (
+            EFI_LIGHTGRAY | EFI_BACKGROUND_BLUE,
+            &Key,
+            L"Reboot required to clear the TPM.",
+            L"Enter to continue, Esc to cancel.",
+            NULL
+            );
+        } while ((Key.UnicodeChar != CHAR_CARRIAGE_RETURN) && (Key.ScanCode != SCAN_ESC));
 
         if (Key.UnicodeChar == CHAR_CARRIAGE_RETURN) {
           Status = SaveTcg2PpRequest (TCG2_PHYSICAL_PRESENCE_CLEAR);
