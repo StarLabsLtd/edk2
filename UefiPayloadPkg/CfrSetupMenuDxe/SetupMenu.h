@@ -57,6 +57,15 @@ CfrCreateRuntimeComponents (
   );
 
 /**
+  Update the Security entries (prompt/status strings) in the Settings menu.
+**/
+VOID
+EFIAPI
+CfrUpdateSecurityMenuEntries (
+  VOID
+  );
+
+/**
   This function allows a caller to extract the current configuration for one
   or more named elements from the target driver.
 
