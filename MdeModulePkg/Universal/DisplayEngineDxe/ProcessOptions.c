@@ -1301,6 +1301,44 @@ ProcessOptions (
 
       break;
 
+    case EFI_IFR_ACTION_OP:
+      //
+      // Some platforms use ACTION opcodes as navigation items, and store a
+      // display-only status string in QuestionConfig. Do not attempt to treat
+      // real <ConfigResp> strings as display values.
+      //
+      if (!Selected && (Question->OpCode->Length >= sizeof (EFI_IFR_ACTION))) {
+        EFI_IFR_ACTION  *ActionOp;
+
+        ActionOp = (EFI_IFR_ACTION *)Question->OpCode;
+        if (ActionOp->QuestionConfig != 0) {
+          StringPtr = GetToken (ActionOp->QuestionConfig, gFormData->HiiHandle);
+          if ((StringPtr != NULL) && (StringPtr[0] != L'\0') && (StrnCmp (StringPtr, L"GUID=", 5) != 0)) {
+            CHAR16  *PaddedStringPtr;
+
+            PaddedStringPtr = PadOptionString (StringPtr);
+            FreePool (StringPtr);
+            StringPtr = NULL;
+
+            MaxLen        = BufferSize / sizeof (CHAR16);
+            *OptionString = AllocateZeroPool (BufferSize);
+            ASSERT (*OptionString);
+
+            Character[0] = LEFT_ONEOF_DELIMITER;
+            NewStrCat (OptionString[0], MaxLen, Character);
+            NewStrCat (OptionString[0], MaxLen, PaddedStringPtr);
+            Character[0] = RIGHT_ONEOF_DELIMITER;
+            NewStrCat (OptionString[0], MaxLen, Character);
+
+            FreePool (PaddedStringPtr);
+          } else if (StringPtr != NULL) {
+            FreePool (StringPtr);
+          }
+        }
+      }
+
+      break;
+
     case EFI_IFR_ONE_OF_OP:
       //
       // Check whether there are Options of this OneOf
