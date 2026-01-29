@@ -225,6 +225,10 @@
   gEfiSecurityPkgTokenSpaceGuid.PcdTcgStorageSimpleUi|TRUE
 !endif
 
+!if "$(SECURE_BOOT_SIMPLE_UI)" == "TRUE" || "$(SECURE_BOOT_SIMPLE_UI)" == "ON" || "$(SECURE_BOOT_SIMPLE_UI)" == "1"
+  gEfiSecurityPkgTokenSpaceGuid.PcdSecureBootConfigSimpleUi|TRUE
+!endif
+
 [Components]
   SecurityPkg/Library/DxeImageVerificationLib/DxeImageVerificationLib.inf
   SecurityPkg/Library/DxeImageAuthenticationStatusLib/DxeImageAuthenticationStatusLib.inf

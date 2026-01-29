@@ -573,6 +573,12 @@
   # @Prompt Enable simplified TCG Storage UI.
   gEfiSecurityPkgTokenSpaceGuid.PcdTcgStorageSimpleUi|FALSE|BOOLEAN|0x00010032
 
+  ## Enables a simplified, consumer-oriented UI for Secure Boot configuration.<BR><BR>
+  #   FALSE - Default/full UI with advanced options.<BR>
+  #   TRUE  - Simple UI exposing only Secure Boot enable/disable and restoring default keys, plus an Advanced page for mode/keys.<BR>
+  # @Prompt Enable simplified Secure Boot UI.
+  gEfiSecurityPkgTokenSpaceGuid.PcdSecureBootConfigSimpleUi|FALSE|BOOLEAN|0x00010033
+
 [PcdsDynamic, PcdsDynamicEx]
 
   ## This PCD indicates Hash mask for TPM 2.0. Bit definition strictly follows TCG Algorithm Registry.<BR><BR>
