@@ -18,6 +18,14 @@ formset
   form formid = 1,
       title  = STRING_TOKEN(STR_FORM_TITLE);
 
+      suppressif TRUE;
+        text
+          help  = STRING_TOKEN(STR_EMPTY_STRING),
+          text  = STRING_TOKEN(STR_EMPTY_STRING),
+          flags = INTERACTIVE,
+          key   = USER_PASSWORD_REFRESH_KEY_ID;
+      endif;
+
       grayoutif  TRUE;
         text
           help  = STRING_TOKEN(STR_ADMIN_PASSWORD_STS_HELP),
@@ -27,14 +35,23 @@ formset
 
       subtitle text = STRING_TOKEN(STR_EMPTY_STRING);
 
-      password
-          prompt  = STRING_TOKEN(STR_ADMIN_PASSWORD_PROMPT),
-          help    = STRING_TOKEN(STR_ADMIN_PASSWORD_HELP),
-          flags   = INTERACTIVE,
-          key     = ADMIN_PASSWORD_KEY_ID,
-          minsize = MIN_PASSWORD_LEN,
-          maxsize = MAX_PASSWORD_LEN,
-      endpassword;
+      text
+          help   = STRING_TOKEN(STR_USER_PASSWORD_SET_HELP),
+          text   = STRING_TOKEN(STR_USER_PASSWORD_SET_PROMPT),
+          flags  = INTERACTIVE,
+          key    = USER_PASSWORD_SET_KEY_ID;
+
+      text
+          help   = STRING_TOKEN(STR_USER_PASSWORD_CHANGE_HELP),
+          text   = STRING_TOKEN(STR_USER_PASSWORD_CHANGE_PROMPT),
+          flags  = INTERACTIVE,
+          key    = USER_PASSWORD_CHANGE_KEY_ID;
+
+      text
+          help   = STRING_TOKEN(STR_USER_PASSWORD_REMOVE_HELP),
+          text   = STRING_TOKEN(STR_USER_PASSWORD_REMOVE_PROMPT),
+          flags  = INTERACTIVE,
+          key    = USER_PASSWORD_REMOVE_KEY_ID;
 
   endform;
 
