@@ -74,6 +74,11 @@ GetUserInput (
       Mask,
       NULL
       );
+    if (InputKey.ScanCode == SCAN_ESC) {
+      FreePool (Mask);
+      return EFI_ABORTED;
+    }
+
     if (InputKey.ScanCode == SCAN_NULL) {
       //
       // Check whether finish inputing password.
@@ -136,11 +141,35 @@ MessageBox (
       &Key,
       L"",
       DisplayString,
-      L"Press ENTER to continue ...",
+      L"Enter to continue",
       L"",
       NULL
       );
   } while (Key.UnicodeChar != CHAR_CARRIAGE_RETURN);
+}
+
+STATIC
+BOOLEAN
+ConfirmPopup (
+  IN CHAR16  *Line1,
+  IN CHAR16  *Line2  OPTIONAL
+  )
+{
+  EFI_INPUT_KEY  Key;
+
+  do {
+    CreatePopUp (
+      EFI_LIGHTGRAY | EFI_BACKGROUND_BLUE,
+      &Key,
+      L"",
+      Line1,
+      (Line2 != NULL) ? Line2 : L"",
+      L"Enter to continue, Esc to cancel",
+      NULL
+      );
+  } while ((Key.UnicodeChar != CHAR_CARRIAGE_RETURN) && (Key.ScanCode != SCAN_ESC));
+
+  return (Key.UnicodeChar == CHAR_CARRIAGE_RETURN);
 }
 
 /**
@@ -157,7 +186,7 @@ ForceSystemReset (
 }
 
 /**
-  Display message for set password.
+  Display message for password operation.
 
   @param[in]  ReturnStatus   The return status for set password.
 **/
@@ -182,18 +211,18 @@ PrintSetPasswordStatus (
         L"",
         DisplayString,
         DisplayString2,
-        L"Press ENTER to continue ...",
+        L"Enter to continue",
         L"",
         NULL
         );
     } while (Key.UnicodeChar != CHAR_CARRIAGE_RETURN);
   } else {
     if (ReturnStatus == EFI_SUCCESS) {
-      DisplayString = L"New password is updated successfully!";
+      DisplayString = L"Password updated successfully!";
     } else if (ReturnStatus == EFI_ALREADY_STARTED) {
       DisplayString = L"New password is found in the history passwords!";
     } else {
-      DisplayString = L"New password update fails!";
+      DisplayString = L"Password update failed!";
     }
 
     do {
@@ -202,7 +231,7 @@ PrintSetPasswordStatus (
         &Key,
         L"",
         DisplayString,
-        L"Press ENTER to continue ...",
+        L"Enter to continue",
         L"",
         NULL
         );
@@ -241,7 +270,7 @@ RequireUserPassword (
     }
   }
 
-  PopUpString = L"Please input admin password";
+  PopUpString = L"Please enter BIOS password";
 
   while (TRUE) {
     gST->ConOut->ClearScreen(gST->ConOut);
@@ -285,7 +314,7 @@ SetUserPassword (
   ZeroMem(UserInputPw, sizeof(UserInputPw));
   ZeroMem(TmpPassword, sizeof(TmpPassword));
 
-  PopUpString = L"Please set admin password";
+  PopUpString = L"Please set BIOS password";
 
   while (TRUE) {
     gST->ConOut->ClearScreen(gST->ConOut);
@@ -295,7 +324,7 @@ SetUserPassword (
     gST->ConOut->ClearScreen(gST->ConOut);
     GetUserInput (PopUpString2, TmpPassword, PASSWORD_MAX_SIZE - 1);
     if (StrCmp (TmpPassword, UserInputPw) != 0) {
-      MessageBox (L"Password are not the same!");
+      MessageBox (L"Passwords do not match!");
       continue;
     }
 
@@ -360,9 +389,9 @@ CheckForPassword (
     //
     PasswordSet = RequireUserPassword ();
     if (PasswordSet) {
-      DEBUG ((DEBUG_INFO, "Welcome Admin!\n"));
+      DEBUG ((DEBUG_INFO, "BIOS password verified.\n"));
     } else {
-      DEBUG ((DEBUG_INFO, "Admin password is not set!\n"));
+      DEBUG ((DEBUG_INFO, "BIOS password is not set!\n"));
       if (NeedEnrollPassword()) {
         SetUserPassword ();
       }
@@ -465,17 +494,46 @@ HiiUpdateAdminPasswordStatus (
     HiiSetString (
       mUserAuthenticationData->HiiHandle,
       STRING_TOKEN (STR_ADMIN_PASSWORD_STS_CONTENT),
-      L"Installed",
+      L"Set",
       NULL
       );
   } else {
     HiiSetString (
       mUserAuthenticationData->HiiHandle,
       STRING_TOKEN (STR_ADMIN_PASSWORD_STS_CONTENT),
-      L"Not Installed",
+      L"Not Set",
       NULL
       );
   }
+}
+
+STATIC
+EFI_STATUS
+PromptNewPassword (
+  OUT CHAR16  *NewPassword,
+  IN  UINTN   NewPasswordMaxChars
+  )
+{
+  EFI_STATUS  Status;
+  CHAR16      ConfirmPassword[PASSWORD_MAX_SIZE];
+
+  Status = GetUserInput (L"New password (Enter to continue, Esc to cancel)", NewPassword, NewPasswordMaxChars);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  ZeroMem (ConfirmPassword, sizeof (ConfirmPassword));
+  Status = GetUserInput (L"Confirm new password (Enter to continue, Esc to cancel)", ConfirmPassword, NewPasswordMaxChars);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  if (StrCmp (NewPassword, ConfirmPassword) != 0) {
+    MessageBox (L"Passwords do not match!");
+    return EFI_NOT_READY;
+  }
+
+  return EFI_SUCCESS;
 }
 
 /**
@@ -512,7 +570,6 @@ UserAuthenticationCallback (
   )
 {
   EFI_STATUS  Status;
-  CHAR16      *UserInputPassword;
 
   Status = EFI_SUCCESS;
 
@@ -525,7 +582,7 @@ UserAuthenticationCallback (
   case EFI_BROWSER_ACTION_FORM_OPEN:
     {
       switch (QuestionId) {
-      case ADMIN_PASSWORD_KEY_ID:
+      case USER_PASSWORD_REFRESH_KEY_ID:
         HiiUpdateAdminPasswordStatus ();
       default:
         break;
@@ -535,77 +592,77 @@ UserAuthenticationCallback (
   case EFI_BROWSER_ACTION_CHANGING:
     {
       switch (QuestionId) {
-      case ADMIN_PASSWORD_KEY_ID:
-        if ((Type == EFI_IFR_TYPE_STRING) && (Value->string == 0) &&
-            (mUserAuthenticationData->PasswordState == BROWSER_STATE_SET_PASSWORD)) {
-          mUserAuthenticationData->PasswordState = BROWSER_STATE_VALIDATE_PASSWORD;
-          ZeroMem (mUserAuthenticationData->OldPassword, sizeof(mUserAuthenticationData->OldPassword));
-          return EFI_INVALID_PARAMETER;
-        }
-        //
-        // The Callback is responsible for validating old password input by user,
-        // If Callback return EFI_SUCCESS, it indicates validation pass.
-        //
-        switch (mUserAuthenticationData->PasswordState) {
-        case BROWSER_STATE_VALIDATE_PASSWORD:
-          UserInputPassword = HiiGetString (mUserAuthenticationData->HiiHandle, Value->string, NULL);
-          if ((StrLen (UserInputPassword) >= PASSWORD_MAX_SIZE)) {
-            Status = EFI_NOT_READY;
-            break;
-          }
-          if (UserInputPassword[0] == 0) {
-            //
-            // Setup will use a NULL password to check whether the old password is set,
-            // If the validation is successful, means there is no old password, return
-            // success to set the new password. Or need to return EFI_NOT_READY to
-            // let user input the old password.
-            //
-            Status = VerifyPassword (UserInputPassword, StrSize (UserInputPassword));
-            if (Status == EFI_SUCCESS) {
-              mUserAuthenticationData->PasswordState = BROWSER_STATE_SET_PASSWORD;
-            } else {
-              Status = EFI_NOT_READY;
-            }
-            break;
-          }
-          Status = VerifyPassword (UserInputPassword, StrSize (UserInputPassword));
-          if (Status == EFI_SUCCESS) {
-            mUserAuthenticationData->PasswordState = BROWSER_STATE_SET_PASSWORD;
-            StrCpyS (
-              mUserAuthenticationData->OldPassword,
-              sizeof(mUserAuthenticationData->OldPassword)/sizeof(CHAR16),
-              UserInputPassword
-              );
-          } else {
-            //
-            // Old password mismatch, return EFI_NOT_READY to prompt for error message.
-            //
-            if (Status == EFI_ACCESS_DENIED) {
-              //
-              // Password retry count reach.
-              //
-              ForceSystemReset ();
-            }
-            Status = EFI_NOT_READY;
-          }
-          break;
+      case USER_PASSWORD_SET_KEY_ID:
+      {
+        CHAR16      NewPassword[PASSWORD_MAX_SIZE];
 
-        case BROWSER_STATE_SET_PASSWORD:
-          UserInputPassword = HiiGetString (mUserAuthenticationData->HiiHandle, Value->string, NULL);
-          if ((StrLen (UserInputPassword) >= PASSWORD_MAX_SIZE)) {
-            Status = EFI_NOT_READY;
-            break;
-          }
-          Status = SetPassword (UserInputPassword, StrSize (UserInputPassword), mUserAuthenticationData->OldPassword, StrSize(mUserAuthenticationData->OldPassword));
-          PrintSetPasswordStatus (Status);
-          ZeroMem (mUserAuthenticationData->OldPassword, sizeof(mUserAuthenticationData->OldPassword));
-          mUserAuthenticationData->PasswordState = BROWSER_STATE_VALIDATE_PASSWORD;
-          HiiUpdateAdminPasswordStatus ();
-          break;
-
-        default:
+        ZeroMem (NewPassword, sizeof (NewPassword));
+        Status = PromptNewPassword (NewPassword, PASSWORD_MAX_SIZE - 1);
+        if (EFI_ERROR (Status)) {
           break;
         }
+
+        Status = SetPassword (NewPassword, StrSize (NewPassword), NULL, 0);
+        PrintSetPasswordStatus (Status);
+        HiiUpdateAdminPasswordStatus ();
+        break;
+      }
+      case USER_PASSWORD_CHANGE_KEY_ID:
+      {
+        CHAR16      OldPassword[PASSWORD_MAX_SIZE];
+        CHAR16      NewPassword[PASSWORD_MAX_SIZE];
+
+        if (!IsPasswordInstalled ()) {
+          MessageBox (L"No password is currently set.");
+          break;
+        }
+
+        ZeroMem (OldPassword, sizeof (OldPassword));
+        Status = GetUserInput (L"Current password (Enter to continue, Esc to cancel)", OldPassword, PASSWORD_MAX_SIZE - 1);
+        if (EFI_ERROR (Status)) {
+          break;
+        }
+
+        ZeroMem (NewPassword, sizeof (NewPassword));
+        Status = PromptNewPassword (NewPassword, PASSWORD_MAX_SIZE - 1);
+        if (EFI_ERROR (Status)) {
+          break;
+        }
+
+        Status = SetPassword (NewPassword, StrSize (NewPassword), OldPassword, StrSize (OldPassword));
+        PrintSetPasswordStatus (Status);
+        HiiUpdateAdminPasswordStatus ();
+        break;
+      }
+      case USER_PASSWORD_REMOVE_KEY_ID:
+      {
+        CHAR16  OldPassword[PASSWORD_MAX_SIZE];
+
+        if (!IsPasswordInstalled ()) {
+          MessageBox (L"No password is currently set.");
+          break;
+        }
+
+        ZeroMem (OldPassword, sizeof (OldPassword));
+        Status = GetUserInput (L"Current password (Enter to continue, Esc to cancel)", OldPassword, PASSWORD_MAX_SIZE - 1);
+        if (EFI_ERROR (Status)) {
+          break;
+        }
+
+        if (!ConfirmPopup (L"Remove BIOS password?", NULL)) {
+          break;
+        }
+
+        Status = SetPassword (NULL, 0, OldPassword, StrSize (OldPassword));
+        if (Status == EFI_SUCCESS) {
+          MessageBox (L"Password removed successfully!");
+        } else {
+          MessageBox (L"Password remove failed!");
+        }
+
+        HiiUpdateAdminPasswordStatus ();
+        break;
+      }
       default:
         break;
       }

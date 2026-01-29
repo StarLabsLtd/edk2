@@ -57,6 +57,18 @@ CfrCreateRuntimeComponents (
   );
 
 /**
+  Update the Security entries (prompt/status strings) in the Settings menu.
+
+  @param RefreshTcgDiskEncryptionStatus  Refresh the TCG Disk Encryption
+                                        status string (may be slow).
+**/
+VOID
+EFIAPI
+CfrUpdateSecurityMenuEntries (
+  IN BOOLEAN  RefreshTcgDiskEncryptionStatus
+  );
+
+/**
   This function allows a caller to extract the current configuration for one
   or more named elements from the target driver.
 

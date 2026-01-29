@@ -4658,14 +4658,14 @@ SecureBootCallback (
           } else {
             if (SimpleUi) {
               do {
-                CreatePopUp (
-                  EFI_LIGHTGRAY | EFI_BACKGROUND_BLUE,
-                  &Key,
-                  L"Reboot required to apply the change.",
-                  L"Enter to continue, Esc to cancel.",
-                  NULL
-                  );
-              } while ((Key.UnicodeChar != CHAR_CARRIAGE_RETURN) && (Key.ScanCode != SCAN_ESC));
+                  CreatePopUp (
+                    EFI_LIGHTGRAY | EFI_BACKGROUND_BLUE,
+                    &Key,
+                    L"Reboot required to apply the change.",
+                    L"Enter to continue, Esc to cancel.",
+                    NULL
+                    );
+                } while ((Key.UnicodeChar != CHAR_CARRIAGE_RETURN) && (Key.ScanCode != SCAN_ESC));
 
               if (Key.UnicodeChar == CHAR_CARRIAGE_RETURN) {
                 gRT->ResetSystem (EfiResetCold, EFI_SUCCESS, 0, NULL);
