@@ -353,6 +353,43 @@ GetPrompt (
   return Header->Prompt;
 }
 
+STATIC
+BOOLEAN
+ActionHasDisplayOptionString (
+  IN FORM_DISPLAY_ENGINE_STATEMENT  *Statement
+  )
+{
+  EFI_IFR_ACTION  *ActionOp;
+  CHAR16          *StringPtr;
+  BOOLEAN         HasDisplayOption;
+
+  if ((Statement == NULL) || (Statement->OpCode == NULL)) {
+    return FALSE;
+  }
+
+  if (Statement->OpCode->OpCode != EFI_IFR_ACTION_OP) {
+    return FALSE;
+  }
+
+  if (Statement->OpCode->Length < sizeof (EFI_IFR_ACTION)) {
+    return FALSE;
+  }
+
+  ActionOp = (EFI_IFR_ACTION *)Statement->OpCode;
+  if (ActionOp->QuestionConfig == 0) {
+    return FALSE;
+  }
+
+  StringPtr = GetToken (ActionOp->QuestionConfig, gFormData->HiiHandle);
+  if (StringPtr == NULL) {
+    return FALSE;
+  }
+
+  HasDisplayOption = (StringPtr[0] != L'\0') && (StrnCmp (StringPtr, L"GUID=", 5) != 0);
+  FreePool (StringPtr);
+  return HasDisplayOption;
+}
+
 /**
   Get the supported width for a particular op-code
 
@@ -404,7 +441,7 @@ GetWidth (
   if ((Statement->OpCode->OpCode == EFI_IFR_SUBTITLE_OP) ||
       (Statement->OpCode->OpCode == EFI_IFR_REF_OP) ||
       (Statement->OpCode->OpCode == EFI_IFR_PASSWORD_OP) ||
-      (Statement->OpCode->OpCode == EFI_IFR_ACTION_OP) ||
+      ((Statement->OpCode->OpCode == EFI_IFR_ACTION_OP) && !ActionHasDisplayOptionString (Statement)) ||
       (Statement->OpCode->OpCode == EFI_IFR_RESET_BUTTON_OP) ||
       //
       // Allow a wide display if text op-code and no secondary text op-code
@@ -2197,9 +2234,11 @@ HasOptionString (
   CHAR16                         *String;
   UINTN                          Size;
   EFI_IFR_TEXT                   *TextOp;
+  BOOLEAN                        ActionDisplaysOption;
 
   Size      = 0;
   Statement = MenuOption->ThisTag;
+  ActionDisplaysOption = ActionHasDisplayOptionString (Statement);
 
   //
   // See if the second text parameter is really NULL
@@ -2216,7 +2255,7 @@ HasOptionString (
   if ((Statement->OpCode->OpCode == EFI_IFR_SUBTITLE_OP) ||
       (Statement->OpCode->OpCode == EFI_IFR_REF_OP) ||
       (Statement->OpCode->OpCode == EFI_IFR_PASSWORD_OP) ||
-      (Statement->OpCode->OpCode == EFI_IFR_ACTION_OP) ||
+      ((Statement->OpCode->OpCode == EFI_IFR_ACTION_OP) && !ActionDisplaysOption) ||
       (Statement->OpCode->OpCode == EFI_IFR_RESET_BUTTON_OP) ||
       //
       // Allow a wide display if text op-code and no secondary text op-code
