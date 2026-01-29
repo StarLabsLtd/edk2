@@ -18,5 +18,6 @@
 #define LABEL_RT_COMP_START  0x0001
 #define CFR_COMPONENT_START  0x1000
 #define LABEL_RT_COMP_END    0xefff
+#define SETUP_MENU_REFRESH_KEY_ID  0x0002
 
 #endif
