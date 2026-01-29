@@ -229,6 +229,10 @@
   gEfiSecurityPkgTokenSpaceGuid.PcdSecureBootConfigSimpleUi|TRUE
 !endif
 
+!if "$(TPM_SIMPLE_UI)" == "TRUE" || "$(TPM_SIMPLE_UI)" == "ON" || "$(TPM_SIMPLE_UI)" == "1"
+  gEfiSecurityPkgTokenSpaceGuid.PcdTcg2ConfigSimpleUi|TRUE
+!endif
+
 [Components]
   SecurityPkg/Library/DxeImageVerificationLib/DxeImageVerificationLib.inf
   SecurityPkg/Library/DxeImageAuthenticationStatusLib/DxeImageAuthenticationStatusLib.inf
