@@ -583,13 +583,13 @@ Tcg2Callback (
       if ((Key.UnicodeChar == 'y') || (Key.UnicodeChar == 'Y')) {
         do {
           CreatePopUp (
-            EFI_LIGHTGRAY | EFI_BACKGROUND_BLUE,
-            &Key,
-            L"Reboot required to clear the TPM.",
-            L"Enter to continue, Esc to cancel.",
-            NULL
-            );
-        } while ((Key.UnicodeChar != CHAR_CARRIAGE_RETURN) && (Key.ScanCode != SCAN_ESC));
+	            EFI_LIGHTGRAY | EFI_BACKGROUND_BLUE,
+	            &Key,
+	            L"Reboot required to clear the TPM.",
+	            L"Enter to continue, Esc to cancel",
+	            NULL
+	            );
+	        } while ((Key.UnicodeChar != CHAR_CARRIAGE_RETURN) && (Key.ScanCode != SCAN_ESC));
 
         if (Key.UnicodeChar == CHAR_CARRIAGE_RETURN) {
           Status = SaveTcg2PpRequest (TCG2_PHYSICAL_PRESENCE_CLEAR);
