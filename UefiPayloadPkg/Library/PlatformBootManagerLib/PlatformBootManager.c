@@ -9,6 +9,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 
 #include "PlatformBootManager.h"
 #include "PlatformConsole.h"
+#include <Library/Tcg2PhysicalPresenceLib.h>
 #include <Protocol/FirmwareVolume2.h>
 #include <Protocol/GraphicsOutput.h>
 #include <Protocol/SimpleTextOut.h>
@@ -465,6 +466,11 @@ PlatformBootManagerAfterConsole (
   }
 
   RegisterHiDpiConsoleReconnectReadyToBoot ();
+
+  //
+  // Ensure TCG2 physical presence variables are initialized (required for OPAL BlockSID UI).
+  //
+  Tcg2PhysicalPresenceLibProcessRequest (NULL);
 
   EfiBootManagerConnectAll ();
   EfiBootManagerRefreshAllBootOption ();
