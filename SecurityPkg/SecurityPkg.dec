@@ -82,6 +82,7 @@
   ## @libraryclass  Provides interfaces about TCG storage Opal generic command.
   #
   TcgStorageOpalLib|Include/Library/TcgStorageOpalLib.h
+  OpalS3PasswordLib|Include/Library/OpalS3PasswordLib.h
 
   ## @libraryclass  Provides interfaces about firmware TPM measurement.
   #
