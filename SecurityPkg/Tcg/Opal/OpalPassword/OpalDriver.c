@@ -21,6 +21,8 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <IndustryStandard/Atapi.h>
 #include <IndustryStandard/Nvme.h>
 
+#include <Library/OpalS3PasswordLib.h>
+
 EFI_GUID  mOpalDeviceLockBoxGuid = OPAL_DEVICE_LOCKBOX_GUID;
 
 BOOLEAN                mOpalEndOfDxe            = FALSE;
@@ -523,8 +525,20 @@ OpalSupportUpdatePassword (
   IN UINT32         PasswordLength
   )
 {
+  EFI_STATUS  Status;
+
   CopyMem (OpalDisk->Password, Password, PasswordLength);
   OpalDisk->PasswordLength = (UINT8)PasswordLength;
+
+  Status = OpalS3PasswordLibSetSecret (
+             OpalDisk->OpalDevicePath,
+             OpalDisk->OpalBaseComId,
+             Password,
+             PasswordLength
+             );
+  if (EFI_ERROR (Status) && (Status != EFI_UNSUPPORTED)) {
+    DEBUG ((DEBUG_VERBOSE, "%a(): OpalS3PasswordLibSetSecret() failed: %r\n", __func__, Status));
+  }
 }
 
 /**
