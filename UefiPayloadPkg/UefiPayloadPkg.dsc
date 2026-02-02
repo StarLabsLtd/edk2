@@ -380,6 +380,11 @@
 !if $(OPAL_PASSWORD_ENABLE) == TRUE
   TcgStorageCoreLib|SecurityPkg/Library/TcgStorageCoreLib/TcgStorageCoreLib.inf
   TcgStorageOpalLib|SecurityPkg/Library/TcgStorageOpalLib/TcgStorageOpalLib.inf
+  !if $(BOOTLOADER) == "COREBOOT"
+    OpalS3PasswordLib|UefiPayloadPkg/Library/OpalS3PasswordLibApmsmi/OpalS3PasswordLibApmsmi.inf
+  !else
+    OpalS3PasswordLib|SecurityPkg/Library/OpalS3PasswordLibNull/OpalS3PasswordLibNull.inf
+  !endif
   #
   # OpalPasswordDxe consumes Tcg2PhysicalPresenceLib for BlockSID support.
   #
