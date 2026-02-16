@@ -409,11 +409,11 @@ GetTcgDiskEncryptionStatus (
     //
     // No device info available typically means no Opal disks were detected.
     //
-    return (SupportedDisksValid && (SupportedDisks != 0)) ? L"Disabled" : L"Not supported";
+    return (SupportedDisksValid && (SupportedDisks != 0)) ? L"Enabled" : L"Not supported";
   }
 
   if (EFI_ERROR (Status)) {
-    return L"Disabled";
+    return (SupportedDisksValid && (SupportedDisks != 0)) ? L"Enabled" : L"Disabled";
   }
 
   if (OpalDeviceLockBoxHasPassword (LockBoxData, LockBoxSize)) {
@@ -422,7 +422,7 @@ GetTcgDiskEncryptionStatus (
   }
 
   FreePool (LockBoxData);
-  return L"Disabled";
+  return L"Enabled";
 }
 
 STATIC
