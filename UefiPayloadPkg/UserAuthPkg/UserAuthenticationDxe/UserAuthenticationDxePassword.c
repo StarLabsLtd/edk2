@@ -476,12 +476,29 @@ SetPassword (
   CHAR8       AsciiNewPassword[PASSWORD_MAX_SIZE];
   CHAR8       AsciiOldPassword[PASSWORD_MAX_SIZE];
 
-  Status = UnicodeStrToAsciiStrS (NewPassword, AsciiNewPassword, sizeof(AsciiNewPassword));
-  if (EFI_ERROR(Status)) {
+  Status = EFI_SUCCESS;
+  PasswordTryCount = NULL;
+
+  AsciiNewPassword[0] = '\0';
+  AsciiOldPassword[0] = '\0';
+
+  if (NewPassword != NULL) {
+    Status = UnicodeStrToAsciiStrS (NewPassword, AsciiNewPassword, sizeof (AsciiNewPassword));
+    if (EFI_ERROR (Status)) {
+      goto EXIT;
+    }
+  } else if (NewPasswordSize != 0) {
+    Status = EFI_INVALID_PARAMETER;
     goto EXIT;
   }
-  Status = UnicodeStrToAsciiStrS (OldPassword, AsciiOldPassword, sizeof(AsciiOldPassword));
-  if (EFI_ERROR(Status)) {
+
+  if (OldPassword != NULL) {
+    Status = UnicodeStrToAsciiStrS (OldPassword, AsciiOldPassword, sizeof (AsciiOldPassword));
+    if (EFI_ERROR (Status)) {
+      goto EXIT;
+    }
+  } else if (OldPasswordSize != 0) {
+    Status = EFI_INVALID_PARAMETER;
     goto EXIT;
   }
 
