@@ -52,6 +52,7 @@
   gUserAuthenticationGuid                       ## CONSUMES  ## GUID
   gEfiEventExitBootServicesGuid                 ## CONSUMES  ## Event
   gEfiIfrFrontPageGuid                          ## CONSUMES ## GUID (Indicate the formset in this library need to display in which page)
+  gEfiIfrTianoGuid                              ## CONSUMES ## GUID (Extended IFR Guid Opcode)
 
 [Protocols]
   gEfiRscHandlerProtocolGuid                    ## CONSUMES
