@@ -36,6 +36,97 @@ HII_VENDOR_DEVICE_PATH mHiiVendorDevicePath = {
   }
 };
 
+STATIC
+EFI_STATUS
+HiiUpdatePasswordActions (
+  VOID
+  )
+{
+  EFI_STATUS          Status;
+  VOID                *StartOpCodeHandle;
+  VOID                *EndOpCodeHandle;
+  EFI_IFR_GUID_LABEL  *StartLabel;
+  EFI_IFR_GUID_LABEL  *EndLabel;
+
+  if ((mUserAuthenticationData == NULL) || (mUserAuthenticationData->HiiHandle == NULL)) {
+    return EFI_NOT_READY;
+  }
+
+  StartOpCodeHandle = HiiAllocateOpCodeHandle ();
+  if (StartOpCodeHandle == NULL) {
+    return EFI_OUT_OF_RESOURCES;
+  }
+
+  EndOpCodeHandle = HiiAllocateOpCodeHandle ();
+  if (EndOpCodeHandle == NULL) {
+    HiiFreeOpCodeHandle (StartOpCodeHandle);
+    return EFI_OUT_OF_RESOURCES;
+  }
+
+  StartLabel = (EFI_IFR_GUID_LABEL *)HiiCreateGuidOpCode (
+                                     StartOpCodeHandle,
+                                     &gEfiIfrTianoGuid,
+                                     NULL,
+                                     sizeof (EFI_IFR_GUID_LABEL)
+                                     );
+  ASSERT (StartLabel != NULL);
+  StartLabel->ExtendOpCode = EFI_IFR_EXTEND_OP_LABEL;
+  StartLabel->Number       = LABEL_USER_PASSWORD_ACTIONS_START;
+
+  EndLabel = (EFI_IFR_GUID_LABEL *)HiiCreateGuidOpCode (
+                                   EndOpCodeHandle,
+                                   &gEfiIfrTianoGuid,
+                                   NULL,
+                                   sizeof (EFI_IFR_GUID_LABEL)
+                                   );
+  ASSERT (EndLabel != NULL);
+  EndLabel->ExtendOpCode = EFI_IFR_EXTEND_OP_LABEL;
+  EndLabel->Number       = LABEL_USER_PASSWORD_ACTIONS_END;
+
+  if (!IsPasswordInstalled ()) {
+    HiiCreateActionOpCode (
+      StartOpCodeHandle,
+      USER_PASSWORD_SET_KEY_ID,
+      STRING_TOKEN (STR_USER_PASSWORD_SET_PROMPT),
+      STRING_TOKEN (STR_USER_PASSWORD_SET_HELP),
+      EFI_IFR_FLAG_CALLBACK,
+      STRING_TOKEN (STR_EMPTY_STRING)
+      );
+  } else {
+    HiiCreateActionOpCode (
+      StartOpCodeHandle,
+      USER_PASSWORD_CHANGE_KEY_ID,
+      STRING_TOKEN (STR_USER_PASSWORD_CHANGE_PROMPT),
+      STRING_TOKEN (STR_USER_PASSWORD_CHANGE_HELP),
+      EFI_IFR_FLAG_CALLBACK,
+      STRING_TOKEN (STR_EMPTY_STRING)
+      );
+
+    HiiCreateActionOpCode (
+      StartOpCodeHandle,
+      USER_PASSWORD_REMOVE_KEY_ID,
+      STRING_TOKEN (STR_USER_PASSWORD_REMOVE_PROMPT),
+      STRING_TOKEN (STR_USER_PASSWORD_REMOVE_HELP),
+      EFI_IFR_FLAG_CALLBACK,
+      STRING_TOKEN (STR_EMPTY_STRING)
+      );
+  }
+
+  Status = HiiUpdateForm (
+             mUserAuthenticationData->HiiHandle,
+             &mUserAuthenticationVendorGuid,
+             USER_AUTHENTICATION_FORM_ID,
+             StartOpCodeHandle,
+             EndOpCodeHandle
+             );
+  ASSERT_EFI_ERROR (Status);
+
+  HiiFreeOpCodeHandle (StartOpCodeHandle);
+  HiiFreeOpCodeHandle (EndOpCodeHandle);
+
+  return Status;
+}
+
 /**
   Get a user input string.
 
@@ -573,6 +664,10 @@ UserAuthenticationCallback (
 
   Status = EFI_SUCCESS;
 
+  if (ActionRequest != NULL) {
+    *ActionRequest = EFI_BROWSER_ACTION_REQUEST_NONE;
+  }
+
   if (((Value == NULL) && (Action != EFI_BROWSER_ACTION_FORM_OPEN) && (Action != EFI_BROWSER_ACTION_FORM_CLOSE)) ||
       (ActionRequest == NULL)) {
     return EFI_INVALID_PARAMETER;
@@ -581,12 +676,9 @@ UserAuthenticationCallback (
   switch (Action) {
   case EFI_BROWSER_ACTION_FORM_OPEN:
     {
-      switch (QuestionId) {
-      case USER_PASSWORD_REFRESH_KEY_ID:
-        HiiUpdateAdminPasswordStatus ();
-      default:
-        break;
-      }
+      HiiUpdateAdminPasswordStatus ();
+      HiiUpdatePasswordActions ();
+      *ActionRequest = EFI_BROWSER_ACTION_REQUEST_FORM_APPLY;
     }
     break;
   case EFI_BROWSER_ACTION_CHANGING:
@@ -605,6 +697,8 @@ UserAuthenticationCallback (
         Status = SetPassword (NewPassword, StrSize (NewPassword), NULL, 0);
         PrintSetPasswordStatus (Status);
         HiiUpdateAdminPasswordStatus ();
+        HiiUpdatePasswordActions ();
+        *ActionRequest = EFI_BROWSER_ACTION_REQUEST_FORM_APPLY;
         break;
       }
       case USER_PASSWORD_CHANGE_KEY_ID:
@@ -632,6 +726,8 @@ UserAuthenticationCallback (
         Status = SetPassword (NewPassword, StrSize (NewPassword), OldPassword, StrSize (OldPassword));
         PrintSetPasswordStatus (Status);
         HiiUpdateAdminPasswordStatus ();
+        HiiUpdatePasswordActions ();
+        *ActionRequest = EFI_BROWSER_ACTION_REQUEST_FORM_APPLY;
         break;
       }
       case USER_PASSWORD_REMOVE_KEY_ID:
@@ -661,6 +757,8 @@ UserAuthenticationCallback (
         }
 
         HiiUpdateAdminPasswordStatus ();
+        HiiUpdatePasswordActions ();
+        *ActionRequest = EFI_BROWSER_ACTION_REQUEST_FORM_APPLY;
         break;
       }
       default:

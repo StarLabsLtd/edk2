@@ -35,23 +35,8 @@ formset
 
       subtitle text = STRING_TOKEN(STR_EMPTY_STRING);
 
-      text
-          help   = STRING_TOKEN(STR_USER_PASSWORD_SET_HELP),
-          text   = STRING_TOKEN(STR_USER_PASSWORD_SET_PROMPT),
-          flags  = INTERACTIVE,
-          key    = USER_PASSWORD_SET_KEY_ID;
-
-      text
-          help   = STRING_TOKEN(STR_USER_PASSWORD_CHANGE_HELP),
-          text   = STRING_TOKEN(STR_USER_PASSWORD_CHANGE_PROMPT),
-          flags  = INTERACTIVE,
-          key    = USER_PASSWORD_CHANGE_KEY_ID;
-
-      text
-          help   = STRING_TOKEN(STR_USER_PASSWORD_REMOVE_HELP),
-          text   = STRING_TOKEN(STR_USER_PASSWORD_REMOVE_PROMPT),
-          flags  = INTERACTIVE,
-          key    = USER_PASSWORD_REMOVE_KEY_ID;
+      label LABEL_USER_PASSWORD_ACTIONS_START;
+      label LABEL_USER_PASSWORD_ACTIONS_END;
 
   endform;
 
