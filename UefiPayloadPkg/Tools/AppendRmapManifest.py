@@ -9,14 +9,11 @@
 # SPDX-License-Identifier: BSD-2-Clause-Patent
 #
 
-from __future__ import print_function
-
 import argparse
 import os
 import struct
 import sys
 import subprocess
-import tempfile
 
 #
 # Globals for help information
@@ -49,7 +46,7 @@ def build_manifest(region_names):
 
 def main():
     parser = argparse.ArgumentParser(description=__description__)
-    parser.add_argument('input', help='Input firmware image (pre-FMP payload)')
+    parser.add_argument('input', help='Input firmware image (FMP payload)')
     parser.add_argument('-o', '--output', help='Output path (default: overwrite input)')
     parser.add_argument(
         '-r',
@@ -59,13 +56,18 @@ def main():
         required=True,
         help='FMAP region name to flash (repeat for multiple regions)'
     )
-    parser.add_argument('--fmp-guid', help='ImageTypeId GUID for GenFmpImage')
-    parser.add_argument('--fw-version', type=int, default=1, help='Firmware version for GenFmpImage')
-    parser.add_argument('--lsv', type=int, default=0, help='Lowest supported version for GenFmpImage')
-    parser.add_argument('--capsule-guid', help='Capsule GUID (defaults to SystemFirmware GUID if omitted)')
-    parser.add_argument('--cap-output', help='Optional .cap output; enables capsule build via GenFmpImage/GenCapsule')
-    parser.add_argument('--genfmp', default='BaseTools/BinWrappers/PosixLike/GenFmpImage', help='Path to GenFmpImage wrapper')
-    parser.add_argument('--gencapsule', default='BaseTools/BinWrappers/PosixLike/GenCapsule', help='Path to GenCapsule wrapper')
+    parser.add_argument('--fmp-guid', help='FMP/ESRT ImageTypeId GUID for the capsule payload')
+    parser.add_argument('--fw-version', type=int, default=1, help='Firmware version for capsule payload')
+    parser.add_argument('--lsv', type=int, default=0, help='Lowest supported version for capsule payload')
+    parser.add_argument('--update-image-index', type=int, help='UpdateImageIndex for the capsule payload')
+    parser.add_argument('--capsule-guid', help='(Deprecated) Ignored when using GenerateCapsule')
+    parser.add_argument('--embedded-driver', help='Optional embedded driver (.efi) to include in capsule')
+    parser.add_argument('--capflag', default='PersistAcrossReset',
+                        choices=['PersistAcrossReset', 'InitiateReset'],
+                        help='Capsule flag (default: PersistAcrossReset)')
+    parser.add_argument('--cap-output', help='Optional .cap output; enables capsule build via GenerateCapsule')
+    parser.add_argument('--generatecapsule', default='BaseTools/BinWrappers/PosixLike/GenerateCapsule',
+                        help='Path to GenerateCapsule wrapper')
 
     args = parser.parse_args()
 
@@ -100,42 +102,32 @@ def main():
         print("error: --fmp-guid is required when building a capsule", file=sys.stderr)
         return 1
 
-    capsule_guid_args = []
     if args.capsule_guid:
-        capsule_guid_args = ['--guid', args.capsule_guid]
-    else:
-        # SystemFirmwareCapsule GUID
-        capsule_guid_args = ['--guid', '6dcbd5ed-e82d-4c44-bda1-7194199ad92a']
+        print("warning: --capsule-guid is deprecated and ignored by GenerateCapsule", file=sys.stderr)
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        fmp_path = os.path.join(tmpdir, 'image.fmp')
-        genfmp_cmd = [
-            args.genfmp,
-            '-i', out_path,
-            '-o', fmp_path,
-            '-f', args.fmp_guid,
-            '-v', str(args.fw_version),
-            '-l', str(args.lsv),
-        ]
-        try:
-            subprocess.check_call(genfmp_cmd)
-        except subprocess.CalledProcessError as exc:
-            print("error: GenFmpImage failed: {}".format(exc), file=sys.stderr)
-            return 1
+    generate_capsule_cmd = [
+        args.generatecapsule,
+        '-e',
+        '--guid', args.fmp_guid,
+        '--fw-version', str(args.fw_version),
+        '--lsv', str(args.lsv),
+        '--capflag', args.capflag,
+        '-o', args.cap_output,
+    ]
 
-        gencap_cmd = [
-            args.gencapsule,
-            '--fmp', fmp_path,
-            '--capflag', 'PersistAcrossReset',
-        ] + capsule_guid_args + [
-            '--update',
-            '-o', args.cap_output,
-        ]
-        try:
-            subprocess.check_call(gencap_cmd)
-        except subprocess.CalledProcessError as exc:
-            print("error: GenCapsule failed: {}".format(exc), file=sys.stderr)
-            return 1
+    if args.update_image_index is not None:
+        generate_capsule_cmd += ['--update-image-index', str(args.update_image_index)]
+
+    if args.embedded_driver:
+        generate_capsule_cmd += ['--embedded-driver', args.embedded_driver]
+
+    generate_capsule_cmd += [out_path]
+
+    try:
+        subprocess.check_call(generate_capsule_cmd)
+    except subprocess.CalledProcessError as exc:
+        print("error: GenerateCapsule failed: {}".format(exc), file=sys.stderr)
+        return 1
 
     print("Built capsule {}".format(os.path.abspath(args.cap_output)))
     return 0
