@@ -67,6 +67,9 @@
   gEfiMdeModulePkgTokenSpaceGuid.PcdVideoVerticalResolution
   gEfiMdeModulePkgTokenSpaceGuid.PcdSetupVideoHorizontalResolution
   gEfiMdeModulePkgTokenSpaceGuid.PcdSetupVideoVerticalResolution
+  gUefiPayloadPkgTokenSpaceGuid.PcdFspGopBasicHiDpiSupport
+  gUefiPayloadPkgTokenSpaceGuid.PcdFspGopBasicHiDpiScaleThresholdHorizontal
+  gUefiPayloadPkgTokenSpaceGuid.PcdFspGopBasicHiDpiScaleThresholdVertical
   gEfiMdePkgTokenSpaceGuid.PcdPciExpressBaseAddress
   gEfiMdePkgTokenSpaceGuid.PcdPciExpressBaseSize
   gEfiSecurityPkgTokenSpaceGuid.PcdTpmInstanceGuid        ## SOMETIMES_PRODUCES

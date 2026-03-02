@@ -30,6 +30,7 @@
 [Packages]
   MdePkg/MdePkg.dec
   MdeModulePkg/MdeModulePkg.dec
+  UefiPayloadPkg/UefiPayloadPkg.dec
 
 [LibraryClasses]
   UefiDriverEntryPoint
@@ -42,6 +43,7 @@
   FrameBufferBltLib
   UefiLib
   HobLib
+  PcdLib
 
 [Guids]
   gEfiGraphicsInfoHobGuid                       ## CONSUMES ## HOB
@@ -51,3 +53,8 @@
   gEfiGraphicsOutputProtocolGuid                ## BY_START
   gEfiDevicePathProtocolGuid                    ## BY_START
   gEfiPciIoProtocolGuid                         ## TO_START
+
+[Pcd]
+  gUefiPayloadPkgTokenSpaceGuid.PcdFspGopBasicHiDpiSupport
+  gUefiPayloadPkgTokenSpaceGuid.PcdFspGopBasicHiDpiScaleThresholdHorizontal
+  gUefiPayloadPkgTokenSpaceGuid.PcdFspGopBasicHiDpiScaleThresholdVertical
