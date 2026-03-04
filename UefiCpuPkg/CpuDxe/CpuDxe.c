@@ -1031,10 +1031,9 @@ InitializeCpu (
                   );
   ASSERT_EFI_ERROR (Status);
 
-  //
-  // Install EFI memory attribute Protocol
-  //
-  InstallEfiMemoryAttributeProtocol (mCpuHandle);
+  // NOTE: Do not install EFI memory attribute protocol.
+  // This has been observed to break booting from Ventoy in UefiPayloadPkg-based
+  // firmware.
 
   //
   // Refresh GCD memory space map according to MTRR value.
