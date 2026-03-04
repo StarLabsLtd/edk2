@@ -8,6 +8,7 @@
 **/
 #include "BlSupportDxe.h"
 #include <Guid/TpmInstance.h>
+#include <Library/PcdLib.h>
 
 /**
   Main entry for the bootloader support DXE module.
@@ -40,14 +41,34 @@ BlDxeEntryPoint (
   //
   GuidHob = GetFirstGuidHob (&gEfiGraphicsInfoHobGuid);
   if (GuidHob != NULL) {
+    UINT32  HorizontalResolution;
+    UINT32  VerticalResolution;
+    UINT32  ThresholdH;
+    UINT32  ThresholdV;
+
     GfxInfo = (EFI_PEI_GRAPHICS_INFO_HOB *)GET_GUID_HOB_DATA (GuidHob);
-    Status  = PcdSet32S (PcdVideoHorizontalResolution, GfxInfo->GraphicsMode.HorizontalResolution);
+    HorizontalResolution = GfxInfo->GraphicsMode.HorizontalResolution;
+    VerticalResolution   = GfxInfo->GraphicsMode.VerticalResolution;
+
+    if (FeaturePcdGet (PcdFspGopBasicHiDpiSupport)) {
+      ThresholdH = PcdGet32 (PcdFspGopBasicHiDpiScaleThresholdHorizontal);
+      ThresholdV = PcdGet32 (PcdFspGopBasicHiDpiScaleThresholdVertical);
+
+      if ((HorizontalResolution >= ThresholdH) && (VerticalResolution >= ThresholdV) &&
+          ((HorizontalResolution & 1) == 0) && ((VerticalResolution & 1) == 0))
+      {
+        HorizontalResolution /= 2;
+        VerticalResolution   /= 2;
+      }
+    }
+
+    Status  = PcdSet32S (PcdVideoHorizontalResolution, HorizontalResolution);
     ASSERT_EFI_ERROR (Status);
-    Status = PcdSet32S (PcdVideoVerticalResolution, GfxInfo->GraphicsMode.VerticalResolution);
+    Status = PcdSet32S (PcdVideoVerticalResolution, VerticalResolution);
     ASSERT_EFI_ERROR (Status);
-    Status = PcdSet32S (PcdSetupVideoHorizontalResolution, GfxInfo->GraphicsMode.HorizontalResolution);
+    Status = PcdSet32S (PcdSetupVideoHorizontalResolution, HorizontalResolution);
     ASSERT_EFI_ERROR (Status);
-    Status = PcdSet32S (PcdSetupVideoVerticalResolution, GfxInfo->GraphicsMode.VerticalResolution);
+    Status = PcdSet32S (PcdSetupVideoVerticalResolution, VerticalResolution);
     ASSERT_EFI_ERROR (Status);
   }
 
