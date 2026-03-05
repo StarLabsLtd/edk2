@@ -52,6 +52,7 @@
   PlatformHookLib
   CapsuleLib
   HobLib
+  TcgPhysicalPresenceLib
   Tcg2PhysicalPresenceLib
 
 [Guids]
