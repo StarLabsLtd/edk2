@@ -26,6 +26,32 @@ CHAR16                 mPopUpString[100];
 OPAL_DRIVER  mOpalDriver;
 
 STATIC
+BOOLEAN
+IsSupportedOpalDevicePath (
+  IN EFI_DEVICE_PATH_PROTOCOL  *DevicePath
+  )
+{
+  EFI_DEVICE_PATH_PROTOCOL  *Node;
+
+  if (DevicePath == NULL) {
+    return FALSE;
+  }
+
+  Node = DevicePath;
+  while (!IsDevicePathEnd (Node)) {
+    if ((Node->Type == MESSAGING_DEVICE_PATH) &&
+        ((Node->SubType == MSG_SATA_DP) || (Node->SubType == MSG_NVME_NAMESPACE_DP)))
+    {
+      return TRUE;
+    }
+
+    Node = NextDevicePathNode (Node);
+  }
+
+  return FALSE;
+}
+
+STATIC
 VOID
 BuildOpalDeviceInfo (
   VOID
@@ -565,7 +591,8 @@ OpalEndOfDxeEventNotify (
   TmpDev = mOpalDriver.DeviceList;
   while (TmpDev != NULL) {
     ZeroMem (TmpDev->OpalDisk.Password, TmpDev->OpalDisk.PasswordLength);
-    TmpDev = TmpDev->Next;
+    TmpDev->OpalDisk.PasswordLength = 0;
+    TmpDev                          = TmpDev->Next;
   }
 
   //
@@ -2720,6 +2747,7 @@ OpalEfiDriverBindingSupported (
 {
   EFI_STATUS                             Status;
   EFI_STORAGE_SECURITY_COMMAND_PROTOCOL  *SecurityCommand;
+  EFI_DEVICE_PATH_PROTOCOL               *DevicePath;
 
   //
   // Test EFI_STORAGE_SECURITY_COMMAND_PROTOCOL on controller Handle.
@@ -2739,6 +2767,30 @@ OpalEfiDriverBindingSupported (
 
   if (EFI_ERROR (Status)) {
     return Status;
+  }
+
+  //
+  // Avoid binding to non-leaf controller handles (and the resulting duplicate
+  // password prompts) by requiring a leaf disk device path (e.g. SATA or NVMe
+  // namespace).
+  //
+  DevicePath = NULL;
+  Status     = gBS->OpenProtocol (
+                      Controller,
+                      &gEfiDevicePathProtocolGuid,
+                      (VOID **)&DevicePath,
+                      This->DriverBindingHandle,
+                      Controller,
+                      EFI_OPEN_PROTOCOL_GET_PROTOCOL
+                      );
+  if (EFI_ERROR (Status) || !IsSupportedOpalDevicePath (DevicePath)) {
+    gBS->CloseProtocol (
+           Controller,
+           &gEfiStorageSecurityCommandProtocolGuid,
+           This->DriverBindingHandle,
+           Controller
+           );
+    return EFI_UNSUPPORTED;
   }
 
   //
