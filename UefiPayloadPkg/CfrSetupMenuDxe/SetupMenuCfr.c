@@ -602,7 +602,7 @@ InsertSecurityLinks (
     HiiCreateSubTitleOpCode (StartOpCodeHandle, STRING_TOKEN (STR_EMPTY_STRING), 0, 0, 0);
   }
 
-  CfrUpdateSecurityMenuEntries (TRUE);
+  CfrUpdateSecurityMenuEntries (FALSE);
 }
 
 /**

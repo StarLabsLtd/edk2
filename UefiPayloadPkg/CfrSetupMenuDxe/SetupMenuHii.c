@@ -50,6 +50,7 @@ STATIC CONST EFI_GUID  mTcgDiskEncryptionFormSetGuid = {
 };
 
 STATIC BOOLEAN  mRefreshInProgress = FALSE;
+STATIC BOOLEAN  mTcgDiskEncryptionStatusRefreshPending = TRUE;
 
 STATIC
 EFI_STATUS
@@ -370,7 +371,8 @@ SetupMenuCallback (
       mRefreshInProgress = FALSE;
     }
 
-    CfrUpdateSecurityMenuEntries (TRUE);
+    CfrUpdateSecurityMenuEntries (mTcgDiskEncryptionStatusRefreshPending);
+    mTcgDiskEncryptionStatusRefreshPending = FALSE;
   }
 
   if (Action != EFI_BROWSER_ACTION_CHANGED) {
@@ -389,6 +391,7 @@ SetupMenuCallback (
     case 0x3102:
       OpenFormSet (&mTcgDiskEncryptionFormSetGuid);
       CfrUpdateSecurityMenuEntries (TRUE);
+      mTcgDiskEncryptionStatusRefreshPending = FALSE;
       return EFI_SUCCESS;
     case 0x3103:
       OpenFormSet (&mTpmFormSetGuid);
