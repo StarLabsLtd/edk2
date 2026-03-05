@@ -51,6 +51,7 @@ STATIC CONST EFI_GUID  mTcgDiskEncryptionFormSetGuid = {
 
 STATIC BOOLEAN  mRefreshInProgress = FALSE;
 STATIC BOOLEAN  mTcgDiskEncryptionStatusRefreshPending = TRUE;
+STATIC BOOLEAN  mRuntimeComponentsCreated = FALSE;
 
 STATIC
 EFI_STATUS
@@ -365,13 +366,14 @@ SetupMenuCallback (
   (VOID)ActionRequest;
 
   if (Action == EFI_BROWSER_ACTION_FORM_OPEN) {
-    if (!mRefreshInProgress) {
+    if (!mRuntimeComponentsCreated && !mRefreshInProgress) {
       mRefreshInProgress = TRUE;
       CfrCreateRuntimeComponents ();
       mRefreshInProgress = FALSE;
+      mRuntimeComponentsCreated = TRUE;
     }
 
-    CfrUpdateSecurityMenuEntries (mTcgDiskEncryptionStatusRefreshPending);
+    CfrUpdateSecurityMenuEntries (TRUE, mTcgDiskEncryptionStatusRefreshPending);
     mTcgDiskEncryptionStatusRefreshPending = FALSE;
   }
 
@@ -382,20 +384,15 @@ SetupMenuCallback (
   switch (QuestionId) {
     case 0x3100:
       OpenFormSet (&mBiosPasswordFormSetGuid);
-      CfrUpdateSecurityMenuEntries (FALSE);
       return EFI_SUCCESS;
     case 0x3101:
       OpenFormSet (&mSecureBootFormSetGuid);
-      CfrUpdateSecurityMenuEntries (FALSE);
       return EFI_SUCCESS;
     case 0x3102:
       OpenFormSet (&mTcgDiskEncryptionFormSetGuid);
-      CfrUpdateSecurityMenuEntries (TRUE);
-      mTcgDiskEncryptionStatusRefreshPending = FALSE;
       return EFI_SUCCESS;
     case 0x3103:
       OpenFormSet (&mTpmFormSetGuid);
-      CfrUpdateSecurityMenuEntries (FALSE);
       return EFI_SUCCESS;
     default:
       break;

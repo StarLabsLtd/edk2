@@ -58,6 +58,7 @@ STATIC EFI_STRING_ID  mSecuritySecureBootPromptId     = 0;
 STATIC EFI_STRING_ID  mSecuritySecureBootStatusId     = 0;
 STATIC EFI_STRING_ID  mSecurityTcgDiskEncryptionId    = 0;
 STATIC EFI_STRING_ID  mSecurityTcgDiskEncryptionStatusId = 0;
+STATIC CONST CHAR16   *mCachedTcgDiskEncryptionStatus    = NULL;
 STATIC EFI_STRING_ID  mSecurityTpmPromptId            = 0;
 STATIC EFI_STRING_ID  mSecurityTpmStatusId            = 0;
 STATIC EFI_STRING_ID  mSecurityEntryHelpId            = 0;
@@ -194,76 +195,61 @@ IsBiosPasswordSet (
   return (Status != EFI_NOT_FOUND);
 }
 
+#pragma pack (1)
+typedef struct {
+  UINT8   NumDisks;
+  UINT8   SelectedDiskIndex;
+  UINT16  SelectedDiskAvailableActions;
+  UINT16  SupportedDisks;
+} OPAL_HII_CONFIGURATION_MIN;
+#pragma pack ()
+
 STATIC
 BOOLEAN
-TryGetOpalSupportedDisks (
+TryGetOpalSupportedDisksFromBrowserData (
   OUT UINT16  *SupportedDisks
   )
 {
-  EFI_STATUS                       Status;
-  EFI_HII_HANDLE                   *HiiHandles;
-  EFI_HII_DATABASE_PROTOCOL        *HiiDatabase;
-  EFI_HII_CONFIG_ACCESS_PROTOCOL   *ConfigAccess;
-  EFI_HII_CONFIG_ROUTING_PROTOCOL  *ConfigRouting;
-  EFI_HANDLE                       DriverHandle;
-  EFI_STRING                       ConfigHdr;
-  EFI_STRING                       Request;
-  EFI_STRING                       Progress;
-  EFI_STRING                       Results;
-  EFI_BROWSER_ACTION_REQUEST       ActionRequest;
-  EFI_IFR_TYPE_VALUE               DummyValue;
-  UINT8                            Block[6];
-  UINTN                            BlockSize;
+  OPAL_HII_CONFIGURATION_MIN  OpalConfig;
 
   if (SupportedDisks == NULL) {
     return FALSE;
   }
 
-  *SupportedDisks = 0;
-  HiiHandles      = NULL;
-  Results         = NULL;
-  Request         = NULL;
-  ConfigHdr       = NULL;
-
-  HiiHandles = HiiGetHiiHandles (&mOpalPackageListGuid);
-  if (HiiHandles == NULL) {
+  ZeroMem (&OpalConfig, sizeof (OpalConfig));
+  if (!HiiGetBrowserData (&mOpalSetupVariableGuid, L"OpalHiiConfig", sizeof (OpalConfig), (UINT8 *)&OpalConfig)) {
     return FALSE;
   }
 
-  Status = gBS->LocateProtocol (&gEfiHiiDatabaseProtocolGuid, NULL, (VOID **)&HiiDatabase);
-  if (EFI_ERROR (Status)) {
-    FreePool (HiiHandles);
-    return FALSE;
-  }
+  *SupportedDisks = OpalConfig.SupportedDisks;
+  return TRUE;
+}
 
-  Status = HiiDatabase->GetPackageListHandle (HiiDatabase, HiiHandles[0], &DriverHandle);
-  FreePool (HiiHandles);
-  if (EFI_ERROR (Status)) {
-    return FALSE;
-  }
+STATIC
+BOOLEAN
+TryGetOpalSupportedDisksFromExtractConfig (
+  IN  EFI_HII_CONFIG_ACCESS_PROTOCOL  *OpalConfigAccess,
+  IN  EFI_HANDLE                      OpalDriverHandle,
+  OUT UINT16                          *OpalSupportedDisks
+  )
+{
+  EFI_STATUS                       Status;
+  EFI_HII_CONFIG_ROUTING_PROTOCOL  *ConfigRouting;
+  EFI_STRING                       ConfigHdr;
+  EFI_STRING                       Request;
+  EFI_STRING                       Progress;
+  EFI_STRING                       Results;
+  UINT8                            Block[6];
+  UINTN                            BlockSize;
 
-  Status = gBS->HandleProtocol (DriverHandle, &gEfiHiiConfigAccessProtocolGuid, (VOID **)&ConfigAccess);
-  if (EFI_ERROR (Status)) {
+  if ((OpalConfigAccess == NULL) || (OpalSupportedDisks == NULL)) {
     return FALSE;
   }
 
   //
-  // The OpalPassword driver populates SupportedDisks via its HII callback
-  // handler (EFI_BROWSER_ACTION_RETRIEVE). Querying via ExtractConfig alone
-  // can return all zeros, which would incorrectly appear as "Not supported".
+  // Read the OpalHiiConfig store via ExtractConfig.
   //
-  ActionRequest = EFI_BROWSER_ACTION_REQUEST_NONE;
-  ZeroMem (&DummyValue, sizeof (DummyValue));
-  (VOID)ConfigAccess->Callback (
-                        ConfigAccess,
-                        EFI_BROWSER_ACTION_RETRIEVE,
-                        (EFI_QUESTION_ID)0x8002, // HII_KEY(HII_KEY_ID_VAR_SUPPORTED_DISKS)
-                        0,
-                        &DummyValue,
-                        &ActionRequest
-                        );
-
-  ConfigHdr = HiiConstructConfigHdr (&mOpalSetupVariableGuid, L"OpalHiiConfig", DriverHandle);
+  ConfigHdr = HiiConstructConfigHdr (&mOpalSetupVariableGuid, L"OpalHiiConfig", OpalDriverHandle);
   if (ConfigHdr == NULL) {
     return FALSE;
   }
@@ -274,11 +260,19 @@ TryGetOpalSupportedDisks (
     return FALSE;
   }
 
-  UnicodeSPrint (Request, StrSize (ConfigHdr) + sizeof (L"&OFFSET=0000&WIDTH=0000"), L"%s&OFFSET=%04x&WIDTH=%04x", ConfigHdr, 0, (UINT16)sizeof (Block));
+  UnicodeSPrint (
+    Request,
+    StrSize (ConfigHdr) + sizeof (L"&OFFSET=0000&WIDTH=0000"),
+    L"%s&OFFSET=%04x&WIDTH=%04x",
+    ConfigHdr,
+    0,
+    (UINT16)sizeof (Block)
+    );
   FreePool (ConfigHdr);
 
+  Results  = NULL;
   Progress = Request;
-  Status   = ConfigAccess->ExtractConfig (ConfigAccess, Request, &Progress, &Results);
+  Status   = OpalConfigAccess->ExtractConfig (OpalConfigAccess, Request, &Progress, &Results);
   FreePool (Request);
   if (EFI_ERROR (Status) || (Results == NULL)) {
     if (Results != NULL) {
@@ -303,8 +297,84 @@ TryGetOpalSupportedDisks (
     return FALSE;
   }
 
-  *SupportedDisks = ReadUnaligned16 ((UINT16 *)(Block + 4));
+  *OpalSupportedDisks = ReadUnaligned16 ((UINT16 *)(Block + 4));
   return TRUE;
+}
+
+STATIC
+BOOLEAN
+TryGetOpalSupportedDisks (
+  OUT UINT16  *SupportedDisks,
+  IN  BOOLEAN  ForceRescan
+  )
+{
+  EFI_STATUS                      Status;
+  EFI_HII_HANDLE                  *HiiHandles;
+  EFI_HII_DATABASE_PROTOCOL       *HiiDatabase;
+  EFI_HII_CONFIG_ACCESS_PROTOCOL  *ConfigAccess;
+  EFI_HANDLE                      DriverHandle;
+  EFI_BROWSER_ACTION_REQUEST      ActionRequest;
+  EFI_IFR_TYPE_VALUE              DummyValue;
+
+  if (SupportedDisks == NULL) {
+    return FALSE;
+  }
+
+  *SupportedDisks = 0;
+
+  if (!ForceRescan && TryGetOpalSupportedDisksFromBrowserData (SupportedDisks)) {
+    return TRUE;
+  }
+
+  HiiHandles = HiiGetHiiHandles (&mOpalPackageListGuid);
+  if (HiiHandles == NULL) {
+    return FALSE;
+  }
+
+  Status = gBS->LocateProtocol (&gEfiHiiDatabaseProtocolGuid, NULL, (VOID **)&HiiDatabase);
+  if (EFI_ERROR (Status)) {
+    FreePool (HiiHandles);
+    return FALSE;
+  }
+
+  Status = HiiDatabase->GetPackageListHandle (HiiDatabase, HiiHandles[0], &DriverHandle);
+  FreePool (HiiHandles);
+  if (EFI_ERROR (Status)) {
+    return FALSE;
+  }
+
+  Status = gBS->HandleProtocol (DriverHandle, &gEfiHiiConfigAccessProtocolGuid, (VOID **)&ConfigAccess);
+  if (EFI_ERROR (Status)) {
+    return FALSE;
+  }
+
+  if (ForceRescan) {
+    //
+    // The OpalPassword driver updates its internal SupportedDisks state via a
+    // HII callback handler (EFI_BROWSER_ACTION_RETRIEVE). Querying browser
+    // data without triggering this callback can return stale zeros.
+    //
+    ActionRequest = EFI_BROWSER_ACTION_REQUEST_NONE;
+    ZeroMem (&DummyValue, sizeof (DummyValue));
+    (VOID)ConfigAccess->Callback (
+                          ConfigAccess,
+                          EFI_BROWSER_ACTION_RETRIEVE,
+                          (EFI_QUESTION_ID)0x8002, // HII_KEY(HII_KEY_ID_VAR_SUPPORTED_DISKS)
+                          0,
+                          &DummyValue,
+                          &ActionRequest
+                          );
+  }
+
+  if (ForceRescan && TryGetOpalSupportedDisksFromExtractConfig (ConfigAccess, DriverHandle, SupportedDisks)) {
+    return TRUE;
+  }
+
+  if (TryGetOpalSupportedDisksFromBrowserData (SupportedDisks)) {
+    return TRUE;
+  }
+
+  return TryGetOpalSupportedDisksFromExtractConfig (ConfigAccess, DriverHandle, SupportedDisks);
 }
 
 STATIC
@@ -395,7 +465,7 @@ OpalDeviceLockBoxHasPassword (
 STATIC
 CONST CHAR16 *
 GetTcgDiskEncryptionStatus (
-  VOID
+  IN BOOLEAN  ForceRescan
   )
 {
   EFI_HII_HANDLE  *HiiHandles;
@@ -404,44 +474,61 @@ GetTcgDiskEncryptionStatus (
   EFI_STATUS      Status;
   VOID            *LockBoxData;
   UINTN           LockBoxSize;
+  CONST CHAR16    *Result;
+
+  LockBoxData = NULL;
+  LockBoxSize = 0;
+
+  if (!ForceRescan && (mCachedTcgDiskEncryptionStatus != NULL)) {
+    return mCachedTcgDiskEncryptionStatus;
+  }
 
   //
   // If the OpalPassword driver isn't present, treat as not supported.
   //
   HiiHandles = HiiGetHiiHandles (&mOpalPackageListGuid);
   if (HiiHandles == NULL) {
-    return L"Not supported";
+    Result = L"Not supported";
+    goto Done;
   }
 
   FreePool (HiiHandles);
 
   SupportedDisks      = 0;
-  SupportedDisksValid = TryGetOpalSupportedDisks (&SupportedDisks);
+  SupportedDisksValid = TryGetOpalSupportedDisks (&SupportedDisks, ForceRescan);
   if (SupportedDisksValid && (SupportedDisks == 0)) {
-    return L"Not supported";
+    Result = L"Not supported";
+    goto Done;
   }
 
-  LockBoxData = NULL;
-  LockBoxSize = 0;
   Status      = TryGetOpalDeviceLockBox (&LockBoxData, &LockBoxSize);
   if (Status == EFI_NOT_FOUND) {
     //
     // No device info available typically means no Opal disks were detected.
     //
-    return (SupportedDisksValid && (SupportedDisks != 0)) ? L"Disabled" : L"Not supported";
+    Result = (SupportedDisksValid && (SupportedDisks != 0)) ? L"Disabled" : L"Not supported";
+    goto Done;
   }
 
   if (EFI_ERROR (Status)) {
-    return L"Disabled";
+    Result = L"Disabled";
+    goto Done;
   }
 
   if (OpalDeviceLockBoxHasPassword (LockBoxData, LockBoxSize)) {
-    FreePool (LockBoxData);
-    return L"Enabled";
+    Result = L"Enabled";
+    goto Done;
   }
 
-  FreePool (LockBoxData);
-  return L"Disabled";
+  Result = L"Disabled";
+
+Done:
+  if (LockBoxData != NULL) {
+    FreePool (LockBoxData);
+  }
+
+  mCachedTcgDiskEncryptionStatus = Result;
+  return Result;
 }
 
 STATIC
@@ -490,7 +577,8 @@ EnsureSecurityEntryStrings (
 VOID
 EFIAPI
 CfrUpdateSecurityMenuEntries (
-  IN BOOLEAN  RefreshTcgDiskEncryptionStatus
+  IN BOOLEAN  UpdateTcgDiskEncryptionStatus,
+  IN BOOLEAN  ForceTcgDiskEncryptionRescan
   )
 {
   UINT8   DetectedTpm;
@@ -531,8 +619,8 @@ CfrUpdateSecurityMenuEntries (
 
   UpdateStatusString (mSecurityTpmStatusId, TpmStatus);
 
-  if (RefreshTcgDiskEncryptionStatus && IsTcgDiskEncryptionConfigPresent ()) {
-    TcgStatus = GetTcgDiskEncryptionStatus ();
+  if (UpdateTcgDiskEncryptionStatus && IsTcgDiskEncryptionConfigPresent ()) {
+    TcgStatus = GetTcgDiskEncryptionStatus (ForceTcgDiskEncryptionRescan);
     UpdateStatusString (mSecurityTcgDiskEncryptionStatusId, TcgStatus);
   }
 }
@@ -602,7 +690,7 @@ InsertSecurityLinks (
     HiiCreateSubTitleOpCode (StartOpCodeHandle, STRING_TOKEN (STR_EMPTY_STRING), 0, 0, 0);
   }
 
-  CfrUpdateSecurityMenuEntries (FALSE);
+  CfrUpdateSecurityMenuEntries (FALSE, FALSE);
 }
 
 /**

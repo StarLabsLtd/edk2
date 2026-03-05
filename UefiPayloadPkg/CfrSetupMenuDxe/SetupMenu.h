@@ -59,13 +59,16 @@ CfrCreateRuntimeComponents (
 /**
   Update the Security entries (prompt/status strings) in the Settings menu.
 
-  @param RefreshTcgDiskEncryptionStatus  Refresh the TCG Disk Encryption
-                                        status string (may be slow).
+  @param UpdateTcgDiskEncryptionStatus  Update the TCG Disk Encryption
+                                       status string.
+  @param ForceTcgDiskEncryptionRescan   Force a disk rescan to update the
+                                       TCG Disk Encryption status (slow).
 **/
 VOID
 EFIAPI
 CfrUpdateSecurityMenuEntries (
-  IN BOOLEAN  RefreshTcgDiskEncryptionStatus
+  IN BOOLEAN  UpdateTcgDiskEncryptionStatus,
+  IN BOOLEAN  ForceTcgDiskEncryptionRescan
   );
 
 /**
