@@ -1001,6 +1001,7 @@
 !if $(BOOTSPLASH_IMAGE)
   MdeModulePkg/Logo/LogoDxe.inf
 !endif
+  UefiPayloadPkg/CfrSetupMenuDxe/CfrSetupMenuDxe.inf
   MdeModulePkg/Application/UiApp/UiApp.inf {
     <LibraryClasses>
       NULL|MdeModulePkg/Library/DeviceManagerUiLib/DeviceManagerUiLib.inf
