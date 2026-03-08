@@ -8,6 +8,7 @@
 **/
 #include "BlSupportDxe.h"
 #include <Library/PcdLib.h>
+#include <Guid/TpmInstance.h>
 
 /**
   Main entry for the bootloader support DXE module.
@@ -37,6 +38,7 @@ BlDxeEntryPoint (
   UINT32                     VerticalResolution;
   UINT32                     ThresholdH;
   UINT32                     ThresholdV;
+  UINTN                      Size;
 
   //
   // Find the frame buffer information and update PCDs
@@ -79,6 +81,27 @@ BlDxeEntryPoint (
     ASSERT_EFI_ERROR (Status);
     Status = PcdSet64S (PcdPciExpressBaseSize, AcpiBoardInfo->PcieBaseSize);
     ASSERT_EFI_ERROR (Status);
+
+    if (AcpiBoardInfo->TPM12Present)
+    {
+      Size = sizeof (gEfiTpmDeviceInstanceTpm12Guid);
+      Status = PcdSetPtrS (
+               PcdTpmInstanceGuid,
+               &Size,
+               &gEfiTpmDeviceInstanceTpm12Guid
+               );
+      ASSERT_EFI_ERROR (Status);
+    }
+    else if (AcpiBoardInfo->TPM20Present)
+    {
+      Size = sizeof (gEfiTpmDeviceInstanceTpm20DtpmGuid);
+      Status = PcdSetPtrS (
+                 PcdTpmInstanceGuid,
+                 &Size,
+                 &gEfiTpmDeviceInstanceTpm20DtpmGuid
+                 );
+      ASSERT_EFI_ERROR (Status);
+    }
   }
 
   Status = BlArchAdditionalOps (ImageHandle, SystemTable);

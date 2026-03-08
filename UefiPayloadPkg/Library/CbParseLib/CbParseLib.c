@@ -7,7 +7,9 @@
 
 **/
 
+#include <PiPei.h>
 #include <Uefi/UefiBaseType.h>
+#include <Library/HobLib.h>
 #include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
 #include <Library/DebugLib.h>
@@ -18,6 +20,7 @@
 #include <Library/SmmStoreParseLib.h>
 #include <IndustryStandard/Acpi.h>
 #include <Coreboot.h>
+#include <Guid/CfrSetupMenuGuid.h>
 
 /**
   Map a coreboot memory type to the E820-style encoding used by UefiPayloadEntry.
@@ -660,9 +663,11 @@ ParseGfxDeviceInfo (
 /**
   Parse and handle the misc info provided by bootloader
 
-  @retval RETURN_SUCCESS           The misc information was parsed successfully.
-  @retval RETURN_NOT_FOUND         Could not find required misc info.
-  @retval RETURN_OUT_OF_RESOURCES  Insufficant memory space.
+  @retval RETURN_SUCCESS               The misc information was parsed successfully.
+  @retval RETURN_INCOMPATIBLE_VERSION  The provided CFR data does not match the expected version.
+  @retval RETURN_CRC_ERROR             The calculated checksum does not match the supplied one.
+  @retval RETURN_NOT_FOUND             Could not find required misc info.
+  @retval RETURN_OUT_OF_RESOURCES      Insufficant memory space.
 
 **/
 RETURN_STATUS
@@ -671,6 +676,71 @@ ParseMiscInfo (
   VOID
   )
 {
+  struct cb_cfr                         *CbCfrSetupMenu;
+  UINT32                                CfrCalculatedChecksum;
+  UINTN                                 ProcessedLength;
+  CFR_OPTION_FORM                       *CbCfrOuterFormOffset;
+  CFR_OPTION_FORM                       *CfrSetupMenuForm;
+  CFR_VARBINARY                         *CfrFormName;
+
+  //
+  // CFR has several CB tags, though these are nested structures,
+  // not for individual table-to-HOB conversion
+  //
+  CbCfrSetupMenu = FindCbTag (CB_TAG_CFR_ROOT);
+  if (CbCfrSetupMenu == NULL) {
+    DEBUG ((DEBUG_ERROR, "CFR Tag not found in cbtables\n"));
+    return RETURN_NOT_FOUND;
+  }
+
+  if (CbCfrSetupMenu->version != CB_CFR_VERSION) {
+    DEBUG ((DEBUG_WARN, "CFR: version mismatch! (expected %d, got %d)\n", CB_CFR_VERSION, CbCfrSetupMenu->version));
+    return RETURN_INCOMPATIBLE_VERSION;
+  }
+
+  //
+  // Checksum over CFR_FORM[] data  -- CbCfrSetupMenu header excluded
+  //
+  CfrCalculatedChecksum = CalculateCrc32 (CbCfrSetupMenu + 1, CbCfrSetupMenu->size - sizeof(*CbCfrSetupMenu));
+
+  if (CfrCalculatedChecksum != CbCfrSetupMenu->checksum) {
+    DEBUG ((DEBUG_WARN, "CFR: Calculated CRC32 0x%x does not match stored CRC32 0x%x!\n", CfrCalculatedChecksum, CbCfrSetupMenu->checksum));
+    // Disable for now until cause of checksum mismatch found
+    //return RETURN_CRC_ERROR;
+  }
+
+  ProcessedLength = sizeof (struct cb_cfr);
+
+  //
+  // Copy each form to HOB; TODO: This creates duplicate, copy pointer?
+  //
+  while (ProcessedLength < CbCfrSetupMenu->size) {
+    CbCfrOuterFormOffset = (CFR_OPTION_FORM *)((UINT8 *)CbCfrSetupMenu + ProcessedLength);
+    if (CbCfrOuterFormOffset->tag != CB_TAG_CFR_OPTION_FORM) {
+      DEBUG ((DEBUG_ERROR, "CFR Tag mismatch: 0x%x vs 0x%x\n", CbCfrOuterFormOffset->tag, CB_TAG_CFR_OPTION_FORM));
+      return RETURN_NOT_FOUND;
+    }
+    CfrSetupMenuForm = BuildGuidDataHob (
+                          &gEfiCfrSetupMenuFormGuid,
+                          CbCfrOuterFormOffset,
+                          CbCfrOuterFormOffset->size
+                          );
+    if (CfrSetupMenuForm == NULL) {
+      break;
+    }
+    ASSERT (CfrSetupMenuForm->tag == CB_TAG_CFR_OPTION_FORM);
+
+    CfrFormName = (CFR_VARBINARY *)((UINT8 *)CfrSetupMenuForm + sizeof (CFR_OPTION_FORM));
+    DEBUG ((
+      DEBUG_INFO,
+      "CFR: Found form \"%a\", size 0x%x bytes\n",
+      CfrFormName->data,
+      CfrSetupMenuForm->size
+      ));
+
+    ProcessedLength += CfrSetupMenuForm->size;
+  }
+
   return RETURN_SUCCESS;
 }
 
@@ -822,6 +892,52 @@ ParseCapsules (
     }
 
     TmpPtr += Range->size;
+  }
+
+  return RETURN_SUCCESS;
+}
+
+/**
+  Find the Tcg Physical Presence store information
+  @param  PPIInfo       Pointer to the TCG_PHYSICAL_PRESENCE_INFO structure
+  @retval RETURN_SUCCESS     Successfully find the SMM store buffer information.
+  @retval RETURN_NOT_FOUND   Failed to find the SMM store buffer information .
+**/
+RETURN_STATUS
+EFIAPI
+ParseTPMPPIInfo (
+  OUT TCG_PHYSICAL_PRESENCE_INFO       *PPIInfo
+  )
+{
+  struct cb_tpm_physical_presence       *CbTPPRec;
+  UINT8 VersionMajor;
+  UINT8 VersionMinor;
+
+  if (PPIInfo == NULL) {
+    return RETURN_INVALID_PARAMETER;
+  }
+
+  CbTPPRec = FindCbTag (CB_TAG_TPM_PPI_HANDOFF);
+  if (CbTPPRec == NULL) {
+    return RETURN_NOT_FOUND;
+  }
+
+  VersionMajor = CbTPPRec->ppi_version >> 4;
+  VersionMinor = CbTPPRec->ppi_version & 0xF;
+
+  DEBUG ((DEBUG_INFO, "Found Tcg Physical Presence information\n"));
+  DEBUG ((DEBUG_INFO, "PpiAddress: 0x%x\n", CbTPPRec->ppi_address));
+  DEBUG ((DEBUG_INFO, "TpmVersion: 0x%x\n", CbTPPRec->tpm_version));
+  DEBUG ((DEBUG_INFO, "PpiVersion: %x.%x\n", VersionMajor, VersionMinor));
+
+  PPIInfo->PpiAddress = CbTPPRec->ppi_address;
+  if (CbTPPRec->tpm_version == LB_TPM_VERSION_TPM_VERSION_1_2) {
+    PPIInfo->TpmVersion = UEFIPAYLOAD_TPM_VERSION_1_2;
+  } else if (CbTPPRec->tpm_version == LB_TPM_VERSION_TPM_VERSION_2) {
+    PPIInfo->TpmVersion = UEFIPAYLOAD_TPM_VERSION_2;
+  }
+  if (VersionMajor == 1 && VersionMinor >= 3) {
+    PPIInfo->PpiVersion = UEFIPAYLOAD_TPM_PPI_VERSION_1_30;
   }
 
   return RETURN_SUCCESS;

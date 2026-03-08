@@ -207,6 +207,7 @@ GraphicsOutputReadyToBoot (
   )
 {
   GRAPHICS_OUTPUT_PRIVATE_DATA  *Private;
+  EFI_STATUS                   Status;
 
   (VOID)Event;
 
@@ -221,6 +222,32 @@ GraphicsOutputReadyToBoot (
     // launching the OS (e.g. for efifb or other direct-writes users).
     //
     GraphicsOutputSetModeInternal (&Private->GraphicsOutput, GRAPHICS_OUTPUT_MODE_PHYSICAL, FALSE);
+
+    //
+    // The HiDPI mode exposes a logical resolution to the UI and updates the
+    // video resolution PCDs accordingly. Once switching back to physical GOP
+    // mode, restore the PCDs so any late DXE output clears the full screen
+    // (avoids a quarter-screen clear at half resolution).
+    //
+    Status = PcdSet32S (PcdVideoHorizontalResolution, Private->PhysicalModeInfo.HorizontalResolution);
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_VERBOSE, "[%a]: PcdVideoHorizontalResolution update failed: %r\n", gEfiCallerBaseName, Status));
+    }
+
+    Status = PcdSet32S (PcdVideoVerticalResolution, Private->PhysicalModeInfo.VerticalResolution);
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_VERBOSE, "[%a]: PcdVideoVerticalResolution update failed: %r\n", gEfiCallerBaseName, Status));
+    }
+
+    Status = PcdSet32S (PcdSetupVideoHorizontalResolution, Private->PhysicalModeInfo.HorizontalResolution);
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_VERBOSE, "[%a]: PcdSetupVideoHorizontalResolution update failed: %r\n", gEfiCallerBaseName, Status));
+    }
+
+    Status = PcdSet32S (PcdSetupVideoVerticalResolution, Private->PhysicalModeInfo.VerticalResolution);
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_VERBOSE, "[%a]: PcdSetupVideoVerticalResolution update failed: %r\n", gEfiCallerBaseName, Status));
+    }
   }
 }
 

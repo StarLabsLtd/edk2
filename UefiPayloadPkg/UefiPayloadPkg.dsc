@@ -582,6 +582,29 @@
   PerformanceLib|MdeModulePkg/Library/DxePerformanceLib/DxePerformanceLib.inf
 !endif
 
+!if $(SECURE_BOOT_ENABLE) == TRUE
+  AuthVariableLib|SecurityPkg/Library/AuthVariableLib/AuthVariableLib.inf
+  SecureBootVariableLib|SecurityPkg/Library/SecureBootVariableLib/SecureBootVariableLib.inf
+  SecureBootVariableProvisionLib|SecurityPkg/Library/SecureBootVariableProvisionLib/SecureBootVariableProvisionLib.inf
+  PlatformPKProtectionLib|SecurityPkg/Library/PlatformPKProtectionLibVarPolicy/PlatformPKProtectionLibVarPolicy.inf
+
+  # re-use the UserPhysicalPresent() dummy implementation from the ovmf tree
+  PlatformSecureLib|OvmfPkg/Library/PlatformSecureLib/PlatformSecureLib.inf
+!else
+  AuthVariableLib|MdeModulePkg/Library/AuthVariableLibNull/AuthVariableLibNull.inf
+!endif
+
+  BaseCryptLib|CryptoPkg/Library/BaseCryptLib/BaseCryptLib.inf
+  IntrinsicLib|CryptoPkg/Library/IntrinsicLib/IntrinsicLib.inf
+  OpensslLib|CryptoPkg/Library/OpensslLib/OpensslLib.inf
+  RngLib|MdeModulePkg/Library/BaseRngLibTimerLib/BaseRngLibTimerLib.inf
+
+
+!if $(TPM_ENABLE) == TRUE
+  Tpm12DeviceLib|SecurityPkg/Library/Tpm12DeviceLibTcg/Tpm12DeviceLibTcg.inf
+  Tpm2DeviceLib|SecurityPkg/Library/Tpm2DeviceLibTcg2/Tpm2DeviceLibTcg2.inf
+!endif
+
 [LibraryClasses.common.DXE_RUNTIME_DRIVER]
 !if $(SECURE_BOOT_ENABLE) == TRUE
   BaseCryptLib|CryptoPkg/Library/BaseCryptLib/RuntimeCryptLib.inf
@@ -713,6 +736,21 @@
   gEfiMdeModulePkgTokenSpaceGuid.PcdCapsuleFmpSupport|$(CAPSULE_SUPPORT)
   ## Whether embedded drivers in FMP capsules are supported (opt-in).
   gEfiMdeModulePkgTokenSpaceGuid.PcdCapsuleEmbeddedDriverSupport|FALSE
+
+  ## User Authentication PCD
+  gUserAuthFeaturePkgTokenSpaceGuid.PcdPasswordCleared|FALSE
+
+!if "$(SECURE_BOOT_SIMPLE_UI)" == "TRUE" || "$(SECURE_BOOT_SIMPLE_UI)" == "ON" || "$(SECURE_BOOT_SIMPLE_UI)" == "1"
+  gEfiSecurityPkgTokenSpaceGuid.PcdSecureBootConfigSimpleUi|TRUE
+!endif
+
+!if "$(TPM_SIMPLE_UI)" == "TRUE" || "$(TPM_SIMPLE_UI)" == "ON" || "$(TPM_SIMPLE_UI)" == "1"
+  gEfiSecurityPkgTokenSpaceGuid.PcdTcg2ConfigSimpleUi|TRUE
+!endif
+
+!if "$(TCG_STORAGE_SIMPLE_UI)" == "TRUE" || "$(TCG_STORAGE_SIMPLE_UI)" == "ON" || "$(TCG_STORAGE_SIMPLE_UI)" == "1"
+  gEfiSecurityPkgTokenSpaceGuid.PcdTcgStorageSimpleUi|TRUE
+!endif
 
 !if $(CRYPTO_PROTOCOL_SUPPORT) == TRUE
 !if $(CRYPTO_DRIVER_EXTERNAL_SUPPORT) == FALSE
@@ -1075,9 +1113,9 @@
   UefiPayloadPkg/CfrSetupMenuDxe/CfrSetupMenuDxe.inf
   MdeModulePkg/Application/UiApp/UiApp.inf {
     <LibraryClasses>
-      NULL|MdeModulePkg/Library/DeviceManagerUiLib/DeviceManagerUiLib.inf
       NULL|MdeModulePkg/Library/BootManagerUiLib/BootManagerUiLib.inf
       NULL|MdeModulePkg/Library/BootMaintenanceManagerUiLib/BootMaintenanceManagerUiLib.inf
+      NULL|MdeModulePkg/Library/DeviceManagerUiLib/DeviceManagerUiLib.inf
   }
   MdeModulePkg/Application/BootManagerMenuApp/BootManagerMenuApp.inf
 !if $(CAPSULE_SUPPORT) == TRUE
