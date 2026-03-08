@@ -10,8 +10,8 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 
 formset
   guid      = SECUREBOOT_CONFIG_FORM_SET_GUID,
-  title     = STRING_TOKEN(STR_SECUREBOOT_TITLE),
-  help      = STRING_TOKEN(STR_SECUREBOOT_HELP),
+  title     = STRING_TOKEN(STR_SECUREBOOT_SIMPLE_TITLE),
+  help      = STRING_TOKEN(STR_SECUREBOOT_SIMPLE_HELP),
   classguid = EFI_HII_PLATFORM_SETUP_FORMSET_GUID,
 
   varstore SECUREBOOT_CONFIGURATION,
@@ -20,33 +20,61 @@ formset
     guid  = SECUREBOOT_CONFIG_FORM_SET_GUID;
 
   //
-  // ##1 Form "Secure Boot Configuration"
+  // ##1 Form "Secure Boot"
   //
   form formid = SECUREBOOT_CONFIGURATION_FORM_ID,
-    title = STRING_TOKEN(STR_SECUREBOOT_TITLE);
+    title = STRING_TOKEN(STR_SECUREBOOT_SIMPLE_TITLE);
 
     subtitle text = STRING_TOKEN(STR_NULL);
 
     grayoutif ideqval SECUREBOOT_CONFIGURATION.PhysicalPresent == 1 OR NOT ideqval SECUREBOOT_CONFIGURATION.PhysicalPresent == 1;
     text
-      help   = STRING_TOKEN(STR_SECURE_BOOT_STATE_HELP),
-      text   = STRING_TOKEN(STR_SECURE_BOOT_STATE_PROMPT),
+      help   = STRING_TOKEN(STR_SECUREBOOT_SIMPLE_STATE_HELP),
+      text   = STRING_TOKEN(STR_SECUREBOOT_SIMPLE_STATE_PROMPT),
       text   = STRING_TOKEN(STR_SECURE_BOOT_STATE_CONTENT);
     endif;
 
     subtitle text = STRING_TOKEN(STR_NULL);
 
     //
-    // Display of Check Box: Attempt Secure Boot
+    // Display of Oneof: Attempt Secure Boot
     //
     grayoutif ideqval SECUREBOOT_CONFIGURATION.HideSecureBoot == 1 OR NOT ideqval SECUREBOOT_CONFIGURATION.PhysicalPresent == 1;
-    checkbox varid = SECUREBOOT_CONFIGURATION.AttemptSecureBoot,
+    oneof name       = AttemptSecureBootChoice,
           questionid = KEY_SECURE_BOOT_ENABLE,
-          prompt = STRING_TOKEN(STR_SECURE_BOOT_PROMPT),
-          help   = STRING_TOKEN(STR_SECURE_BOOT_HELP),
-          flags  = INTERACTIVE | RESET_REQUIRED,
-    endcheckbox;
+          prompt     = STRING_TOKEN(STR_SECUREBOOT_SIMPLE_ENABLE_PROMPT),
+          help       = STRING_TOKEN(STR_SECUREBOOT_SIMPLE_ENABLE_HELP),
+          flags      = INTERACTIVE | RESET_REQUIRED | NUMERIC_SIZE_1,
+          option text = STRING_TOKEN(STR_SECUREBOOT_SIMPLE_ENABLED),  value = 0x1, flags = DEFAULT;
+          option text = STRING_TOKEN(STR_SECUREBOOT_SIMPLE_DISABLED), value = 0x0, flags = 0;
+    endoneof;
     endif;
+
+    subtitle text = STRING_TOKEN(STR_NULL);
+
+    text
+      help   = STRING_TOKEN(STR_SECUREBOOT_SIMPLE_RESET_TO_DEFAULTS_HELP),
+      text   = STRING_TOKEN(STR_SECUREBOOT_SIMPLE_RESET_TO_DEFAULTS),
+      flags  = INTERACTIVE,
+      key    = KEY_SECURE_BOOT_RESET_TO_DEFAULT;
+
+    subtitle text = STRING_TOKEN(STR_NULL);
+
+    goto FORMID_SECURE_BOOT_ADVANCED_FORM,
+         prompt = STRING_TOKEN(STR_SECUREBOOT_SIMPLE_ADVANCED_PROMPT),
+         help   = STRING_TOKEN(STR_SECUREBOOT_SIMPLE_ADVANCED_HELP),
+         flags  = INTERACTIVE,
+         key    = KEY_SECURE_BOOT_ADVANCED;
+
+  endform;
+
+  //
+  // ##1.5 Form "Secure Boot (Advanced)"
+  //
+  form formid = FORMID_SECURE_BOOT_ADVANCED_FORM,
+    title = STRING_TOKEN(STR_SECUREBOOT_SIMPLE_ADVANCED_TITLE);
+
+    subtitle text = STRING_TOKEN(STR_NULL);
 
     //
     // Display of Oneof: 'Secure Boot Mode'
@@ -61,25 +89,17 @@ formset
     endoneof;
 
     //
-    // Display of 'Current Secure Boot Mode'
+    // Custom mode key management
     //
     suppressif questionref(SecureBootMode) == SECURE_BOOT_MODE_STANDARD;
     grayoutif NOT ideqval SECUREBOOT_CONFIGURATION.PhysicalPresent == 1;
-    goto FORMID_SECURE_BOOT_OPTION_FORM,
-         prompt = STRING_TOKEN(STR_SECURE_BOOT_OPTION),
-         help   = STRING_TOKEN(STR_SECURE_BOOT_OPTION_HELP),
-         flags  = INTERACTIVE,
-         key    = KEY_SECURE_BOOT_OPTION;
+      goto FORMID_SECURE_BOOT_OPTION_FORM,
+           prompt = STRING_TOKEN(STR_SECURE_BOOT_OPTION),
+           help   = STRING_TOKEN(STR_SECURE_BOOT_OPTION_HELP),
+           flags  = INTERACTIVE,
+           key    = KEY_SECURE_BOOT_OPTION;
     endif;
     endif;
-
-    subtitle text = STRING_TOKEN(STR_NULL);
-
-    text
-      help   = STRING_TOKEN(STR_SECURE_RESET_TO_DEFAULTS_HELP),
-      text   = STRING_TOKEN(STR_SECURE_RESET_TO_DEFAULTS),
-      flags  = INTERACTIVE,
-      key    = KEY_SECURE_BOOT_RESET_TO_DEFAULT;
 
   endform;
 
@@ -153,15 +173,14 @@ formset
     subtitle text = STRING_TOKEN(STR_NULL);
 
     //
-    // Display of Check Box: 'Delete Pk'
+    // Display of 'Delete Pk'
     //
     grayoutif ideqval SECUREBOOT_CONFIGURATION.HideSecureBoot == 1;
-    checkbox varid = SECUREBOOT_CONFIGURATION.DeletePk,
-          questionid = KEY_SECURE_BOOT_DELETE_PK,
-          prompt = STRING_TOKEN(STR_DELETE_PK),
+    text
           help   = STRING_TOKEN(STR_DELETE_PK_HELP),
-          flags  = INTERACTIVE | RESET_REQUIRED,
-    endcheckbox;
+          text   = STRING_TOKEN(STR_DELETE_PK),
+          flags  = INTERACTIVE,
+          key    = KEY_SECURE_BOOT_DELETE_PK;
     endif;
   endform;
 

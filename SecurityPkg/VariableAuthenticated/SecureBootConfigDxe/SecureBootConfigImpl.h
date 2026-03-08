@@ -48,6 +48,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 // Tool generated IFR binary data and String package data
 //
 extern  UINT8  SecureBootConfigBin[];
+extern  UINT8  SecureBootConfigSimpleBin[];
 extern  UINT8  SecureBootConfigDxeStrings[];
 
 //
