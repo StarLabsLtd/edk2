@@ -359,12 +359,16 @@ SetupMenuCallback (
   OUT EFI_BROWSER_ACTION_REQUEST             *ActionRequest
   )
 {
+  BOOLEAN  UpdateTcgDiskEncryptionStatus;
+
   (VOID)This;
   (VOID)Type;
   (VOID)Value;
   (VOID)ActionRequest;
 
   if (Action == EFI_BROWSER_ACTION_FORM_OPEN) {
+    UpdateTcgDiskEncryptionStatus = !mRuntimeComponentsCreated;
+
     if (!mRuntimeComponentsCreated && !mRefreshInProgress) {
       mRefreshInProgress = TRUE;
       CfrCreateRuntimeComponents ();
@@ -372,7 +376,7 @@ SetupMenuCallback (
       mRuntimeComponentsCreated = TRUE;
     }
 
-    CfrUpdateSecurityMenuEntries (TRUE);
+    CfrUpdateSecurityMenuEntries (UpdateTcgDiskEncryptionStatus);
   }
 
   if (Action != EFI_BROWSER_ACTION_CHANGED) {
