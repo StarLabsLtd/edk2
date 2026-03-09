@@ -42,7 +42,7 @@ typedef struct {
   EFI_GRAPHICS_OUTPUT_MODE_INFORMATION    PhysicalModeInfo;
   UINT32                                  FrameBufferScale;
   BOOLEAN                                 HasHiDpiMode;
-  EFI_EVENT                               ReadyToBootEvent;
+  EFI_EVENT                               ExitBootServicesEvent;
   UINT64                                  PhysicalFrameBufferBase;
   UINTN                                   PhysicalFrameBufferSize;
   EFI_DEVICE_PATH_PROTOCOL                *DevicePath;

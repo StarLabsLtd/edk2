@@ -48,6 +48,7 @@
 [Guids]
   gEfiGraphicsInfoHobGuid                       ## CONSUMES ## HOB
   gEfiGraphicsDeviceInfoHobGuid                 ## CONSUMES ## HOB
+  gEfiEventExitBootServicesGuid                 ## CONSUMES
 
 [Protocols]
   gEfiGraphicsOutputProtocolGuid                ## BY_START

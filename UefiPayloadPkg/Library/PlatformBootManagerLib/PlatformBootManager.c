@@ -11,174 +11,6 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include "PlatformConsole.h"
 #include <Library/Tcg2PhysicalPresenceLib.h>
 #include <Protocol/FirmwareVolume2.h>
-#include <Protocol/GraphicsOutput.h>
-#include <Protocol/SimpleTextOut.h>
-#include <Guid/EventGroup.h>
-
-STATIC EFI_EVENT  mHiDpiConsoleReconnectReadyToBootEvent = NULL;
-
-STATIC
-VOID
-EFIAPI
-HiDpiConsoleReconnectReadyToBoot (
-  IN EFI_EVENT  Event,
-  IN VOID       *Context
-  );
-
-/**
-  Synchronize the console stack with the current GOP mode.
-
-  This is primarily used to avoid quarter-screen clears when the GOP mode or the
-  video resolution PCDs change while the console is already initialized (e.g.
-  when switching between HiDPI logical mode and physical framebuffer mode).
-**/
-STATIC
-VOID
-SyncConsoleToCurrentGop (
-  VOID
-  )
-{
-  HiDpiConsoleReconnectReadyToBoot (NULL, NULL);
-}
-
-/**
-  Reconnect the Simple Text Out console stack at ReadyToBoot if the
-  GOP mode changed while in the HiDPI software-only mode.
-
-  This updates the video resolution PCDs and reconnects the console so
-  GraphicsConsole reinitializes its cached geometry against the current
-  GOP mode.
-
-  @param[in] Event    The ReadyToBoot event.
-  @param[in] Context  Unused.
-
-**/
-STATIC
-VOID
-EFIAPI
-HiDpiConsoleReconnectReadyToBoot (
-  IN EFI_EVENT  Event,
-  IN VOID       *Context
-  )
-{
-  EFI_STATUS                    Status;
-  EFI_GRAPHICS_OUTPUT_PROTOCOL  *Gop;
-  EFI_HANDLE                    *HandleBuffer;
-  UINTN                         HandleCount;
-  UINTN                         Index;
-  UINT32                        HorizontalResolution;
-  UINT32                        VerticalResolution;
-
-  (VOID)Event;
-  (VOID)Context;
-
-  if (!FeaturePcdGet (PcdFspGopBasicHiDpiSupport)) {
-    return;
-  }
-
-  Status = gBS->LocateProtocol (&gEfiGraphicsOutputProtocolGuid, NULL, (VOID **)&Gop);
-  if (EFI_ERROR (Status) || (Gop->Mode == NULL) || (Gop->Mode->Info == NULL)) {
-    return;
-  }
-
-  //
-  // If GOP is still in the software-only HiDPI mode (no direct framebuffer),
-  // attempt to switch back to the physical framebuffer mode before reconnecting
-  // the console stack.
-  //
-  if (Gop->Mode->FrameBufferBase == 0) {
-    if (Gop->Mode->MaxMode > 0) {
-      (VOID)Gop->SetMode (Gop, 0);
-    }
-
-    if ((Gop->Mode == NULL) || (Gop->Mode->Info == NULL)) {
-      return;
-    }
-  }
-
-  HorizontalResolution = Gop->Mode->Info->HorizontalResolution;
-  VerticalResolution   = Gop->Mode->Info->VerticalResolution;
-  if ((HorizontalResolution == 0) || (VerticalResolution == 0)) {
-    return;
-  }
-
-  //
-  //
-  // If the video resolution PCDs no longer match the current GOP mode, update
-  // them.
-  //
-  // Always reconnect the Simple Text Out console stack even if the PCDs already
-  // match. GraphicsConsole caches geometry and may have been initialized against
-  // the logical HiDPI mode before GOP switched back to a physical framebuffer
-  // mode at ReadyToBoot.
-  //
-  if ((PcdGet32 (PcdVideoHorizontalResolution) != HorizontalResolution) ||
-      (PcdGet32 (PcdVideoVerticalResolution) != VerticalResolution) ||
-      (PcdGet32 (PcdSetupVideoHorizontalResolution) != HorizontalResolution) ||
-      (PcdGet32 (PcdSetupVideoVerticalResolution) != VerticalResolution))
-  {
-    Status = PcdSet32S (PcdVideoHorizontalResolution, HorizontalResolution);
-    ASSERT_EFI_ERROR (Status);
-    Status = PcdSet32S (PcdVideoVerticalResolution, VerticalResolution);
-    ASSERT_EFI_ERROR (Status);
-    Status = PcdSet32S (PcdSetupVideoHorizontalResolution, HorizontalResolution);
-    ASSERT_EFI_ERROR (Status);
-    Status = PcdSet32S (PcdSetupVideoVerticalResolution, VerticalResolution);
-    ASSERT_EFI_ERROR (Status);
-  }
-  Status = gBS->LocateHandleBuffer (
-                  ByProtocol,
-                  &gEfiSimpleTextOutProtocolGuid,
-                  NULL,
-                  &HandleCount,
-                  &HandleBuffer
-                  );
-  if (EFI_ERROR (Status)) {
-    return;
-  }
-
-  for (Index = 0; Index < HandleCount; Index++) {
-    gBS->DisconnectController (HandleBuffer[Index], NULL, NULL);
-  }
-
-  for (Index = 0; Index < HandleCount; Index++) {
-    gBS->ConnectController (HandleBuffer[Index], NULL, NULL, TRUE);
-  }
-
-  FreePool (HandleBuffer);
-}
-
-/**
-  Register the ReadyToBoot console reconnect handler for HiDPI mode.
-**/
-STATIC
-VOID
-RegisterHiDpiConsoleReconnectReadyToBoot (
-  VOID
-  )
-{
-  EFI_STATUS  Status;
-
-  if (!FeaturePcdGet (PcdFspGopBasicHiDpiSupport)) {
-    return;
-  }
-
-  if (mHiDpiConsoleReconnectReadyToBootEvent != NULL) {
-    return;
-  }
-
-  Status = gBS->CreateEventEx (
-                  EVT_NOTIFY_SIGNAL,
-                  TPL_APPLICATION,
-                  HiDpiConsoleReconnectReadyToBoot,
-                  NULL,
-                  &gEfiEventReadyToBootGuid,
-                  &mHiDpiConsoleReconnectReadyToBootEvent
-                  );
-  if (EFI_ERROR (Status)) {
-    mHiDpiConsoleReconnectReadyToBootEvent = NULL;
-  }
-}
 
 /**
   Signal EndOfDxe event and install SMM Ready to lock protocol.
@@ -446,7 +278,6 @@ PlatformBootManagerBeforeConsole (
 
     Status = gBS->LocateProtocol (&gEdkiiPlatformLogoProtocolGuid, NULL, (VOID **)&PlatformLogo);
     if (!EFI_ERROR (Status) && (gST != NULL) && (gST->ConOut != NULL)) {
-      SyncConsoleToCurrentGop ();
       gST->ConOut->ClearScreen (gST->ConOut);
       BootLogoEnableLogo ();
     }
@@ -500,12 +331,9 @@ PlatformBootManagerAfterConsole (
   Status = gBS->LocateProtocol (&gEdkiiPlatformLogoProtocolGuid, NULL, (VOID **)&PlatformLogo);
 
   if (!EFI_ERROR (Status)) {
-    SyncConsoleToCurrentGop ();
     gST->ConOut->ClearScreen (gST->ConOut);
     BootLogoEnableLogo ();
   }
-
-  RegisterHiDpiConsoleReconnectReadyToBoot ();
 
   //
   // Ensure TCG2 physical presence variables are initialized (required for OPAL BlockSID UI).
@@ -585,7 +413,6 @@ PlatformBootManagerWaitCallback (
 {
   /* Clear text from screen once timeout expires */
   if (TimeoutRemain == 0) {
-    SyncConsoleToCurrentGop ();
     gST->ConOut->ClearScreen (gST->ConOut);
     BootLogoEnableLogo ();
   }

@@ -190,7 +190,7 @@ GraphicsOutputSetMode (
 }
 
 /**
-  ReadyToBoot notification.
+  ExitBootServices notification.
 
   Switch back to a mode that provides a direct framebuffer before launching the
   OS (e.g. for users that write directly to the framebuffer).
@@ -201,7 +201,7 @@ GraphicsOutputSetMode (
 **/
 static VOID
 EFIAPI
-GraphicsOutputReadyToBoot (
+GraphicsOutputExitBootServices (
   IN EFI_EVENT  Event,
   IN VOID       *Context
   )
@@ -637,7 +637,7 @@ CONST GRAPHICS_OUTPUT_PRIVATE_DATA  mGraphicsOutputInstanceTemplate = {
   { 0 },                                           // PhysicalModeInfo
   0,                                               // FrameBufferScale
   FALSE,                                           // HasHiDpiMode
-  NULL,                                            // ReadyToBootEvent
+  NULL,                                            // ExitBootServicesEvent
   0,                                               // PhysicalFrameBufferBase
   0,                                               // PhysicalFrameBufferSize
   NULL,                                            // DevicePath
@@ -1044,10 +1044,10 @@ GraphicsOutputDriverBindingStart (
       Status = gBS->CreateEventEx (
                       EVT_NOTIFY_SIGNAL,
                       TPL_CALLBACK,
-                      GraphicsOutputReadyToBoot,
+                      GraphicsOutputExitBootServices,
                       Private,
-                      &gEfiEventReadyToBootGuid,
-                      &Private->ReadyToBootEvent
+                      &gEfiEventExitBootServicesGuid,
+                      &Private->ExitBootServicesEvent
                       );
       if (EFI_ERROR (Status)) {
         gBS->UninstallMultipleProtocolInterfaces (
@@ -1073,9 +1073,9 @@ GraphicsOutputDriverBindingStart (
     if (!EFI_ERROR (Status)) {
       mDriverStarted = TRUE;
     } else {
-      if (Private->ReadyToBootEvent != NULL) {
-        gBS->CloseEvent (Private->ReadyToBootEvent);
-        Private->ReadyToBootEvent = NULL;
+      if (Private->ExitBootServicesEvent != NULL) {
+        gBS->CloseEvent (Private->ExitBootServicesEvent);
+        Private->ExitBootServicesEvent = NULL;
       }
 
       gBS->UninstallMultipleProtocolInterfaces (
@@ -1205,9 +1205,9 @@ GraphicsOutputDriverBindingStop (
 
   Private = GRAPHICS_OUTPUT_PRIVATE_FROM_THIS (Gop);
 
-  if (Private->ReadyToBootEvent != NULL) {
-    gBS->CloseEvent (Private->ReadyToBootEvent);
-    Private->ReadyToBootEvent = NULL;
+  if (Private->ExitBootServicesEvent != NULL) {
+    gBS->CloseEvent (Private->ExitBootServicesEvent);
+    Private->ExitBootServicesEvent = NULL;
   }
 
   Status = gBS->CloseProtocol (
