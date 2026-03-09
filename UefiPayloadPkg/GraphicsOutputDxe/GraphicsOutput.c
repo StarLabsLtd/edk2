@@ -190,7 +190,7 @@ GraphicsOutputSetMode (
 }
 
 /**
-  ReadyToBoot notification.
+  ExitBootServices notification.
 
   Switch back to a mode that provides a direct framebuffer before launching the
   OS (e.g. for users that write directly to the framebuffer).
@@ -201,12 +201,13 @@ GraphicsOutputSetMode (
 **/
 static VOID
 EFIAPI
-GraphicsOutputReadyToBoot (
+GraphicsOutputExitBootServices (
   IN EFI_EVENT  Event,
   IN VOID       *Context
   )
 {
   GRAPHICS_OUTPUT_PRIVATE_DATA  *Private;
+  EFI_STATUS                    Status;
 
   (VOID)Event;
 
@@ -221,6 +222,30 @@ GraphicsOutputReadyToBoot (
     // launching the OS (e.g. for efifb or other direct-writes users).
     //
     GraphicsOutputSetModeInternal (&Private->GraphicsOutput, GRAPHICS_OUTPUT_MODE_PHYSICAL, FALSE);
+
+    //
+    // Restore the physical-mode resolution PCDs so late DXE text/graphics code
+    // sees the real framebuffer geometry after the HiDPI GOP mode is dropped.
+    //
+    Status = PcdSet32S (PcdVideoHorizontalResolution, Private->PhysicalModeInfo.HorizontalResolution);
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_VERBOSE, "[%a]: PcdVideoHorizontalResolution update failed: %r\n", gEfiCallerBaseName, Status));
+    }
+
+    Status = PcdSet32S (PcdVideoVerticalResolution, Private->PhysicalModeInfo.VerticalResolution);
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_VERBOSE, "[%a]: PcdVideoVerticalResolution update failed: %r\n", gEfiCallerBaseName, Status));
+    }
+
+    Status = PcdSet32S (PcdSetupVideoHorizontalResolution, Private->PhysicalModeInfo.HorizontalResolution);
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_VERBOSE, "[%a]: PcdSetupVideoHorizontalResolution update failed: %r\n", gEfiCallerBaseName, Status));
+    }
+
+    Status = PcdSet32S (PcdSetupVideoVerticalResolution, Private->PhysicalModeInfo.VerticalResolution);
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_VERBOSE, "[%a]: PcdSetupVideoVerticalResolution update failed: %r\n", gEfiCallerBaseName, Status));
+    }
   }
 }
 
@@ -610,7 +635,7 @@ CONST GRAPHICS_OUTPUT_PRIVATE_DATA  mGraphicsOutputInstanceTemplate = {
   { 0 },                                           // PhysicalModeInfo
   0,                                               // FrameBufferScale
   FALSE,                                           // HasHiDpiMode
-  NULL,                                            // ReadyToBootEvent
+  NULL,                                            // ExitBootServicesEvent
   0,                                               // PhysicalFrameBufferBase
   0,                                               // PhysicalFrameBufferSize
   NULL,                                            // DevicePath
@@ -1016,10 +1041,10 @@ GraphicsOutputDriverBindingStart (
       Status = gBS->CreateEventEx (
                       EVT_NOTIFY_SIGNAL,
                       TPL_CALLBACK,
-                      GraphicsOutputReadyToBoot,
+                      GraphicsOutputExitBootServices,
                       Private,
-                      &gEfiEventReadyToBootGuid,
-                      &Private->ReadyToBootEvent
+                      &gEfiEventExitBootServicesGuid,
+                      &Private->ExitBootServicesEvent
                       );
       if (EFI_ERROR (Status)) {
         gBS->UninstallMultipleProtocolInterfaces (
@@ -1045,9 +1070,9 @@ GraphicsOutputDriverBindingStart (
     if (!EFI_ERROR (Status)) {
       mDriverStarted = TRUE;
     } else {
-      if (Private->ReadyToBootEvent != NULL) {
-        gBS->CloseEvent (Private->ReadyToBootEvent);
-        Private->ReadyToBootEvent = NULL;
+      if (Private->ExitBootServicesEvent != NULL) {
+        gBS->CloseEvent (Private->ExitBootServicesEvent);
+        Private->ExitBootServicesEvent = NULL;
       }
 
       gBS->UninstallMultipleProtocolInterfaces (
@@ -1177,9 +1202,9 @@ GraphicsOutputDriverBindingStop (
 
   Private = GRAPHICS_OUTPUT_PRIVATE_FROM_THIS (Gop);
 
-  if (Private->ReadyToBootEvent != NULL) {
-    gBS->CloseEvent (Private->ReadyToBootEvent);
-    Private->ReadyToBootEvent = NULL;
+  if (Private->ExitBootServicesEvent != NULL) {
+    gBS->CloseEvent (Private->ExitBootServicesEvent);
+    Private->ExitBootServicesEvent = NULL;
   }
 
   Status = gBS->CloseProtocol (
