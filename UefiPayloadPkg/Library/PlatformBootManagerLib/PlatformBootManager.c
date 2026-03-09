@@ -17,6 +17,30 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 
 STATIC EFI_EVENT  mHiDpiConsoleReconnectReadyToBootEvent = NULL;
 
+STATIC
+VOID
+EFIAPI
+HiDpiConsoleReconnectReadyToBoot (
+  IN EFI_EVENT  Event,
+  IN VOID       *Context
+  );
+
+/**
+  Synchronize the console stack with the current GOP mode.
+
+  This is primarily used to avoid quarter-screen clears when the GOP mode or the
+  video resolution PCDs change while the console is already initialized (e.g.
+  when switching between HiDPI logical mode and physical framebuffer mode).
+**/
+STATIC
+VOID
+SyncConsoleToCurrentGop (
+  VOID
+  )
+{
+  HiDpiConsoleReconnectReadyToBoot (NULL, NULL);
+}
+
 /**
   Reconnect the Simple Text Out console stack at ReadyToBoot if the
   GOP mode changed while in the HiDPI software-only mode.
@@ -422,6 +446,7 @@ PlatformBootManagerBeforeConsole (
 
     Status = gBS->LocateProtocol (&gEdkiiPlatformLogoProtocolGuid, NULL, (VOID **)&PlatformLogo);
     if (!EFI_ERROR (Status) && (gST != NULL) && (gST->ConOut != NULL)) {
+      SyncConsoleToCurrentGop ();
       gST->ConOut->ClearScreen (gST->ConOut);
       BootLogoEnableLogo ();
     }
@@ -475,6 +500,7 @@ PlatformBootManagerAfterConsole (
   Status = gBS->LocateProtocol (&gEdkiiPlatformLogoProtocolGuid, NULL, (VOID **)&PlatformLogo);
 
   if (!EFI_ERROR (Status)) {
+    SyncConsoleToCurrentGop ();
     gST->ConOut->ClearScreen (gST->ConOut);
     BootLogoEnableLogo ();
   }
@@ -559,6 +585,7 @@ PlatformBootManagerWaitCallback (
 {
   /* Clear text from screen once timeout expires */
   if (TimeoutRemain == 0) {
+    SyncConsoleToCurrentGop ();
     gST->ConOut->ClearScreen (gST->ConOut);
     BootLogoEnableLogo ();
   }
