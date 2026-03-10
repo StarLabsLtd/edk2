@@ -32,7 +32,6 @@
 #define OPAL_S3_SMM_CTX_SIGNATURE  SIGNATURE_32 ('O', 'P', 'S', '3')
 #define OPAL_S3_SMM_CTX_VERSION    0x0001
 
-#pragma pack(push, 1)
 typedef struct {
   UINT16    Segment;
   UINT8     Bus;
@@ -51,6 +50,7 @@ typedef struct {
   UINT8              DevicePath[0];
 } OPAL_DEVICE_LOCKBOX_DATA;
 
+#pragma pack(push, 1)
 typedef struct {
   UINT32    Signature;
   UINT16    Version;
@@ -216,6 +216,15 @@ ForwardOpalDeviceLockBoxToSmm (
       Ctx->OpalBaseComId  = Rec->OpalBaseComId;
       Ctx->PasswordLength = Rec->PasswordLength;
       CopyMem (Ctx->Password, Rec->Password, Rec->PasswordLength);
+      DEBUG ((
+        DEBUG_ERROR,
+        "OPAL LockBox: forward bdf=%u:%u.%u comid=0x%04x pw_len=%u\n",
+        Ctx->Bus,
+        Ctx->Device,
+        Ctx->Function,
+        Ctx->OpalBaseComId,
+        Ctx->PasswordLength
+        ));
 
       Status = SendSmmSvc (OPAL_S3_SMM_SUBCMD_SET_SECRET, CtxPhys);
       if (EFI_ERROR (Status)) {

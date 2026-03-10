@@ -1478,6 +1478,12 @@ OpalDiskInitialize (
     return EFI_DEVICE_ERROR;
   }
 
+  DEBUG ((
+    DEBUG_ERROR,
+    "OPAL DXE: discover comid=0x%04x\n",
+    Dev->OpalDisk.OpalBaseComId
+    ));
+
   Session.OpalBaseComId = Dev->OpalDisk.OpalBaseComId;
 
   TcgResult = OpalUtilGetMsid (&Session, Dev->OpalDisk.Msid, OPAL_MSID_LENGTH, &Dev->OpalDisk.MsidLength);

@@ -63,6 +63,48 @@ BuildOpalDeviceInfo (
   );
 
 STATIC
+UINT16
+RefreshOpalBaseComId (
+  IN OUT OPAL_DRIVER_DEVICE  *Dev
+  )
+{
+  TCG_RESULT                   TcgResult;
+  OPAL_SESSION                 Session;
+  OPAL_DISK_SUPPORT_ATTRIBUTE  SupportedAttributes;
+  UINT16                       BaseComId;
+
+  ASSERT (Dev != NULL);
+
+  ZeroMem (&Session, sizeof (Session));
+  Session.Sscp    = Dev->Sscp;
+  Session.MediaId = Dev->MediaId;
+
+  BaseComId = Dev->OpalDisk.OpalBaseComId;
+  TcgResult = OpalGetSupportedAttributesInfo (&Session, &SupportedAttributes, &BaseComId);
+  if (TcgResult != TcgResultSuccess) {
+    DEBUG ((
+      DEBUG_ERROR,
+      "OPAL LockBox: refresh comid failed bdf? cached=0x%04x ret=%d\n",
+      Dev->OpalDisk.OpalBaseComId,
+      TcgResult
+      ));
+    return Dev->OpalDisk.OpalBaseComId;
+  }
+
+  if (BaseComId != Dev->OpalDisk.OpalBaseComId) {
+    DEBUG ((
+      DEBUG_ERROR,
+      "OPAL LockBox: refresh comid old=0x%04x new=0x%04x\n",
+      Dev->OpalDisk.OpalBaseComId,
+      BaseComId
+      ));
+    Dev->OpalDisk.OpalBaseComId = BaseComId;
+  }
+
+  return BaseComId;
+}
+
+STATIC
 VOID
 TrimAsciiStringInPlace (
   IN OUT CHAR8  *Str
@@ -561,12 +603,17 @@ OpalSupportUpdatePassword (
   IN UINT32         PasswordLength
   )
 {
+  DEBUG ((
+    DEBUG_ERROR,
+    "OPAL DXE: update password comid=0x%04x pw_len=%u\n",
+    OpalDisk->OpalBaseComId,
+    PasswordLength
+    ));
+
   CopyMem (OpalDisk->Password, Password, PasswordLength);
   OpalDisk->PasswordLength = (UINT8)PasswordLength;
 
-  if (mOpalEndOfDxe) {
-    BuildOpalDeviceInfo ();
-  }
+  BuildOpalDeviceInfo ();
 }
 
 /**
@@ -737,13 +784,22 @@ BuildOpalDeviceInfo (
       TempDevInfo
       );
     TempDevInfo->Length        = DevInfoLength;
-    TempDevInfo->OpalBaseComId = TmpDev->OpalDisk.OpalBaseComId;
+    TempDevInfo->OpalBaseComId = RefreshOpalBaseComId (TmpDev);
     CopyMem (
       TempDevInfo->Password,
       TmpDev->OpalDisk.Password,
       TmpDev->OpalDisk.PasswordLength
       );
     TempDevInfo->PasswordLength = TmpDev->OpalDisk.PasswordLength;
+    DEBUG ((
+      DEBUG_ERROR,
+      "OPAL LockBox: save bdf=%u:%u.%u comid=0x%04x pw_len=%u\n",
+      TempDevInfo->Device.Bus,
+      TempDevInfo->Device.Device,
+      TempDevInfo->Device.Function,
+      TempDevInfo->OpalBaseComId,
+      TempDevInfo->PasswordLength
+      ));
 
     S3InitDevicesBak = S3InitDevices;
     S3InitDevices    = AppendDevicePathInstance (
