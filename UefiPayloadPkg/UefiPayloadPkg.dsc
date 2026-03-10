@@ -369,7 +369,11 @@
 
   DebugLib|MdeModulePkg/Library/PeiDxeDebugLibReportStatusCode/PeiDxeDebugLibReportStatusCode.inf
 !if $(LOCKBOX_SUPPORT) == TRUE || $(OPAL_PASSWORD_ENABLE) == TRUE
-  LockBoxLib|MdeModulePkg/Library/SmmLockBoxLib/SmmLockBoxDxeLib.inf
+  !if $(BOOTLOADER) == "COREBOOT"
+    LockBoxLib|UefiPayloadPkg/Library/LockBoxLibApmsmi/LockBoxLibApmsmi.inf
+  !else
+    LockBoxLib|MdeModulePkg/Library/SmmLockBoxLib/SmmLockBoxDxeLib.inf
+  !endif
 !else
   LockBoxLib|MdeModulePkg/Library/LockBoxNullLib/LockBoxNullLib.inf
 !endif

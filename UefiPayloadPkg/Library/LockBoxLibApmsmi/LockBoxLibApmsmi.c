@@ -32,7 +32,6 @@
 #define OPAL_S3_SMM_CTX_SIGNATURE  SIGNATURE_32 ('O', 'P', 'S', '3')
 #define OPAL_S3_SMM_CTX_VERSION    0x0001
 
-#pragma pack(push, 1)
 typedef struct {
   UINT16    Segment;
   UINT8     Bus;
@@ -41,6 +40,10 @@ typedef struct {
   UINT8     Reserved;
 } OPAL_PCI_DEVICE;
 
+//
+// This must match OPAL_DEVICE_LOCKBOX_DATA in
+// SecurityPkg/Tcg/Opal/OpalPassword/OpalPasswordCommon.h.
+//
 typedef struct {
   UINT32             Length;
   OPAL_PCI_DEVICE    Device;
@@ -51,6 +54,7 @@ typedef struct {
   UINT8              DevicePath[0];
 } OPAL_DEVICE_LOCKBOX_DATA;
 
+#pragma pack(push, 1)
 typedef struct {
   UINT32    Signature;
   UINT16    Version;
