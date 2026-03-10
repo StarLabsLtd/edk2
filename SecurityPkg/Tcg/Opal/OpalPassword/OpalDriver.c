@@ -63,6 +63,32 @@ BuildOpalDeviceInfo (
   );
 
 STATIC
+UINT16
+RefreshOpalBaseComId (
+  IN OUT OPAL_DRIVER_DEVICE  *Dev
+  )
+{
+  TCG_RESULT                   TcgResult;
+  OPAL_SESSION                 Session;
+  OPAL_DISK_SUPPORT_ATTRIBUTE  SupportedAttributes;
+  UINT16                       BaseComId;
+
+  ASSERT (Dev != NULL);
+
+  ZeroMem (&Session, sizeof (Session));
+  Session.Sscp    = Dev->Sscp;
+  Session.MediaId = Dev->MediaId;
+
+  BaseComId = Dev->OpalDisk.OpalBaseComId;
+  TcgResult = OpalGetSupportedAttributesInfo (&Session, &SupportedAttributes, &BaseComId);
+  if (TcgResult == TcgResultSuccess) {
+    Dev->OpalDisk.OpalBaseComId = BaseComId;
+  }
+
+  return Dev->OpalDisk.OpalBaseComId;
+}
+
+STATIC
 VOID
 TrimAsciiStringInPlace (
   IN OUT CHAR8  *Str
@@ -253,12 +279,12 @@ CopyAtaIdentifyString (
 STATIC
 BOOLEAN
 TryGetDiskModelSerial (
-  IN  EFI_HANDLE               Handle,
-  IN  EFI_DEVICE_PATH_PROTOCOL *DevicePath,
-  OUT CHAR8                    *Model,
-  IN  UINTN                    ModelSize,
-  OUT CHAR8                    *Serial,
-  IN  UINTN                    SerialSize
+  IN  EFI_HANDLE                Handle,
+  IN  EFI_DEVICE_PATH_PROTOCOL  *DevicePath,
+  OUT CHAR8                     *Model,
+  IN  UINTN                     ModelSize,
+  OUT CHAR8                     *Serial,
+  IN  UINTN                     SerialSize
   )
 {
   EFI_STATUS              Status;
@@ -320,17 +346,17 @@ TryGetDiskModelSerial (
   // NVMe path: use NVMe PassThru Identify Controller to fetch model/serial.
   //
   if (DevicePath != NULL) {
-    EFI_DEVICE_PATH_PROTOCOL                   *Remaining;
-    EFI_DEVICE_PATH_PROTOCOL                   *PathToFree;
+    EFI_DEVICE_PATH_PROTOCOL                  *Remaining;
+    EFI_DEVICE_PATH_PROTOCOL                  *PathToFree;
     EFI_HANDLE                                NvmeControllerHandle;
-    EFI_NVM_EXPRESS_PASS_THRU_PROTOCOL         *NvmePassThru;
-    EFI_NVM_EXPRESS_PASS_THRU_COMMAND_PACKET   CommandPacket;
-    EFI_NVM_EXPRESS_COMMAND                    Command;
-    EFI_NVM_EXPRESS_COMPLETION                 Completion;
-    NVME_ADMIN_CONTROLLER_DATA                 ControllerData;
+    EFI_NVM_EXPRESS_PASS_THRU_PROTOCOL        *NvmePassThru;
+    EFI_NVM_EXPRESS_PASS_THRU_COMMAND_PACKET  CommandPacket;
+    EFI_NVM_EXPRESS_COMMAND                   Command;
+    EFI_NVM_EXPRESS_COMPLETION                Completion;
+    NVME_ADMIN_CONTROLLER_DATA                ControllerData;
 
-    PathToFree          = DuplicateDevicePath (DevicePath);
-    Remaining           = PathToFree;
+    PathToFree           = DuplicateDevicePath (DevicePath);
+    Remaining            = PathToFree;
     NvmeControllerHandle = NULL;
     if (PathToFree == NULL) {
       return FALSE;
@@ -564,9 +590,7 @@ OpalSupportUpdatePassword (
   CopyMem (OpalDisk->Password, Password, PasswordLength);
   OpalDisk->PasswordLength = (UINT8)PasswordLength;
 
-  if (mOpalEndOfDxe) {
-    BuildOpalDeviceInfo ();
-  }
+  BuildOpalDeviceInfo ();
 }
 
 /**
@@ -737,7 +761,7 @@ BuildOpalDeviceInfo (
       TempDevInfo
       );
     TempDevInfo->Length        = DevInfoLength;
-    TempDevInfo->OpalBaseComId = TmpDev->OpalDisk.OpalBaseComId;
+    TempDevInfo->OpalBaseComId = RefreshOpalBaseComId (TmpDev);
     CopyMem (
       TempDevInfo->Password,
       TmpDev->OpalDisk.Password,
@@ -1257,11 +1281,11 @@ OpalDriverPopUpPasswordInput (
 STATIC
 CHAR8 *
 OpalDriverPopUpVisibleInput (
-  IN CHAR16   *PopUpString1,
-  IN CHAR16   *PopUpString2,
-  IN CHAR16   *PopUpString3,
-  IN UINTN    MaxInputLength,
-  OUT BOOLEAN *PressEsc
+  IN CHAR16    *PopUpString1,
+  IN CHAR16    *PopUpString2,
+  IN CHAR16    *PopUpString3,
+  IN UINTN     MaxInputLength,
+  OUT BOOLEAN  *PressEsc
   )
 {
   EFI_INPUT_KEY  InputKey;
@@ -3251,8 +3275,8 @@ OpalDriverGetDriverDeviceName (
         }
       }
 
-      TmpDevPath2         = DuplicateDevicePath (TmpDevPath);
-      TmpDevPath          = TmpDevPath2;
+      TmpDevPath2 = DuplicateDevicePath (TmpDevPath);
+      TmpDevPath  = TmpDevPath2;
       while (!IsDevicePathEnd (TmpDevPath)) {
         ChildDevNode = TmpDevPath;
         TmpDevPath   = NextDevicePathNode (TmpDevPath);
