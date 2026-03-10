@@ -26,9 +26,56 @@ CHAR16                 mPopUpString[100];
 
 OPAL_DRIVER  mOpalDriver;
 
-STATIC EFI_DEVICE_PATH_PROTOCOL  *mS3InitDevicesCache       = NULL;
+STATIC EFI_DEVICE_PATH_PROTOCOL  *mS3InitDevicesCache      = NULL;
 STATIC UINTN                     mS3InitDevicesCacheLength = 0;
 
+STATIC
+EFI_STATUS
+BuildOpalDeviceInfo (
+  VOID
+  );
+
+/**
+  Populate the cached base COMID for an OPAL device.
+
+  @param[in, out]  Dev  OPAL device to query and update.
+
+  @retval The cached base COMID after any refresh attempt.
+
+**/
+STATIC
+UINT16
+RefreshOpalBaseComId (
+  IN OUT OPAL_DRIVER_DEVICE  *Dev
+  )
+{
+  TCG_RESULT                   TcgResult;
+  OPAL_SESSION                 Session;
+  OPAL_DISK_SUPPORT_ATTRIBUTE  SupportedAttributes;
+  UINT16                       BaseComId;
+
+  ASSERT (Dev != NULL);
+
+  ZeroMem (&Session, sizeof (Session));
+  Session.Sscp    = Dev->Sscp;
+  Session.MediaId = Dev->MediaId;
+
+  BaseComId = Dev->OpalDisk.OpalBaseComId;
+  TcgResult = OpalGetSupportedAttributesInfo (&Session, &SupportedAttributes, &BaseComId);
+  if (TcgResult == TcgResultSuccess) {
+    Dev->OpalDisk.OpalBaseComId = BaseComId;
+  }
+
+  return Dev->OpalDisk.OpalBaseComId;
+}
+
+/**
+  Restore the S3 storage initialization device list from LockBox once per boot.
+
+  The cached copy is later reused when rebuilding the OPAL S3 LockBox state at
+  ReadyToBoot.
+
+**/
 STATIC
 VOID
 CacheS3InitDevicesFromLockBox (
@@ -242,8 +289,23 @@ OpalSupportUpdatePassword (
   IN UINT32         PasswordLength
   )
 {
+  EFI_STATUS  Status;
+
   CopyMem (OpalDisk->Password, Password, PasswordLength);
   OpalDisk->PasswordLength = (UINT8)PasswordLength;
+
+  Status = BuildOpalDeviceInfo ();
+  if (EFI_ERROR (Status)) {
+    if (mOpalS3LockBoxBuilt) {
+      gRT->ResetSystem (EfiResetShutdown, Status, 0, NULL);
+      CpuDeadLoop ();
+    }
+
+    DEBUG ((DEBUG_ERROR, "OPAL S3 handoff failed; retrying at ReadyToBoot: %r\n", Status));
+  } else if (mOpalS3LockBoxBuilt) {
+    ZeroMem (OpalDisk->Password, OpalDisk->PasswordLength);
+    OpalDisk->PasswordLength = 0;
+  }
 }
 
 /**
@@ -410,7 +472,7 @@ BuildOpalDeviceInfo (
       TempDevInfo
       );
     TempDevInfo->Length        = DevInfoLength;
-    TempDevInfo->OpalBaseComId = TmpDev->OpalDisk.OpalBaseComId;
+    TempDevInfo->OpalBaseComId = RefreshOpalBaseComId (TmpDev);
     CopyMem (
       TempDevInfo->Password,
       TmpDev->OpalDisk.Password,
