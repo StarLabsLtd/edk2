@@ -50,8 +50,6 @@ const EFI_GUID  gOpalSetupFormSetGuid = SETUP_FORMSET_GUID;
 //
 OPAL_HII_CONFIGURATION  gHiiConfiguration;
 STATIC BOOLEAN          mMainMenuPopulated      = FALSE;
-STATIC BOOLEAN          mDiskInfoFormPopulated  = FALSE;
-STATIC UINT8            mDiskInfoFormDiskIndex  = 0xFF;
 
 //
 // The device path containing the VENDOR_DEVICE_PATH and EFI_DEVICE_PATH_PROTOCOL
@@ -796,22 +794,17 @@ DriverCallback (
 
         case HII_KEY_ID_VAR_SELECTED_DISK_AVAILABLE_ACTIONS:
           DEBUG ((DEBUG_INFO, "HII_KEY_ID_VAR_SELECTED_DISK_AVAILABLE_ACTIONS\n"));
-          if (!mDiskInfoFormPopulated || (mDiskInfoFormDiskIndex != gHiiConfiguration.SelectedDiskIndex)) {
-            Status = HiiPopulateDiskInfoForm ();
+          Status = HiiPopulateDiskInfoForm ();
 
-            StartLabel->Number = OPAL_DISK_INFO_LABEL_START;
-            EndLabel->Number   = OPAL_DISK_INFO_LABEL_END;
-            HiiUpdateForm (
-              gHiiPackageListHandle,
-              (EFI_GUID *)&gOpalSetupFormSetGuid,
-              FORMID_VALUE_DISK_INFO_FORM_MAIN,
-              StartOpCodeHandle,
-              EndOpCodeHandle
-              );
-          } else {
-            OpalHiiSetBrowserData ();
-            Status = EFI_SUCCESS;
-          }
+          StartLabel->Number = OPAL_DISK_INFO_LABEL_START;
+          EndLabel->Number   = OPAL_DISK_INFO_LABEL_END;
+          HiiUpdateForm (
+            gHiiPackageListHandle,
+            (EFI_GUID *)&gOpalSetupFormSetGuid,
+            FORMID_VALUE_DISK_INFO_FORM_MAIN,
+            StartOpCodeHandle,
+            EndOpCodeHandle
+            );
           break;
       }
 
@@ -1092,7 +1085,6 @@ HiiSelectDisk (
   OpalHiiGetBrowserData ();
   gHiiConfiguration.SelectedDiskIndex = Index;
   OpalHiiSetBrowserData ();
-  mDiskInfoFormPopulated = FALSE;
 
   return EFI_SUCCESS;
 }
@@ -1180,8 +1172,6 @@ HiiPopulateDiskInfoForm (
   // Pass the current configuration to the BIOS
   //
   OpalHiiSetBrowserData ();
-  mDiskInfoFormPopulated = TRUE;
-  mDiskInfoFormDiskIndex = gHiiConfiguration.SelectedDiskIndex;
 
   return EFI_SUCCESS;
 }
