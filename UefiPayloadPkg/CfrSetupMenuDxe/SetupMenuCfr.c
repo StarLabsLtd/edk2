@@ -15,6 +15,7 @@
 #include <Library/HiiLib.h>
 #include <Library/HobLib.h>
 #include <Library/MemoryAllocationLib.h>
+#include <Library/PcdLib.h>
 #include <Library/VariablePolicyHelperLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/UefiRuntimeServicesTableLib.h>
@@ -463,6 +464,92 @@ InsertSecurityLinks (
   }
 
   CfrUpdateSecurityMenuEntries ();
+}
+
+#define HIDPI_GOP_VAR_NAME        "HiDpiDisplayScaling"
+#define HIDPI_GOP_QUESTION_ID     0x3200
+
+STATIC
+VOID
+InsertDeviceLinks (
+  IN VOID  *StartOpCodeHandle
+  )
+{
+  EFI_IFR_VARSTORE  *VarStore;
+  UINTN             VarStoreStructSize;
+  UINT8             *TempHiiBuffer;
+  UINT8             DefaultValue;
+  EFI_STATUS        Status;
+  UINTN             DataSize;
+
+  if (!FeaturePcdGet (PcdFspGopBasicHiDpiSupport)) {
+    return;
+  }
+
+  DefaultValue = FeaturePcdGet (PcdFspGopBasicHiDpiSupport) ? 1 : 0;
+  DataSize     = sizeof (DefaultValue);
+  Status       = gRT->GetVariable (
+                       L"HiDpiDisplayScaling",
+                       &gEficorebootNvDataGuid,
+                       NULL,
+                       &DataSize,
+                       NULL
+                       );
+  if (Status == EFI_NOT_FOUND) {
+    Status = gRT->SetVariable (
+                    L"HiDpiDisplayScaling",
+                    &gEficorebootNvDataGuid,
+                    EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_NON_VOLATILE,
+                    DataSize,
+                    &DefaultValue
+                    );
+    ASSERT_EFI_ERROR (Status);
+  }
+
+  VarStoreStructSize = sizeof (EFI_IFR_VARSTORE) + AsciiStrLen (HIDPI_GOP_VAR_NAME);
+  VarStore           = AllocateZeroPool (VarStoreStructSize);
+  ASSERT (VarStore != NULL);
+  if (VarStore == NULL) {
+    return;
+  }
+
+  VarStore->Header.OpCode  = EFI_IFR_VARSTORE_OP;
+  VarStore->Header.Length  = (UINT8)VarStoreStructSize;
+  VarStore->VarStoreId     = HIDPI_GOP_QUESTION_ID;
+  VarStore->Size           = sizeof (UINT8);
+  CopyMem (&VarStore->Guid, &gEficorebootNvDataGuid, sizeof (EFI_GUID));
+  CopyMem (VarStore->Name, HIDPI_GOP_VAR_NAME, AsciiStrLen (HIDPI_GOP_VAR_NAME) + 1);
+
+  TempHiiBuffer = HiiCreateRawOpCodes (
+                   StartOpCodeHandle,
+                   (UINT8 *)VarStore,
+                   VarStoreStructSize
+                   );
+  ASSERT (TempHiiBuffer != NULL);
+  FreePool (VarStore);
+
+  HiiCreateSubTitleOpCode (
+    StartOpCodeHandle,
+    STRING_TOKEN (STR_CFR_MENU_DEVICE_SECTION),
+    0,
+    0,
+    0
+    );
+
+  TempHiiBuffer = HiiCreateCheckBoxOpCode (
+                   StartOpCodeHandle,
+                   HIDPI_GOP_QUESTION_ID,
+                   HIDPI_GOP_QUESTION_ID,
+                   0,
+                   STRING_TOKEN (STR_CFR_MENU_HIDPI_PROMPT),
+                   STRING_TOKEN (STR_CFR_MENU_HIDPI_HELP),
+                   EFI_IFR_FLAG_RESET_REQUIRED,
+                   0,
+                   NULL
+                   );
+  ASSERT (TempHiiBuffer != NULL);
+
+  HiiCreateSubTitleOpCode (StartOpCodeHandle, STRING_TOKEN (STR_EMPTY_STRING), 0, 0, 0);
 }
 
 /**
@@ -1451,6 +1538,11 @@ CfrCreateRuntimeComponents (
   if (!mSecurityLinksInserted) {
     InsertSecurityLinks (StartOpCodeHandle, TRUE, FALSE);
   }
+
+  //
+  // Add Device section with HiDPI GOP scaling option.
+  //
+  InsertDeviceLinks (StartOpCodeHandle);
 
   //
   // Submit updates

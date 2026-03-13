@@ -12,6 +12,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Guid/EventGroup.h>
 
 #include <Library/PcdLib.h>
+#include <Library/UefiRuntimeServicesTableLib.h>
 
 #define GRAPHICS_OUTPUT_MODE_PHYSICAL  0
 #define GRAPHICS_OUTPUT_MODE_HIDPI     1
@@ -925,35 +926,53 @@ GraphicsOutputDriverBindingStart (
   Private->HasHiDpiMode     = FALSE;
   Private->FrameBufferScale = 1;
   if (FeaturePcdGet (PcdFspGopBasicHiDpiSupport)) {
+    UINT8   HiDpiEnabled;
+    UINTN   DataSize;
     UINT32  ThresholdH;
     UINT32  ThresholdV;
 
-    ThresholdH = PcdGet32 (PcdFspGopBasicHiDpiScaleThresholdHorizontal);
-    ThresholdV = PcdGet32 (PcdFspGopBasicHiDpiScaleThresholdVertical);
-
-    if ((Private->PhysicalModeInfo.HorizontalResolution >= ThresholdH) &&
-        (Private->PhysicalModeInfo.VerticalResolution >= ThresholdV) &&
-        ((Private->PhysicalModeInfo.HorizontalResolution % 2) == 0) &&
-        ((Private->PhysicalModeInfo.VerticalResolution % 2) == 0))
+    HiDpiEnabled = 0;
+    DataSize     = sizeof (HiDpiEnabled);
+    if (EFI_ERROR (gRT->GetVariable (
+                         L"HiDpiDisplayScaling",
+                         &gEficorebootNvDataGuid,
+                         NULL,
+                         &DataSize,
+                         &HiDpiEnabled
+                         )))
     {
-      Private->HasHiDpiMode                         = TRUE;
-      Private->LogicalModeInfo.HorizontalResolution = Private->PhysicalModeInfo.HorizontalResolution / 2;
-      Private->LogicalModeInfo.VerticalResolution   = Private->PhysicalModeInfo.VerticalResolution / 2;
-      Private->LogicalModeInfo.PixelsPerScanLine    = Private->LogicalModeInfo.HorizontalResolution;
-      Private->LogicalModeInfo.PixelFormat          = PixelBltOnly;
-      ZeroMem (&Private->LogicalModeInfo.PixelInformation, sizeof (Private->LogicalModeInfo.PixelInformation));
+      HiDpiEnabled = FeaturePcdGet (PcdFspGopBasicHiDpiSupport) ? 1 : 0;
+    }
 
-      DEBUG ((
-        DEBUG_INFO,
-        "[%a]: Enabling GOP 2x framebuffer scaling (threshold %ux%u, physical %ux%u, logical %ux%u)\n",
-        gEfiCallerBaseName,
-        ThresholdH,
-        ThresholdV,
-        Private->PhysicalModeInfo.HorizontalResolution,
-        Private->PhysicalModeInfo.VerticalResolution,
-        Private->LogicalModeInfo.HorizontalResolution,
-        Private->LogicalModeInfo.VerticalResolution
-        ));
+    if (HiDpiEnabled != 0)
+    {
+      ThresholdH = PcdGet32 (PcdFspGopBasicHiDpiScaleThresholdHorizontal);
+      ThresholdV = PcdGet32 (PcdFspGopBasicHiDpiScaleThresholdVertical);
+
+      if ((Private->PhysicalModeInfo.HorizontalResolution >= ThresholdH) &&
+          (Private->PhysicalModeInfo.VerticalResolution >= ThresholdV) &&
+          ((Private->PhysicalModeInfo.HorizontalResolution % 2) == 0) &&
+          ((Private->PhysicalModeInfo.VerticalResolution % 2) == 0))
+      {
+        Private->HasHiDpiMode                         = TRUE;
+        Private->LogicalModeInfo.HorizontalResolution = Private->PhysicalModeInfo.HorizontalResolution / 2;
+        Private->LogicalModeInfo.VerticalResolution   = Private->PhysicalModeInfo.VerticalResolution / 2;
+        Private->LogicalModeInfo.PixelsPerScanLine    = Private->LogicalModeInfo.HorizontalResolution;
+        Private->LogicalModeInfo.PixelFormat          = PixelBltOnly;
+        ZeroMem (&Private->LogicalModeInfo.PixelInformation, sizeof (Private->LogicalModeInfo.PixelInformation));
+
+        DEBUG ((
+          DEBUG_INFO,
+          "[%a]: Enabling GOP 2x framebuffer scaling (threshold %ux%u, physical %ux%u, logical %ux%u)\n",
+          gEfiCallerBaseName,
+          ThresholdH,
+          ThresholdV,
+          Private->PhysicalModeInfo.HorizontalResolution,
+          Private->PhysicalModeInfo.VerticalResolution,
+          Private->LogicalModeInfo.HorizontalResolution,
+          Private->LogicalModeInfo.VerticalResolution
+          ));
+      }
     }
   }
 

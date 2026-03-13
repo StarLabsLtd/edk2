@@ -9,6 +9,7 @@
 #include "BlSupportDxe.h"
 #include <Guid/TpmInstance.h>
 #include <Library/PcdLib.h>
+#include <Library/UefiRuntimeServicesTableLib.h>
 
 /**
   Main entry for the bootloader support DXE module.
@@ -50,14 +51,33 @@ BlDxeEntryPoint (
     VerticalResolution   = GfxInfo->GraphicsMode.VerticalResolution;
 
     if (FeaturePcdGet (PcdFspGopBasicHiDpiSupport)) {
-      ThresholdH = PcdGet32 (PcdFspGopBasicHiDpiScaleThresholdHorizontal);
-      ThresholdV = PcdGet32 (PcdFspGopBasicHiDpiScaleThresholdVertical);
+      UINT8   HiDpiEnabled;
+      UINTN   DataSize;
 
-      if ((HorizontalResolution >= ThresholdH) && (VerticalResolution >= ThresholdV) &&
-          ((HorizontalResolution & 1) == 0) && ((VerticalResolution & 1) == 0))
+      HiDpiEnabled = 0;
+      DataSize     = sizeof (HiDpiEnabled);
+      if (EFI_ERROR (gRT->GetVariable (
+                           L"HiDpiDisplayScaling",
+                           &gEficorebootNvDataGuid,
+                           NULL,
+                           &DataSize,
+                           &HiDpiEnabled
+                           )))
       {
-        HorizontalResolution /= 2;
-        VerticalResolution   /= 2;
+        HiDpiEnabled = FeaturePcdGet (PcdFspGopBasicHiDpiSupport) ? 1 : 0;
+      }
+
+      if (HiDpiEnabled != 0)
+      {
+        ThresholdH = PcdGet32 (PcdFspGopBasicHiDpiScaleThresholdHorizontal);
+        ThresholdV = PcdGet32 (PcdFspGopBasicHiDpiScaleThresholdVertical);
+
+        if ((HorizontalResolution >= ThresholdH) && (VerticalResolution >= ThresholdV) &&
+            ((HorizontalResolution & 1) == 0) && ((VerticalResolution & 1) == 0))
+        {
+          HorizontalResolution /= 2;
+          VerticalResolution   /= 2;
+        }
       }
     }
 

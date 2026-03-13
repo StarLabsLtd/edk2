@@ -43,6 +43,7 @@
 [LibraryClasses]
   UefiDriverEntryPoint
   UefiBootServicesTableLib
+  UefiRuntimeServicesTableLib
   DebugLib
   BaseMemoryLib
   HobLib
@@ -55,6 +56,7 @@
   gUefiAcpiBoardInfoGuid
   gEfiFirmwareInfoHobGuid
   gEfiGraphicsInfoHobGuid
+  gEficorebootNvDataGuid
   gEfiSystemResourceTableGuid
   gEfiTpmDeviceInstanceTpm20DtpmGuid  ## SOMETIMES_CONSUMES
   gEfiTpmDeviceInstanceTpm12Guid      ## SOMETIMES_CONSUMES

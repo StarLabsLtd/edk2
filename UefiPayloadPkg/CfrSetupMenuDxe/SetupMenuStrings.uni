@@ -3,7 +3,7 @@
 //**/
 
 #langdef   en-US "English"
-#langdef   fr-FR "FranÃ§ais"
+#langdef   fr-FR "Français"
 
 #string STR_CFR_MENU_TITLE            #language en-US  "Settings"
                                       #language fr-FR  "Settings"
@@ -15,3 +15,9 @@
                                       #language fr-FR  ""
 #string STR_INVALID_STRING            #language en-US  "INVALID"
                                       #language fr-FR  "INVALID"
+#string STR_CFR_MENU_DEVICE_SECTION   #language en-US  "Device"
+                                      #language fr-FR  "Device"
+#string STR_CFR_MENU_HIDPI_PROMPT     #language en-US  "HiDPI Display Scaling"
+                                      #language fr-FR  "HiDPI Display Scaling"
+#string STR_CFR_MENU_HIDPI_HELP       #language en-US  "Enable 2x software scaling for HiDPI displays. Makes payload UI legible on high-resolution screens."
+                                      #language fr-FR  "Enable 2x software scaling for HiDPI displays. Makes payload UI legible on high-resolution screens."

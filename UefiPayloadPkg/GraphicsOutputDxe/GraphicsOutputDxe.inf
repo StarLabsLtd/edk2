@@ -35,6 +35,7 @@
 [LibraryClasses]
   UefiDriverEntryPoint
   UefiBootServicesTableLib
+  UefiRuntimeServicesTableLib
   DxeServicesTableLib
   DebugLib
   MemoryAllocationLib
@@ -49,6 +50,7 @@
   gEfiGraphicsInfoHobGuid                       ## CONSUMES ## HOB
   gEfiGraphicsDeviceInfoHobGuid                 ## CONSUMES ## HOB
   gEfiEventExitBootServicesGuid                 ## CONSUMES
+  gEficorebootNvDataGuid
 
 [Protocols]
   gEfiGraphicsOutputProtocolGuid                ## BY_START

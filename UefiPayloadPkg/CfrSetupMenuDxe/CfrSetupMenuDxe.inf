@@ -49,6 +49,9 @@
   gEfiHiiPlatformSetupFormsetGuid               ## CONSUMES ## GUID (Indicate the formset class guid to be displayed)
   gEfiIfrTianoGuid                              ## CONSUMES ## GUID (Extended IFR Guid Opcode)
 
+[Pcd]
+  gUefiPayloadPkgTokenSpaceGuid.PcdFspGopBasicHiDpiSupport
+
 [Protocols]
   gEfiDevicePathProtocolGuid        ## PRODUCES
   gEfiHiiConfigAccessProtocolGuid   ## PRODUCES
