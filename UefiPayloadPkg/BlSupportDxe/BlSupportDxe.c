@@ -12,7 +12,7 @@
 
 STATIC
 BOOLEAN
-TryGetWide16x9ViewportWidth (
+TryGetWide4x3ViewportWidth (
   IN  UINT32  HorizontalResolution,
   IN  UINT32  VerticalResolution,
   OUT UINT32  *ViewportWidth
@@ -24,11 +24,11 @@ TryGetWide16x9ViewportWidth (
     return FALSE;
   }
 
-  if (((UINT64)HorizontalResolution * 9) <= ((UINT64)VerticalResolution * 16)) {
+  if (((UINT64)HorizontalResolution * 3) <= ((UINT64)VerticalResolution * 4)) {
     return FALSE;
   }
 
-  CandidateWidth = ((UINT64)VerticalResolution * 16) / 9;
+  CandidateWidth = ((UINT64)VerticalResolution * 4) / 3;
   CandidateWidth &= ~1ULL;
   if ((CandidateWidth == 0) || (CandidateWidth >= HorizontalResolution)) {
     return FALSE;
@@ -85,7 +85,7 @@ BlDxeEntryPoint (
       if ((HorizontalResolution >= ThresholdH) && (VerticalResolution >= ThresholdV) &&
           ((HorizontalResolution & 1) == 0) && ((VerticalResolution & 1) == 0))
       {
-        if (TryGetWide16x9ViewportWidth (HorizontalResolution, VerticalResolution, &ViewportWidth)) {
+        if (TryGetWide4x3ViewportWidth (HorizontalResolution, VerticalResolution, &ViewportWidth)) {
           HorizontalResolution = ViewportWidth;
         }
 

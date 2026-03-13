@@ -36,19 +36,19 @@ EFI_PEI_GRAPHICS_DEVICE_INFO_HOB  mDefaultGraphicsDeviceInfo = {
 BOOLEAN  mDriverStarted = FALSE;
 
 /**
-  Return TRUE if the framebuffer is wider than 16:9 and can be cropped to a
-  centered 16:9 viewport with left/right black bars.
+  Return TRUE if the framebuffer is wider than 4:3 and can be cropped to a
+  centered 4:3 viewport with left/right black bars.
 
   @param[in]  HorizontalResolution  Physical framebuffer width.
   @param[in]  VerticalResolution    Physical framebuffer height.
-  @param[out] ViewportWidth         Cropped 16:9 viewport width.
+  @param[out] ViewportWidth         Cropped 4:3 viewport width.
 
-  @retval TRUE   A centered 16:9 viewport can be created.
+  @retval TRUE   A centered 4:3 viewport can be created.
   @retval FALSE  No horizontal crop should be applied.
 **/
 STATIC
 BOOLEAN
-TryGetWide16x9ViewportWidth (
+TryGetWide4x3ViewportWidth (
   IN  UINT32  HorizontalResolution,
   IN  UINT32  VerticalResolution,
   OUT UINT32  *ViewportWidth
@@ -60,11 +60,11 @@ TryGetWide16x9ViewportWidth (
     return FALSE;
   }
 
-  if (((UINT64)HorizontalResolution * 9) <= ((UINT64)VerticalResolution * 16)) {
+  if (((UINT64)HorizontalResolution * 3) <= ((UINT64)VerticalResolution * 4)) {
     return FALSE;
   }
 
-  CandidateWidth = ((UINT64)VerticalResolution * 16) / 9;
+  CandidateWidth = ((UINT64)VerticalResolution * 4) / 3;
   CandidateWidth &= ~1ULL;
   if ((CandidateWidth == 0) || (CandidateWidth >= HorizontalResolution)) {
     return FALSE;
@@ -992,7 +992,7 @@ GraphicsOutputDriverBindingStart (
         ((Private->PhysicalModeInfo.VerticalResolution % 2) == 0))
     {
       Private->HasHiDpiMode                         = TRUE;
-      if (TryGetWide16x9ViewportWidth (
+      if (TryGetWide4x3ViewportWidth (
             Private->PhysicalModeInfo.HorizontalResolution,
             Private->PhysicalModeInfo.VerticalResolution,
             &ViewportWidth
