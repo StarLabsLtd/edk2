@@ -10,6 +10,34 @@
 #include <Guid/TpmInstance.h>
 #include <Library/PcdLib.h>
 
+STATIC
+BOOLEAN
+TryGetWide16x9ViewportWidth (
+  IN  UINT32  HorizontalResolution,
+  IN  UINT32  VerticalResolution,
+  OUT UINT32  *ViewportWidth
+  )
+{
+  UINT64  CandidateWidth;
+
+  if ((ViewportWidth == NULL) || (HorizontalResolution == 0) || (VerticalResolution == 0)) {
+    return FALSE;
+  }
+
+  if (((UINT64)HorizontalResolution * 9) <= ((UINT64)VerticalResolution * 16)) {
+    return FALSE;
+  }
+
+  CandidateWidth = ((UINT64)VerticalResolution * 16) / 9;
+  CandidateWidth &= ~1ULL;
+  if ((CandidateWidth == 0) || (CandidateWidth >= HorizontalResolution)) {
+    return FALSE;
+  }
+
+  *ViewportWidth = (UINT32)CandidateWidth;
+  return TRUE;
+}
+
 /**
   Main entry for the bootloader support DXE module.
 
@@ -39,6 +67,7 @@ BlDxeEntryPoint (
   UINT32                     VerticalResolution;
   UINT32                     ThresholdH;
   UINT32                     ThresholdV;
+  UINT32                     ViewportWidth;
 
   //
   // Find the frame buffer information and update PCDs
@@ -56,6 +85,10 @@ BlDxeEntryPoint (
       if ((HorizontalResolution >= ThresholdH) && (VerticalResolution >= ThresholdV) &&
           ((HorizontalResolution & 1) == 0) && ((VerticalResolution & 1) == 0))
       {
+        if (TryGetWide16x9ViewportWidth (HorizontalResolution, VerticalResolution, &ViewportWidth)) {
+          HorizontalResolution = ViewportWidth;
+        }
+
         HorizontalResolution /= 2;
         VerticalResolution   /= 2;
       }

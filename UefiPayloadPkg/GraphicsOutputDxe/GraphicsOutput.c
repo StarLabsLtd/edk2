@@ -36,6 +36,45 @@ EFI_PEI_GRAPHICS_DEVICE_INFO_HOB  mDefaultGraphicsDeviceInfo = {
 BOOLEAN  mDriverStarted = FALSE;
 
 /**
+  Return TRUE if the framebuffer is wider than 16:9 and can be cropped to a
+  centered 16:9 viewport with left/right black bars.
+
+  @param[in]  HorizontalResolution  Physical framebuffer width.
+  @param[in]  VerticalResolution    Physical framebuffer height.
+  @param[out] ViewportWidth         Cropped 16:9 viewport width.
+
+  @retval TRUE   A centered 16:9 viewport can be created.
+  @retval FALSE  No horizontal crop should be applied.
+**/
+STATIC
+BOOLEAN
+TryGetWide16x9ViewportWidth (
+  IN  UINT32  HorizontalResolution,
+  IN  UINT32  VerticalResolution,
+  OUT UINT32  *ViewportWidth
+  )
+{
+  UINT64  CandidateWidth;
+
+  if ((ViewportWidth == NULL) || (HorizontalResolution == 0) || (VerticalResolution == 0)) {
+    return FALSE;
+  }
+
+  if (((UINT64)HorizontalResolution * 9) <= ((UINT64)VerticalResolution * 16)) {
+    return FALSE;
+  }
+
+  CandidateWidth = ((UINT64)VerticalResolution * 16) / 9;
+  CandidateWidth &= ~1ULL;
+  if ((CandidateWidth == 0) || (CandidateWidth >= HorizontalResolution)) {
+    return FALSE;
+  }
+
+  *ViewportWidth = (UINT32)CandidateWidth;
+  return TRUE;
+}
+
+/**
   Returns information for an available graphics mode that the graphics device
   and the set of active video output devices supports.
 
@@ -414,6 +453,13 @@ GraphicsOutputBlt (
     return EFI_UNSUPPORTED;
   }
 
+  if (Scale == 1) {
+    Private->ViewportOffsetX = 0;
+    Private->ViewportOffsetY = 0;
+    Private->ViewportWidth   = Private->PhysicalModeInfo.HorizontalResolution;
+    Private->ViewportHeight  = Private->PhysicalModeInfo.VerticalResolution;
+  }
+
   //
   // We have to raise to TPL_NOTIFY, so we make an atomic write to the frame buffer.
   // We would not want a timer based event (Cursor, ...) to come in while we are
@@ -441,10 +487,10 @@ GraphicsOutputBlt (
                    Private->FrameBufferBltLibConfigure,
                    BltBuffer,
                    BltOperation,
-                   SourceX * Scale,
-                   SourceY * Scale,
-                   DestinationX * Scale,
-                   DestinationY * Scale,
+                   SourceX * Scale + Private->ViewportOffsetX,
+                   SourceY * Scale + Private->ViewportOffsetY,
+                   DestinationX * Scale + Private->ViewportOffsetX,
+                   DestinationY * Scale + Private->ViewportOffsetY,
                    Width * Scale,
                    Height * Scale,
                    Delta
@@ -515,8 +561,8 @@ GraphicsOutputBlt (
                    EfiBltBufferToVideo,
                    0,
                    0,
-                   DestinationX * Scale,
-                   DestinationY * Scale,
+                   DestinationX * Scale + Private->ViewportOffsetX,
+                   DestinationY * Scale + Private->ViewportOffsetY,
                    TempWidth,
                    TempHeight,
                    TempDeltaBytes
@@ -574,8 +620,8 @@ GraphicsOutputBlt (
                    Private->FrameBufferBltLibConfigure,
                    Temp,
                    EfiBltVideoToBltBuffer,
-                   SourceX * Scale,
-                   SourceY * Scale,
+                   SourceX * Scale + Private->ViewportOffsetX,
+                   SourceY * Scale + Private->ViewportOffsetY,
                    0,
                    0,
                    TempWidth,
@@ -634,6 +680,10 @@ CONST GRAPHICS_OUTPUT_PRIVATE_DATA  mGraphicsOutputInstanceTemplate = {
   { 0 },                                           // LogicalModeInfo
   { 0 },                                           // PhysicalModeInfo
   0,                                               // FrameBufferScale
+  0,                                               // ViewportOffsetX
+  0,                                               // ViewportOffsetY
+  0,                                               // ViewportWidth
+  0,                                               // ViewportHeight
   FALSE,                                           // HasHiDpiMode
   NULL,                                            // ExitBootServicesEvent
   0,                                               // PhysicalFrameBufferBase
@@ -922,11 +972,16 @@ GraphicsOutputDriverBindingStart (
   CopyMem (&Private->PhysicalModeInfo, &GraphicsInfo->GraphicsMode, sizeof (Private->PhysicalModeInfo));
   CopyMem (&Private->LogicalModeInfo, &Private->PhysicalModeInfo, sizeof (Private->LogicalModeInfo));
 
+  Private->ViewportOffsetX = 0;
+  Private->ViewportOffsetY = 0;
+  Private->ViewportWidth   = Private->PhysicalModeInfo.HorizontalResolution;
+  Private->ViewportHeight  = Private->PhysicalModeInfo.VerticalResolution;
   Private->HasHiDpiMode     = FALSE;
   Private->FrameBufferScale = 1;
   if (FeaturePcdGet (PcdFspGopBasicHiDpiSupport)) {
     UINT32  ThresholdH;
     UINT32  ThresholdV;
+    UINT32  ViewportWidth;
 
     ThresholdH = PcdGet32 (PcdFspGopBasicHiDpiScaleThresholdHorizontal);
     ThresholdV = PcdGet32 (PcdFspGopBasicHiDpiScaleThresholdVertical);
@@ -937,7 +992,17 @@ GraphicsOutputDriverBindingStart (
         ((Private->PhysicalModeInfo.VerticalResolution % 2) == 0))
     {
       Private->HasHiDpiMode                         = TRUE;
-      Private->LogicalModeInfo.HorizontalResolution = Private->PhysicalModeInfo.HorizontalResolution / 2;
+      if (TryGetWide16x9ViewportWidth (
+            Private->PhysicalModeInfo.HorizontalResolution,
+            Private->PhysicalModeInfo.VerticalResolution,
+            &ViewportWidth
+            ))
+      {
+        Private->ViewportWidth   = ViewportWidth;
+        Private->ViewportOffsetX = (Private->PhysicalModeInfo.HorizontalResolution - ViewportWidth) / 2;
+      }
+
+      Private->LogicalModeInfo.HorizontalResolution = Private->ViewportWidth / 2;
       Private->LogicalModeInfo.VerticalResolution   = Private->PhysicalModeInfo.VerticalResolution / 2;
       Private->LogicalModeInfo.PixelsPerScanLine    = Private->LogicalModeInfo.HorizontalResolution;
       Private->LogicalModeInfo.PixelFormat          = PixelBltOnly;
@@ -954,6 +1019,18 @@ GraphicsOutputDriverBindingStart (
         Private->LogicalModeInfo.HorizontalResolution,
         Private->LogicalModeInfo.VerticalResolution
         ));
+      if (Private->ViewportOffsetX != 0) {
+        DEBUG ((
+          DEBUG_INFO,
+          "[%a]: Centering HiDPI viewport at +%u, viewport %ux%u inside physical %ux%u\n",
+          gEfiCallerBaseName,
+          Private->ViewportOffsetX,
+          Private->ViewportWidth,
+          Private->ViewportHeight,
+          Private->PhysicalModeInfo.HorizontalResolution,
+          Private->PhysicalModeInfo.VerticalResolution
+          ));
+      }
     }
   }
 
