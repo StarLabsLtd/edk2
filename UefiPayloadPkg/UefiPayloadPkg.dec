@@ -142,6 +142,11 @@ gUefiPayloadPkgTokenSpaceGuid.PcdPciAllocateMemoryAbove4GB|FALSE|BOOLEAN|0x00000
 ## the payload graphics info HOB.
 gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiSupport|FALSE|BOOLEAN|0x0000002F
 
+## Indicates whether the alternate setup GOP mode should cap wide displays to a
+## centered viewport when the physical framebuffer is wider than the configured
+## aspect ratio.
+gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiWideAspectCapSupport|FALSE|BOOLEAN|0x00000032
+
 [PcdsFixedAtBuild]
 ## If PcdPayloadFbHiDpiSupport is enabled and the physical framebuffer
 ## resolution is greater than both thresholds, the GOP exposes an additional mode
@@ -149,3 +154,10 @@ gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiSupport|FALSE|BOOLEAN|0x0000002F
 ## does not provide a direct framebuffer (FrameBufferBase == 0).
 gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiScaleThresholdHorizontal|1920|UINT32|0x00000030
 gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiScaleThresholdVertical|1080|UINT32|0x00000031
+
+## If PcdPayloadFbHiDpiWideAspectCapSupport is enabled and the physical
+## framebuffer is wider than the configured aspect ratio, the alternate setup GOP
+## mode crops to a centered viewport. If HiDPI scaling is also enabled, that
+## capped viewport is then exposed at 2x logical scaling.
+gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiWideAspectCapWidth|16|UINT32|0x00000033
+gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiWideAspectCapHeight|9|UINT32|0x00000034
