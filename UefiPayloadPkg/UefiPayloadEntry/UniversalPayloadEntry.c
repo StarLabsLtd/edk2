@@ -506,13 +506,10 @@ _ModuleEntryPoint (
   //
   // Create Memory Type Information HOB
   //
-  if (GetFirstGuidHob (&gEfiMemoryTypeInformationGuid) == NULL) {
-    BuildGuidDataHob (
-      &gEfiMemoryTypeInformationGuid,
-      mDefaultMemoryTypeInformation,
-      sizeof (mDefaultMemoryTypeInformation)
-      );
-  }
+  BuildMemoryTypeInformationHob (
+    mDefaultMemoryTypeInformation,
+    sizeof (mDefaultMemoryTypeInformation)
+    );
 
   FixUpPcdDatabase (DxeFv);
   CbMemTimestampAdd (CBMEM_TS_UPL_DXE_LOAD_START);
