@@ -615,8 +615,7 @@ _ModuleEntryPoint (
   //
   // Create Memory Type Information HOB
   //
-  BuildGuidDataHob (
-    &gEfiMemoryTypeInformationGuid,
+  BuildMemoryTypeInformationHob (
     mDefaultMemoryTypeInformation,
     sizeof (mDefaultMemoryTypeInformation)
     );
