@@ -136,3 +136,16 @@ gUefiPayloadPkgTokenSpaceGuid.PcdUseUniversalPayloadSerialPort|TRUE|BOOLEAN|0x00
 
 ## Indicates whether allows PCI Root Bridge to allocate DMA memory resource above 4G
 gUefiPayloadPkgTokenSpaceGuid.PcdPciAllocateMemoryAbove4GB|FALSE|BOOLEAN|0x0000002E
+
+[PcdsFeatureFlag]
+## Indicates whether basic HiDPI scaling is enabled for framebuffers described by
+## the payload graphics info HOB.
+gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiSupport|FALSE|BOOLEAN|0x0000002F
+
+[PcdsFixedAtBuild]
+## If PcdPayloadFbHiDpiSupport is enabled and the physical framebuffer
+## resolution is greater than both thresholds, the GOP exposes an additional mode
+## with width/height scaled down by 2. This alternate mode uses PixelBltOnly and
+## does not provide a direct framebuffer (FrameBufferBase == 0).
+gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiScaleThresholdHorizontal|1920|UINT32|0x00000030
+gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiScaleThresholdVertical|1080|UINT32|0x00000031

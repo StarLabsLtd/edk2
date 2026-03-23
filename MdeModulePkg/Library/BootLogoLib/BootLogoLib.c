@@ -22,6 +22,88 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Library/MemoryAllocationLib.h>
 #include <Library/DebugLib.h>
 
+STATIC
+BOOLEAN
+ShouldScaleBootLogoForHiDpi (
+  IN EFI_GRAPHICS_OUTPUT_PROTOCOL  *GraphicsOutput
+  )
+{
+  UINT32  HorizontalResolution;
+  UINT32  VerticalResolution;
+
+  if ((GraphicsOutput == NULL) ||
+      (GraphicsOutput->Mode == NULL) ||
+      (GraphicsOutput->Mode->Info == NULL) ||
+      (GraphicsOutput->Mode->FrameBufferBase == 0) ||
+      !FeaturePcdGet (PcdPayloadFbHiDpiSupport))
+  {
+    return FALSE;
+  }
+
+  HorizontalResolution = GraphicsOutput->Mode->Info->HorizontalResolution;
+  VerticalResolution   = GraphicsOutput->Mode->Info->VerticalResolution;
+
+  return (HorizontalResolution >= PcdGet32 (PcdPayloadFbHiDpiScaleThresholdHorizontal)) &&
+         (VerticalResolution >= PcdGet32 (PcdPayloadFbHiDpiScaleThresholdVertical)) &&
+         ((HorizontalResolution % 2) == 0) &&
+         ((VerticalResolution % 2) == 0);
+}
+
+STATIC
+EFI_STATUS
+ScaleLogoBlt2x (
+  IN  EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *Source,
+  IN  UINTN                          SourceWidth,
+  IN  UINTN                          SourceHeight,
+  OUT EFI_GRAPHICS_OUTPUT_BLT_PIXEL  **Destination
+  )
+{
+  EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *ScaledBitmap;
+  UINTN                          DestinationWidth;
+  UINTN                          Row;
+  UINTN                          Column;
+
+  if ((Source == NULL) || (Destination == NULL) || (SourceWidth == 0) || (SourceHeight == 0)) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  if ((SourceWidth > (MAX_UINTN / 2)) || (SourceHeight > (MAX_UINTN / 2))) {
+    return EFI_OUT_OF_RESOURCES;
+  }
+
+  DestinationWidth = SourceWidth * 2;
+  if (DestinationWidth > (MAX_UINTN / (SourceHeight * 2) / sizeof (EFI_GRAPHICS_OUTPUT_BLT_PIXEL))) {
+    return EFI_OUT_OF_RESOURCES;
+  }
+
+  ScaledBitmap = AllocateZeroPool (DestinationWidth * (SourceHeight * 2) * sizeof (EFI_GRAPHICS_OUTPUT_BLT_PIXEL));
+  if (ScaledBitmap == NULL) {
+    return EFI_OUT_OF_RESOURCES;
+  }
+
+  for (Row = 0; Row < SourceHeight; Row++) {
+    UINTN  DestinationRow0;
+    UINTN  DestinationRow1;
+
+    DestinationRow0 = (Row * 2) * DestinationWidth;
+    DestinationRow1 = DestinationRow0 + DestinationWidth;
+    for (Column = 0; Column < SourceWidth; Column++) {
+      EFI_GRAPHICS_OUTPUT_BLT_PIXEL  Pixel;
+      UINTN                          DestinationColumn;
+
+      Pixel             = Source[Row * SourceWidth + Column];
+      DestinationColumn = Column * 2;
+      ScaledBitmap[DestinationRow0 + DestinationColumn]     = Pixel;
+      ScaledBitmap[DestinationRow0 + DestinationColumn + 1] = Pixel;
+      ScaledBitmap[DestinationRow1 + DestinationColumn]     = Pixel;
+      ScaledBitmap[DestinationRow1 + DestinationColumn + 1] = Pixel;
+    }
+  }
+
+  *Destination = ScaledBitmap;
+  return EFI_SUCCESS;
+}
+
 /**
   Show LOGO returned from Edkii Platform Logo protocol on all consoles.
 
@@ -128,6 +210,25 @@ BootLogoEnableLogo (
     }
 
     Blt = Image.Bitmap;
+
+    if (ShouldScaleBootLogoForHiDpi (GraphicsOutput)) {
+      EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *ScaledBlt;
+
+      ScaledBlt = NULL;
+      Status    = ScaleLogoBlt2x (Blt, Image.Width, Image.Height, &ScaledBlt);
+      if (!EFI_ERROR (Status)) {
+        FreePool (Blt);
+        Blt          = ScaledBlt;
+        Image.Bitmap = ScaledBlt;
+        Image.Width *= 2;
+        Image.Height *= 2;
+        OffsetX *= 2;
+        OffsetY *= 2;
+      } else {
+        DEBUG ((DEBUG_INFO, "%a: failed to scale logo for HiDPI boot GOP: %r\n", __func__, Status));
+        Status = EFI_SUCCESS;
+      }
+    }
 
     //
     // Calculate the display position according to Attribute.
