@@ -46,6 +46,7 @@
   DEFINE LOCKBOX_SUPPORT              = FALSE
   DEFINE LOAD_OPTION_ROMS             = FALSE
   DEFINE OPAL_PASSWORD_ENABLE         = FALSE
+  DEFINE PAYLOAD_FB_HIDPI_SUPPORT     = FALSE
 
   #
   # Capsule updates
@@ -682,6 +683,9 @@
 ################################################################################
 [PcdsFeatureFlag]
   gEfiMdeModulePkgTokenSpaceGuid.PcdConOutGopSupport|TRUE
+!if $(PAYLOAD_FB_HIDPI_SUPPORT)
+  gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiSupport|TRUE
+!endif
   ## This PCD specified whether ACPI SDT protocol is installed.
   gEfiMdeModulePkgTokenSpaceGuid.PcdInstallAcpiSdtProtocol|TRUE
   gEfiMdeModulePkgTokenSpaceGuid.PcdHiiOsRuntimeSupport|FALSE
