@@ -63,6 +63,7 @@
   gEfiGenericMemTestProtocolGuid  ## CONSUMES
   gEfiGraphicsOutputProtocolGuid  ## CONSUMES
   gEfiBootLogoProtocolGuid        ## CONSUMES
+  gEfiHiiFontProtocolGuid         ## CONSUMES
   gEfiDxeSmmReadyToLockProtocolGuid
   gEfiSmmAccess2ProtocolGuid
   gEfiSerialIoProtocolGuid
@@ -78,3 +79,6 @@
   gEfiMdePkgTokenSpaceGuid.PcdUartDefaultParity
   gEfiMdePkgTokenSpaceGuid.PcdUartDefaultStopBits
   gUefiPayloadPkgTokenSpaceGuid.PcdBootManagerEscape
+  gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiSupport
+  gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiScaleThresholdHorizontal
+  gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiScaleThresholdVertical
