@@ -27,7 +27,9 @@
 #include <Library/DebugLib.h>
 #include <Library/FmpDeviceLib.h>
 #include <Library/HobLib.h>
+#include <Library/IoLib.h>
 #include <Library/MemoryAllocationLib.h>
+#include <Library/PcdLib.h>
 #include <Library/SmmStoreLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/UefiRuntimeServicesTableLib.h>
@@ -66,6 +68,17 @@ typedef struct {
 #define SMMSTORE_FLASH_RETRY_COUNT     4
 #define SMMSTORE_FLASH_RETRY_STALL_US  500
 
+#define STARLABS_AB_SLOT_A             0
+#define STARLABS_AB_SLOT_B             1
+#define STARLABS_AB_CMOS_ACTIVE        49
+#define STARLABS_AB_CMOS_PENDING       50
+#define STARLABS_AB_CMOS_TRIES         51
+#define STARLABS_AB_PENDING_VALID      0x80
+#define STARLABS_AB_PENDING_SLOT_MASK  0x01
+#define STARLABS_AB_DEFAULT_TRIES      3
+#define STARLABS_CMOS_INDEX_PORT       0x70
+#define STARLABS_CMOS_DATA_PORT        0x71
+
 typedef struct {
   UINT32    Signature;
   UINT16    Version;
@@ -84,6 +97,87 @@ StallBetweenFlashAttempts (
 {
   if ((gBS != NULL) && (gBS->Stall != NULL)) {
     gBS->Stall ((Attempt + 1) * SMMSTORE_FLASH_RETRY_STALL_US);
+  }
+}
+
+STATIC
+UINT8
+ReadCmos8 (
+  IN UINT8  Offset
+  )
+{
+  IoWrite8 (STARLABS_CMOS_INDEX_PORT, Offset);
+  return IoRead8 (STARLABS_CMOS_DATA_PORT);
+}
+
+STATIC
+VOID
+WriteCmos8 (
+  IN UINT8  Offset,
+  IN UINT8  Value
+  )
+{
+  IoWrite8 (STARLABS_CMOS_INDEX_PORT, Offset);
+  IoWrite8 (STARLABS_CMOS_DATA_PORT, Value);
+}
+
+STATIC
+UINT8
+GetActiveCorebootSlot (
+  VOID
+  )
+{
+  return (ReadCmos8 (STARLABS_AB_CMOS_ACTIVE) & STARLABS_AB_PENDING_SLOT_MASK) == STARLABS_AB_SLOT_B ?
+         STARLABS_AB_SLOT_B :
+         STARLABS_AB_SLOT_A;
+}
+
+STATIC
+VOID
+SetPendingCorebootSlot (
+  IN UINT8  Slot
+  )
+{
+  WriteCmos8 (STARLABS_AB_CMOS_PENDING, STARLABS_AB_PENDING_VALID | (Slot & STARLABS_AB_PENDING_SLOT_MASK));
+  WriteCmos8 (STARLABS_AB_CMOS_TRIES, STARLABS_AB_DEFAULT_TRIES);
+}
+
+STATIC
+VOID
+ResolveManifestRegionName (
+  IN  CONST CHAR8  RegionName[16],
+  IN  BOOLEAN      UseInactiveCorebootSlot,
+  OUT CHAR8        ResolvedName[16],
+  OUT BOOLEAN      *CorebootRegion OPTIONAL
+  )
+{
+  CHAR8  LogicalName[17];
+
+  CopyMem (ResolvedName, RegionName, 16);
+  CopyMem (LogicalName, RegionName, 16);
+  LogicalName[16] = '\0';
+
+  if (CorebootRegion != NULL) {
+    *CorebootRegion = FALSE;
+  }
+
+  if (AsciiStrCmp (LogicalName, "COREBOOT") != 0) {
+    return;
+  }
+
+  if (CorebootRegion != NULL) {
+    *CorebootRegion = TRUE;
+  }
+
+  if (!UseInactiveCorebootSlot) {
+    return;
+  }
+
+  ZeroMem (ResolvedName, 16);
+  if (GetActiveCorebootSlot () == STARLABS_AB_SLOT_A) {
+    CopyMem (ResolvedName, "COREBOOT_B", sizeof ("COREBOOT_B"));
+  } else {
+    CopyMem (ResolvedName, "COREBOOT", sizeof ("COREBOOT"));
   }
 }
 
@@ -280,6 +374,31 @@ FindFmapRegion (
   OUT UINTN              *RegionOffset,
   OUT UINTN              *RegionSize
   );
+
+STATIC
+BOOLEAN
+FmapHasInactiveCorebootSlot (
+  IN CONST FMAP_HEADER  *FmapHeader,
+  IN CONST FMAP_AREA    *Areas
+  )
+{
+  CONST CHAR8  CorebootBName[16] = "COREBOOT_B";
+  UINTN        RegionOffset;
+  UINTN        RegionSize;
+
+  if ((FmapHeader == NULL) || (Areas == NULL)) {
+    return FALSE;
+  }
+
+  return !EFI_ERROR (FindFmapRegion (
+                       FmapHeader,
+                       Areas,
+                       FmapHeader->AreaCount,
+                       CorebootBName,
+                       &RegionOffset,
+                       &RegionSize
+                       )) && (RegionSize != 0);
+}
 
 /**
   This function requests firmware information on the first call, caches it and
@@ -1667,6 +1786,8 @@ FmpDeviceSetImageWithStatus (
   VOID                         *FlashFmapBuffer;
   FMAP_HEADER                  *FlashFmapHeader;
   FMAP_AREA                    *FlashFmapAreas;
+  BOOLEAN                      UseInactiveCorebootSlot;
+  BOOLEAN                      CorebootRegionUpdated;
 
   *LastAttemptStatus = LAST_ATTEMPT_STATUS_ERROR_UNSUCCESSFUL;
   BlockCount         = 0;
@@ -1706,9 +1827,11 @@ FmpDeviceSetImageWithStatus (
   FmapAreas          = NULL;
   FmapOffset         = 0;
   FmapLength         = 0;
-  FlashFmapBuffer    = NULL;
-  FlashFmapHeader    = NULL;
-  FlashFmapAreas     = NULL;
+  FlashFmapBuffer      = NULL;
+  FlashFmapHeader      = NULL;
+  FlashFmapAreas       = NULL;
+  UseInactiveCorebootSlot = FALSE;
+  CorebootRegionUpdated = FALSE;
 
   Status = LocateRegionManifest (Image, ImageSize, &ManifestEntryCount, &ManifestEntries, &BaseImageSize);
   if (EFI_ERROR (Status)) {
@@ -1730,6 +1853,8 @@ FmpDeviceSetImageWithStatus (
   if (!EFI_ERROR (Status) && ((FmapOffset + FmapLength) <= BaseImageSize)) {
     FmapHeader = (CONST FMAP_HEADER *)((CONST UINT8 *)Image + FmapOffset);
     FmapAreas  = (CONST FMAP_AREA *)((CONST UINT8 *)FmapHeader + sizeof (FMAP_HEADER));
+    UseInactiveCorebootSlot = FeaturePcdGet (PcdCorebootAbSupport) &&
+                              FmapHasInactiveCorebootSlot (FmapHeader, FmapAreas);
 
     DEBUG ((
       DEBUG_INFO,
@@ -1814,12 +1939,14 @@ FmpDeviceSetImageWithStatus (
       UINTN  RegionOffset;
       UINTN  RegionSize;
       CHAR8  RegionName[17];
+      CHAR8  ResolvedName[16];
 
+      ResolveManifestRegionName (ManifestEntries[EntryIndex].RegionName, UseInactiveCorebootSlot, ResolvedName, NULL);
       Status = FindFmapRegion (
                  FmapHeader,
                  FmapAreas,
                  FmapHeader->AreaCount,
-                 ManifestEntries[EntryIndex].RegionName,
+                 ResolvedName,
                  &RegionOffset,
                  &RegionSize
                  );
@@ -1847,7 +1974,7 @@ FmpDeviceSetImageWithStatus (
                    FlashFmapHeader,
                    FlashFmapAreas,
                    FlashFmapHeader->AreaCount,
-                   ManifestEntries[EntryIndex].RegionName,
+                   ResolvedName,
                    &FlashRegionOffset,
                    &FlashRegionSize
                    );
@@ -1925,14 +2052,22 @@ FmpDeviceSetImageWithStatus (
     DEBUG ((DEBUG_INFO, "%a(): manifest-guided update over %u region(s)\n", __func__, (UINT32)ManifestEntryCount));
 
     for (EntryIndex = 0; EntryIndex < ManifestEntryCount; ++EntryIndex) {
-      UINTN  RegionOffset;
-      UINTN  RegionSize;
+      UINTN    RegionOffset;
+      UINTN    RegionSize;
+      CHAR8    ResolvedName[16];
+      BOOLEAN  LogicalCorebootRegion;
 
+      ResolveManifestRegionName (
+        ManifestEntries[EntryIndex].RegionName,
+        UseInactiveCorebootSlot,
+        ResolvedName,
+        &LogicalCorebootRegion
+        );
       Status = FindFmapRegion (
                  FmapHeader,
                  FmapAreas,
                  FmapHeader->AreaCount,
-                 ManifestEntries[EntryIndex].RegionName,
+                 ResolvedName,
                  &RegionOffset,
                  &RegionSize
                  );
@@ -1955,6 +2090,10 @@ FmpDeviceSetImageWithStatus (
                  );
       if (EFI_ERROR (Status)) {
         goto IoError;
+      }
+
+      if (LogicalCorebootRegion && UseInactiveCorebootSlot) {
+        CorebootRegionUpdated = TRUE;
       }
     }
   }
@@ -2036,6 +2175,14 @@ FmpDeviceSetImageWithStatus (
 
   FreePool (VerifyBuffer);
   FreePool (ReadBuffer);
+
+  if (CorebootRegionUpdated) {
+    UINT8  PendingSlot;
+
+    PendingSlot = (GetActiveCorebootSlot () == STARLABS_AB_SLOT_A) ? STARLABS_AB_SLOT_B : STARLABS_AB_SLOT_A;
+    SetPendingCorebootSlot (PendingSlot);
+    DEBUG ((DEBUG_INFO, "%a(): scheduled COREBOOT slot %a for next boot\n", __func__, (PendingSlot == STARLABS_AB_SLOT_B) ? "B" : "A"));
+  }
 
   *LastAttemptStatus = LAST_ATTEMPT_STATUS_SUCCESS;
 

@@ -697,6 +697,7 @@
 !if $(PAYLOAD_FB_HIDPI_SUPPORT)
   gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiSupport|TRUE
 !endif
+  gUefiPayloadPkgTokenSpaceGuid.PcdCorebootAbSupport|FALSE
   gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiWideAspectCapSupport|$(PAYLOAD_FB_HIDPI_WIDE_ASPECT_CAP_SUPPORT)
   ## This PCD specified whether ACPI SDT protocol is installed.
   gEfiMdeModulePkgTokenSpaceGuid.PcdInstallAcpiSdtProtocol|TRUE

@@ -142,6 +142,10 @@ gUefiPayloadPkgTokenSpaceGuid.PcdPciAllocateMemoryAbove4GB|FALSE|BOOLEAN|0x00000
 ## the payload graphics info HOB.
 gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiSupport|FALSE|BOOLEAN|0x0000002F
 
+## Indicates whether firmware capsule updates should target the inactive
+## COREBOOT slot when both COREBOOT and COREBOOT_B are present.
+gUefiPayloadPkgTokenSpaceGuid.PcdCorebootAbSupport|FALSE|BOOLEAN|0x00000035
+
 ## Indicates whether the alternate setup GOP mode should cap wide displays to a
 ## centered viewport when the physical framebuffer is wider than the configured
 ## aspect ratio.

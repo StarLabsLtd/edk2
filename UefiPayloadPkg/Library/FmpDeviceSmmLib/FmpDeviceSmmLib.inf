@@ -26,6 +26,7 @@
   BaseMemoryLib
   DebugLib
   HobLib
+  PcdLib
   MemoryAllocationLib
   SmmStoreLib
   UefiBootServicesTableLib
@@ -39,3 +40,6 @@
 
 [Guids]
   gEfiFirmwareInfoHobGuid
+
+[Pcd]
+  gUefiPayloadPkgTokenSpaceGuid.PcdCorebootAbSupport
