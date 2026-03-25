@@ -743,6 +743,10 @@ PlatformBootManagerAfterConsole (
   //
   PlatformRegisterFvBootOption (&gUefiShellFileGuid, L"UEFI Shell", LOAD_OPTION_ACTIVE);
 
+  if (PcdGet16 (PcdPlatformBootTimeOut) == 0) {
+    return;
+  }
+
   if (FixedPcdGetBool (PcdBootManagerEscape)) {
     if (!DisplayBootManagerPrompt (TRUE)) {
       Print (
