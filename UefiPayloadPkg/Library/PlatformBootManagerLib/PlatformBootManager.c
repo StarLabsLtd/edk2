@@ -321,13 +321,49 @@ Exit:
 }
 
 STATIC
+VOID
+FormatBootPromptCountdownLine (
+  OUT CHAR16  *String,
+  IN  UINTN   StringChars,
+  IN  UINT16  TimeoutRemain
+  )
+{
+  if ((String == NULL) || (StringChars == 0)) {
+    return;
+  }
+
+  if ((TimeoutRemain == 0) || (TimeoutRemain == 0xFFFF)) {
+    UnicodeSPrint (String, StringChars * sizeof (CHAR16), L"Press ENTER to boot now");
+    return;
+  }
+
+  UnicodeSPrint (
+    String,
+    StringChars * sizeof (CHAR16),
+    L"Booting in %u seconds, press ENTER to boot now",
+    TimeoutRemain
+    );
+}
+
+STATIC
+CONST CHAR16 *
+GetBootPromptSettingsLine (
+  IN BOOLEAN  UseEscape
+  )
+{
+  return UseEscape ? L"Press ESC or down for settings" : L"Press F2 or down for settings";
+}
+
+STATIC
 BOOLEAN
 DisplayBootManagerPrompt (
-  IN BOOLEAN  UseEscape
+  IN BOOLEAN  UseEscape,
+  IN UINT16   TimeoutRemain
   )
 {
   EFI_STATUS                    Status;
   EFI_GRAPHICS_OUTPUT_PROTOCOL  *GraphicsOutput;
+  CHAR16                        CountdownLine[64];
   UINTN                         TextScale;
 
   Status = GetBootPromptGraphicsOutput (&GraphicsOutput);
@@ -347,17 +383,13 @@ DisplayBootManagerPrompt (
     ));
 
   TextScale = 2U;
-  if (UseEscape) {
-    Status = DrawBootPromptLine (GraphicsOutput, L"Esc or Down to enter Boot Manager Menu.", 4, 1, TextScale);
-  } else {
-    Status = DrawBootPromptLine (GraphicsOutput, L"F2 or Down to enter Boot Manager Menu.", 4, 1, TextScale);
-  }
-
+  FormatBootPromptCountdownLine (CountdownLine, ARRAY_SIZE (CountdownLine), TimeoutRemain);
+  Status = DrawBootPromptLine (GraphicsOutput, CountdownLine, 4, 1, TextScale);
   if (EFI_ERROR (Status)) {
     return FALSE;
   }
 
-  Status = DrawBootPromptLine (GraphicsOutput, L"ENTER to boot directly.", 4, 2, TextScale);
+  Status = DrawBootPromptLine (GraphicsOutput, GetBootPromptSettingsLine (UseEscape), 4, 2, TextScale);
   return !EFI_ERROR (Status);
 }
 
@@ -748,7 +780,7 @@ PlatformBootManagerAfterConsole (
   }
 
   if (FixedPcdGetBool (PcdBootManagerEscape)) {
-    if (!DisplayBootManagerPrompt (TRUE)) {
+    if (!DisplayBootManagerPrompt (TRUE, PcdGet16 (PcdPlatformBootTimeOut))) {
       Print (
         L"\n"
         L"    Esc or Down      to enter Boot Manager Menu.\n"
@@ -757,7 +789,7 @@ PlatformBootManagerAfterConsole (
         );
     }
   } else {
-    if (!DisplayBootManagerPrompt (FALSE)) {
+    if (!DisplayBootManagerPrompt (FALSE, PcdGet16 (PcdPlatformBootTimeOut))) {
       Print (
         L"\n"
         L"    F2 or Down      to enter Boot Manager Menu.\n"
@@ -779,6 +811,10 @@ PlatformBootManagerWaitCallback (
   UINT16  TimeoutRemain
   )
 {
+  if ((TimeoutRemain != 0) && (TimeoutRemain != 0xFFFF)) {
+    DisplayBootManagerPrompt (FixedPcdGetBool (PcdBootManagerEscape), TimeoutRemain);
+  }
+
   /* Clear text from screen once timeout expires */
   if (TimeoutRemain == 0) {
     gST->ConOut->ClearScreen (gST->ConOut);
