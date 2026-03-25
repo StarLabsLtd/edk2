@@ -1034,21 +1034,23 @@ PadOptionString (
   )
 {
   CHAR16  PadChar = L' ';
+  UINTN   InnerWidth;
 
   // Calculate the number of pad characters needed
   UINTN  CurrentLen = StrLen (StringPtr);
 
   // Create a new string with enough space for the original, the padding, and the null terminator
-  CHAR16  *PaddedString = AllocateZeroPool ((MAX_OPTION_STR_LEN + 1) * sizeof (CHAR16));
+  InnerWidth = MAX (MAX_OPTION_STR_LEN, CurrentLen + 1);
+  CHAR16  *PaddedString = AllocateZeroPool ((InnerWidth + 1) * sizeof (CHAR16));
 
   // Add a single padding character at the beginning
   PaddedString[0] = PadChar;
 
   // Copy the original string into the new string starting from the index 1
-  StrCpyS (PaddedString + 1, CurrentLen + 1, StringPtr);
+  StrCpyS (PaddedString + 1, InnerWidth, StringPtr);
 
   // Add the remaining padding characters at the end
-  for (UINTN i = CurrentLen + 1; i < MAX_OPTION_STR_LEN; i++) {
+  for (UINTN i = CurrentLen + 1; i < InnerWidth; i++) {
     PaddedString[i] = PadChar;
   }
 
@@ -1080,7 +1082,6 @@ ProcessOptions (
   UINTN                          Index;
   FORM_DISPLAY_ENGINE_STATEMENT  *Question;
   CHAR16                         FormattedNumber[21];
-  UINT16                         Number;
   CHAR16                         Character[2];
   EFI_INPUT_KEY                  Key;
   UINTN                          BufferSize;
@@ -1478,19 +1479,24 @@ ProcessOptions (
         //
         Status = GetNumericInput (MenuOption);
       } else {
+        CHAR16  *PaddedStringPtr;
+
         *OptionString = AllocateZeroPool (BufferSize);
         ASSERT (*OptionString);
-
-        *OptionString[0] = LEFT_NUMERIC_DELIMITER;
 
         //
         // Formatted print
         //
         PrintFormattedNumber (Question, FormattedNumber, 21 * sizeof (CHAR16));
-        Number = (UINT16)GetStringWidth (FormattedNumber);
-        CopyMem (OptionString[0] + 1, FormattedNumber, Number);
+        PaddedStringPtr = PadOptionString (FormattedNumber);
 
-        *(OptionString[0] + Number / 2) = RIGHT_NUMERIC_DELIMITER;
+        Character[0] = LEFT_NUMERIC_DELIMITER;
+        NewStrCat (OptionString[0], BufferSize / sizeof (CHAR16), Character);
+        NewStrCat (OptionString[0], BufferSize / sizeof (CHAR16), PaddedStringPtr);
+        Character[0] = RIGHT_NUMERIC_DELIMITER;
+        NewStrCat (OptionString[0], BufferSize / sizeof (CHAR16), Character);
+
+        FreePool (PaddedStringPtr);
       }
 
       break;
