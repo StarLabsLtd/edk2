@@ -11,6 +11,339 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include "PlatformConsole.h"
 #include <Protocol/FirmwareVolume2.h>
 
+STATIC
+BOOLEAN
+ShouldScaleBootPromptForHiDpi (
+  IN EFI_GRAPHICS_OUTPUT_PROTOCOL  *GraphicsOutput
+  )
+{
+  UINT32  HorizontalResolution;
+  UINT32  VerticalResolution;
+
+  if ((GraphicsOutput == NULL) ||
+      (GraphicsOutput->Mode == NULL) ||
+      (GraphicsOutput->Mode->Info == NULL) ||
+      !FeaturePcdGet (PcdFspGopBasicHiDpiSupport))
+  {
+    return FALSE;
+  }
+
+  HorizontalResolution = GraphicsOutput->Mode->Info->HorizontalResolution;
+  VerticalResolution   = GraphicsOutput->Mode->Info->VerticalResolution;
+
+  return (HorizontalResolution >= PcdGet32 (PcdFspGopBasicHiDpiScaleThresholdHorizontal)) &&
+         (VerticalResolution >= PcdGet32 (PcdFspGopBasicHiDpiScaleThresholdVertical)) &&
+         ((HorizontalResolution % 2) == 0) &&
+         ((VerticalResolution % 2) == 0);
+}
+
+STATIC
+EFI_STATUS
+GetBootPromptGraphicsOutput (
+  OUT EFI_GRAPHICS_OUTPUT_PROTOCOL  **GraphicsOutput
+  )
+{
+  EFI_STATUS  Status;
+
+  if (GraphicsOutput == NULL) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  *GraphicsOutput = NULL;
+  Status          = gBS->HandleProtocol (gST->ConsoleOutHandle, &gEfiGraphicsOutputProtocolGuid, (VOID **)GraphicsOutput);
+  if (!EFI_ERROR (Status) && (*GraphicsOutput != NULL)) {
+    if (ShouldScaleBootPromptForHiDpi (*GraphicsOutput)) {
+      return EFI_SUCCESS;
+    }
+  }
+
+  return Status;
+}
+
+STATIC
+EFI_STATUS
+ScaleBitmap2x (
+  IN  EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *Source,
+  IN  UINTN                          SourceWidth,
+  IN  UINTN                          SourceHeight,
+  IN  UINTN                          SourceStride,
+  OUT EFI_GRAPHICS_OUTPUT_BLT_PIXEL  **Destination
+  )
+{
+  EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *ScaledBitmap;
+  UINTN                          Row;
+  UINTN                          Column;
+  UINTN                          DestinationWidth;
+
+  if ((Source == NULL) || (Destination == NULL) || (SourceWidth == 0) || (SourceHeight == 0) || (SourceStride < SourceWidth)) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  if ((SourceWidth > (MAX_UINTN / 2)) || (SourceHeight > (MAX_UINTN / 2))) {
+    return EFI_OUT_OF_RESOURCES;
+  }
+
+  DestinationWidth = SourceWidth * 2;
+  if (DestinationWidth > (MAX_UINTN / (SourceHeight * 2) / sizeof (EFI_GRAPHICS_OUTPUT_BLT_PIXEL))) {
+    return EFI_OUT_OF_RESOURCES;
+  }
+
+  ScaledBitmap = AllocateZeroPool (DestinationWidth * (SourceHeight * 2) * sizeof (EFI_GRAPHICS_OUTPUT_BLT_PIXEL));
+  if (ScaledBitmap == NULL) {
+    return EFI_OUT_OF_RESOURCES;
+  }
+
+  for (Row = 0; Row < SourceHeight; Row++) {
+    UINTN  DestinationRow0;
+    UINTN  DestinationRow1;
+
+    DestinationRow0 = (Row * 2) * DestinationWidth;
+    DestinationRow1 = DestinationRow0 + DestinationWidth;
+    for (Column = 0; Column < SourceWidth; Column++) {
+      EFI_GRAPHICS_OUTPUT_BLT_PIXEL  Pixel;
+      UINTN                          DestinationColumn;
+
+      Pixel             = Source[Row * SourceStride + Column];
+      DestinationColumn = Column * 2;
+      ScaledBitmap[DestinationRow0 + DestinationColumn]     = Pixel;
+      ScaledBitmap[DestinationRow0 + DestinationColumn + 1] = Pixel;
+      ScaledBitmap[DestinationRow1 + DestinationColumn]     = Pixel;
+      ScaledBitmap[DestinationRow1 + DestinationColumn + 1] = Pixel;
+    }
+  }
+
+  *Destination = ScaledBitmap;
+  return EFI_SUCCESS;
+}
+
+STATIC
+EFI_STATUS
+DrawBootPromptLine (
+  IN EFI_GRAPHICS_OUTPUT_PROTOCOL  *GraphicsOutput,
+  IN CONST CHAR16                  *String,
+  IN UINTN                         Column,
+  IN UINTN                         Row,
+  IN UINTN                         TextScale
+  )
+{
+  EFI_STATUS                     Status;
+  EFI_HII_FONT_PROTOCOL          *HiiFont;
+  EFI_IMAGE_OUTPUT               *Blt;
+  EFI_IMAGE_OUTPUT               *ScaledBlt;
+  EFI_FONT_DISPLAY_INFO          FontInfo;
+  EFI_HII_ROW_INFO               *RowInfoArray;
+  UINTN                          RowInfoArraySize;
+  UINTN                          Columns;
+  UINTN                          Rows;
+  UINTN                          BaseGlyphWidth;
+  UINTN                          BaseGlyphHeight;
+  UINTN                          PointX;
+  UINTN                          PointY;
+  UINTN                          BitmapWidth;
+  UINTN                          BitmapHeight;
+  UINTN                          RenderWidth;
+  UINTN                          RenderHeight;
+  UINTN                          Index;
+  EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *ScaledBitmap;
+
+  if ((GraphicsOutput == NULL) || (String == NULL) || (TextScale <= 1)) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  Status = gBS->LocateProtocol (&gEfiHiiFontProtocolGuid, NULL, (VOID **)&HiiFont);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  Status = gST->ConOut->QueryMode (gST->ConOut, gST->ConOut->Mode->Mode, &Columns, &Rows);
+  if (EFI_ERROR (Status) || (Columns == 0) || (Rows == 0)) {
+    Columns = PcdGet32 (PcdConOutColumn);
+    Rows    = PcdGet32 (PcdConOutRow);
+    if ((Columns == 0) || (Rows == 0)) {
+      Columns = 80;
+      Rows    = 25;
+    }
+  }
+
+  BaseGlyphWidth  = EFI_GLYPH_WIDTH;
+  BaseGlyphHeight = EFI_GLYPH_HEIGHT;
+  PointX          = ((UINTN)GraphicsOutput->Mode->Info->HorizontalResolution - (Columns * BaseGlyphWidth)) / 2 + (Column * BaseGlyphWidth);
+  PointY          = ((UINTN)GraphicsOutput->Mode->Info->VerticalResolution - (Rows * BaseGlyphHeight)) / 2 + (Row * BaseGlyphHeight);
+  if (Row > 0) {
+    PointY += (Row - 1) * BaseGlyphHeight * TextScale;
+  }
+
+  Blt = AllocateZeroPool (sizeof (EFI_IMAGE_OUTPUT));
+  if (Blt == NULL) {
+    return EFI_OUT_OF_RESOURCES;
+  }
+
+  BitmapWidth  = (StrLen (String) + 2) * EFI_GLYPH_WIDTH;
+  BitmapHeight = EFI_GLYPH_HEIGHT * 2;
+  if ((BitmapWidth == 0) || (BitmapHeight == 0)) {
+    Status = EFI_INVALID_PARAMETER;
+    goto Exit;
+  }
+
+  Blt->Width        = (UINT16)BitmapWidth;
+  Blt->Height       = (UINT16)BitmapHeight;
+  Blt->Image.Bitmap = AllocateZeroPool (BitmapWidth * BitmapHeight * sizeof (EFI_GRAPHICS_OUTPUT_BLT_PIXEL));
+  if (Blt->Image.Bitmap == NULL) {
+    Status = EFI_OUT_OF_RESOURCES;
+    goto Exit;
+  }
+
+  ZeroMem (&FontInfo, sizeof (FontInfo));
+  FontInfo.ForegroundColor.Blue     = 0xc0;
+  FontInfo.ForegroundColor.Green    = 0xc0;
+  FontInfo.ForegroundColor.Red      = 0xc0;
+  FontInfo.BackgroundColor.Blue     = 0x00;
+  FontInfo.BackgroundColor.Green    = 0x00;
+  FontInfo.BackgroundColor.Red      = 0x00;
+  FontInfo.FontInfoMask             = EFI_FONT_INFO_SYS_FONT | EFI_FONT_INFO_SYS_SIZE | EFI_FONT_INFO_SYS_STYLE;
+  FontInfo.FontInfo.FontSize        = EFI_GLYPH_HEIGHT;
+  FontInfo.FontInfo.FontName[0]     = CHAR_NULL;
+  RowInfoArray                      = NULL;
+  RowInfoArraySize                  = 0;
+
+  Status = HiiFont->StringToImage (
+                      HiiFont,
+                      EFI_HII_IGNORE_IF_NO_GLYPH | EFI_HII_OUT_FLAG_CLIP | EFI_HII_OUT_FLAG_CLIP_CLEAN_X | EFI_HII_OUT_FLAG_CLIP_CLEAN_Y | EFI_HII_IGNORE_LINE_BREAK,
+                      (EFI_STRING)String,
+                      &FontInfo,
+                      &Blt,
+                      0,
+                      0,
+                      &RowInfoArray,
+                      &RowInfoArraySize,
+                      NULL
+                      );
+  if (EFI_ERROR (Status)) {
+    goto Exit;
+  }
+
+  RenderWidth  = 0;
+  RenderHeight = 0;
+  for (Index = 0; Index < RowInfoArraySize; Index++) {
+    if (RowInfoArray[Index].LineWidth > RenderWidth) {
+      RenderWidth = RowInfoArray[Index].LineWidth;
+    }
+
+    RenderHeight += RowInfoArray[Index].LineHeight;
+  }
+
+  if ((RenderWidth == 0) || (RenderHeight == 0)) {
+    Status = EFI_DEVICE_ERROR;
+    goto Exit;
+  }
+
+  ScaledBitmap = NULL;
+  Status       = ScaleBitmap2x (Blt->Image.Bitmap, RenderWidth, RenderHeight, Blt->Width, &ScaledBitmap);
+  if (EFI_ERROR (Status)) {
+    goto Exit;
+  }
+
+  ScaledBlt = AllocateZeroPool (sizeof (EFI_IMAGE_OUTPUT));
+  if (ScaledBlt == NULL) {
+    FreePool (ScaledBitmap);
+    Status = EFI_OUT_OF_RESOURCES;
+    goto Exit;
+  }
+
+  ScaledBlt->Width        = (UINT16)(RenderWidth * 2);
+  ScaledBlt->Height       = (UINT16)(RenderHeight * 2);
+  ScaledBlt->Image.Bitmap = ScaledBitmap;
+
+  Status = GraphicsOutput->Blt (
+                             GraphicsOutput,
+                             ScaledBlt->Image.Bitmap,
+                             EfiBltBufferToVideo,
+                             0,
+                             0,
+                             PointX,
+                             PointY,
+                             ScaledBlt->Width,
+                             ScaledBlt->Height,
+                             ScaledBlt->Width * sizeof (EFI_GRAPHICS_OUTPUT_BLT_PIXEL)
+                             );
+  FreePool (ScaledBlt->Image.Bitmap);
+  FreePool (ScaledBlt);
+
+Exit:
+  if (RowInfoArray != NULL) {
+    FreePool (RowInfoArray);
+  }
+
+  if ((Blt != NULL) && (Blt->Image.Bitmap != NULL)) {
+    FreePool (Blt->Image.Bitmap);
+  }
+
+  FreePool (Blt);
+  return Status;
+}
+
+STATIC
+VOID
+FormatBootPromptCountdownLine (
+  OUT CHAR16  *String,
+  IN  UINTN   StringChars,
+  IN  UINT16  TimeoutRemain
+  )
+{
+  if ((String == NULL) || (StringChars == 0)) {
+    return;
+  }
+
+  if ((TimeoutRemain == 0) || (TimeoutRemain == 0xFFFF)) {
+    UnicodeSPrint (String, StringChars * sizeof (CHAR16), L"Press ENTER to boot now");
+    return;
+  }
+
+  UnicodeSPrint (
+    String,
+    StringChars * sizeof (CHAR16),
+    L"Booting in %u seconds, press ENTER to boot now",
+    TimeoutRemain
+    );
+}
+
+STATIC
+CONST CHAR16 *
+GetBootPromptSettingsLine (
+  IN BOOLEAN  UseEscape
+  )
+{
+  return UseEscape ? L"Press ESC or down for settings" : L"Press F2 or down for settings";
+}
+
+STATIC
+BOOLEAN
+DisplayBootManagerPrompt (
+  IN BOOLEAN  UseEscape,
+  IN UINT16   TimeoutRemain
+  )
+{
+  EFI_STATUS                    Status;
+  EFI_GRAPHICS_OUTPUT_PROTOCOL  *GraphicsOutput;
+  CHAR16                        CountdownLine[64];
+  UINTN                         TextScale;
+
+  Status = GetBootPromptGraphicsOutput (&GraphicsOutput);
+  if (EFI_ERROR (Status) || !ShouldScaleBootPromptForHiDpi (GraphicsOutput)) {
+    return FALSE;
+  }
+
+  TextScale = 2U;
+  FormatBootPromptCountdownLine (CountdownLine, ARRAY_SIZE (CountdownLine), TimeoutRemain);
+  Status = DrawBootPromptLine (GraphicsOutput, CountdownLine, 4, 1, TextScale);
+  if (EFI_ERROR (Status)) {
+    return FALSE;
+  }
+
+  Status = DrawBootPromptLine (GraphicsOutput, GetBootPromptSettingsLine (UseEscape), 4, 2, TextScale);
+  return !EFI_ERROR (Status);
+}
+
 /**
   Signal EndOfDxe event and install SMM Ready to lock protocol.
 
@@ -356,19 +689,23 @@ PlatformBootManagerAfterConsole (
   PlatformRegisterFvBootOption (&gUefiShellFileGuid, L"UEFI Shell", LOAD_OPTION_ACTIVE);
 
   if (FixedPcdGetBool (PcdBootManagerEscape)) {
-    Print (
-      L"\n"
-      L"    Esc or Down      to enter Boot Manager Menu.\n"
-      L"    ENTER            to boot directly.\n"
-      L"\n"
-      );
+    if (!DisplayBootManagerPrompt (TRUE, PcdGet16 (PcdPlatformBootTimeOut))) {
+      Print (
+        L"\n"
+        L"    Esc or Down      to enter Boot Manager Menu.\n"
+        L"    ENTER            to boot directly.\n"
+        L"\n"
+        );
+    }
   } else {
-    Print (
-      L"\n"
-      L"    F2 or Down      to enter Boot Manager Menu.\n"
-      L"    ENTER           to boot directly.\n"
-      L"\n"
-      );
+    if (!DisplayBootManagerPrompt (FALSE, PcdGet16 (PcdPlatformBootTimeOut))) {
+      Print (
+        L"\n"
+        L"    F2 or Down      to enter Boot Manager Menu.\n"
+        L"    ENTER           to boot directly.\n"
+        L"\n"
+        );
+    }
   }
 }
 
@@ -383,6 +720,15 @@ PlatformBootManagerWaitCallback (
   UINT16  TimeoutRemain
   )
 {
+  if ((TimeoutRemain != 0) && (TimeoutRemain != 0xFFFF)) {
+    DisplayBootManagerPrompt (FixedPcdGetBool (PcdBootManagerEscape), TimeoutRemain);
+  }
+
+  if (TimeoutRemain == 0) {
+    gST->ConOut->ClearScreen (gST->ConOut);
+    BootLogoEnableLogo ();
+  }
+
   return;
 }
 
