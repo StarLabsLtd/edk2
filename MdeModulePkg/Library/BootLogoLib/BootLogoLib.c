@@ -43,8 +43,8 @@ ShouldScaleBootLogoForHiDpi (
   HorizontalResolution = GraphicsOutput->Mode->Info->HorizontalResolution;
   VerticalResolution   = GraphicsOutput->Mode->Info->VerticalResolution;
 
-  return (HorizontalResolution >= PcdGet32 (PcdPayloadFbHiDpiScaleThresholdHorizontal)) &&
-         (VerticalResolution >= PcdGet32 (PcdPayloadFbHiDpiScaleThresholdVertical)) &&
+  return (HorizontalResolution > PcdGet32 (PcdPayloadFbHiDpiScaleThresholdHorizontal)) &&
+         (VerticalResolution > PcdGet32 (PcdPayloadFbHiDpiScaleThresholdVertical)) &&
          ((HorizontalResolution % 2) == 0) &&
          ((VerticalResolution % 2) == 0);
 }
