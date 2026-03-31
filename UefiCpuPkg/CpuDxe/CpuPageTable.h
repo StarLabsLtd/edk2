@@ -9,7 +9,6 @@
 #pragma once
 
 #include <IndustryStandard/PeImage.h>
-#include <Protocol/MemoryAttribute.h>
 
 #define PAGE_TABLE_LIB_PAGING_CONTEXT_IA32_X64_ATTRIBUTES_PSE              BIT0
 #define PAGE_TABLE_LIB_PAGING_CONTEXT_IA32_X64_ATTRIBUTES_PAE              BIT1
@@ -153,13 +152,3 @@ GetPagingDetails (
   OUT UINT32                              **Attributes        OPTIONAL
   );
 
-/**
-  Install Efi Memory Attribute Protocol.
-
-  @param Handle A pointer to the EFI_HANDLE on which the interface is to be installed
-
-**/
-VOID
-InstallEfiMemoryAttributeProtocol (
-  IN EFI_HANDLE  Handle
-  );
