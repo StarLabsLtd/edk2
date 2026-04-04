@@ -34,11 +34,250 @@ OPAL_DRIVER  mOpalDriver;
 STATIC EFI_DEVICE_PATH_PROTOCOL  *mS3InitDevicesCache      = NULL;
 STATIC UINTN                     mS3InitDevicesCacheLength = 0;
 
+typedef struct {
+  UINT32     HorizontalResolution;
+  UINT32     VerticalResolution;
+  UINT32     Columns;
+  UINT32     Rows;
+  BOOLEAN    Valid;
+} OPAL_CONSOLE_MODE_CONTEXT;
+
 STATIC
 VOID
 BuildOpalDeviceInfo (
   VOID
   );
+
+STATIC
+EFI_STATUS
+SetConsoleMode (
+  IN UINT32  NewHorizontalResolution,
+  IN UINT32  NewVerticalResolution,
+  IN UINT32  NewColumns,
+  IN UINT32  NewRows
+  )
+{
+  EFI_GRAPHICS_OUTPUT_PROTOCOL          *GraphicsOutput;
+  EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL       *SimpleTextOut;
+  EFI_GRAPHICS_OUTPUT_MODE_INFORMATION  *Info;
+  EFI_HANDLE                            *HandleBuffer;
+  UINTN                                 CurrentColumn;
+  UINTN                                 CurrentRow;
+  UINTN                                 HandleCount;
+  UINTN                                 Index;
+  UINTN                                 SizeOfInfo;
+  EFI_STATUS                            Status;
+  UINT32                                MaxGopMode;
+  UINT32                                MaxTextMode;
+  UINT32                                ModeNumber;
+
+  Status = gBS->HandleProtocol (
+                  gST->ConsoleOutHandle,
+                  &gEfiGraphicsOutputProtocolGuid,
+                  (VOID **)&GraphicsOutput
+                  );
+  if (EFI_ERROR (Status)) {
+    GraphicsOutput = NULL;
+  }
+
+  Status = gBS->HandleProtocol (
+                  gST->ConsoleOutHandle,
+                  &gEfiSimpleTextOutProtocolGuid,
+                  (VOID **)&SimpleTextOut
+                  );
+  if (EFI_ERROR (Status)) {
+    SimpleTextOut = NULL;
+  }
+
+  if ((GraphicsOutput == NULL) || (SimpleTextOut == NULL)) {
+    return EFI_UNSUPPORTED;
+  }
+
+  MaxGopMode  = GraphicsOutput->Mode->MaxMode;
+  MaxTextMode = SimpleTextOut->Mode->MaxMode;
+
+  for (ModeNumber = 0; ModeNumber < MaxGopMode; ModeNumber++) {
+    Status = GraphicsOutput->QueryMode (
+                               GraphicsOutput,
+                               ModeNumber,
+                               &SizeOfInfo,
+                               &Info
+                               );
+    if (EFI_ERROR (Status)) {
+      continue;
+    }
+
+    if ((Info->HorizontalResolution == NewHorizontalResolution) &&
+        (Info->VerticalResolution == NewVerticalResolution))
+    {
+      if ((GraphicsOutput->Mode->Info->HorizontalResolution == NewHorizontalResolution) &&
+          (GraphicsOutput->Mode->Info->VerticalResolution == NewVerticalResolution))
+      {
+        Status = SimpleTextOut->QueryMode (SimpleTextOut, SimpleTextOut->Mode->Mode, &CurrentColumn, &CurrentRow);
+        if (!EFI_ERROR (Status) && (CurrentColumn == NewColumns) && (CurrentRow == NewRows)) {
+          FreePool (Info);
+          return EFI_SUCCESS;
+        }
+
+        for (Index = 0; Index < MaxTextMode; Index++) {
+          Status = SimpleTextOut->QueryMode (SimpleTextOut, Index, &CurrentColumn, &CurrentRow);
+          if (!EFI_ERROR (Status) && (CurrentColumn == NewColumns) && (CurrentRow == NewRows)) {
+            Status = SimpleTextOut->SetMode (SimpleTextOut, Index);
+            if (!EFI_ERROR (Status)) {
+              Status = PcdSet32S (PcdConOutColumn, NewColumns);
+              if (EFI_ERROR (Status)) {
+                FreePool (Info);
+                return Status;
+              }
+
+              Status = PcdSet32S (PcdConOutRow, NewRows);
+            }
+
+            FreePool (Info);
+            return Status;
+          }
+        }
+
+        FreePool (Info);
+        return EFI_UNSUPPORTED;
+      }
+
+      Status = GraphicsOutput->SetMode (GraphicsOutput, ModeNumber);
+      FreePool (Info);
+      if (!EFI_ERROR (Status)) {
+        break;
+      }
+
+      continue;
+    }
+
+    FreePool (Info);
+  }
+
+  if (ModeNumber == MaxGopMode) {
+    return EFI_UNSUPPORTED;
+  }
+
+  Status = PcdSet32S (PcdVideoHorizontalResolution, NewHorizontalResolution);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  Status = PcdSet32S (PcdVideoVerticalResolution, NewVerticalResolution);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  Status = PcdSet32S (PcdConOutColumn, NewColumns);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  Status = PcdSet32S (PcdConOutRow, NewRows);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  Status = gBS->LocateHandleBuffer (
+                  ByProtocol,
+                  &gEfiSimpleTextOutProtocolGuid,
+                  NULL,
+                  &HandleCount,
+                  &HandleBuffer
+                  );
+  if (EFI_ERROR (Status)) {
+    return EFI_SUCCESS;
+  }
+
+  for (Index = 0; Index < HandleCount; Index++) {
+    gBS->DisconnectController (HandleBuffer[Index], NULL, NULL);
+  }
+
+  for (Index = 0; Index < HandleCount; Index++) {
+    gBS->ConnectController (HandleBuffer[Index], NULL, NULL, TRUE);
+  }
+
+  FreePool (HandleBuffer);
+  return EFI_SUCCESS;
+}
+
+STATIC
+EFI_STATUS
+EnterSetupConsoleMode (
+  OUT OPAL_CONSOLE_MODE_CONTEXT  *Context
+  )
+{
+  EFI_GRAPHICS_OUTPUT_PROTOCOL     *GraphicsOutput;
+  EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL  *SimpleTextOut;
+  UINTN                            CurrentColumn;
+  UINTN                            CurrentRow;
+  EFI_STATUS                       Status;
+
+  if (Context == NULL) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  ZeroMem (Context, sizeof (*Context));
+
+  Status = gBS->HandleProtocol (
+                  gST->ConsoleOutHandle,
+                  &gEfiGraphicsOutputProtocolGuid,
+                  (VOID **)&GraphicsOutput
+                  );
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  Status = gBS->HandleProtocol (
+                  gST->ConsoleOutHandle,
+                  &gEfiSimpleTextOutProtocolGuid,
+                  (VOID **)&SimpleTextOut
+                  );
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  Status = SimpleTextOut->QueryMode (SimpleTextOut, SimpleTextOut->Mode->Mode, &CurrentColumn, &CurrentRow);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  Context->HorizontalResolution = GraphicsOutput->Mode->Info->HorizontalResolution;
+  Context->VerticalResolution   = GraphicsOutput->Mode->Info->VerticalResolution;
+  Context->Columns              = (UINT32)CurrentColumn;
+  Context->Rows                 = (UINT32)CurrentRow;
+  Context->Valid                = TRUE;
+
+  return SetConsoleMode (
+           PcdGet32 (PcdSetupVideoHorizontalResolution),
+           PcdGet32 (PcdSetupVideoVerticalResolution),
+           PcdGet32 (PcdSetupConOutColumn),
+           PcdGet32 (PcdSetupConOutRow)
+           );
+}
+
+STATIC
+VOID
+RestoreConsoleMode (
+  IN OPAL_CONSOLE_MODE_CONTEXT  *Context
+  )
+{
+  EFI_STATUS  Status;
+
+  if ((Context == NULL) || !Context->Valid) {
+    return;
+  }
+
+  Status = SetConsoleMode (
+             Context->HorizontalResolution,
+             Context->VerticalResolution,
+             Context->Columns,
+             Context->Rows
+             );
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_WARN, "%a: failed to restore console mode: %r\n", __func__, Status));
+  }
+}
 
 /**
   Populate the cached base COMID for an OPAL device.
@@ -317,12 +556,12 @@ CopyAtaIdentifyString (
 STATIC
 BOOLEAN
 TryGetDiskModelSerial (
-  IN  EFI_HANDLE               Handle,
-  IN  EFI_DEVICE_PATH_PROTOCOL *DevicePath,
-  OUT CHAR8                    *Model,
-  IN  UINTN                    ModelSize,
-  OUT CHAR8                    *Serial,
-  IN  UINTN                    SerialSize
+  IN  EFI_HANDLE                Handle,
+  IN  EFI_DEVICE_PATH_PROTOCOL  *DevicePath,
+  OUT CHAR8                     *Model,
+  IN  UINTN                     ModelSize,
+  OUT CHAR8                     *Serial,
+  IN  UINTN                     SerialSize
   )
 {
   EFI_STATUS              Status;
@@ -384,17 +623,17 @@ TryGetDiskModelSerial (
   // NVMe path: use NVMe PassThru Identify Controller to fetch model/serial.
   //
   if (DevicePath != NULL) {
-    EFI_DEVICE_PATH_PROTOCOL                   *Remaining;
-    EFI_DEVICE_PATH_PROTOCOL                   *PathToFree;
+    EFI_DEVICE_PATH_PROTOCOL                  *Remaining;
+    EFI_DEVICE_PATH_PROTOCOL                  *PathToFree;
     EFI_HANDLE                                NvmeControllerHandle;
-    EFI_NVM_EXPRESS_PASS_THRU_PROTOCOL         *NvmePassThru;
-    EFI_NVM_EXPRESS_PASS_THRU_COMMAND_PACKET   CommandPacket;
-    EFI_NVM_EXPRESS_COMMAND                    Command;
-    EFI_NVM_EXPRESS_COMPLETION                 Completion;
-    NVME_ADMIN_CONTROLLER_DATA                 ControllerData;
+    EFI_NVM_EXPRESS_PASS_THRU_PROTOCOL        *NvmePassThru;
+    EFI_NVM_EXPRESS_PASS_THRU_COMMAND_PACKET  CommandPacket;
+    EFI_NVM_EXPRESS_COMMAND                   Command;
+    EFI_NVM_EXPRESS_COMPLETION                Completion;
+    NVME_ADMIN_CONTROLLER_DATA                ControllerData;
 
-    PathToFree          = DuplicateDevicePath (DevicePath);
-    Remaining           = PathToFree;
+    PathToFree           = DuplicateDevicePath (DevicePath);
+    Remaining            = PathToFree;
     NvmeControllerHandle = NULL;
     if (PathToFree == NULL) {
       return FALSE;
@@ -1328,11 +1567,11 @@ OpalDriverPopUpPasswordInput (
 STATIC
 CHAR8 *
 OpalDriverPopUpVisibleInput (
-  IN CHAR16   *PopUpString1,
-  IN CHAR16   *PopUpString2,
-  IN CHAR16   *PopUpString3,
-  IN UINTN    MaxInputLength,
-  OUT BOOLEAN *PressEsc
+  IN CHAR16    *PopUpString1,
+  IN CHAR16    *PopUpString2,
+  IN CHAR16    *PopUpString3,
+  IN UINTN     MaxInputLength,
+  OUT BOOLEAN  *PressEsc
   )
 {
   EFI_INPUT_KEY  InputKey;
@@ -1618,22 +1857,25 @@ OpalDriverRequestPassword (
   IN CHAR16              *RequestString
   )
 {
-  UINT8          Count;
-  BOOLEAN        IsEnabled;
-  BOOLEAN        IsLocked;
-  CHAR8          *Password;
-  UINT32         PasswordLen;
-  OPAL_SESSION   Session;
-  BOOLEAN        PressEsc;
-  EFI_INPUT_KEY  Key;
-  TCG_RESULT     Ret;
-  CHAR16         *PopUpString;
+  OPAL_CONSOLE_MODE_CONTEXT  ConsoleModeContext;
+  UINT8                      Count;
+  BOOLEAN                    IsEnabled;
+  BOOLEAN                    IsLocked;
+  CHAR8                      *Password;
+  UINT32                     PasswordLen;
+  OPAL_SESSION               Session;
+  BOOLEAN                    PressEsc;
+  EFI_INPUT_KEY              Key;
+  EFI_STATUS                 Status;
+  TCG_RESULT                 Ret;
+  CHAR16                     *PopUpString;
 
   if (Dev == NULL) {
     return;
   }
 
   DEBUG ((DEBUG_INFO, "%a()\n", __func__));
+  ZeroMem (&ConsoleModeContext, sizeof (ConsoleModeContext));
 
   PopUpString = OpalGetPopUpString (Dev, RequestString);
 
@@ -1664,6 +1906,11 @@ OpalDriverRequestPassword (
       }
     }
 
+    Status = EnterSetupConsoleMode (&ConsoleModeContext);
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_WARN, "%a: failed to enter setup console mode: %r\n", __func__, Status));
+    }
+
     while (Count < MAX_PASSWORD_TRY_COUNT) {
       Password = OpalDriverPopUpPasswordInput (Dev, PopUpString, NULL, NULL, &PressEsc);
       if (PressEsc) {
@@ -1685,10 +1932,7 @@ OpalDriverRequestPassword (
 
           if (Key.UnicodeChar == CHAR_CARRIAGE_RETURN) {
             gST->ConOut->ClearScreen (gST->ConOut);
-            //
-            // Keep lock and continue boot.
-            //
-            return;
+            break;
           } else {
             //
             // Let user input password again.
@@ -1789,6 +2033,8 @@ OpalDriverRequestPassword (
       gRT->ResetSystem (EfiResetShutdown, EFI_SUCCESS, 0, NULL);
     }
   }
+
+  RestoreConsoleMode (&ConsoleModeContext);
 }
 
 /**
@@ -2953,17 +3199,20 @@ ProcessOpalRequest (
   IN OPAL_DRIVER_DEVICE  *Dev
   )
 {
-  EFI_STATUS                Status;
-  OPAL_REQUEST_VARIABLE     *TempVariable;
-  OPAL_REQUEST_VARIABLE     *Variable;
-  UINTN                     VariableSize;
-  EFI_DEVICE_PATH_PROTOCOL  *DevicePathInVariable;
-  UINTN                     DevicePathSizeInVariable;
-  EFI_DEVICE_PATH_PROTOCOL  *DevicePath;
-  UINTN                     DevicePathSize;
-  BOOLEAN                   KeepUserData;
-  BOOLEAN                   SimpleUi;
-  OPAL_REQUEST              OpalRequest;
+  OPAL_CONSOLE_MODE_CONTEXT  ConsoleModeContext;
+  EFI_STATUS                 Status;
+  OPAL_REQUEST_VARIABLE      *TempVariable;
+  OPAL_REQUEST_VARIABLE      *Variable;
+  UINTN                      VariableSize;
+  EFI_DEVICE_PATH_PROTOCOL   *DevicePathInVariable;
+  UINTN                      DevicePathSizeInVariable;
+  EFI_DEVICE_PATH_PROTOCOL   *DevicePath;
+  UINTN                      DevicePathSize;
+  BOOLEAN                    KeepUserData;
+  BOOLEAN                    SimpleUi;
+  OPAL_REQUEST               OpalRequest;
+
+  ZeroMem (&ConsoleModeContext, sizeof (ConsoleModeContext));
 
   if (mOpalRequestVariable == NULL) {
     Status = GetVariable2 (
@@ -3013,6 +3262,11 @@ ProcessOpalRequest (
       //
       // Found the node for the OPAL device.
       //
+      Status = EnterSetupConsoleMode (&ConsoleModeContext);
+      if (EFI_ERROR (Status)) {
+        DEBUG ((DEBUG_WARN, "%a: failed to enter setup console mode: %r\n", __func__, Status));
+      }
+
       SimpleUi = TcgStorageIsSimpleUiEnabled ();
       CopyMem (&OpalRequest, &TempVariable->OpalRequest, sizeof (OPAL_REQUEST));
 
@@ -3089,6 +3343,7 @@ ProcessOpalRequest (
       // Later BlockSID command may block the update.
       //
       OpalDiskUpdateOwnerShip (&Dev->OpalDisk);
+      RestoreConsoleMode (&ConsoleModeContext);
 
       break;
     }
@@ -3096,7 +3351,6 @@ ProcessOpalRequest (
     VariableSize -= TempVariable->Length;
     TempVariable  = (OPAL_REQUEST_VARIABLE *)((UINTN)TempVariable + TempVariable->Length);
   }
-
 }
 
 /**
@@ -3329,8 +3583,8 @@ OpalDriverGetDriverDeviceName (
         }
       }
 
-      TmpDevPath2         = DuplicateDevicePath (TmpDevPath);
-      TmpDevPath          = TmpDevPath2;
+      TmpDevPath2 = DuplicateDevicePath (TmpDevPath);
+      TmpDevPath  = TmpDevPath2;
       while (!IsDevicePathEnd (TmpDevPath)) {
         ChildDevNode = TmpDevPath;
         TmpDevPath   = NextDevicePathNode (TmpDevPath);
