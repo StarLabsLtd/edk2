@@ -144,6 +144,7 @@ DrawBootPromptLine (
   EFI_HII_FONT_PROTOCOL  *HiiFont;
   EFI_IMAGE_OUTPUT       *Blt;
   EFI_IMAGE_OUTPUT       *ScaledBlt;
+  EFI_IMAGE_OUTPUT       *RenderBlt;
   EFI_FONT_DISPLAY_INFO  FontInfo;
   EFI_HII_ROW_INFO       *RowInfoArray;
   UINTN                  RowInfoArraySize;
@@ -157,10 +158,13 @@ DrawBootPromptLine (
   UINTN                  BitmapHeight;
   UINTN                  RenderWidth;
   UINTN                  RenderHeight;
+  UINTN                  BltWidth;
+  UINTN                  BltHeight;
+  UINTN                  BltDelta;
   UINTN                  Index;
   EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *ScaledBitmap;
 
-  if ((GraphicsOutput == NULL) || (String == NULL) || (TextScale <= 1)) {
+  if ((GraphicsOutput == NULL) || (String == NULL) || (TextScale == 0) || (TextScale > 2)) {
     return EFI_INVALID_PARAMETER;
   }
 
@@ -264,34 +268,46 @@ DrawBootPromptLine (
     goto Exit;
   }
 
+  ScaledBlt    = NULL;
   ScaledBitmap = NULL;
-  Status       = ScaleBitmap2x (Blt->Image.Bitmap, RenderWidth, RenderHeight, Blt->Width, &ScaledBitmap);
-  if (EFI_ERROR (Status)) {
-    goto Exit;
-  }
+  RenderBlt    = Blt;
+  BltWidth     = RenderWidth;
+  BltHeight    = RenderHeight;
+  BltDelta     = Blt->Width * sizeof (EFI_GRAPHICS_OUTPUT_BLT_PIXEL);
 
-  ScaledBlt = AllocateZeroPool (sizeof (EFI_IMAGE_OUTPUT));
-  if (ScaledBlt == NULL) {
-    FreePool (ScaledBitmap);
-    Status = EFI_OUT_OF_RESOURCES;
-    goto Exit;
-  }
+  if (TextScale == 2) {
+    Status = ScaleBitmap2x (Blt->Image.Bitmap, RenderWidth, RenderHeight, Blt->Width, &ScaledBitmap);
+    if (EFI_ERROR (Status)) {
+      goto Exit;
+    }
 
-  ScaledBlt->Width        = (UINT16)(RenderWidth * 2);
-  ScaledBlt->Height       = (UINT16)(RenderHeight * 2);
-  ScaledBlt->Image.Bitmap = ScaledBitmap;
+    ScaledBlt = AllocateZeroPool (sizeof (EFI_IMAGE_OUTPUT));
+    if (ScaledBlt == NULL) {
+      FreePool (ScaledBitmap);
+      Status = EFI_OUT_OF_RESOURCES;
+      goto Exit;
+    }
+
+    ScaledBlt->Width        = (UINT16)(RenderWidth * 2);
+    ScaledBlt->Height       = (UINT16)(RenderHeight * 2);
+    ScaledBlt->Image.Bitmap = ScaledBitmap;
+    RenderBlt               = ScaledBlt;
+    BltWidth                = ScaledBlt->Width;
+    BltHeight               = ScaledBlt->Height;
+    BltDelta                = ScaledBlt->Width * sizeof (EFI_GRAPHICS_OUTPUT_BLT_PIXEL);
+  }
 
   Status = GraphicsOutput->Blt (
                              GraphicsOutput,
-                             ScaledBlt->Image.Bitmap,
+                             RenderBlt->Image.Bitmap,
                              EfiBltBufferToVideo,
                              0,
                              0,
                              PointX,
                              PointY,
-                             ScaledBlt->Width,
-                             ScaledBlt->Height,
-                             ScaledBlt->Width * sizeof (EFI_GRAPHICS_OUTPUT_BLT_PIXEL)
+                             BltWidth,
+                             BltHeight,
+                             BltDelta
                              );
   DEBUG ((
     DEBUG_INFO,
@@ -300,12 +316,14 @@ DrawBootPromptLine (
     String,
     (UINT32)RenderWidth,
     (UINT32)RenderHeight,
-    (UINT32)ScaledBlt->Width,
-    (UINT32)ScaledBlt->Height,
+    (UINT32)BltWidth,
+    (UINT32)BltHeight,
     Status
     ));
-  FreePool (ScaledBlt->Image.Bitmap);
-  FreePool (ScaledBlt);
+  if (ScaledBlt != NULL) {
+    FreePool (ScaledBlt->Image.Bitmap);
+    FreePool (ScaledBlt);
+  }
 
 Exit:
   if (RowInfoArray != NULL) {
@@ -367,8 +385,7 @@ DisplayBootManagerPrompt (
   UINTN                         TextScale;
 
   Status = GetBootPromptGraphicsOutput (&GraphicsOutput);
-  if (EFI_ERROR (Status) || !ShouldScaleBootPromptForHiDpi (GraphicsOutput)) {
-    DEBUG ((DEBUG_INFO, "%a: HiDPI prompt disabled, status=%r\n", __func__, Status));
+  if (EFI_ERROR (Status) || (GraphicsOutput == NULL)) {
     return FALSE;
   }
 
@@ -382,7 +399,7 @@ DisplayBootManagerPrompt (
     GraphicsOutput->Mode->Info->PixelFormat
     ));
 
-  TextScale = 2U;
+  TextScale = ShouldScaleBootPromptForHiDpi (GraphicsOutput) ? 2U : 1U;
   FormatBootPromptCountdownLine (CountdownLine, ARRAY_SIZE (CountdownLine), TimeoutRemain);
   Status = DrawBootPromptLine (GraphicsOutput, CountdownLine, 4, 1, TextScale);
   if (EFI_ERROR (Status)) {
