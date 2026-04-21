@@ -439,7 +439,9 @@ INF MdeModulePkg/Application/BootManagerMenuApp/BootManagerMenuApp.inf
 # Shell
 #
 !if $(SHELL_TYPE) == BUILD_SHELL
+!if $(NETWORK_DRIVER_ENABLE) == TRUE
 INF ShellPkg/DynamicCommand/TftpDynamicCommand/TftpDynamicCommand.inf
+!endif
 !if $(PERFORMANCE_MEASUREMENT_ENABLE) == TRUE
 INF ShellPkg/DynamicCommand/DpDynamicCommand/DpDynamicCommand.inf
 !endif
