@@ -828,6 +828,8 @@
 !endif
 !endif
 
+  # coreboot/FSP has already configured MTRRs before entering the payload.
+  gUefiCpuPkgTokenSpaceGuid.PcdCpuDisableMtrrProgramming|TRUE
 
 !if $(SECURE_BOOT_ENABLE) == TRUE
   # Override the default values from SecurityPkg to ensure images from all sources are verified in secure boot
