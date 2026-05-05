@@ -49,6 +49,14 @@ EFI_PEI_NOTIFY_DESCRIPTOR  mPostMemNotifyList = {
   BuildVariableRuntimeCacheInfoHob
 };
 
+STATIC
+BOOLEAN
+IsValidVariableName (
+  IN VARIABLE_STORE_INFO  *StoreInfo,
+  IN VARIABLE_HEADER      *Variable,
+  IN VARIABLE_HEADER      *VariableHeader
+  );
+
 /**
   Provide the functionality of the variable services.
 
@@ -502,6 +510,11 @@ CompareWithValidVariable (
 
   TempVendorGuid = GetVendorGuidPtr (VariableHeader, StoreInfo->AuthFlag);
 
+  if (!IsValidVariableName (StoreInfo, Variable, VariableHeader)) {
+    DEBUG ((DEBUG_WARN, "Variable PEI: ignoring malformed variable header at 0x%p\n", Variable));
+    return EFI_NOT_FOUND;
+  }
+
   if (VariableName[0] == 0) {
     PtrTrack->CurrPtr = Variable;
     return EFI_SUCCESS;
@@ -825,6 +838,57 @@ GetVariableNameOrData (
   // Variable name/data is consecutive.
   //
   CopyMem (Buffer, NameOrData, Size);
+}
+
+/**
+  This code checks if variable name content is valid or not.
+
+  @param  StoreInfo       Pointer to variable store info structure.
+  @param  Variable        Pointer to the variable in the store.
+  @param  VariableHeader  Pointer to the Variable Header that has consecutive content.
+
+  @retval TRUE            Variable name content is valid.
+  @retval FALSE           Variable name content is not valid.
+
+**/
+STATIC
+BOOLEAN
+IsValidVariableName (
+  IN VARIABLE_STORE_INFO  *StoreInfo,
+  IN VARIABLE_HEADER      *Variable,
+  IN VARIABLE_HEADER      *VariableHeader
+  )
+{
+  UINTN   NameSize;
+  UINTN   NameStart;
+  UINTN   StoreEnd;
+  CHAR16  NameTerminator;
+
+  if ((StoreInfo == NULL) || (Variable == NULL) || (VariableHeader == NULL)) {
+    return FALSE;
+  }
+
+  NameSize = NameSizeOfVariable (VariableHeader, StoreInfo->AuthFlag);
+  if ((NameSize < sizeof (CHAR16)) || ((NameSize % sizeof (CHAR16)) != 0)) {
+    return FALSE;
+  }
+
+  if (StoreInfo->FtwLastWriteData == NULL) {
+    NameStart = (UINTN)GetVariableNamePtr (Variable, StoreInfo->AuthFlag);
+    StoreEnd  = (UINTN)GetEndPointer (StoreInfo->VariableStoreHeader);
+    if ((NameStart > StoreEnd) || (NameSize > (StoreEnd - NameStart))) {
+      return FALSE;
+    }
+  }
+
+  GetVariableNameOrData (
+    StoreInfo,
+    (UINT8 *)GetVariableNamePtr (Variable, StoreInfo->AuthFlag) + NameSize - sizeof (CHAR16),
+    sizeof (CHAR16),
+    (UINT8 *)&NameTerminator
+    );
+
+  return (BOOLEAN)(NameTerminator == CHAR_NULL);
 }
 
 /**
@@ -1229,6 +1293,12 @@ PeiGetNextVariableName (
     }
 
     if ((VariableHeader->State == VAR_ADDED) || (VariableHeader->State == (VAR_IN_DELETED_TRANSITION & VAR_ADDED))) {
+      if (!IsValidVariableName (&StoreInfo, Variable.CurrPtr, VariableHeader)) {
+        DEBUG ((DEBUG_WARN, "Variable PEI: ignoring malformed variable header at 0x%p\n", Variable.CurrPtr));
+        Variable.CurrPtr = GetNextVariablePtr (&StoreInfo, Variable.CurrPtr, VariableHeader);
+        continue;
+      }
+
       if (VariableHeader->State == (VAR_IN_DELETED_TRANSITION & VAR_ADDED)) {
         //
         // If it is a IN_DELETED_TRANSITION variable,
