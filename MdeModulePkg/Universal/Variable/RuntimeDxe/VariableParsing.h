@@ -31,6 +31,26 @@ IsValidVariableHeader (
 
 /**
 
+  This code checks if variable content is valid or not.
+
+  @param[in] Variable           Pointer to the Variable Header.
+  @param[in] VariableStoreEnd   Pointer to the Variable Store End.
+  @param[in] AuthFormat         TRUE indicates authenticated variables are used.
+                                FALSE indicates authenticated variables are not used.
+
+  @retval TRUE              Variable content is valid.
+  @retval FALSE             Variable content is not valid.
+
+**/
+BOOLEAN
+IsValidVariableContent (
+  IN  VARIABLE_HEADER  *Variable,
+  IN  VARIABLE_HEADER  *VariableStoreEnd,
+  IN  BOOLEAN          AuthFormat
+  );
+
+/**
+
   This code gets the current status of Variable Store.
 
   @param[in] VarStoreHeader  Pointer to the Variable Store Header.
