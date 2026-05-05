@@ -39,6 +39,81 @@ IsValidVariableHeader (
 
 /**
 
+  This code checks if variable content is valid or not.
+
+  @param[in] Variable           Pointer to the Variable Header.
+  @param[in] VariableStoreEnd   Pointer to the Variable Store End.
+  @param[in] AuthFormat         TRUE indicates authenticated variables are used.
+                                FALSE indicates authenticated variables are not used.
+
+  @retval TRUE              Variable content is valid.
+  @retval FALSE             Variable content is not valid.
+
+**/
+BOOLEAN
+IsValidVariableContent (
+  IN  VARIABLE_HEADER  *Variable,
+  IN  VARIABLE_HEADER  *VariableStoreEnd,
+  IN  BOOLEAN          AuthFormat
+  )
+{
+  UINTN   DataSize;
+  UINTN   HeaderSize;
+  UINTN   NamePadSize;
+  UINTN   NameSize;
+  UINTN   RemainingSize;
+  CHAR16  *VariableName;
+
+  if (!IsValidVariableHeader (Variable, VariableStoreEnd) ||
+      ((UINTN)VariableStoreEnd <= (UINTN)Variable))
+  {
+    return FALSE;
+  }
+
+  HeaderSize    = GetVariableHeaderSize (AuthFormat);
+  RemainingSize = (UINTN)VariableStoreEnd - (UINTN)Variable;
+  if (HeaderSize > RemainingSize) {
+    return FALSE;
+  }
+
+  NameSize = NameSizeOfVariable (Variable, AuthFormat);
+  DataSize = DataSizeOfVariable (Variable, AuthFormat);
+
+  if ((NameSize < sizeof (CHAR16)) || ((NameSize % sizeof (CHAR16)) != 0)) {
+    return FALSE;
+  }
+
+  RemainingSize -= HeaderSize;
+  if (NameSize > RemainingSize) {
+    return FALSE;
+  }
+
+  RemainingSize -= NameSize;
+  NamePadSize    = GET_PAD_SIZE (NameSize);
+  if (NamePadSize > RemainingSize) {
+    return FALSE;
+  }
+
+  RemainingSize -= NamePadSize;
+  if (DataSize > RemainingSize) {
+    return FALSE;
+  }
+
+  RemainingSize -= DataSize;
+  if (GET_PAD_SIZE (DataSize) > RemainingSize) {
+    return FALSE;
+  }
+
+  VariableName = GetVariableNamePtr (Variable, AuthFormat);
+  if (VariableName[(NameSize / sizeof (CHAR16)) - 1] != CHAR_NULL) {
+    return FALSE;
+  }
+
+  return TRUE;
+}
+
+/**
+
   This code gets the current status of Variable Store.
 
   @param[in] VarStoreHeader  Pointer to the Variable Store Header.
@@ -487,6 +562,11 @@ FindVariableEx (
         (PtrTrack->CurrPtr->State == (VAR_IN_DELETED_TRANSITION & VAR_ADDED))
         )
     {
+      if (!IsValidVariableContent (PtrTrack->CurrPtr, PtrTrack->EndPtr, AuthFormat)) {
+        DEBUG ((DEBUG_WARN, "Variable: ignoring malformed variable header at 0x%p\n", PtrTrack->CurrPtr));
+        continue;
+      }
+
       if (IgnoreRtCheck || !AtRuntime () || ((PtrTrack->CurrPtr->Attributes & EFI_VARIABLE_RUNTIME_ACCESS) != 0)) {
         if (VariableName[0] == 0) {
           if (PtrTrack->CurrPtr->State == (VAR_IN_DELETED_TRANSITION & VAR_ADDED)) {
@@ -647,6 +727,12 @@ VariableServiceGetNextVariableInternal (
     // Variable is found
     //
     if ((Variable.CurrPtr->State == VAR_ADDED) || (Variable.CurrPtr->State == (VAR_IN_DELETED_TRANSITION & VAR_ADDED))) {
+      if (!IsValidVariableContent (Variable.CurrPtr, Variable.EndPtr, AuthFormat)) {
+        DEBUG ((DEBUG_WARN, "Variable: ignoring malformed variable header at 0x%p\n", Variable.CurrPtr));
+        Variable.CurrPtr = GetNextVariablePtr (Variable.CurrPtr, AuthFormat);
+        continue;
+      }
+
       if (!AtRuntime () || ((Variable.CurrPtr->Attributes & EFI_VARIABLE_RUNTIME_ACCESS) != 0)) {
         if (Variable.CurrPtr->State == (VAR_IN_DELETED_TRANSITION & VAR_ADDED)) {
           //
