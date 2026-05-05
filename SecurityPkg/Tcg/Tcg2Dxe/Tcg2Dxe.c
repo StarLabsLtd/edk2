@@ -2883,6 +2883,17 @@ DriverEntry (
   DEBUG ((DEBUG_INFO, "Tcg2.NumberOfPCRBanks      - 0x%08x\n", mTcgDxeData.BsCap.NumberOfPCRBanks));
   DEBUG ((DEBUG_INFO, "Tcg2.ActivePcrBanks        - 0x%08x\n", mTcgDxeData.BsCap.ActivePcrBanks));
 
+  //
+  // UEFI payloads do not run Tcg2Pei, so DXE constrains the TPM hash mask.
+  //
+  UINT32                            Tpm2PcrMask;
+  Tpm2PcrMask = PcdGet32 (PcdTpm2HashMask);
+  if (Tpm2PcrMask != mTcgDxeData.BsCap.HashAlgorithmBitmap) {
+    Tpm2PcrMask &= mTcgDxeData.BsCap.HashAlgorithmBitmap;
+    Status = PcdSet32S (PcdTpm2HashMask, Tpm2PcrMask);
+    ASSERT_EFI_ERROR (Status);
+  }
+
   if (mTcgDxeData.BsCap.TPMPresentFlag) {
     //
     // Setup the log area and copy event log from hob list to it
