@@ -572,7 +572,8 @@ Reclaim (
       NextVariable = GetNextVariablePtr (Variable, AuthFormat);
       if (((Variable->State == VAR_ADDED) || (Variable->State == (VAR_IN_DELETED_TRANSITION & VAR_ADDED))) &&
           (Variable != UpdatingVariable) &&
-          (Variable != UpdatingInDeletedTransition)
+          (Variable != UpdatingInDeletedTransition) &&
+          IsValidVariableContent (Variable, GetEndPointer (VariableStoreHeader), AuthFormat)
           )
       {
         VariableSize       = (UINTN)NextVariable - (UINTN)Variable;
@@ -621,7 +622,10 @@ Reclaim (
   Variable = GetStartPointer (VariableStoreHeader);
   while (IsValidVariableHeader (Variable, GetEndPointer (VariableStoreHeader))) {
     NextVariable = GetNextVariablePtr (Variable, AuthFormat);
-    if ((Variable != UpdatingVariable) && (Variable->State == VAR_ADDED)) {
+    if ((Variable != UpdatingVariable) &&
+        (Variable->State == VAR_ADDED) &&
+        IsValidVariableContent (Variable, GetEndPointer (VariableStoreHeader), AuthFormat))
+    {
       VariableSize = (UINTN)NextVariable - (UINTN)Variable;
       CopyMem (CurrPtr, (UINT8 *)Variable, VariableSize);
       CurrPtr += VariableSize;
@@ -644,7 +648,11 @@ Reclaim (
   Variable = GetStartPointer (VariableStoreHeader);
   while (IsValidVariableHeader (Variable, GetEndPointer (VariableStoreHeader))) {
     NextVariable = GetNextVariablePtr (Variable, AuthFormat);
-    if ((Variable != UpdatingVariable) && (Variable != UpdatingInDeletedTransition) && (Variable->State == (VAR_IN_DELETED_TRANSITION & VAR_ADDED))) {
+    if ((Variable != UpdatingVariable) &&
+        (Variable != UpdatingInDeletedTransition) &&
+        (Variable->State == (VAR_IN_DELETED_TRANSITION & VAR_ADDED)) &&
+        IsValidVariableContent (Variable, GetEndPointer (VariableStoreHeader), AuthFormat))
+    {
       //
       // Buffer has cached all ADDED variable.
       // Per IN_DELETED variable, we have to guarantee that
@@ -3020,6 +3028,13 @@ VariableServiceQueryVariableInfoInternal (
   while (IsValidVariableHeader (Variable, GetEndPointer (VariableStoreHeader))) {
     NextVariable = GetNextVariablePtr (Variable, mVariableModuleGlobal->VariableGlobal.AuthFormat);
     VariableSize = (UINT64)(UINTN)NextVariable - (UINT64)(UINTN)Variable;
+
+    if (((Variable->State == VAR_ADDED) || (Variable->State == (VAR_IN_DELETED_TRANSITION & VAR_ADDED))) &&
+        !IsValidVariableContent (Variable, GetEndPointer (VariableStoreHeader), mVariableModuleGlobal->VariableGlobal.AuthFormat))
+    {
+      Variable = NextVariable;
+      continue;
+    }
 
     if (AtRuntime ()) {
       //
