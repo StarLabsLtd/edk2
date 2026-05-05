@@ -39,6 +39,7 @@
   SecurityPkg/SecurityPkg.dec
   UefiPayloadPkg/UefiPayloadPkg.dec
   UefiCpuPkg/UefiCpuPkg.dec
+  SecurityPkg/SecurityPkg.dec
 
 [LibraryClasses]
   UefiDriverEntryPoint
@@ -56,6 +57,8 @@
   gEfiFirmwareInfoHobGuid
   gEfiGraphicsInfoHobGuid
   gEfiSystemResourceTableGuid
+  gEfiTpmDeviceInstanceTpm20DtpmGuid  ## SOMETIMES_CONSUMES
+  gEfiTpmDeviceInstanceTpm12Guid      ## SOMETIMES_CONSUMES
 
 [Protocols]
   gEfiCpuArchProtocolGuid
@@ -73,6 +76,7 @@
   gUefiPayloadPkgTokenSpaceGuid.PcdFspGopBasicHiDpiWideAspectCapHeight
   gEfiMdePkgTokenSpaceGuid.PcdPciExpressBaseAddress
   gEfiMdePkgTokenSpaceGuid.PcdPciExpressBaseSize
+  gEfiSecurityPkgTokenSpaceGuid.PcdTpmInstanceGuid        ## SOMETIMES_PRODUCES
 
 [Pcd.AARCH64]
   gEfiMdeModulePkgTokenSpaceGuid.PcdSerialRegisterBase
