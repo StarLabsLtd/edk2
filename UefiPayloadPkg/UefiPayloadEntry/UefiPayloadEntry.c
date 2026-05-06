@@ -350,8 +350,8 @@ BuildHobFromBl (
   EFI_PEI_GRAPHICS_DEVICE_INFO_HOB  *NewGfxDeviceInfo;
   UNIVERSAL_PAYLOAD_SMBIOS_TABLE    *SmBiosTableHob;
   UNIVERSAL_PAYLOAD_ACPI_TABLE      *AcpiTableHob;
-  UINT64                            SmBiosEntryPoint;
   EFI_BOOT_MODE                     BootMode;
+  UINT64                            SmBiosEntryPoint;
 
   //
   // First find TOLUD
