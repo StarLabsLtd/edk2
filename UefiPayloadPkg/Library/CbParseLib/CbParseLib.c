@@ -626,7 +626,7 @@ ParseBootMode (
 /**
   Acquire SMBIOS table from coreboot.
 
-  @param  SmbiosTable               Pointer to the SMBIOS table info.
+  @param  SmBiosEntryPoint          Pointer to the SMBIOS structure.
 
   @retval RETURN_SUCCESS            Successfully find out the tables.
   @retval RETURN_NOT_FOUND          Failed to find the tables.
@@ -635,19 +635,23 @@ ParseBootMode (
 RETURN_STATUS
 EFIAPI
 ParseSmbiosTable (
-  OUT UNIVERSAL_PAYLOAD_SMBIOS_TABLE  *SmbiosTable
+  OUT UINT64  *SmBiosEntryPoint
   )
 {
   EFI_STATUS  Status;
   VOID        *MemTable;
   UINT32      MemTableSize;
 
+  if (SmBiosEntryPoint == NULL) {
+    return RETURN_INVALID_PARAMETER;
+  }
+
   Status = ParseCbMemTable (SIGNATURE_32 ('T', 'B', 'M', 'S'), &MemTable, &MemTableSize);
   if (EFI_ERROR (Status)) {
     return EFI_NOT_FOUND;
   }
 
-  SmbiosTable->SmBiosEntryPoint = (UINT64)(UINTN)MemTable;
+  *SmBiosEntryPoint = (UINT64)(UINTN)MemTable;
 
   return RETURN_SUCCESS;
 }
