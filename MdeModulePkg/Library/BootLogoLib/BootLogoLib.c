@@ -23,30 +23,81 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Library/DebugLib.h>
 
 STATIC
-BOOLEAN
-ShouldScaleBootLogoForHiDpi (
-  IN EFI_GRAPHICS_OUTPUT_PROTOCOL  *GraphicsOutput
+VOID
+GetHiDpiLogoTransform (
+  IN  EFI_GRAPHICS_OUTPUT_PROTOCOL  *GraphicsOutput,
+  OUT UINTN                         *DisplayScale,
+  OUT UINTN                         *BgrtScale,
+  OUT UINTN                         *BgrtOffsetX,
+  OUT UINTN                         *BgrtOffsetY
   )
 {
   UINT32  HorizontalResolution;
+  UINT32  PhysicalHorizontalResolution;
+  UINT32  PhysicalVerticalResolution;
   UINT32  VerticalResolution;
+
+  *DisplayScale = 1;
+  *BgrtScale    = 1;
+  *BgrtOffsetX  = 0;
+  *BgrtOffsetY  = 0;
 
   if ((GraphicsOutput == NULL) ||
       (GraphicsOutput->Mode == NULL) ||
       (GraphicsOutput->Mode->Info == NULL) ||
-      (GraphicsOutput->Mode->FrameBufferBase == 0) ||
       !FeaturePcdGet (PcdPayloadFbHiDpiSupport))
   {
-    return FALSE;
+    return;
   }
 
-  HorizontalResolution = GraphicsOutput->Mode->Info->HorizontalResolution;
-  VerticalResolution   = GraphicsOutput->Mode->Info->VerticalResolution;
+  HorizontalResolution         = GraphicsOutput->Mode->Info->HorizontalResolution;
+  VerticalResolution           = GraphicsOutput->Mode->Info->VerticalResolution;
+  PhysicalHorizontalResolution = PcdGet32 (PcdVideoHorizontalResolution);
+  PhysicalVerticalResolution   = PcdGet32 (PcdVideoVerticalResolution);
 
-  return (HorizontalResolution > PcdGet32 (PcdPayloadFbHiDpiScaleThresholdHorizontal)) &&
-         (VerticalResolution > PcdGet32 (PcdPayloadFbHiDpiScaleThresholdVertical)) &&
-         ((HorizontalResolution % 2) == 0) &&
-         ((VerticalResolution % 2) == 0);
+  if ((PhysicalHorizontalResolution == 0) || (PhysicalVerticalResolution == 0)) {
+    PhysicalHorizontalResolution = HorizontalResolution;
+    PhysicalVerticalResolution   = VerticalResolution;
+  }
+
+  if ((PhysicalHorizontalResolution <= PcdGet32 (PcdPayloadFbHiDpiScaleThresholdHorizontal)) ||
+      (PhysicalVerticalResolution <= PcdGet32 (PcdPayloadFbHiDpiScaleThresholdVertical)) ||
+      ((PhysicalHorizontalResolution % 2) != 0) ||
+      ((PhysicalVerticalResolution % 2) != 0))
+  {
+    return;
+  }
+
+  //
+  // Physical GOP mode: pre-scale the logo before drawing and report that same
+  // physical-sized bitmap through BGRT.
+  //
+  if (GraphicsOutput->Mode->FrameBufferBase != 0) {
+    if ((HorizontalResolution == PhysicalHorizontalResolution) &&
+        (VerticalResolution == PhysicalVerticalResolution))
+    {
+      *DisplayScale = 2;
+    }
+
+    return;
+  }
+
+  //
+  // UefiPayloadPkg's HiDPI GOP mode is logical-sized and PixelBltOnly. The GOP
+  // scales BLTs into the physical framebuffer, so do not pre-scale for drawing.
+  // BGRT, however, is consumed by the OS in physical panel coordinates, so report
+  // a physical-sized bitmap and translate coordinates back into that space.
+  //
+  if ((GraphicsOutput->Mode->Info->PixelFormat == PixelBltOnly) &&
+      (HorizontalResolution <= (MAX_UINT32 / 2)) &&
+      (VerticalResolution <= (MAX_UINT32 / 2)) &&
+      (PhysicalHorizontalResolution >= (HorizontalResolution * 2)) &&
+      (PhysicalVerticalResolution >= (VerticalResolution * 2)))
+  {
+    *BgrtScale   = 2;
+    *BgrtOffsetX = (PhysicalHorizontalResolution - (HorizontalResolution * 2)) / 2;
+    *BgrtOffsetY = (PhysicalVerticalResolution - (VerticalResolution * 2)) / 2;
+  }
 }
 
 STATIC
@@ -140,6 +191,10 @@ BootLogoEnableLogo (
   UINTN                                  NewDestX;
   UINTN                                  NewDestY;
   UINTN                                  BufferSize;
+  UINTN                                  DisplayScale;
+  UINTN                                  BgrtScale;
+  UINTN                                  BgrtOffsetX;
+  UINTN                                  BgrtOffsetY;
 
   Status = gBS->LocateProtocol (&gEdkiiPlatformLogoProtocolGuid, NULL, (VOID **)&PlatformLogo);
   if (EFI_ERROR (Status)) {
@@ -177,6 +232,7 @@ BootLogoEnableLogo (
 
   SizeOfX = GraphicsOutput->Mode->Info->HorizontalResolution;
   SizeOfY = GraphicsOutput->Mode->Info->VerticalResolution;
+  GetHiDpiLogoTransform (GraphicsOutput, &DisplayScale, &BgrtScale, &BgrtOffsetX, &BgrtOffsetY);
 
   Blt           = NULL;
   NumberOfLogos = 0;
@@ -211,7 +267,7 @@ BootLogoEnableLogo (
 
     Blt = Image.Bitmap;
 
-    if (ShouldScaleBootLogoForHiDpi (GraphicsOutput)) {
+    if (DisplayScale == 2) {
       EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *ScaledBlt;
 
       ScaledBlt = NULL;
@@ -383,11 +439,63 @@ BootLogoEnableLogo (
   }
 
   if (!EFI_ERROR (Status)) {
+    EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *BgrtLogoBlt;
+    UINTN                          BgrtLogoDestX;
+    UINTN                          BgrtLogoDestY;
+    UINTN                          BgrtLogoWidth;
+    UINTN                          BgrtLogoHeight;
+
+    BgrtLogoBlt    = LogoBlt;
+    BgrtLogoDestX  = LogoDestX * BgrtScale + BgrtOffsetX;
+    BgrtLogoDestY  = LogoDestY * BgrtScale + BgrtOffsetY;
+    BgrtLogoWidth  = LogoWidth * BgrtScale;
+    BgrtLogoHeight = LogoHeight * BgrtScale;
+
+    if (BgrtScale > 1) {
+      //
+      // GOP scaling starts from integer logical coordinates. For odd-sized
+      // centered logos that loses the half-pixel before scaling, which can put
+      // the reported physical BGRT offset one pixel away from exact center.
+      // Plymouth only trusts centered desktop BGRT offsets on an exact match.
+      //
+      if ((SizeOfX >= LogoWidth) && (LogoDestX == ((SizeOfX - LogoWidth) / 2))) {
+        BgrtLogoDestX = (((SizeOfX * BgrtScale) - BgrtLogoWidth) / 2) + BgrtOffsetX;
+      }
+
+      if ((SizeOfY >= LogoHeight) && (LogoDestY == ((SizeOfY - LogoHeight) / 2))) {
+        BgrtLogoDestY = (((SizeOfY * BgrtScale) - BgrtLogoHeight) / 2) + BgrtOffsetY;
+      }
+    }
+
+    if (BgrtScale == 2) {
+      EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *ScaledBlt;
+
+      ScaledBlt = NULL;
+      Status    = ScaleLogoBlt2x (LogoBlt, LogoWidth, LogoHeight, &ScaledBlt);
+      if (!EFI_ERROR (Status)) {
+        BgrtLogoBlt = ScaledBlt;
+      } else {
+        DEBUG ((DEBUG_INFO, "%a: failed to scale BGRT logo for HiDPI boot GOP: %r\n", __func__, Status));
+        Status         = EFI_SUCCESS;
+        BgrtLogoDestX  = LogoDestX;
+        BgrtLogoDestY  = LogoDestY;
+        BgrtLogoWidth  = LogoWidth;
+        BgrtLogoHeight = LogoHeight;
+      }
+    }
+
     //
     // Attempt to register logo with Boot Logo 2 Protocol first
     //
     if (BootLogo2 != NULL) {
-      Status = BootLogo2->SetBootLogo (BootLogo2, LogoBlt, LogoDestX, LogoDestY, LogoWidth, LogoHeight);
+      Status = BootLogo2->SetBootLogo (
+                            BootLogo2,
+                            BgrtLogoBlt,
+                            BgrtLogoDestX,
+                            BgrtLogoDestY,
+                            BgrtLogoWidth,
+                            BgrtLogoHeight
+                            );
     }
 
     //
@@ -395,7 +503,14 @@ BootLogoEnableLogo (
     // Protocol failed, then attempt to register logo with Boot Logo Protocol
     //
     if (EFI_ERROR (Status) && (BootLogo != NULL)) {
-      Status = BootLogo->SetBootLogo (BootLogo, LogoBlt, LogoDestX, LogoDestY, LogoWidth, LogoHeight);
+      Status = BootLogo->SetBootLogo (
+                           BootLogo,
+                           BgrtLogoBlt,
+                           BgrtLogoDestX,
+                           BgrtLogoDestY,
+                           BgrtLogoWidth,
+                           BgrtLogoHeight
+                           );
     }
 
     //
@@ -403,6 +518,10 @@ BootLogoEnableLogo (
     // Logo 2 Protocol or Boot Logo Protocol fails.
     //
     Status = EFI_SUCCESS;
+
+    if (BgrtLogoBlt != LogoBlt) {
+      FreePool (BgrtLogoBlt);
+    }
   }
 
   FreePool (LogoBlt);
