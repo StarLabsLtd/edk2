@@ -1,0 +1,31 @@
+## @file
+#  Reconcile GCD attributes for PCI MMIO apertures before PciHostBridgeDxe.
+##
+
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = PciGcdMmioFixup
+  FILE_GUID                      = 4C8D1A2E-9F3B-4A6C-B1D0-5E7F8A9B0C1D
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = PciGcdMmioFixupEntryPoint
+
+[Sources]
+  PciGcdMmioFixup.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  UefiPayloadPkg/UefiPayloadPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  DebugLib
+  DxeServicesTableLib
+  MemoryAllocationLib
+  PciHostBridgeLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+
+[Depex]
+  TRUE
