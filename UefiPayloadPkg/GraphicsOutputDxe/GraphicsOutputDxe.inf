@@ -43,6 +43,7 @@
   FrameBufferBltLib
   UefiLib
   HobLib
+  IoLib
   PcdLib
 
 [Guids]

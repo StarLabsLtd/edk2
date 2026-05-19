@@ -701,6 +701,7 @@ CONST GRAPHICS_OUTPUT_PRIVATE_DATA  mGraphicsOutputInstanceTemplate = {
   NULL,                                            // ReadyToBootEvent
   0,                                               // PhysicalFrameBufferBase
   0,                                               // PhysicalFrameBufferSize
+  NULL,                                            // MappedFrameBuffer
   NULL,                                            // DevicePath
   NULL,                                            // PciIo
   0,                                               // PciAttributes
@@ -982,6 +983,34 @@ GraphicsOutputDriverBindingStart (
 
   Private->PhysicalFrameBufferBase = FrameBufferBase;
   Private->PhysicalFrameBufferSize = GraphicsInfo->FrameBufferSize;
+  Private->MappedFrameBuffer       = NULL;
+
+  if ((FrameBufferBase != 0) && (GraphicsInfo->FrameBufferSize != 0)) {
+    Private->MappedFrameBuffer = MmMapIoSpace (
+                                   FrameBufferBase,
+                                   GraphicsInfo->FrameBufferSize,
+                                   MmNonCached
+                                   );
+    if (Private->MappedFrameBuffer == NULL) {
+      DEBUG ((
+        DEBUG_ERROR,
+        "[%a]: MmMapIoSpace failed for framebuffer 0x%lx (%lu bytes)\n",
+        gEfiCallerBaseName,
+        FrameBufferBase,
+        (UINT64)GraphicsInfo->FrameBufferSize
+        ));
+      Status = EFI_DEVICE_ERROR;
+      goto RestorePciAttributes;
+    }
+
+    DEBUG ((
+      DEBUG_INFO,
+      "[%a]: Mapped framebuffer 0x%lx -> %p\n",
+      gEfiCallerBaseName,
+      FrameBufferBase,
+      Private->MappedFrameBuffer
+      ));
+  }
 
   CopyMem (&Private->PhysicalModeInfo, &GraphicsInfo->GraphicsMode, sizeof (Private->PhysicalModeInfo));
   CopyMem (&Private->LogicalModeInfo, &Private->PhysicalModeInfo, sizeof (Private->LogicalModeInfo));
@@ -1117,6 +1146,8 @@ GraphicsOutputDriverBindingStart (
   // Create the FrameBufferBltLib configuration.
   //
   ReturnStatus = FrameBufferBltConfigure (
+                   Private->MappedFrameBuffer != NULL ?
+                   Private->MappedFrameBuffer :
                    (VOID *)(UINTN)Private->PhysicalFrameBufferBase,
                    &Private->PhysicalModeInfo,
                    Private->FrameBufferBltLibConfigure,
@@ -1126,6 +1157,8 @@ GraphicsOutputDriverBindingStart (
     Private->FrameBufferBltLibConfigure = AllocatePool (Private->FrameBufferBltLibConfigureSize);
     if (Private->FrameBufferBltLibConfigure != NULL) {
       ReturnStatus = FrameBufferBltConfigure (
+                       Private->MappedFrameBuffer != NULL ?
+                       Private->MappedFrameBuffer :
                        (VOID *)(UINTN)Private->PhysicalFrameBufferBase,
                        &Private->PhysicalModeInfo,
                        Private->FrameBufferBltLibConfigure,
@@ -1220,6 +1253,11 @@ RestorePciAttributes:
 FreeMemory:
   if (EFI_ERROR (Status)) {
     if (Private != NULL) {
+      if (Private->MappedFrameBuffer != NULL) {
+        MmUnmapIoSpace (Private->MappedFrameBuffer, Private->PhysicalFrameBufferSize);
+        Private->MappedFrameBuffer = NULL;
+      }
+
       if (Private->DevicePath != NULL) {
         FreePool (Private->DevicePath);
       }
@@ -1354,6 +1392,11 @@ GraphicsOutputDriverBindingStop (
                                NULL
                                );
     ASSERT_EFI_ERROR (Status);
+
+    if (Private->MappedFrameBuffer != NULL) {
+      MmUnmapIoSpace (Private->MappedFrameBuffer, Private->PhysicalFrameBufferSize);
+      Private->MappedFrameBuffer = NULL;
+    }
 
     FreePool (Private->DevicePath);
     FreePool (Private->FrameBufferBltLibConfigure);

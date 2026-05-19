@@ -28,6 +28,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Library/FrameBufferBltLib.h>
 #include <Library/DebugLib.h>
 #include <Library/BaseMemoryLib.h>
+#include <Library/IoLib.h>
 #include <Library/MemoryAllocationLib.h>
 #include <Library/UefiLib.h>
 
@@ -50,6 +51,7 @@ typedef struct {
   EFI_EVENT                               ReadyToBootEvent;
   UINT64                                  PhysicalFrameBufferBase;
   UINTN                                   PhysicalFrameBufferSize;
+  VOID                                    *MappedFrameBuffer;
   EFI_DEVICE_PATH_PROTOCOL                *DevicePath;
   EFI_PCI_IO_PROTOCOL                     *PciIo;
   UINT64                                  PciAttributes;
