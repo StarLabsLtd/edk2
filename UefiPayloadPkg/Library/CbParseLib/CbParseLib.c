@@ -659,7 +659,22 @@ ParseGfxDeviceInfo (
   OUT EFI_PEI_GRAPHICS_DEVICE_INFO_HOB  *GfxDeviceInfo
   )
 {
-  return RETURN_NOT_FOUND;
+  if (GfxDeviceInfo == NULL) {
+    return RETURN_INVALID_PARAMETER;
+  }
+
+  if (FindCbTag (CB_TAG_FRAMEBUFFER) == NULL) {
+    return RETURN_NOT_FOUND;
+  }
+
+  GfxDeviceInfo->VendorId           = 0x1002;
+  GfxDeviceInfo->DeviceId           = 0x1900;
+  GfxDeviceInfo->RevisionId         = MAX_UINT8;
+  GfxDeviceInfo->SubsystemVendorId  = MAX_UINT16;
+  GfxDeviceInfo->SubsystemId        = MAX_UINT16;
+  GfxDeviceInfo->BarIndex           = MAX_UINT8;
+
+  return RETURN_SUCCESS;
 }
 
 /**
