@@ -8,6 +8,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 **/
 
 #include "PlatformBootManager.h"
+#include <Library/AmdGopFramebufferMapLib.h>
 #include "PlatformConsole.h"
 #include <Guid/EventGroup.h>
 #include <Library/BmpSupportLib.h>
@@ -1035,6 +1036,9 @@ PlatformBootManagerAfterConsole (
   White.Blue = White.Green = White.Red = White.Reserved = 0xFF;
 
   ConfigureLowBatteryBootGuard ();
+
+  PlatformConnectDeferredAmdVideo ();
+  RemapAllGraphicsOutputFramebuffers ();
 
   Status = gBS->LocateProtocol (&gEdkiiPlatformLogoProtocolGuid, NULL, (VOID **)&PlatformLogo);
   if (!EFI_ERROR (Status)) {

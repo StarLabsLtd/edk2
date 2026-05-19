@@ -55,6 +55,7 @@
   HobLib
   TcgPhysicalPresenceLib
   Tcg2PhysicalPresenceLib
+  AmdGopFramebufferMapLib
 
 [Guids]
   gEfiEndOfDxeEventGroupGuid
