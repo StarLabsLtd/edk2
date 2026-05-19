@@ -45,6 +45,8 @@
   DEFINE NVME_ENABLE                  = TRUE
   DEFINE LOCKBOX_SUPPORT              = FALSE
   DEFINE LOAD_OPTION_ROMS             = FALSE
+  DEFINE USE_PLATFORM_GOP            = FALSE
+  DEFINE USE_AMD_GOP                 = FALSE
   DEFINE OPAL_PASSWORD_ENABLE         = FALSE
   DEFINE PAYLOAD_FB_HIDPI_SUPPORT     = FALSE
   DEFINE PAYLOAD_FB_HIDPI_WIDE_ASPECT_CAP_SUPPORT = FALSE
@@ -355,6 +357,7 @@
   PlatformHookLib|UefiPayloadPkg/Library/PlatformHookLib/PlatformHookLib.inf
 !endif
   PlatformBootManagerLib|UefiPayloadPkg/Library/PlatformBootManagerLib/PlatformBootManagerLib.inf
+  AmdGopFramebufferMapLib|UefiPayloadPkg/Library/AmdGopFramebufferMapLib/AmdGopFramebufferMapLib.inf
   PlatformPasswordLib|UefiPayloadPkg/UserAuthPkg/Library/PlatformPasswordLibNull/PlatformPasswordLibNull.inf
   IoApicLib|PcAtChipsetPkg/Library/BaseIoApicLib/BaseIoApicLib.inf
 
@@ -1227,15 +1230,27 @@
   # ACPI Support
   #
   MdeModulePkg/Universal/Acpi/AcpiTableDxe/AcpiTableDxe.inf
+!if $(BOOTLOADER) != "COREBOOT"
 !if $(BOOTSPLASH_IMAGE)
   MdeModulePkg/Universal/Acpi/AcpiPlatformDxe/AcpiPlatformDxe.inf
   MdeModulePkg/Universal/Acpi/BootGraphicsResourceTableDxe/BootGraphicsResourceTableDxe.inf
+!endif
 !endif
 
   #
   # PCI Support
   #
+!if $(USE_AMD_GOP) == TRUE
+  UefiPayloadPkg/AmdGopPciPlatform/AmdGopPciPlatform.inf
+  UefiPayloadPkg/AmdGopFramebufferMap/AmdGopFramebufferMap.inf
+!endif
   MdeModulePkg/Bus/Pci/PciBusDxe/PciBusDxe.inf
+!if $(BOOTLOADER) == "COREBOOT"
+  UefiPayloadPkg/PciGcdMmioFixup/PciGcdMmioFixup.inf {
+    <LibraryClasses>
+      PciHostBridgeLib|UefiPayloadPkg/Library/PciHostBridgeLib/PciHostBridgeLib.inf
+  }
+!endif
   MdeModulePkg/Bus/Pci/PciHostBridgeDxe/PciHostBridgeDxe.inf {
     <LibraryClasses>
       PciHostBridgeLib|UefiPayloadPkg/Library/PciHostBridgeLib/PciHostBridgeLib.inf
@@ -1314,7 +1329,17 @@
 !if $(DISABLE_SERIAL_TERMINAL) == FALSE
   MdeModulePkg/Universal/Console/TerminalDxe/TerminalDxe.inf
 !endif
+
+!if $(USE_PLATFORM_GOP) == TRUE
+!if $(USE_AMD_GOP) == TRUE
+  UefiPayloadPkg/PlatformToDriver/PlatformToDriver.inf
+  UefiPayloadPkg/AmdGopPlatformToDriver/AmdGopPlatformToDriver.inf
+!else
+  UefiPayloadPkg/PlatformGopPolicy/PlatformGopPolicy.inf
+!endif
+!else
   UefiPayloadPkg/GraphicsOutputDxe/GraphicsOutputDxe.inf
+!endif
 !if $(PERFORMANCE_MEASUREMENT_ENABLE)
   MdeModulePkg/Universal/Acpi/FirmwarePerformanceDataTableDxe/FirmwarePerformanceDxe.inf
 !endif
