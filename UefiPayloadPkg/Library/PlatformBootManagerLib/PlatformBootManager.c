@@ -9,8 +9,25 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 
 #include "PlatformBootManager.h"
 #include "PlatformConsole.h"
+#include <Guid/EventGroup.h>
+#include <Library/BmpSupportLib.h>
 #include <Library/Tcg2PhysicalPresenceLib.h>
+#include <Protocol/BatteryStatus.h>
 #include <Protocol/FirmwareVolume2.h>
+
+#define LOW_BATTERY_BOOT_THRESHOLD  5
+#define LOW_BATTERY_BOOT_TIMEOUT    10
+#define BATTERY_PERCENT_UNKNOWN     0xff
+
+STATIC EFI_GUID  mLowBatteryLogoFileGuid = {
+  0xbe6e1243, 0x682c, 0x4186, { 0x81, 0x51, 0x44, 0x8d, 0x48, 0xaf, 0xe3, 0x41 }
+};
+
+STATIC BOOLEAN  mLowBatteryBootGuardActive;
+STATIC BOOLEAN  mLowBatteryBootTimeoutSaved;
+STATIC UINT16   mLowBatteryBootTimeoutOriginal;
+STATIC EFI_EVENT  mLowBatteryBootTimeoutRestoreEvent;
+STATIC BOOLEAN  mLowBatteryBootLogoShown;
 
 STATIC
 BOOLEAN
@@ -237,18 +254,6 @@ DrawBootPromptLine (
                       &RowInfoArraySize,
                       NULL
                       );
-  DEBUG ((
-    DEBUG_INFO,
-    "%a: \"%s\" cols=%u rows=%u point=(%u,%u) scale=%u status=%r\n",
-    __func__,
-    String,
-    (UINT32)Columns,
-    (UINT32)Rows,
-    (UINT32)PointX,
-    (UINT32)PointY,
-    (UINT32)TextScale,
-    Status
-    ));
   if (EFI_ERROR (Status)) {
     goto Exit;
   }
@@ -309,17 +314,6 @@ DrawBootPromptLine (
                              BltHeight,
                              BltDelta
                              );
-  DEBUG ((
-    DEBUG_INFO,
-    "%a: \"%s\" render=%ux%u scaled=%ux%u blt-status=%r\n",
-    __func__,
-    String,
-    (UINT32)RenderWidth,
-    (UINT32)RenderHeight,
-    (UINT32)BltWidth,
-    (UINT32)BltHeight,
-    Status
-    ));
   if (ScaledBlt != NULL) {
     FreePool (ScaledBlt->Image.Bitmap);
     FreePool (ScaledBlt);
@@ -352,6 +346,16 @@ FormatBootPromptCountdownLine (
 
   if ((TimeoutRemain == 0) || (TimeoutRemain == 0xFFFF)) {
     UnicodeSPrint (String, StringChars * sizeof (CHAR16), L"Press ENTER to boot now");
+    return;
+  }
+
+  if (mLowBatteryBootGuardActive) {
+    UnicodeSPrint (
+      String,
+      StringChars * sizeof (CHAR16),
+      L"Shutting down in %u seconds, press ENTER to boot now",
+      TimeoutRemain
+      );
     return;
   }
 
@@ -389,24 +393,289 @@ DisplayBootManagerPrompt (
     return FALSE;
   }
 
-  DEBUG ((
-    DEBUG_INFO,
-    "%a: using GOP mode=%u res=%ux%u pixel-format=%u\n",
-    __func__,
-    GraphicsOutput->Mode->Mode,
-    GraphicsOutput->Mode->Info->HorizontalResolution,
-    GraphicsOutput->Mode->Info->VerticalResolution,
-    GraphicsOutput->Mode->Info->PixelFormat
-    ));
   TextScale = ShouldScaleBootPromptForHiDpi (GraphicsOutput) ? 2U : 1U;
   FormatBootPromptCountdownLine (CountdownLine, ARRAY_SIZE (CountdownLine), TimeoutRemain);
-  Status = DrawBootPromptLine (GraphicsOutput, CountdownLine, 4, 1, TextScale);
+
+  Status = DrawBootPromptLine (
+             GraphicsOutput,
+             CountdownLine,
+             4,
+             1,
+             TextScale
+             );
   if (EFI_ERROR (Status)) {
     return FALSE;
   }
 
-  Status = DrawBootPromptLine (GraphicsOutput, GetBootPromptSettingsLine (UseEscape), 4, 2, TextScale);
+  Status = DrawBootPromptLine (
+             GraphicsOutput,
+             GetBootPromptSettingsLine (UseEscape),
+             4,
+             2,
+             TextScale
+             );
   return !EFI_ERROR (Status);
+}
+
+STATIC
+EFI_STATUS
+DrawLowBatteryLogo (
+  IN EFI_GRAPHICS_OUTPUT_PROTOCOL  *GraphicsOutput
+  )
+{
+  EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *Blt;
+  EFI_STATUS                     Status;
+  RETURN_STATUS                  ReturnStatus;
+  UINTN                          BmpImageSize;
+  UINTN                          BltHeight;
+  UINTN                          BltSize;
+  UINTN                          BltWidth;
+  UINTN                          DestX;
+  UINTN                          DestY;
+  UINTN                          DrawHeight;
+  UINTN                          DrawWidth;
+  UINTN                          ScreenHeight;
+  UINTN                          ScreenWidth;
+  UINTN                          SourceX;
+  UINTN                          SourceY;
+  VOID                           *BmpImage;
+
+  if ((GraphicsOutput == NULL) || (GraphicsOutput->Mode == NULL) ||
+      (GraphicsOutput->Mode->Info == NULL))
+  {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  BmpImage     = NULL;
+  BmpImageSize = 0;
+  Blt          = NULL;
+  BltSize      = 0;
+  BltHeight    = 0;
+  BltWidth     = 0;
+
+  Status = GetSectionFromAnyFv (
+             &mLowBatteryLogoFileGuid,
+             EFI_SECTION_RAW,
+             0,
+             &BmpImage,
+             &BmpImageSize
+             );
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_INFO, "%a: low-battery logo unavailable: %r\n", __func__, Status));
+    return Status;
+  }
+
+  ReturnStatus = TranslateBmpToGopBlt (
+                   BmpImage,
+                   BmpImageSize,
+                   &Blt,
+                   &BltSize,
+                   &BltHeight,
+                   &BltWidth
+                   );
+  if (RETURN_ERROR (ReturnStatus)) {
+    DEBUG ((DEBUG_INFO, "%a: failed to decode low-battery logo: %r\n", __func__, ReturnStatus));
+    Status = (EFI_STATUS)ReturnStatus;
+    goto Exit;
+  }
+
+  ScreenWidth  = GraphicsOutput->Mode->Info->HorizontalResolution;
+  ScreenHeight = GraphicsOutput->Mode->Info->VerticalResolution;
+  DrawWidth    = BltWidth;
+  DrawHeight   = BltHeight;
+  SourceX      = 0;
+  SourceY      = 0;
+  DestX        = 0;
+  DestY        = 0;
+
+  if (DrawWidth > ScreenWidth) {
+    SourceX   = (DrawWidth - ScreenWidth) / 2;
+    DrawWidth = ScreenWidth;
+  } else {
+    DestX = (ScreenWidth - DrawWidth) / 2;
+  }
+
+  if (DrawHeight > ScreenHeight) {
+    SourceY    = (DrawHeight - ScreenHeight) / 2;
+    DrawHeight = ScreenHeight;
+  } else {
+    DestY = (ScreenHeight - DrawHeight) / 2;
+  }
+
+  Status = GraphicsOutput->Blt (
+                             GraphicsOutput,
+                             Blt,
+                             EfiBltBufferToVideo,
+                             SourceX,
+                             SourceY,
+                             DestX,
+                             DestY,
+                             DrawWidth,
+                             DrawHeight,
+                             BltWidth * sizeof (EFI_GRAPHICS_OUTPUT_BLT_PIXEL)
+                             );
+
+Exit:
+  if (Blt != NULL) {
+    FreePool (Blt);
+  }
+
+  if (BmpImage != NULL) {
+    FreePool (BmpImage);
+  }
+
+  return Status;
+}
+
+STATIC
+VOID
+DisplayLowBatteryBootLogo (
+  VOID
+  )
+{
+  EFI_STATUS                    Status;
+  EFI_GRAPHICS_OUTPUT_PROTOCOL  *GraphicsOutput;
+
+  if (mLowBatteryBootLogoShown) {
+    return;
+  }
+
+  Status = GetBootPromptGraphicsOutput (&GraphicsOutput);
+  if (EFI_ERROR (Status) || (GraphicsOutput == NULL)) {
+    DEBUG ((DEBUG_INFO, "%a: GOP unavailable: %r\n", __func__, Status));
+    return;
+  }
+
+  if ((gST != NULL) && (gST->ConOut != NULL)) {
+    gST->ConOut->ClearScreen (gST->ConOut);
+  }
+
+  Status = DrawLowBatteryLogo (GraphicsOutput);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_INFO, "%a: failed to draw low-battery logo: %r\n", __func__, Status));
+    return;
+  }
+
+  mLowBatteryBootLogoShown = TRUE;
+}
+
+STATIC
+BOOLEAN
+IsLowBatteryBootGuardRequired (
+  VOID
+  )
+{
+  EFI_STATUS                   Status;
+  EFI_BATTERY_STATUS_PROTOCOL  *BatteryStatus;
+  UINT8                        BatteryPercentage;
+  BOOLEAN                      BatteryPresent;
+  BOOLEAN                      BatteryCharging;
+
+  Status = gBS->LocateProtocol (&gEfiBatteryStatusProtocolGuid, NULL, (VOID **)&BatteryStatus);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_INFO, "%a: battery status protocol unavailable: %r\n", __func__, Status));
+    return FALSE;
+  }
+
+  Status = BatteryStatus->GetBatteryInfo (
+                            BatteryStatus,
+                            &BatteryPercentage,
+                            &BatteryPresent,
+                            &BatteryCharging
+                            );
+  if (EFI_ERROR (Status) || !BatteryPresent || (BatteryPercentage == BATTERY_PERCENT_UNKNOWN)) {
+    DEBUG ((DEBUG_INFO, "%a: battery unavailable: %r\n", __func__, Status));
+    return FALSE;
+  }
+
+  DEBUG ((
+    DEBUG_INFO,
+    "%a: battery=%u%% present=%d charging=%d\n",
+    __func__,
+    BatteryPercentage,
+    BatteryPresent,
+    BatteryCharging
+    ));
+
+  if (BatteryCharging || (BatteryPercentage > LOW_BATTERY_BOOT_THRESHOLD)) {
+    return FALSE;
+  }
+
+  return TRUE;
+}
+
+STATIC
+VOID
+RestoreLowBatteryBootTimeout (
+  VOID
+  )
+{
+  EFI_STATUS  Status;
+
+  if (!mLowBatteryBootTimeoutSaved) {
+    return;
+  }
+
+  Status = PcdSet16S (PcdPlatformBootTimeOut, mLowBatteryBootTimeoutOriginal);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_INFO, "%a: failed to restore boot timeout: %r\n", __func__, Status));
+  }
+
+  mLowBatteryBootTimeoutSaved = FALSE;
+
+  if (mLowBatteryBootTimeoutRestoreEvent != NULL) {
+    gBS->CloseEvent (mLowBatteryBootTimeoutRestoreEvent);
+    mLowBatteryBootTimeoutRestoreEvent = NULL;
+  }
+}
+
+STATIC
+VOID
+EFIAPI
+RestoreLowBatteryBootTimeoutEvent (
+  IN EFI_EVENT  Event,
+  IN VOID       *Context
+  )
+{
+  (VOID)Event;
+  (VOID)Context;
+
+  RestoreLowBatteryBootTimeout ();
+}
+
+STATIC
+VOID
+ConfigureLowBatteryBootGuard (
+  VOID
+  )
+{
+  EFI_STATUS  Status;
+
+  mLowBatteryBootGuardActive = IsLowBatteryBootGuardRequired ();
+  if (!mLowBatteryBootGuardActive) {
+    return;
+  }
+
+  DEBUG ((DEBUG_INFO, "%a: using low-battery boot splash\n", __func__));
+  mLowBatteryBootTimeoutOriginal = PcdGet16 (PcdPlatformBootTimeOut);
+  mLowBatteryBootTimeoutSaved    = TRUE;
+
+  Status = PcdSet16S (PcdPlatformBootTimeOut, LOW_BATTERY_BOOT_TIMEOUT);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_INFO, "%a: failed to set low-battery boot timeout: %r\n", __func__, Status));
+  }
+
+  Status = gBS->CreateEventEx (
+                  EVT_NOTIFY_SIGNAL,
+                  TPL_CALLBACK,
+                  RestoreLowBatteryBootTimeoutEvent,
+                  NULL,
+                  &gEfiEventReadyToBootGuid,
+                  &mLowBatteryBootTimeoutRestoreEvent
+                  );
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_INFO, "%a: failed to create timeout restore event: %r\n", __func__, Status));
+  }
 }
 
 /**
@@ -725,11 +994,16 @@ PlatformBootManagerAfterConsole (
   Black.Blue = Black.Green = Black.Red = Black.Reserved = 0;
   White.Blue = White.Green = White.Red = White.Reserved = 0xFF;
 
-  Status = gBS->LocateProtocol (&gEdkiiPlatformLogoProtocolGuid, NULL, (VOID **)&PlatformLogo);
+  ConfigureLowBatteryBootGuard ();
 
+  Status = gBS->LocateProtocol (&gEdkiiPlatformLogoProtocolGuid, NULL, (VOID **)&PlatformLogo);
   if (!EFI_ERROR (Status)) {
     gST->ConOut->ClearScreen (gST->ConOut);
-    BootLogoEnableLogo ();
+    if (mLowBatteryBootGuardActive) {
+      DisplayLowBatteryBootLogo ();
+    } else {
+      BootLogoEnableLogo ();
+    }
   }
 
   //
@@ -797,21 +1071,43 @@ PlatformBootManagerAfterConsole (
 
   if (FixedPcdGetBool (PcdBootManagerEscape)) {
     if (!DisplayBootManagerPrompt (TRUE, PcdGet16 (PcdPlatformBootTimeOut))) {
-      Print (
-        L"\n"
-        L"    Esc or Down      to enter Boot Manager Menu.\n"
-        L"    ENTER            to boot directly.\n"
-        L"\n"
-        );
+      if (mLowBatteryBootGuardActive) {
+        Print (
+          L"\n"
+          L"    Battery critically low.\n"
+          L"    Shutting down in %u seconds, press ENTER to boot directly.\n"
+          L"    Esc or Down      to enter Boot Manager Menu.\n"
+          L"\n",
+          LOW_BATTERY_BOOT_TIMEOUT
+          );
+      } else {
+        Print (
+          L"\n"
+          L"    Esc or Down      to enter Boot Manager Menu.\n"
+          L"    ENTER            to boot directly.\n"
+          L"\n"
+          );
+      }
     }
   } else {
     if (!DisplayBootManagerPrompt (FALSE, PcdGet16 (PcdPlatformBootTimeOut))) {
-      Print (
-        L"\n"
-        L"    F2 or Down      to enter Boot Manager Menu.\n"
-        L"    ENTER           to boot directly.\n"
-        L"\n"
-        );
+      if (mLowBatteryBootGuardActive) {
+        Print (
+          L"\n"
+          L"    Battery critically low.\n"
+          L"    Shutting down in %u seconds, press ENTER to boot directly.\n"
+          L"    F2 or Down      to enter Boot Manager Menu.\n"
+          L"\n",
+          LOW_BATTERY_BOOT_TIMEOUT
+          );
+      } else {
+        Print (
+          L"\n"
+          L"    F2 or Down      to enter Boot Manager Menu.\n"
+          L"    ENTER           to boot directly.\n"
+          L"\n"
+          );
+      }
     }
   }
 }
@@ -827,6 +1123,22 @@ PlatformBootManagerWaitCallback (
   UINT16  TimeoutRemain
   )
 {
+  if (mLowBatteryBootGuardActive) {
+    if ((TimeoutRemain != 0) && (TimeoutRemain != 0xFFFF)) {
+      DisplayLowBatteryBootLogo ();
+      DisplayBootManagerPrompt (FixedPcdGetBool (PcdBootManagerEscape), TimeoutRemain);
+      return;
+    }
+
+    if (TimeoutRemain == 0) {
+      DEBUG ((DEBUG_INFO, "%a: low-battery boot splash timeout, shutting down\n", __func__));
+      RestoreLowBatteryBootTimeout ();
+      gRT->ResetSystem (EfiResetShutdown, EFI_SUCCESS, 0, NULL);
+    }
+
+    return;
+  }
+
   if ((TimeoutRemain != 0) && (TimeoutRemain != 0xFFFF)) {
     DisplayBootManagerPrompt (FixedPcdGetBool (PcdBootManagerEscape), TimeoutRemain);
   }
@@ -852,5 +1164,6 @@ PlatformBootManagerUnableToBoot (
   VOID
   )
 {
+  RestoreLowBatteryBootTimeout ();
   return;
 }

@@ -312,11 +312,17 @@ INF SecurityPkg/Tcg/Opal/OpalPassword/OpalPasswordDxe.inf
 INF MdeModulePkg/Universal/DisplayEngineDxe/DisplayEngineDxe.inf
 INF MdeModulePkg/Universal/EbcDxe/EbcDxe.inf
 INF UefiPayloadPkg/BlSupportDxe/BlSupportDxe.inf
+INF UefiPayloadPkg/EcAcpiBatteryStatusDxe/EcAcpiBatteryStatusDxe.inf
 
 INF MdeModulePkg/Universal/SmbiosDxe/SmbiosDxe.inf
 !if $(BOOTSPLASH_IMAGE)
 INF MdeModulePkg/Logo/LogoDxe.inf
 !endif
+
+FILE FREEFORM = be6e1243-682c-4186-8151-448d48afe341 {
+  SECTION RAW = UefiPayloadPkg/Library/PlatformBootManagerLib/LowBatteryLogo.bmp
+  SECTION UI = "Low Battery Logo"
+}
 
 #
 # PCI Support
