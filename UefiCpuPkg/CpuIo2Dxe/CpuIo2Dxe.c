@@ -182,6 +182,25 @@ CpuIoCheckParameter (
 }
 
 /**
+  Sign-extend sub-canonical physical MMIO addresses (bit 47 set, bits 63:48 clear).
+
+  AMD GOP passes GPU framebuffer addresses in this form; using them directly in
+  MmioRead* causes #GP.
+**/
+STATIC
+UINT64
+CpuIoCanonicalMmioAddress (
+  IN UINT64  Address
+  )
+{
+  if (((Address & BIT47) != 0) && ((Address & 0xFFFF000000000000ULL) == 0)) {
+    Address |= 0xFFFF000000000000ULL;
+  }
+
+  return Address;
+}
+
+/**
   Reads memory-mapped registers.
 
   The I/O operations are carried out exactly as requested. The caller is responsible
@@ -235,6 +254,9 @@ CpuMemoryServiceRead (
   UINT8                      OutStride;
   EFI_CPU_IO_PROTOCOL_WIDTH  OperationWidth;
   UINT8                      *Uint8Buffer;
+  UINTN                      MmioAddress;
+
+  Address = CpuIoCanonicalMmioAddress (Address);
 
   Status = CpuIoCheckParameter (TRUE, Width, Address, Count, Buffer);
   if (EFI_ERROR (Status)) {
@@ -247,15 +269,16 @@ CpuMemoryServiceRead (
   InStride       = mInStride[Width];
   OutStride      = mOutStride[Width];
   OperationWidth = (EFI_CPU_IO_PROTOCOL_WIDTH)(Width & 0x03);
-  for (Uint8Buffer = Buffer; Count > 0; Address += InStride, Uint8Buffer += OutStride, Count--) {
+  MmioAddress    = (UINTN)Address;
+  for (Uint8Buffer = Buffer; Count > 0; MmioAddress += InStride, Uint8Buffer += OutStride, Count--) {
     if (OperationWidth == EfiCpuIoWidthUint8) {
-      *Uint8Buffer = MmioRead8 ((UINTN)Address);
+      *Uint8Buffer = MmioRead8 (MmioAddress);
     } else if (OperationWidth == EfiCpuIoWidthUint16) {
-      *((UINT16 *)Uint8Buffer) = MmioRead16 ((UINTN)Address);
+      *((UINT16 *)Uint8Buffer) = MmioRead16 (MmioAddress);
     } else if (OperationWidth == EfiCpuIoWidthUint32) {
-      *((UINT32 *)Uint8Buffer) = MmioRead32 ((UINTN)Address);
+      *((UINT32 *)Uint8Buffer) = MmioRead32 (MmioAddress);
     } else if (OperationWidth == EfiCpuIoWidthUint64) {
-      *((UINT64 *)Uint8Buffer) = MmioRead64 ((UINTN)Address);
+      *((UINT64 *)Uint8Buffer) = MmioRead64 (MmioAddress);
     }
   }
 
@@ -316,6 +339,9 @@ CpuMemoryServiceWrite (
   UINT8                      OutStride;
   EFI_CPU_IO_PROTOCOL_WIDTH  OperationWidth;
   UINT8                      *Uint8Buffer;
+  UINTN                      MmioAddress;
+
+  Address = CpuIoCanonicalMmioAddress (Address);
 
   Status = CpuIoCheckParameter (TRUE, Width, Address, Count, Buffer);
   if (EFI_ERROR (Status)) {
@@ -328,15 +354,16 @@ CpuMemoryServiceWrite (
   InStride       = mInStride[Width];
   OutStride      = mOutStride[Width];
   OperationWidth = (EFI_CPU_IO_PROTOCOL_WIDTH)(Width & 0x03);
-  for (Uint8Buffer = Buffer; Count > 0; Address += InStride, Uint8Buffer += OutStride, Count--) {
+  MmioAddress    = (UINTN)Address;
+  for (Uint8Buffer = Buffer; Count > 0; MmioAddress += InStride, Uint8Buffer += OutStride, Count--) {
     if (OperationWidth == EfiCpuIoWidthUint8) {
-      MmioWrite8 ((UINTN)Address, *Uint8Buffer);
+      MmioWrite8 (MmioAddress, *Uint8Buffer);
     } else if (OperationWidth == EfiCpuIoWidthUint16) {
-      MmioWrite16 ((UINTN)Address, *((UINT16 *)Uint8Buffer));
+      MmioWrite16 (MmioAddress, *((UINT16 *)Uint8Buffer));
     } else if (OperationWidth == EfiCpuIoWidthUint32) {
-      MmioWrite32 ((UINTN)Address, *((UINT32 *)Uint8Buffer));
+      MmioWrite32 (MmioAddress, *((UINT32 *)Uint8Buffer));
     } else if (OperationWidth == EfiCpuIoWidthUint64) {
-      MmioWrite64 ((UINTN)Address, *((UINT64 *)Uint8Buffer));
+      MmioWrite64 (MmioAddress, *((UINT64 *)Uint8Buffer));
     }
   }
 
