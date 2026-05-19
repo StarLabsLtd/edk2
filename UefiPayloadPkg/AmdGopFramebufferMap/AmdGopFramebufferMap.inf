@@ -1,0 +1,33 @@
+## @file
+#  Install GOP framebuffer remap hooks for AMD external GOP.
+##
+
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = AmdGopFramebufferMap
+  FILE_GUID                      = 8B4E9C3D-5E6F-4A71-B8C9-0D1E2F3A4B5C
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = AmdGopFramebufferMapEntryPoint
+
+[Sources]
+  AmdGopFramebufferMap.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  UefiPayloadPkg/UefiPayloadPkg.dec
+
+[LibraryClasses]
+  DebugLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+  AmdGopFramebufferMapLib
+
+[Protocols]
+  gEfiGraphicsOutputProtocolGuid  ## CONSUMES
+
+[Guids]
+  gEfiEventReadyToBootGuid
+
+[Depex]
+  TRUE

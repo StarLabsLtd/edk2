@@ -1,0 +1,27 @@
+## @file
+#  Remap AMD external GOP framebuffers for CPU access on x86-64.
+##
+
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = AmdGopFramebufferMapLib
+  MODULE_TYPE                    = BASE
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = AmdGopFramebufferMapLib|DXE_DRIVER
+
+[Sources]
+  AmdGopFramebufferMapLib.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  UefiPayloadPkg/UefiPayloadPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  DebugLib
+  DxeServicesTableLib
+  MemoryAllocationLib
+  UefiBootServicesTableLib
+
+[Protocols]
+  gEfiGraphicsOutputProtocolGuid  ## CONSUMES
