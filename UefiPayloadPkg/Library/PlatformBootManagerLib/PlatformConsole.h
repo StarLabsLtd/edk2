@@ -63,3 +63,9 @@ EFIAPI
 PlatformConsoleInit (
   VOID
   );
+
+VOID
+EFIAPI
+PlatformConnectDeferredAmdVideo (
+  VOID
+  );

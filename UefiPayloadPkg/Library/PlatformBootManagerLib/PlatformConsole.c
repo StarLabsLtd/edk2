@@ -10,6 +10,10 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include "PlatformConsole.h"
 #include <Guid/SerialPortLibVendor.h>
 
+#define AMD_DISPLAY_VID  0x1002
+
+STATIC EFI_HANDLE  mDeferredAmdVideoHandle = NULL;
+
 #define PCI_DEVICE_PATH_NODE(Func, Dev) \
   { \
     { \
@@ -350,10 +354,16 @@ DetectAndPreparePlatformPciDevicePath (
   // Enable all display devices
   //
   if (IS_PCI_DISPLAY (&Pci)) {
-    //
-    // Add them to ConOut.
-    //
     DEBUG ((DEBUG_INFO, "Found PCI Display device\n"));
+    //
+    // Defer AMD GOP connect until AfterConsole: immediate ConnectController can
+    // #GP in CpuIo2 during GOP/VBIOS init on Phoenix.
+    //
+    if (Pci.Hdr.VendorId == AMD_DISPLAY_VID) {
+      mDeferredAmdVideoHandle = Handle;
+      return EFI_SUCCESS;
+    }
+
     EfiBootManagerConnectVideoController (Handle);
     return EFI_SUCCESS;
   }
@@ -461,6 +471,21 @@ ConnectOneRootBridge (
   and so crc check.
 
 **/
+VOID
+EFIAPI
+PlatformConnectDeferredAmdVideo (
+  VOID
+  )
+{
+  if (mDeferredAmdVideoHandle == NULL) {
+    return;
+  }
+
+  DEBUG ((DEBUG_INFO, "PlatformConnectDeferredAmdVideo\n"));
+  EfiBootManagerConnectVideoController (mDeferredAmdVideoHandle);
+  mDeferredAmdVideoHandle = NULL;
+}
+
 VOID
 EFIAPI
 PlatformConsoleInit (
