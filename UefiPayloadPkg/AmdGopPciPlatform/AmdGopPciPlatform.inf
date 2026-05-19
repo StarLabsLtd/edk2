@@ -1,0 +1,36 @@
+## @file
+#  Provide Phoenix VBIOS from the payload FV for AMD external GOP.
+##
+
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = AmdGopPciPlatform
+  FILE_GUID                      = 7A3E8B2C-4D5F-4E61-9A8B-1C2D3E4F5A6B
+  MODULE_TYPE                    = UEFI_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = AmdGopPciPlatformEntryPoint
+
+[Sources]
+  AmdGopPciPlatform.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  UefiPayloadPkg/UefiPayloadPkg.dec
+
+[LibraryClasses]
+  BaseMemoryLib
+  DebugLib
+  MemoryAllocationLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+
+[Guids]
+  gAmdPhoenixVbiosRomSectionGuid
+
+[Protocols]
+  gEfiFirmwareVolume2ProtocolGuid  ## CONSUMES
+  gEfiPciIoProtocolGuid              ## CONSUMES
+  gEfiPciPlatformProtocolGuid        ## PRODUCES
+
+[Depex]
+  TRUE

@@ -1,0 +1,33 @@
+## @file
+#  AMD GOP platform-to-driver agent for UefiPayloadPkg.
+##
+
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = AmdGopPlatformToDriver
+  FILE_GUID                      = 0255DED3-BF9C-4155-8DDB-6E8609EE0482
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = AmdGopPlatformToDriverEntryPoint
+
+[Sources]
+  AmdGopPlatformToDriver.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  UefiPayloadPkg/UefiPayloadPkg.dec
+
+[LibraryClasses]
+  DebugLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+
+[Guids]
+  gEfiPlatformToAmdGopConfigurationGuid
+
+[Protocols]
+  gAmiPlatformToDriverAgentProtocolGuid  ## PRODUCES
+  gEfiPciIoProtocolGuid                    ## CONSUMES
+
+[Depex]
+  gEfiPlatformToDriverConfigurationProtocolGuid
