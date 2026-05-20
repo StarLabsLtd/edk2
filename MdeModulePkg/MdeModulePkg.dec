@@ -1787,6 +1787,15 @@
   # @Prompt Console output column.
   gEfiMdeModulePkgTokenSpaceGuid.PcdConOutColumn|80|UINT32|0x40000007
 
+  ## This PCD defines the Graphics Console text glyph scale.
+  #  The scale is applied to Graphics Console Simple Text Output glyph cells
+  #  without changing the underlying GOP mode. The driver falls back to 1 if
+  #  the selected GOP mode cannot support the UEFI required 80x25 text mode at
+  #  the requested scale.
+  # @ValidList  0x80000001 | 1, 2
+  # @Prompt Graphics Console text scale.
+  gEfiMdeModulePkgTokenSpaceGuid.PcdGraphicsConsoleTextScale|1|UINT32|0x40000010
+
   ## This PCD defines the video horizontal resolution.
   #  If this PCD is set to 0 then video resolution would be at highest resolution.
   # @Prompt Video horizontal resolution.
