@@ -982,6 +982,9 @@
 
   gEfiMdeModulePkgTokenSpaceGuid.PcdConOutRow|31
   gEfiMdeModulePkgTokenSpaceGuid.PcdConOutColumn|100
+!if $(PAYLOAD_FB_HIDPI_SUPPORT)
+  gEfiMdeModulePkgTokenSpaceGuid.PcdGraphicsConsoleTextScale|2
+!endif
   gEfiMdePkgTokenSpaceGuid.PcdPciExpressBaseAddress|0
   gEfiMdePkgTokenSpaceGuid.PcdPciExpressBaseSize|0
   gEfiMdeModulePkgTokenSpaceGuid.PcdGhcbBase|0
