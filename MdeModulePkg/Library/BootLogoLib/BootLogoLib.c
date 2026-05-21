@@ -265,30 +265,32 @@ GetHiDpiLogoTransform (
     return;
   }
 
-  if ((GraphicsOutput->Mode->Info->PixelFormat == PixelBltOnly) ||
-      (GraphicsOutput->Mode->FrameBufferBase == 0))
+  if (FindHiDpiPhysicalMode (
+        GraphicsOutput,
+        HorizontalResolution,
+        VerticalResolution,
+        &PhysicalHorizontalResolution,
+        &PhysicalVerticalResolution
+        ))
   {
-    if (!FindHiDpiPhysicalMode (
-           GraphicsOutput,
-           HorizontalResolution,
-           VerticalResolution,
-           &PhysicalHorizontalResolution,
-           &PhysicalVerticalResolution
-           ))
-    {
-      if ((HorizontalResolution > (MAX_UINT32 / 2)) ||
-          (VerticalResolution > (MAX_UINT32 / 2)))
-      {
-        return;
-      }
-
-      PhysicalHorizontalResolution = HorizontalResolution * 2;
-      PhysicalVerticalResolution   = VerticalResolution * 2;
-    }
-
     *BgrtScale   = 2;
     *BgrtOffsetX = (PhysicalHorizontalResolution - (HorizontalResolution * 2)) / 2;
     *BgrtOffsetY = (PhysicalVerticalResolution - (VerticalResolution * 2)) / 2;
+    return;
+  }
+
+  if ((GraphicsOutput->Mode->Info->PixelFormat == PixelBltOnly) ||
+      (GraphicsOutput->Mode->FrameBufferBase == 0))
+  {
+    if ((HorizontalResolution > (MAX_UINT32 / 2)) ||
+        (VerticalResolution > (MAX_UINT32 / 2)))
+    {
+      return;
+    }
+
+    PhysicalHorizontalResolution = HorizontalResolution * 2;
+    PhysicalVerticalResolution   = VerticalResolution * 2;
+    *BgrtScale   = 2;
     return;
   }
 
