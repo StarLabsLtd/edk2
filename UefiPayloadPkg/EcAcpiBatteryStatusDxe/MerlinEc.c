@@ -198,10 +198,7 @@ GetMerlinBatteryInfo (
     *BatteryPercentage = 0xFF;
   }
 
-  // Report external power for boot guard users. BATTERY_CHARGING can be false
-  // when AC is connected but the pack is full or charge is inhibited.
-  *BatteryCharging = ((PowerState & (MERLIN_POWER_CHARGER_CONNECTED | MERLIN_POWER_BATTERY_CHARGING)) != 0) ||
-                     ((BatteryState & MERLIN_BATTERY_CHARGING) != 0);
+  *BatteryCharging = ((BatteryState & MERLIN_BATTERY_CHARGING) != 0);
 
   DEBUG ((
     DEBUG_INFO,
