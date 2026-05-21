@@ -234,8 +234,8 @@ STATIC
 VOID
 GetHiDpiLogoTransform (
   IN  EFI_GRAPHICS_OUTPUT_PROTOCOL  *GraphicsOutput,
-  OUT UINTN                         *DisplayScale,
   OUT UINTN                         *BgrtScale,
+  OUT UINTN                         *BgrtCanvasScale,
   OUT UINTN                         *BgrtOffsetX,
   OUT UINTN                         *BgrtOffsetY
   )
@@ -246,10 +246,10 @@ GetHiDpiLogoTransform (
   UINT32                                PhysicalVerticalResolution;
   UINT32                                VerticalResolution;
 
-  *DisplayScale = 1;
-  *BgrtScale    = 1;
-  *BgrtOffsetX  = 0;
-  *BgrtOffsetY  = 0;
+  *BgrtScale       = 1;
+  *BgrtCanvasScale = 1;
+  *BgrtOffsetX     = 0;
+  *BgrtOffsetY     = 0;
 
   if ((GraphicsOutput == NULL) ||
       (GraphicsOutput->Mode == NULL) ||
@@ -272,7 +272,8 @@ GetHiDpiLogoTransform (
       (HorizontalResolution <= 1920) &&
       (VerticalResolution <= 1200))
   {
-    *BgrtScale = 2;
+    *BgrtScale       = 2;
+    *BgrtCanvasScale = 2;
     return;
   }
 
@@ -284,9 +285,10 @@ GetHiDpiLogoTransform (
         &PhysicalVerticalResolution
         ))
   {
-    *BgrtScale   = 2;
-    *BgrtOffsetX = (PhysicalHorizontalResolution - (HorizontalResolution * 2)) / 2;
-    *BgrtOffsetY = (PhysicalVerticalResolution - (VerticalResolution * 2)) / 2;
+    *BgrtScale       = 2;
+    *BgrtCanvasScale = 2;
+    *BgrtOffsetX     = (PhysicalHorizontalResolution - (HorizontalResolution * 2)) / 2;
+    *BgrtOffsetY     = (PhysicalVerticalResolution - (VerticalResolution * 2)) / 2;
     return;
   }
 
@@ -301,17 +303,18 @@ GetHiDpiLogoTransform (
 
     PhysicalHorizontalResolution = HorizontalResolution * 2;
     PhysicalVerticalResolution   = VerticalResolution * 2;
-    *BgrtScale   = 2;
+    *BgrtScale       = 2;
+    *BgrtCanvasScale = 2;
     return;
   }
 
   //
   // Physical GOP mode: if the active GOP also exposes a 2x software logical
-  // mode, pre-scale the logo before drawing and report that same physical-sized
+  // mode, leave the displayed logo to the GOP path but report a physical-sized
   // bitmap through BGRT.
   //
   if (HasHiDpiLogicalMode (GraphicsOutput, HorizontalResolution, VerticalResolution)) {
-    *DisplayScale = 2;
+    *BgrtScale = 2;
   }
 }
 
@@ -406,8 +409,8 @@ BootLogoEnableLogo (
   UINTN                                  NewDestX;
   UINTN                                  NewDestY;
   UINTN                                  BufferSize;
-  UINTN                                  DisplayScale;
   UINTN                                  BgrtScale;
+  UINTN                                  BgrtCanvasScale;
   UINTN                                  BgrtOffsetX;
   UINTN                                  BgrtOffsetY;
 
@@ -447,7 +450,7 @@ BootLogoEnableLogo (
 
   SizeOfX = GraphicsOutput->Mode->Info->HorizontalResolution;
   SizeOfY = GraphicsOutput->Mode->Info->VerticalResolution;
-  GetHiDpiLogoTransform (GraphicsOutput, &DisplayScale, &BgrtScale, &BgrtOffsetX, &BgrtOffsetY);
+  GetHiDpiLogoTransform (GraphicsOutput, &BgrtScale, &BgrtCanvasScale, &BgrtOffsetX, &BgrtOffsetY);
 
   Blt           = NULL;
   NumberOfLogos = 0;
@@ -481,25 +484,6 @@ BootLogoEnableLogo (
     }
 
     Blt = Image.Bitmap;
-
-    if (DisplayScale == 2) {
-      EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *ScaledBlt;
-
-      ScaledBlt = NULL;
-      Status    = ScaleLogoBlt2x (Blt, Image.Width, Image.Height, &ScaledBlt);
-      if (!EFI_ERROR (Status)) {
-        FreePool (Blt);
-        Blt          = ScaledBlt;
-        Image.Bitmap = ScaledBlt;
-        Image.Width *= 2;
-        Image.Height *= 2;
-        OffsetX *= 2;
-        OffsetY *= 2;
-      } else {
-        DEBUG ((DEBUG_INFO, "%a: failed to scale logo for HiDPI boot GOP: %r\n", __func__, Status));
-        Status = EFI_SUCCESS;
-      }
-    }
 
     //
     // Calculate the display position according to Attribute.
@@ -655,30 +639,38 @@ BootLogoEnableLogo (
 
   if (!EFI_ERROR (Status)) {
     EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *BgrtLogoBlt;
+    UINTN                          BgrtCanvasHeight;
+    UINTN                          BgrtCanvasWidth;
     UINTN                          BgrtLogoDestX;
     UINTN                          BgrtLogoDestY;
     UINTN                          BgrtLogoWidth;
     UINTN                          BgrtLogoHeight;
 
-    BgrtLogoBlt    = LogoBlt;
-    BgrtLogoDestX  = LogoDestX * BgrtScale + BgrtOffsetX;
-    BgrtLogoDestY  = LogoDestY * BgrtScale + BgrtOffsetY;
-    BgrtLogoWidth  = LogoWidth * BgrtScale;
-    BgrtLogoHeight = LogoHeight * BgrtScale;
+    BgrtLogoBlt      = LogoBlt;
+    BgrtCanvasWidth  = SizeOfX * BgrtCanvasScale;
+    BgrtCanvasHeight = SizeOfY * BgrtCanvasScale;
+    BgrtLogoDestX    = LogoDestX * BgrtCanvasScale + BgrtOffsetX;
+    BgrtLogoDestY    = LogoDestY * BgrtCanvasScale + BgrtOffsetY;
+    BgrtLogoWidth    = LogoWidth * BgrtScale;
+    BgrtLogoHeight   = LogoHeight * BgrtScale;
 
     if (BgrtScale > 1) {
       //
-      // GOP scaling starts from integer logical coordinates. For odd-sized
-      // centered logos that loses the half-pixel before scaling, which can put
-      // the reported physical BGRT offset one pixel away from exact center.
-      // Plymouth only trusts centered desktop BGRT offsets on an exact match.
+      // Recompute centered BGRT offsets against the reported canvas. This keeps
+      // odd-sized logos exactly centered after scaling.
       //
-      if ((SizeOfX >= LogoWidth) && (LogoDestX == ((SizeOfX - LogoWidth) / 2))) {
-        BgrtLogoDestX = (((SizeOfX * BgrtScale) - BgrtLogoWidth) / 2) + BgrtOffsetX;
+      if ((BgrtCanvasWidth >= BgrtLogoWidth) &&
+          (SizeOfX >= LogoWidth) &&
+          (LogoDestX == ((SizeOfX - LogoWidth) / 2)))
+      {
+        BgrtLogoDestX = ((BgrtCanvasWidth - BgrtLogoWidth) / 2) + BgrtOffsetX;
       }
 
-      if ((SizeOfY >= LogoHeight) && (LogoDestY == ((SizeOfY - LogoHeight) / 2))) {
-        BgrtLogoDestY = (((SizeOfY * BgrtScale) - BgrtLogoHeight) / 2) + BgrtOffsetY;
+      if ((BgrtCanvasHeight >= BgrtLogoHeight) &&
+          (SizeOfY >= LogoHeight) &&
+          (LogoDestY == ((SizeOfY - LogoHeight) / 2)))
+      {
+        BgrtLogoDestY = ((BgrtCanvasHeight - BgrtLogoHeight) / 2) + BgrtOffsetY;
       }
     }
 
