@@ -18,85 +18,291 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Library/UefiLib.h>
 #include <Library/BaseMemoryLib.h>
 #include <Library/UefiBootServicesTableLib.h>
-#include <Library/PcdLib.h>
 #include <Library/MemoryAllocationLib.h>
 #include <Library/DebugLib.h>
+
+STATIC
+BOOLEAN
+IsHiDpiPhysicalMode (
+  IN EFI_GRAPHICS_OUTPUT_MODE_INFORMATION  *ModeInfo,
+  IN UINT32                                LogicalHorizontalResolution,
+  IN UINT32                                LogicalVerticalResolution
+  )
+{
+  if ((ModeInfo == NULL) ||
+      (LogicalHorizontalResolution > (MAX_UINT32 / 2)) ||
+      (LogicalVerticalResolution > (MAX_UINT32 / 2)))
+  {
+    return FALSE;
+  }
+
+  return (ModeInfo->HorizontalResolution >= (LogicalHorizontalResolution * 2)) &&
+         (ModeInfo->VerticalResolution >= (LogicalVerticalResolution * 2));
+}
+
+STATIC
+BOOLEAN
+FindHiDpiPhysicalModeInGop (
+  IN  EFI_GRAPHICS_OUTPUT_PROTOCOL  *GraphicsOutput,
+  IN  UINT32                        LogicalHorizontalResolution,
+  IN  UINT32                        LogicalVerticalResolution,
+  OUT UINT32                        *PhysicalHorizontalResolution,
+  OUT UINT32                        *PhysicalVerticalResolution
+  )
+{
+  EFI_GRAPHICS_OUTPUT_MODE_INFORMATION  *Info;
+  EFI_STATUS                            Status;
+  UINT64                                BestArea;
+  UINT64                                CandidateArea;
+  UINT32                                BestHorizontalResolution;
+  UINT32                                BestVerticalResolution;
+  UINT32                                ModeNumber;
+  UINTN                                 SizeOfInfo;
+
+  if ((GraphicsOutput == NULL) ||
+      (GraphicsOutput->Mode == NULL) ||
+      (PhysicalHorizontalResolution == NULL) ||
+      (PhysicalVerticalResolution == NULL))
+  {
+    return FALSE;
+  }
+
+  BestArea                 = 0;
+  BestHorizontalResolution = 0;
+  BestVerticalResolution   = 0;
+
+  for (ModeNumber = 0; ModeNumber < GraphicsOutput->Mode->MaxMode; ModeNumber++) {
+    Info       = NULL;
+    SizeOfInfo = 0;
+    Status     = GraphicsOutput->QueryMode (
+                                   GraphicsOutput,
+                                   ModeNumber,
+                                   &SizeOfInfo,
+                                   &Info
+                                   );
+    if (EFI_ERROR (Status) || (Info == NULL)) {
+      if (Info != NULL) {
+        FreePool (Info);
+      }
+
+      continue;
+    }
+
+    if (IsHiDpiPhysicalMode (Info, LogicalHorizontalResolution, LogicalVerticalResolution)) {
+      CandidateArea = (UINT64)Info->HorizontalResolution * Info->VerticalResolution;
+      if ((BestArea == 0) || (CandidateArea < BestArea)) {
+        BestArea                 = CandidateArea;
+        BestHorizontalResolution = Info->HorizontalResolution;
+        BestVerticalResolution   = Info->VerticalResolution;
+      }
+    }
+
+    FreePool (Info);
+  }
+
+  if (BestArea == 0) {
+    return FALSE;
+  }
+
+  *PhysicalHorizontalResolution = BestHorizontalResolution;
+  *PhysicalVerticalResolution   = BestVerticalResolution;
+  return TRUE;
+}
+
+STATIC
+BOOLEAN
+FindHiDpiPhysicalMode (
+  IN  EFI_GRAPHICS_OUTPUT_PROTOCOL  *GraphicsOutput,
+  IN  UINT32                        LogicalHorizontalResolution,
+  IN  UINT32                        LogicalVerticalResolution,
+  OUT UINT32                        *PhysicalHorizontalResolution,
+  OUT UINT32                        *PhysicalVerticalResolution
+  )
+{
+  EFI_GRAPHICS_OUTPUT_PROTOCOL  *HandleGraphicsOutput;
+  EFI_HANDLE                    *HandleBuffer;
+  EFI_STATUS                    Status;
+  UINTN                         HandleCount;
+  UINTN                         Index;
+
+  if (FindHiDpiPhysicalModeInGop (
+        GraphicsOutput,
+        LogicalHorizontalResolution,
+        LogicalVerticalResolution,
+        PhysicalHorizontalResolution,
+        PhysicalVerticalResolution
+        ))
+  {
+    return TRUE;
+  }
+
+  HandleBuffer = NULL;
+  HandleCount  = 0;
+  Status       = gBS->LocateHandleBuffer (
+                         ByProtocol,
+                         &gEfiGraphicsOutputProtocolGuid,
+                         NULL,
+                         &HandleCount,
+                         &HandleBuffer
+                         );
+  if (EFI_ERROR (Status) || (HandleBuffer == NULL)) {
+    return FALSE;
+  }
+
+  for (Index = 0; Index < HandleCount; Index++) {
+    HandleGraphicsOutput = NULL;
+    Status               = gBS->HandleProtocol (
+                                  HandleBuffer[Index],
+                                  &gEfiGraphicsOutputProtocolGuid,
+                                  (VOID **)&HandleGraphicsOutput
+                                  );
+    if (EFI_ERROR (Status) || (HandleGraphicsOutput == NULL) || (HandleGraphicsOutput == GraphicsOutput)) {
+      continue;
+    }
+
+    if (FindHiDpiPhysicalModeInGop (
+          HandleGraphicsOutput,
+          LogicalHorizontalResolution,
+          LogicalVerticalResolution,
+          PhysicalHorizontalResolution,
+          PhysicalVerticalResolution
+          ))
+    {
+      FreePool (HandleBuffer);
+      return TRUE;
+    }
+  }
+
+  FreePool (HandleBuffer);
+  return FALSE;
+}
+
+STATIC
+BOOLEAN
+HasHiDpiLogicalMode (
+  IN EFI_GRAPHICS_OUTPUT_PROTOCOL  *GraphicsOutput,
+  IN UINT32                        PhysicalHorizontalResolution,
+  IN UINT32                        PhysicalVerticalResolution
+  )
+{
+  EFI_GRAPHICS_OUTPUT_MODE_INFORMATION  *Info;
+  EFI_STATUS                            Status;
+  UINT32                                ModeNumber;
+  UINTN                                 SizeOfInfo;
+
+  if ((GraphicsOutput == NULL) ||
+      (GraphicsOutput->Mode == NULL) ||
+      (PhysicalHorizontalResolution == 0) ||
+      (PhysicalVerticalResolution == 0))
+  {
+    return FALSE;
+  }
+
+  for (ModeNumber = 0; ModeNumber < GraphicsOutput->Mode->MaxMode; ModeNumber++) {
+    Info       = NULL;
+    SizeOfInfo = 0;
+    Status     = GraphicsOutput->QueryMode (
+                                   GraphicsOutput,
+                                   ModeNumber,
+                                   &SizeOfInfo,
+                                   &Info
+                                   );
+    if (EFI_ERROR (Status) || (Info == NULL)) {
+      if (Info != NULL) {
+        FreePool (Info);
+      }
+
+      continue;
+    }
+
+    if ((Info->PixelFormat == PixelBltOnly) &&
+        (Info->HorizontalResolution <= (PhysicalHorizontalResolution / 2)) &&
+        (Info->VerticalResolution <= (PhysicalVerticalResolution / 2)))
+    {
+      FreePool (Info);
+      return TRUE;
+    }
+
+    FreePool (Info);
+  }
+
+  return FALSE;
+}
 
 STATIC
 VOID
 GetHiDpiLogoTransform (
   IN  EFI_GRAPHICS_OUTPUT_PROTOCOL  *GraphicsOutput,
-  OUT UINTN                         *DisplayScale,
   OUT UINTN                         *BgrtScale,
+  OUT UINTN                         *BgrtCanvasScale,
   OUT UINTN                         *BgrtOffsetX,
   OUT UINTN                         *BgrtOffsetY
   )
 {
-  UINT32  HorizontalResolution;
-  UINT32  PhysicalHorizontalResolution;
-  UINT32  PhysicalVerticalResolution;
-  UINT32  VerticalResolution;
+  UINT32                                HorizontalResolution;
+  UINT32                                PhysicalHorizontalResolution;
+  UINT32                                PhysicalVerticalResolution;
+  UINT32                                VerticalResolution;
 
-  *DisplayScale = 1;
-  *BgrtScale    = 1;
-  *BgrtOffsetX  = 0;
-  *BgrtOffsetY  = 0;
+  *BgrtScale       = 1;
+  *BgrtCanvasScale = 1;
+  *BgrtOffsetX     = 0;
+  *BgrtOffsetY     = 0;
 
   if ((GraphicsOutput == NULL) ||
       (GraphicsOutput->Mode == NULL) ||
-      (GraphicsOutput->Mode->Info == NULL) ||
-      !FeaturePcdGet (PcdPayloadFbHiDpiSupport))
+      (GraphicsOutput->Mode->Info == NULL))
   {
     return;
   }
 
   HorizontalResolution         = GraphicsOutput->Mode->Info->HorizontalResolution;
   VerticalResolution           = GraphicsOutput->Mode->Info->VerticalResolution;
-  PhysicalHorizontalResolution = PcdGet32 (PcdVideoHorizontalResolution);
-  PhysicalVerticalResolution   = PcdGet32 (PcdVideoVerticalResolution);
+  PhysicalHorizontalResolution = HorizontalResolution;
+  PhysicalVerticalResolution   = VerticalResolution;
 
-  if ((PhysicalHorizontalResolution == 0) || (PhysicalVerticalResolution == 0)) {
-    PhysicalHorizontalResolution = HorizontalResolution;
-    PhysicalVerticalResolution   = VerticalResolution;
-  }
-
-  if ((PhysicalHorizontalResolution <= PcdGet32 (PcdPayloadFbHiDpiScaleThresholdHorizontal)) ||
-      (PhysicalVerticalResolution <= PcdGet32 (PcdPayloadFbHiDpiScaleThresholdVertical)) ||
-      ((PhysicalHorizontalResolution % 2) != 0) ||
-      ((PhysicalVerticalResolution % 2) != 0))
-  {
+  if ((HorizontalResolution == 0) || (VerticalResolution == 0)) {
     return;
   }
 
-  //
-  // Physical GOP mode: pre-scale the logo before drawing and report that same
-  // physical-sized bitmap through BGRT.
-  //
-  if (GraphicsOutput->Mode->FrameBufferBase != 0) {
-    if ((HorizontalResolution == PhysicalHorizontalResolution) &&
-        (VerticalResolution == PhysicalVerticalResolution))
+  if (FindHiDpiPhysicalMode (
+        GraphicsOutput,
+        HorizontalResolution,
+        VerticalResolution,
+        &PhysicalHorizontalResolution,
+        &PhysicalVerticalResolution
+        ))
+  {
+    *BgrtScale       = 2;
+    *BgrtCanvasScale = 2;
+    *BgrtOffsetX     = (PhysicalHorizontalResolution - (HorizontalResolution * 2)) / 2;
+    *BgrtOffsetY     = (PhysicalVerticalResolution - (VerticalResolution * 2)) / 2;
+    return;
+  }
+
+  if ((GraphicsOutput->Mode->Info->PixelFormat == PixelBltOnly) ||
+      (GraphicsOutput->Mode->FrameBufferBase == 0))
+  {
+    if ((HorizontalResolution > (MAX_UINT32 / 2)) ||
+        (VerticalResolution > (MAX_UINT32 / 2)))
     {
-      *DisplayScale = 2;
+      return;
     }
 
+    PhysicalHorizontalResolution = HorizontalResolution * 2;
+    PhysicalVerticalResolution   = VerticalResolution * 2;
+    *BgrtScale       = 2;
+    *BgrtCanvasScale = 2;
     return;
   }
 
   //
-  // UefiPayloadPkg's HiDPI GOP mode is logical-sized and PixelBltOnly. The GOP
-  // scales BLTs into the physical framebuffer, so do not pre-scale for drawing.
-  // BGRT, however, is consumed by the OS in physical panel coordinates, so report
-  // a physical-sized bitmap and translate coordinates back into that space.
+  // Physical GOP mode: if the active GOP also exposes a 2x software logical
+  // mode, leave the displayed logo to the GOP path but report a physical-sized
+  // bitmap through BGRT.
   //
-  if ((GraphicsOutput->Mode->Info->PixelFormat == PixelBltOnly) &&
-      (HorizontalResolution <= (MAX_UINT32 / 2)) &&
-      (VerticalResolution <= (MAX_UINT32 / 2)) &&
-      (PhysicalHorizontalResolution >= (HorizontalResolution * 2)) &&
-      (PhysicalVerticalResolution >= (VerticalResolution * 2)))
-  {
-    *BgrtScale   = 2;
-    *BgrtOffsetX = (PhysicalHorizontalResolution - (HorizontalResolution * 2)) / 2;
-    *BgrtOffsetY = (PhysicalVerticalResolution - (VerticalResolution * 2)) / 2;
+  if (HasHiDpiLogicalMode (GraphicsOutput, HorizontalResolution, VerticalResolution)) {
+    *BgrtScale = 2;
   }
 }
 
@@ -191,8 +397,8 @@ BootLogoEnableLogo (
   UINTN                                  NewDestX;
   UINTN                                  NewDestY;
   UINTN                                  BufferSize;
-  UINTN                                  DisplayScale;
   UINTN                                  BgrtScale;
+  UINTN                                  BgrtCanvasScale;
   UINTN                                  BgrtOffsetX;
   UINTN                                  BgrtOffsetY;
 
@@ -232,7 +438,7 @@ BootLogoEnableLogo (
 
   SizeOfX = GraphicsOutput->Mode->Info->HorizontalResolution;
   SizeOfY = GraphicsOutput->Mode->Info->VerticalResolution;
-  GetHiDpiLogoTransform (GraphicsOutput, &DisplayScale, &BgrtScale, &BgrtOffsetX, &BgrtOffsetY);
+  GetHiDpiLogoTransform (GraphicsOutput, &BgrtScale, &BgrtCanvasScale, &BgrtOffsetX, &BgrtOffsetY);
 
   Blt           = NULL;
   NumberOfLogos = 0;
@@ -267,25 +473,6 @@ BootLogoEnableLogo (
 
     Blt = Image.Bitmap;
 
-    if (DisplayScale == 2) {
-      EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *ScaledBlt;
-
-      ScaledBlt = NULL;
-      Status    = ScaleLogoBlt2x (Blt, Image.Width, Image.Height, &ScaledBlt);
-      if (!EFI_ERROR (Status)) {
-        FreePool (Blt);
-        Blt          = ScaledBlt;
-        Image.Bitmap = ScaledBlt;
-        Image.Width *= 2;
-        Image.Height *= 2;
-        OffsetX *= 2;
-        OffsetY *= 2;
-      } else {
-        DEBUG ((DEBUG_INFO, "%a: failed to scale logo for HiDPI boot GOP: %r\n", __func__, Status));
-        Status = EFI_SUCCESS;
-      }
-    }
-
     //
     // Calculate the display position according to Attribute.
     //
@@ -309,7 +496,7 @@ BootLogoEnableLogo (
         break;
       case EdkiiPlatformLogoDisplayAttributeCenter:
         DestX = (SizeOfX - Image.Width) / 2;
-        DestY = (SizeOfY * 382) / 1000 - Image.Height / 2;
+        DestY = (SizeOfY - Image.Height) / 2;
         break;
       case EdkiiPlatformLogoDisplayAttributeCenterRight:
         DestX = SizeOfX - Image.Width;
@@ -440,30 +627,38 @@ BootLogoEnableLogo (
 
   if (!EFI_ERROR (Status)) {
     EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *BgrtLogoBlt;
+    UINTN                          BgrtCanvasHeight;
+    UINTN                          BgrtCanvasWidth;
     UINTN                          BgrtLogoDestX;
     UINTN                          BgrtLogoDestY;
     UINTN                          BgrtLogoWidth;
     UINTN                          BgrtLogoHeight;
 
-    BgrtLogoBlt    = LogoBlt;
-    BgrtLogoDestX  = LogoDestX * BgrtScale + BgrtOffsetX;
-    BgrtLogoDestY  = LogoDestY * BgrtScale + BgrtOffsetY;
-    BgrtLogoWidth  = LogoWidth * BgrtScale;
-    BgrtLogoHeight = LogoHeight * BgrtScale;
+    BgrtLogoBlt      = LogoBlt;
+    BgrtCanvasWidth  = SizeOfX * BgrtCanvasScale;
+    BgrtCanvasHeight = SizeOfY * BgrtCanvasScale;
+    BgrtLogoDestX    = LogoDestX * BgrtCanvasScale + BgrtOffsetX;
+    BgrtLogoDestY    = LogoDestY * BgrtCanvasScale + BgrtOffsetY;
+    BgrtLogoWidth    = LogoWidth * BgrtScale;
+    BgrtLogoHeight   = LogoHeight * BgrtScale;
 
     if (BgrtScale > 1) {
       //
-      // GOP scaling starts from integer logical coordinates. For odd-sized
-      // centered logos that loses the half-pixel before scaling, which can put
-      // the reported physical BGRT offset one pixel away from exact center.
-      // Plymouth only trusts centered desktop BGRT offsets on an exact match.
+      // Recompute centered BGRT offsets against the reported canvas. This keeps
+      // odd-sized logos exactly centered after scaling.
       //
-      if ((SizeOfX >= LogoWidth) && (LogoDestX == ((SizeOfX - LogoWidth) / 2))) {
-        BgrtLogoDestX = (((SizeOfX * BgrtScale) - BgrtLogoWidth) / 2) + BgrtOffsetX;
+      if ((BgrtCanvasWidth >= BgrtLogoWidth) &&
+          (SizeOfX >= LogoWidth) &&
+          (LogoDestX == ((SizeOfX - LogoWidth) / 2)))
+      {
+        BgrtLogoDestX = ((BgrtCanvasWidth - BgrtLogoWidth) / 2) + BgrtOffsetX;
       }
 
-      if ((SizeOfY >= LogoHeight) && (LogoDestY == ((SizeOfY - LogoHeight) / 2))) {
-        BgrtLogoDestY = (((SizeOfY * BgrtScale) - BgrtLogoHeight) / 2) + BgrtOffsetY;
+      if ((BgrtCanvasHeight >= BgrtLogoHeight) &&
+          (SizeOfY >= LogoHeight) &&
+          (LogoDestY == ((SizeOfY - LogoHeight) / 2)))
+      {
+        BgrtLogoDestY = ((BgrtCanvasHeight - BgrtLogoHeight) / 2) + BgrtOffsetY;
       }
     }
 
