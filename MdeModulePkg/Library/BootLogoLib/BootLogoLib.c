@@ -233,6 +233,7 @@ STATIC
 VOID
 GetHiDpiLogoTransform (
   IN  EFI_GRAPHICS_OUTPUT_PROTOCOL  *GraphicsOutput,
+  OUT UINTN                         *DisplayDivisor,
   OUT UINTN                         *BgrtScale,
   OUT UINTN                         *BgrtCanvasScale,
   OUT UINTN                         *BgrtOffsetX,
@@ -242,8 +243,10 @@ GetHiDpiLogoTransform (
   UINT32                                HorizontalResolution;
   UINT32                                PhysicalHorizontalResolution;
   UINT32                                PhysicalVerticalResolution;
+  BOOLEAN                               ScaledDisplayMode;
   UINT32                                VerticalResolution;
 
+  *DisplayDivisor  = 1;
   *BgrtScale       = 1;
   *BgrtCanvasScale = 1;
   *BgrtOffsetX     = 0;
@@ -260,6 +263,9 @@ GetHiDpiLogoTransform (
   VerticalResolution           = GraphicsOutput->Mode->Info->VerticalResolution;
   PhysicalHorizontalResolution = HorizontalResolution;
   PhysicalVerticalResolution   = VerticalResolution;
+  ScaledDisplayMode            =
+    (BOOLEAN)((GraphicsOutput->Mode->Info->PixelFormat == PixelBltOnly) ||
+              (GraphicsOutput->Mode->FrameBufferBase == 0));
 
   if ((HorizontalResolution == 0) || (VerticalResolution == 0)) {
     return;
@@ -273,6 +279,10 @@ GetHiDpiLogoTransform (
         &PhysicalVerticalResolution
         ))
   {
+    if (ScaledDisplayMode) {
+      *DisplayDivisor = 2;
+    }
+
     *BgrtScale       = 2;
     *BgrtCanvasScale = 2;
     *BgrtOffsetX     = (PhysicalHorizontalResolution - (HorizontalResolution * 2)) / 2;
@@ -280,9 +290,7 @@ GetHiDpiLogoTransform (
     return;
   }
 
-  if ((GraphicsOutput->Mode->Info->PixelFormat == PixelBltOnly) ||
-      (GraphicsOutput->Mode->FrameBufferBase == 0))
-  {
+  if (ScaledDisplayMode) {
     if ((HorizontalResolution > (MAX_UINT32 / 2)) ||
         (VerticalResolution > (MAX_UINT32 / 2)))
     {
@@ -291,6 +299,7 @@ GetHiDpiLogoTransform (
 
     PhysicalHorizontalResolution = HorizontalResolution * 2;
     PhysicalVerticalResolution   = VerticalResolution * 2;
+    *DisplayDivisor  = 2;
     *BgrtScale       = 2;
     *BgrtCanvasScale = 2;
     return;
@@ -298,12 +307,93 @@ GetHiDpiLogoTransform (
 
   //
   // Physical GOP mode: if the active GOP also exposes a 2x software logical
-  // mode, leave the displayed logo to the GOP path but report a physical-sized
+  // mode, compensate the live logo draw while reporting a physical-sized
   // bitmap through BGRT.
   //
   if (HasHiDpiLogicalMode (GraphicsOutput, HorizontalResolution, VerticalResolution)) {
+    *DisplayDivisor = 2;
     *BgrtScale = 2;
   }
+}
+
+STATIC
+EFI_STATUS
+DownscaleLogoBlt2x (
+  IN  EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *Source,
+  IN  UINTN                          SourceWidth,
+  IN  UINTN                          SourceHeight,
+  OUT EFI_GRAPHICS_OUTPUT_BLT_PIXEL  **Destination,
+  OUT UINTN                          *DestinationWidth,
+  OUT UINTN                          *DestinationHeight
+  )
+{
+  EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *DownscaledBitmap;
+  UINTN                          Row;
+  UINTN                          Column;
+
+  if ((Source == NULL) ||
+      (Destination == NULL) ||
+      (DestinationWidth == NULL) ||
+      (DestinationHeight == NULL) ||
+      (SourceWidth == 0) || (SourceHeight == 0))
+  {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  *DestinationWidth  = (SourceWidth + 1) / 2;
+  *DestinationHeight = (SourceHeight + 1) / 2;
+
+  if (*DestinationWidth > (MAX_UINTN / *DestinationHeight / sizeof (EFI_GRAPHICS_OUTPUT_BLT_PIXEL))) {
+    return EFI_OUT_OF_RESOURCES;
+  }
+
+  DownscaledBitmap = AllocatePool (*DestinationWidth * *DestinationHeight * sizeof (EFI_GRAPHICS_OUTPUT_BLT_PIXEL));
+  if (DownscaledBitmap == NULL) {
+    return EFI_OUT_OF_RESOURCES;
+  }
+
+  for (Row = 0; Row < *DestinationHeight; Row++) {
+    for (Column = 0; Column < *DestinationWidth; Column++) {
+      UINTN   Count;
+      UINTN   Blue;
+      UINTN   Green;
+      UINTN   Red;
+      UINTN   Reserved;
+      UINTN   SourceRow;
+      UINTN   SourceColumn;
+      UINTN   OffsetX;
+      UINTN   OffsetY;
+
+      Count        = 0;
+      Blue         = 0;
+      Green        = 0;
+      Red          = 0;
+      Reserved     = 0;
+      SourceRow    = Row * 2;
+      SourceColumn = Column * 2;
+
+      for (OffsetY = 0; (OffsetY < 2) && ((SourceRow + OffsetY) < SourceHeight); OffsetY++) {
+        for (OffsetX = 0; (OffsetX < 2) && ((SourceColumn + OffsetX) < SourceWidth); OffsetX++) {
+          EFI_GRAPHICS_OUTPUT_BLT_PIXEL  Pixel;
+
+          Pixel     = Source[(SourceRow + OffsetY) * SourceWidth + SourceColumn + OffsetX];
+          Blue     += Pixel.Blue;
+          Green    += Pixel.Green;
+          Red      += Pixel.Red;
+          Reserved += Pixel.Reserved;
+          Count++;
+        }
+      }
+
+      DownscaledBitmap[Row * *DestinationWidth + Column].Blue     = (UINT8)(Blue / Count);
+      DownscaledBitmap[Row * *DestinationWidth + Column].Green    = (UINT8)(Green / Count);
+      DownscaledBitmap[Row * *DestinationWidth + Column].Red      = (UINT8)(Red / Count);
+      DownscaledBitmap[Row * *DestinationWidth + Column].Reserved = (UINT8)(Reserved / Count);
+    }
+  }
+
+  *Destination = DownscaledBitmap;
+  return EFI_SUCCESS;
 }
 
 STATIC
@@ -397,6 +487,7 @@ BootLogoEnableLogo (
   UINTN                                  NewDestX;
   UINTN                                  NewDestY;
   UINTN                                  BufferSize;
+  UINTN                                  DisplayDivisor;
   UINTN                                  BgrtScale;
   UINTN                                  BgrtCanvasScale;
   UINTN                                  BgrtOffsetX;
@@ -438,7 +529,7 @@ BootLogoEnableLogo (
 
   SizeOfX = GraphicsOutput->Mode->Info->HorizontalResolution;
   SizeOfY = GraphicsOutput->Mode->Info->VerticalResolution;
-  GetHiDpiLogoTransform (GraphicsOutput, &BgrtScale, &BgrtCanvasScale, &BgrtOffsetX, &BgrtOffsetY);
+  GetHiDpiLogoTransform (GraphicsOutput, &DisplayDivisor, &BgrtScale, &BgrtCanvasScale, &BgrtOffsetX, &BgrtOffsetY);
 
   Blt           = NULL;
   NumberOfLogos = 0;
@@ -526,18 +617,96 @@ BootLogoEnableLogo (
     DestY += OffsetY;
 
     if ((DestX >= 0) && (DestY >= 0)) {
-      Status = GraphicsOutput->Blt (
-                                 GraphicsOutput,
-                                 Blt,
-                                 EfiBltBufferToVideo,
-                                 0,
-                                 0,
-                                 (UINTN)DestX,
-                                 (UINTN)DestY,
-                                 Image.Width,
-                                 Image.Height,
-                                 Image.Width * sizeof (EFI_GRAPHICS_OUTPUT_BLT_PIXEL)
-                                 );
+      EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *DisplayBlt;
+      EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *DownscaledBlt;
+      INTN                           DisplayDestX;
+      INTN                           DisplayDestY;
+      UINTN                          DisplayHeight;
+      UINTN                          DisplayWidth;
+      UINTN                          DownscaledHeight;
+      UINTN                          DownscaledWidth;
+
+      DisplayBlt    = Blt;
+      DownscaledBlt = NULL;
+      DisplayDestX  = DestX;
+      DisplayDestY  = DestY;
+      DisplayHeight = Image.Height;
+      DisplayWidth  = Image.Width;
+
+      if (DisplayDivisor == 2) {
+        Status = DownscaleLogoBlt2x (
+                   Blt,
+                   Image.Width,
+                   Image.Height,
+                   &DownscaledBlt,
+                   &DownscaledWidth,
+                   &DownscaledHeight
+                   );
+        if (!EFI_ERROR (Status)) {
+          DisplayBlt    = DownscaledBlt;
+          DisplayWidth  = DownscaledWidth;
+          DisplayHeight = DownscaledHeight;
+
+          switch (Attribute) {
+            case EdkiiPlatformLogoDisplayAttributeLeftTop:
+            case EdkiiPlatformLogoDisplayAttributeCenterLeft:
+            case EdkiiPlatformLogoDisplayAttributeLeftBottom:
+              DisplayDestX = 0;
+              break;
+            case EdkiiPlatformLogoDisplayAttributeCenterTop:
+            case EdkiiPlatformLogoDisplayAttributeCenter:
+            case EdkiiPlatformLogoDisplayAttributeCenterBottom:
+              DisplayDestX = (SizeOfX - DisplayWidth) / 2;
+              break;
+            default:
+              DisplayDestX = SizeOfX - DisplayWidth;
+              break;
+          }
+
+          switch (Attribute) {
+            case EdkiiPlatformLogoDisplayAttributeLeftTop:
+            case EdkiiPlatformLogoDisplayAttributeCenterTop:
+            case EdkiiPlatformLogoDisplayAttributeRightTop:
+              DisplayDestY = 0;
+              break;
+            case EdkiiPlatformLogoDisplayAttributeCenterLeft:
+            case EdkiiPlatformLogoDisplayAttributeCenter:
+            case EdkiiPlatformLogoDisplayAttributeCenterRight:
+              DisplayDestY = (SizeOfY - DisplayHeight) / 2;
+              break;
+            default:
+              DisplayDestY = SizeOfY - DisplayHeight;
+              break;
+          }
+
+          DisplayDestX += OffsetX / 2;
+          DisplayDestY += OffsetY / 2;
+        } else {
+          DEBUG ((DEBUG_INFO, "%a: failed to downscale logo for HiDPI display: %r\n", __func__, Status));
+          Status = EFI_SUCCESS;
+        }
+      }
+
+      if ((DisplayDestX >= 0) && (DisplayDestY >= 0)) {
+        Status = GraphicsOutput->Blt (
+                                   GraphicsOutput,
+                                   DisplayBlt,
+                                   EfiBltBufferToVideo,
+                                   0,
+                                   0,
+                                   (UINTN)DisplayDestX,
+                                   (UINTN)DisplayDestY,
+                                   DisplayWidth,
+                                   DisplayHeight,
+                                   DisplayWidth * sizeof (EFI_GRAPHICS_OUTPUT_BLT_PIXEL)
+                                   );
+      } else {
+        Status = EFI_INVALID_PARAMETER;
+      }
+
+      if (DisplayBlt != Blt) {
+        FreePool (DisplayBlt);
+      }
 
       //
       // Report displayed Logo information.
