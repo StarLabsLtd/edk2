@@ -179,58 +179,6 @@ FindHiDpiPhysicalMode (
 }
 
 STATIC
-BOOLEAN
-HasHiDpiLogicalMode (
-  IN EFI_GRAPHICS_OUTPUT_PROTOCOL  *GraphicsOutput,
-  IN UINT32                        PhysicalHorizontalResolution,
-  IN UINT32                        PhysicalVerticalResolution
-  )
-{
-  EFI_GRAPHICS_OUTPUT_MODE_INFORMATION  *Info;
-  EFI_STATUS                            Status;
-  UINT32                                ModeNumber;
-  UINTN                                 SizeOfInfo;
-
-  if ((GraphicsOutput == NULL) ||
-      (GraphicsOutput->Mode == NULL) ||
-      (PhysicalHorizontalResolution == 0) ||
-      (PhysicalVerticalResolution == 0))
-  {
-    return FALSE;
-  }
-
-  for (ModeNumber = 0; ModeNumber < GraphicsOutput->Mode->MaxMode; ModeNumber++) {
-    Info       = NULL;
-    SizeOfInfo = 0;
-    Status     = GraphicsOutput->QueryMode (
-                                   GraphicsOutput,
-                                   ModeNumber,
-                                   &SizeOfInfo,
-                                   &Info
-                                   );
-    if (EFI_ERROR (Status) || (Info == NULL)) {
-      if (Info != NULL) {
-        FreePool (Info);
-      }
-
-      continue;
-    }
-
-    if ((Info->PixelFormat == PixelBltOnly) &&
-        (Info->HorizontalResolution <= (PhysicalHorizontalResolution / 2)) &&
-        (Info->VerticalResolution <= (PhysicalVerticalResolution / 2)))
-    {
-      FreePool (Info);
-      return TRUE;
-    }
-
-    FreePool (Info);
-  }
-
-  return FALSE;
-}
-
-STATIC
 VOID
 GetHiDpiLogoTransform (
   IN  EFI_GRAPHICS_OUTPUT_PROTOCOL  *GraphicsOutput,
@@ -322,14 +270,9 @@ GetHiDpiLogoTransform (
   }
 
   //
-  // Physical GOP mode: if the active GOP also exposes a 2x software logical
-  // mode, compensate the live logo draw while reporting a physical-sized
-  // bitmap through BGRT.
+  // Physical GOP mode needs no transform. The active mode coordinates and BGRT
+  // coordinates are both physical framebuffer pixels.
   //
-  if (HasHiDpiLogicalMode (GraphicsOutput, HorizontalResolution, VerticalResolution)) {
-    *DisplayDivisor = 2;
-    *BgrtScale = 2;
-  }
 }
 
 STATIC
@@ -734,18 +677,24 @@ BootLogoEnableLogo (
           //
           // The first Logo.
           //
-          LogoDestX  = (UINTN)DestX;
-          LogoDestY  = (UINTN)DestY;
-          LogoWidth  = Image.Width;
-          LogoHeight = Image.Height;
+          LogoDestX  = (UINTN)DisplayDestX;
+          LogoDestY  = (UINTN)DisplayDestY;
+          LogoWidth  = DisplayWidth;
+          LogoHeight = DisplayHeight;
         } else {
           //
           // Merge new logo with old one.
           //
-          NewDestX   = MIN ((UINTN)DestX, LogoDestX);
-          NewDestY   = MIN ((UINTN)DestY, LogoDestY);
-          LogoWidth  = MAX ((UINTN)DestX + Image.Width, LogoDestX + LogoWidth) - NewDestX;
-          LogoHeight = MAX ((UINTN)DestY + Image.Height, LogoDestY + LogoHeight) - NewDestY;
+          NewDestX   = MIN ((UINTN)DisplayDestX, LogoDestX);
+          NewDestY   = MIN ((UINTN)DisplayDestY, LogoDestY);
+          LogoWidth  = MAX (
+                         (UINTN)DisplayDestX + DisplayWidth,
+                         LogoDestX + LogoWidth
+                         ) - NewDestX;
+          LogoHeight = MAX (
+                         (UINTN)DisplayDestY + DisplayHeight,
+                         LogoDestY + LogoHeight
+                         ) - NewDestY;
 
           LogoDestX = NewDestX;
           LogoDestY = NewDestY;
@@ -768,47 +717,42 @@ BootLogoEnableLogo (
   //
   // Advertise displayed Logo information.
   //
-  if (NumberOfLogos == 1) {
-    //
-    // Only one logo displayed, use its Blt buffer directly for BootLogo protocol.
-    //
-    LogoBlt = Blt;
-    Status  = EFI_SUCCESS;
-  } else {
-    //
-    // More than one Logo displayed, get merged BltBuffer using VideoToBuffer operation.
-    //
-    if (Blt != NULL) {
-      FreePool (Blt);
-    }
-
-    //
-    // Ensure the LogoHeight * LogoWidth * sizeof (EFI_GRAPHICS_OUTPUT_BLT_PIXEL) doesn't overflow
-    //
-    if (LogoHeight > MAX_UINTN / LogoWidth / sizeof (EFI_GRAPHICS_OUTPUT_BLT_PIXEL)) {
-      return EFI_UNSUPPORTED;
-    }
-
-    BufferSize = LogoWidth * LogoHeight * sizeof (EFI_GRAPHICS_OUTPUT_BLT_PIXEL);
-
-    LogoBlt = AllocatePool (BufferSize);
-    if (LogoBlt == NULL) {
-      return EFI_OUT_OF_RESOURCES;
-    }
-
-    Status = GraphicsOutput->Blt (
-                               GraphicsOutput,
-                               LogoBlt,
-                               EfiBltVideoToBltBuffer,
-                               LogoDestX,
-                               LogoDestY,
-                               0,
-                               0,
-                               LogoWidth,
-                               LogoHeight,
-                               LogoWidth * sizeof (EFI_GRAPHICS_OUTPUT_BLT_PIXEL)
-                               );
+  if (Blt != NULL) {
+    FreePool (Blt);
+    Blt = NULL;
   }
+
+  //
+  // Read the logo pixels back from the active GOP mode. This keeps the
+  // BootLogo/BGRT source buffer matched to the image that was actually drawn
+  // after any HiDPI display downscaling.
+  //
+  if ((LogoWidth == 0) ||
+      (LogoHeight == 0) ||
+      (LogoHeight > MAX_UINTN / LogoWidth / sizeof (EFI_GRAPHICS_OUTPUT_BLT_PIXEL)))
+  {
+    return EFI_UNSUPPORTED;
+  }
+
+  BufferSize = LogoWidth * LogoHeight * sizeof (EFI_GRAPHICS_OUTPUT_BLT_PIXEL);
+
+  LogoBlt = AllocatePool (BufferSize);
+  if (LogoBlt == NULL) {
+    return EFI_OUT_OF_RESOURCES;
+  }
+
+  Status = GraphicsOutput->Blt (
+                             GraphicsOutput,
+                             LogoBlt,
+                             EfiBltVideoToBltBuffer,
+                             LogoDestX,
+                             LogoDestY,
+                             0,
+                             0,
+                             LogoWidth,
+                             LogoHeight,
+                             LogoWidth * sizeof (EFI_GRAPHICS_OUTPUT_BLT_PIXEL)
+                             );
 
   if (!EFI_ERROR (Status)) {
     EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *BgrtLogoBlt;
