@@ -18,6 +18,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Library/UefiLib.h>
 #include <Library/BaseMemoryLib.h>
 #include <Library/UefiBootServicesTableLib.h>
+#include <Library/PcdLib.h>
 #include <Library/MemoryAllocationLib.h>
 #include <Library/DebugLib.h>
 
@@ -239,6 +240,7 @@ GetHiDpiLogoTransform (
   OUT UINTN                         *BgrtOffsetY
   )
 {
+  UINT32                                ConfiguredTextScale;
   UINT32                                HorizontalResolution;
   UINT32                                PhysicalHorizontalResolution;
   UINT32                                PhysicalVerticalResolution;
@@ -262,6 +264,15 @@ GetHiDpiLogoTransform (
   PhysicalVerticalResolution   = VerticalResolution;
 
   if ((HorizontalResolution == 0) || (VerticalResolution == 0)) {
+    return;
+  }
+
+  ConfiguredTextScale = PcdGet32 (PcdGraphicsConsoleTextScale);
+  if ((ConfiguredTextScale == 2) &&
+      (HorizontalResolution <= 1920) &&
+      (VerticalResolution <= 1200))
+  {
+    *BgrtScale = 2;
     return;
   }
 
