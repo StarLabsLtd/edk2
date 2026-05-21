@@ -226,10 +226,7 @@ GetHiDpiLogoTransform (
       (HorizontalResolution <= 1920) &&
       (VerticalResolution <= 1200))
   {
-    if (ScaledDisplayMode) {
-      *DisplayDivisor = 2;
-    }
-
+    *DisplayDivisor  = 2;
     *BgrtScale       = 2;
     *BgrtCanvasScale = 2;
     return;
