@@ -29,7 +29,6 @@
 [Packages]
   MdePkg/MdePkg.dec
   MdeModulePkg/MdeModulePkg.dec
-  UefiPayloadPkg/UefiPayloadPkg.dec
 
 [LibraryClasses]
   BaseLib
@@ -49,8 +48,4 @@
   gEdkiiPlatformLogoProtocolGuid                ## CONSUMES
 
 [Pcd]
-  gEfiMdeModulePkgTokenSpaceGuid.PcdVideoHorizontalResolution
-  gEfiMdeModulePkgTokenSpaceGuid.PcdVideoVerticalResolution
-  gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiSupport
-  gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiScaleThresholdHorizontal
-  gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiScaleThresholdVertical
+  gEfiMdeModulePkgTokenSpaceGuid.PcdGraphicsConsoleTextScale
