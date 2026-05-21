@@ -49,8 +49,6 @@
   gEdkiiPlatformLogoProtocolGuid                ## CONSUMES
 
 [Pcd]
-  gEfiMdeModulePkgTokenSpaceGuid.PcdVideoHorizontalResolution
-  gEfiMdeModulePkgTokenSpaceGuid.PcdVideoVerticalResolution
   gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiSupport
   gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiScaleThresholdHorizontal
   gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiScaleThresholdVertical

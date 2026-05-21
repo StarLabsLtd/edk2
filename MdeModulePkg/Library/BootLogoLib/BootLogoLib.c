@@ -32,10 +32,13 @@ GetHiDpiLogoTransform (
   OUT UINTN                         *BgrtOffsetY
   )
 {
-  UINT32  HorizontalResolution;
-  UINT32  PhysicalHorizontalResolution;
-  UINT32  PhysicalVerticalResolution;
-  UINT32  VerticalResolution;
+  EFI_STATUS                            Status;
+  EFI_GRAPHICS_OUTPUT_MODE_INFORMATION  *PhysicalModeInfo;
+  UINTN                                 PhysicalModeInfoSize;
+  UINT32                                HorizontalResolution;
+  UINT32                                PhysicalHorizontalResolution;
+  UINT32                                PhysicalVerticalResolution;
+  UINT32                                VerticalResolution;
 
   *DisplayScale = 1;
   *BgrtScale    = 1;
@@ -52,12 +55,29 @@ GetHiDpiLogoTransform (
 
   HorizontalResolution         = GraphicsOutput->Mode->Info->HorizontalResolution;
   VerticalResolution           = GraphicsOutput->Mode->Info->VerticalResolution;
-  PhysicalHorizontalResolution = PcdGet32 (PcdVideoHorizontalResolution);
-  PhysicalVerticalResolution   = PcdGet32 (PcdVideoVerticalResolution);
+  PhysicalHorizontalResolution = HorizontalResolution;
+  PhysicalVerticalResolution   = VerticalResolution;
 
-  if ((PhysicalHorizontalResolution == 0) || (PhysicalVerticalResolution == 0)) {
-    PhysicalHorizontalResolution = HorizontalResolution;
-    PhysicalVerticalResolution   = VerticalResolution;
+  //
+  // UefiPayloadPkg exposes the direct framebuffer as GOP mode 0. Do not use
+  // PcdVideo*Resolution here: setup applications update those PCDs to the
+  // active logical mode, but BGRT offsets describe the physical boot display.
+  //
+  PhysicalModeInfo     = NULL;
+  PhysicalModeInfoSize = 0;
+  Status               = GraphicsOutput->QueryMode (
+                                           GraphicsOutput,
+                                           0,
+                                           &PhysicalModeInfoSize,
+                                           &PhysicalModeInfo
+                                           );
+  if (PhysicalModeInfo != NULL) {
+    if (!EFI_ERROR (Status)) {
+      PhysicalHorizontalResolution = PhysicalModeInfo->HorizontalResolution;
+      PhysicalVerticalResolution   = PhysicalModeInfo->VerticalResolution;
+    }
+
+    FreePool (PhysicalModeInfo);
   }
 
   if ((PhysicalHorizontalResolution <= PcdGet32 (PcdPayloadFbHiDpiScaleThresholdHorizontal)) ||
@@ -309,7 +329,7 @@ BootLogoEnableLogo (
         break;
       case EdkiiPlatformLogoDisplayAttributeCenter:
         DestX = (SizeOfX - Image.Width) / 2;
-        DestY = (SizeOfY * 382) / 1000 - Image.Height / 2;
+        DestY = (SizeOfY - Image.Height) / 2;
         break;
       case EdkiiPlatformLogoDisplayAttributeCenterRight:
         DestX = SizeOfX - Image.Width;
