@@ -224,7 +224,7 @@ UpdateCapsule (
       // will initiate a reset of the platform which is compatible with the passed-in capsule request and will
       // not return back to the caller.
       //
-      EfiResetSystem (EfiResetWarm, EFI_SUCCESS, 0, NULL);
+      EfiResetSystem (EfiResetCold, EFI_SUCCESS, 0, NULL);
     }
   }
 
@@ -350,7 +350,7 @@ QueryCapsuleCapabilities (
       return EFI_UNSUPPORTED;
     }
 
-    *ResetType         = EfiResetWarm;
+    *ResetType         = EfiResetCold;
     *MaxiumCapsuleSize = (UINT64)mMaxSizePopulateCapsule;
   } else {
     //
