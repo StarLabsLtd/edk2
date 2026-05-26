@@ -59,6 +59,7 @@
 [Guids]
   gEfiEndOfDxeEventGroupGuid
   gEfiEventReadyToBootGuid
+  gEficorebootNvDataGuid
   gUefiShellFileGuid
 
 [Protocols]
