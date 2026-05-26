@@ -899,6 +899,29 @@ ParseCapsules (
 }
 
 /**
+  Parse bootloader's information to check whether EDK should look for on-disk
+  capsules.
+
+  @retval TRUE   Should check for on-disk capsules.
+  @retval FALSE  On-disk capsules should not be processed on this boot.
+**/
+BOOLEAN
+EFIAPI
+ParseIsDiskCapsulesBoot (
+  VOID
+  )
+{
+  struct cb_boot_info  *BootInfo;
+
+  BootInfo = FindCbTag (CB_TAG_BOOT_INFO);
+  if (BootInfo == NULL) {
+    return FALSE;
+  }
+
+  return BootInfo->is_disk_capsules_boot != 0;
+}
+
+/**
   Find the Tcg Physical Presence store information
   @param  PPIInfo       Pointer to the TCG_PHYSICAL_PRESENCE_INFO structure
   @retval RETURN_SUCCESS     Successfully find the SMM store buffer information.
