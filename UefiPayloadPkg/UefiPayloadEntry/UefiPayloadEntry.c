@@ -629,7 +629,7 @@ _ModuleEntryPoint (
   //
   // Switch to update mode if there is at least one capsule.
   //
-  if (GetFirstHob (EFI_HOB_TYPE_UEFI_CAPSULE) != NULL) {
+  if ((GetFirstHob (EFI_HOB_TYPE_UEFI_CAPSULE) != NULL) || ParseIsDiskCapsulesBoot ()) {
     HobInfo->BootMode = BOOT_ON_FLASH_UPDATE;
   }
 
