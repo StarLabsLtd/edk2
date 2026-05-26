@@ -183,6 +183,19 @@ EFIAPI
 ParseCapsules (
   IN BL_CAPSULE_CALLBACK  CapsuleCallback
   );
+
+/**
+  Parse bootloader's information to check whether EDK should look for on-disk
+  capsules.
+
+  @retval TRUE   Should check for on-disk capsules.
+  @retval FALSE  On-disk capsules should not be processed on this boot.
+**/
+BOOLEAN
+EFIAPI
+ParseIsDiskCapsulesBoot (
+  VOID
+  );
 /**
   Find the Tcg Physical Presence store information
 
