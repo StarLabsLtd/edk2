@@ -35,6 +35,25 @@ STATIC SMMSTORE_INFO  *mSmmStoreInfo;
 
 STATIC
 VOID
+SmmStoreLibClearState (
+  VOID
+  )
+{
+  if (mArgComBuf != NULL) {
+    FreePages (mArgComBuf, EFI_SIZE_TO_PAGES (sizeof (*mArgComBuf)));
+    mArgComBuf = NULL;
+  }
+
+  mArgComBufPhys = 0;
+
+  if (mSmmStoreInfo != NULL) {
+    FreePool (mSmmStoreInfo);
+    mSmmStoreInfo = NULL;
+  }
+}
+
+STATIC
+VOID
 StallBetweenCallAttempts (
   IN UINTN  Attempt
   )
@@ -189,7 +208,12 @@ ReadBlock (
 {
   EFI_STATUS  Status;
 
-  if (((*NumBytes + Offset) > mSmmStoreInfo->BlockSize) ||
+  if ((NumBytes == NULL) || (Buffer == NULL)) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  if ((*NumBytes > MAX_UINTN - Offset) ||
+      ((*NumBytes + Offset) > mSmmStoreInfo->BlockSize) ||
       ((*NumBytes + Offset) > mSmmStoreInfo->ComBufferSize))
   {
     return EFI_INVALID_PARAMETER;
@@ -207,6 +231,43 @@ ReadBlock (
   CopyMem (Buffer, (VOID *)(UINTN)(mSmmStoreInfo->ComBuffer + Offset), *NumBytes);
 
   return EFI_SUCCESS;
+}
+
+STATIC
+EFI_STATUS
+SmmStoreLibGetStoreSize (
+  OUT UINTN  *StoreSize
+  )
+{
+  if (StoreSize == NULL) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  if (mSmmStoreInfo->NumBlocks > (MAX_UINTN / mSmmStoreInfo->BlockSize)) {
+    return EFI_BAD_BUFFER_SIZE;
+  }
+
+  *StoreSize = (UINTN)mSmmStoreInfo->NumBlocks * (UINTN)mSmmStoreInfo->BlockSize;
+  return EFI_SUCCESS;
+}
+
+STATIC
+EFI_STATUS
+SmmStoreLibProbeBackend (
+  VOID
+  )
+{
+  EFI_STATUS  Status;
+  UINT8       Data;
+  UINTN       NumBytes;
+
+  NumBytes = sizeof (Data);
+  Status   = SmmStoreLibRead (0, 0, &NumBytes, &Data);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  return (NumBytes == sizeof (Data)) ? EFI_SUCCESS : EFI_DEVICE_ERROR;
 }
 
 /**
@@ -288,7 +349,12 @@ WriteBlock (
   IN        UINT8    WriteCmd
   )
 {
-  if (((*NumBytes + Offset) > mSmmStoreInfo->BlockSize) ||
+  if ((NumBytes == NULL) || (Buffer == NULL)) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  if ((*NumBytes > MAX_UINTN - Offset) ||
+      ((*NumBytes + Offset) > mSmmStoreInfo->BlockSize) ||
       ((*NumBytes + Offset) > mSmmStoreInfo->ComBufferSize))
   {
     return EFI_INVALID_PARAMETER;
@@ -434,7 +500,8 @@ SmmStoreLibVirtualAddressChange (
 /**
   Initializes SmmStore support
 
-  @retval EFI_WRITE_PROTECTED   The SmmStore is not present.
+  @retval EFI_UNSUPPORTED       SmmStore is missing or unusable.
+  @retval EFI_DEVICE_ERROR      The SmmStore backend failed.
   @retval EFI_OUT_OF_RESOURCES  Run out of memory.
   @retval EFI_SUCCESS           The SmmStore is supported.
 
@@ -447,6 +514,7 @@ SmmStoreLibInitialize (
   EFI_STATUS                       Status;
   VOID                             *GuidHob;
   EFI_GCD_MEMORY_SPACE_DESCRIPTOR  GcdDescriptor;
+  UINTN                            StoreSize;
 
   //
   // Find the SmmStore information guid hob
@@ -472,13 +540,23 @@ SmmStoreLibInitialize (
   //
   if ((mSmmStoreInfo->MmioAddress == 0) ||
       (mSmmStoreInfo->ComBuffer == 0) ||
+      (mSmmStoreInfo->ComBufferSize == 0) ||
       (mSmmStoreInfo->BlockSize == 0) ||
       (mSmmStoreInfo->NumBlocks == 0))
   {
     DEBUG ((DEBUG_ERROR, "%a: Invalid data in SmmStore Info hob\n", __func__));
-    FreePool (mSmmStoreInfo);
-    mSmmStoreInfo = NULL;
-    return EFI_WRITE_PROTECTED;
+    SmmStoreLibClearState ();
+    return EFI_UNSUPPORTED;
+  }
+
+  Status = SmmStoreLibGetStoreSize (&StoreSize);
+  if (EFI_ERROR (Status) ||
+      (mSmmStoreInfo->MmioAddress > MAX_UINT64 - (UINT64)StoreSize) ||
+      (mSmmStoreInfo->ComBuffer > MAX_UINT64 - mSmmStoreInfo->ComBufferSize))
+  {
+    DEBUG ((DEBUG_ERROR, "%a: Invalid SmmStore address range\n", __func__));
+    SmmStoreLibClearState ();
+    return EFI_UNSUPPORTED;
   }
 
   //
@@ -505,12 +583,18 @@ SmmStoreLibInitialize (
                   );
 
   if (EFI_ERROR (Status)) {
-    FreePool (mSmmStoreInfo);
-    mSmmStoreInfo = NULL;
+    SmmStoreLibClearState ();
     return EFI_OUT_OF_RESOURCES;
   }
 
   mArgComBuf = (VOID *)mArgComBufPhys;
+
+  Status = SmmStoreLibProbeBackend ();
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_WARN, "%a: SmmStore backend probe failed: %r\n", __func__, Status));
+    SmmStoreLibClearState ();
+    return EFI_UNSUPPORTED;
+  }
 
   //
   // Finally mark the SMM communication buffer provided by CB or SBL as runtime memory
@@ -532,7 +616,11 @@ SmmStoreLibInitialize (
                     mSmmStoreInfo->ComBufferSize,
                     EFI_MEMORY_WB | EFI_MEMORY_RUNTIME
                     );
-    ASSERT_EFI_ERROR (Status);
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_ERROR, "%a: Failed to add SmmStore com buffer: %r\n", __func__, Status));
+      SmmStoreLibClearState ();
+      return Status;
+    }
   }
 
   //
@@ -543,7 +631,11 @@ SmmStoreLibInitialize (
                   mSmmStoreInfo->ComBufferSize,
                   EFI_MEMORY_RUNTIME
                   );
-  ASSERT_EFI_ERROR (Status);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "%a: Failed to set SmmStore com buffer attributes: %r\n", __func__, Status));
+    SmmStoreLibClearState ();
+    return Status;
+  }
 
   //
   // Mark the memory mapped store as MMIO memory
@@ -552,7 +644,7 @@ SmmStoreLibInitialize (
   if (EFI_ERROR (Status) || (GcdDescriptor.GcdMemoryType != EfiGcdMemoryTypeMemoryMappedIo)) {
     DEBUG ((
       DEBUG_INFO,
-      "%a: No memory space descriptor for com buffer found\n",
+      "%a: No memory space descriptor for SmmStore MMIO found\n",
       __func__
       ));
 
@@ -562,10 +654,14 @@ SmmStoreLibInitialize (
     Status = gDS->AddMemorySpace (
                     EfiGcdMemoryTypeMemoryMappedIo,
                     mSmmStoreInfo->MmioAddress,
-                    mSmmStoreInfo->NumBlocks * mSmmStoreInfo->BlockSize,
+                    StoreSize,
                     EFI_MEMORY_UC | EFI_MEMORY_RUNTIME
                     );
-    ASSERT_EFI_ERROR (Status);
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_ERROR, "%a: Failed to add SmmStore MMIO range: %r\n", __func__, Status));
+      SmmStoreLibClearState ();
+      return Status;
+    }
   }
 
   //
@@ -573,10 +669,14 @@ SmmStoreLibInitialize (
   //
   Status = gDS->SetMemorySpaceAttributes (
                   mSmmStoreInfo->MmioAddress,
-                  mSmmStoreInfo->NumBlocks * mSmmStoreInfo->BlockSize,
+                  StoreSize,
                   EFI_MEMORY_RUNTIME
                   );
-  ASSERT_EFI_ERROR (Status);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "%a: Failed to set SmmStore MMIO attributes: %r\n", __func__, Status));
+    SmmStoreLibClearState ();
+    return Status;
+  }
 
   return EFI_SUCCESS;
 }
@@ -591,13 +691,5 @@ SmmStoreLibDeinitialize (
   VOID
   )
 {
-  if (mArgComBuf != NULL) {
-    gBS->FreePages (mArgComBufPhys, EFI_SIZE_TO_PAGES (sizeof (SMM_STORE_COM_BUF)));
-    mArgComBuf = NULL;
-  }
-
-  if (mSmmStoreInfo != NULL) {
-    FreePool (mSmmStoreInfo);
-    mSmmStoreInfo = NULL;
-  }
+  SmmStoreLibClearState ();
 }
