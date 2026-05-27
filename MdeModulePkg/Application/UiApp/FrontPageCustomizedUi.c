@@ -131,16 +131,9 @@ UiCustomizeFrontPageBanner (
   IN OUT EFI_STRING  *BannerStr
   )
 {
-  if ((LineIndex == 5) && LeftOrRight) {
-    // Update STR_CUSTOMIZE_BANNER_LINE5_LEFT
-    if (PcdGetBool (PcdTestKeyUsed)) {
-      if (BannerStr != NULL) {
-        FreePool (*BannerStr);
-      }
-
-      *BannerStr = HiiGetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_TEST_KEY_USED), NULL);
-    }
-  }
+  (VOID)LineIndex;
+  (VOID)LeftOrRight;
+  (VOID)BannerStr;
 
   return;
 }
