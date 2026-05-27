@@ -151,4 +151,3 @@ GetPagingDetails (
   OUT UINTN                               **PageTableBase     OPTIONAL,
   OUT UINT32                              **Attributes        OPTIONAL
   );
-
