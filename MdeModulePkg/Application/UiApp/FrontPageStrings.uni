@@ -46,6 +46,7 @@
                                        #language fr-FR  "Choisir la Langue"
 #string STR_LANGUAGE_SELECT_HELP       #language en-US  "This is the option one adjusts to change the language for the current system"
                                        #language fr-FR  "Ceci est l'option qu'on ajuste pour changer la langue pour le système actuel"
+#string STR_FRONT_PAGE_BATTERY_STATUS  #language en-US  ""
 #string STR_MISSING_STRING             #language en-US  "Missing String"
                                        #language fr-FR  "Missing String"
 #string STR_EMPTY_STRING               #language en-US  ""
