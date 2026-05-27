@@ -34,39 +34,19 @@ formset
       align left;
 
     banner
-      title = STRING_TOKEN(STR_FRONT_PAGE_CPU_SPEED),
-      line  2,
-      align center;
+      title = STRING_TOKEN(STR_FRONT_PAGE_MEMORY_SIZE),
+      line  3,
+      align left;
 
     banner
       title = STRING_TOKEN(STR_FRONT_PAGE_BIOS_VERSION),
-      line  3,
+      line  4,
       align left;
-
-    banner
-      title = STRING_TOKEN(STR_FRONT_PAGE_MEMORY_SIZE),
-      line  3,
-      align center;
 
     banner
       title = STRING_TOKEN(STR_FRONT_PAGE_EC_VERSION),
-      line  4,
-      align left;
-
-    banner
-      title = STRING_TOKEN(STR_CUSTOMIZE_BANNER_LINE4_RIGHT),
-      line  4,
-      align center;
-
-    banner
-      title = STRING_TOKEN(STR_FRONT_PAGE_BATTERY_STATUS),
       line  5,
       align left;
-
-    banner
-      title = STRING_TOKEN(STR_CUSTOMIZE_BANNER_LINE5_RIGHT),
-      line  5,
-      align center;
 
     subtitle text = STRING_TOKEN(STR_NULL_STRING);
 
