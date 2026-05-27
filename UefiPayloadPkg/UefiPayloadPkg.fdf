@@ -18,8 +18,8 @@ DEFINE FD_SIZE     = 0x00850000
 DEFINE NUM_BLOCKS  = 0x850
 !else
 
-DEFINE FD_SIZE     = 0x00900000
-DEFINE NUM_BLOCKS  = 0x900
+DEFINE FD_SIZE     = 0x00a00000
+DEFINE NUM_BLOCKS  = 0xa00
 !endif
 
 ################################################################################
@@ -323,6 +323,11 @@ INF MdeModulePkg/Universal/SmbiosDxe/SmbiosDxe.inf
 !if $(BOOTSPLASH_IMAGE)
 INF MdeModulePkg/Logo/LogoDxe.inf
 !endif
+
+FILE FREEFORM = be6e1243-682c-4186-8151-448d48afe341 {
+  SECTION RAW = UefiPayloadPkg/Library/PlatformBootManagerLib/LowBatteryLogo.bmp
+  SECTION UI = "Low Battery Logo"
+}
 
 #
 # PCI Support
