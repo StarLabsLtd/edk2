@@ -34,4 +34,3 @@ ASM_PFX(LockBoxTriggerSmi):
 @Return:
     pop     rbx
     ret
-
