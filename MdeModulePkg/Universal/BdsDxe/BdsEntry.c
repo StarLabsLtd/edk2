@@ -303,7 +303,6 @@ BdsWait (
     if (HotkeyTriggered != NULL) {
       Status = BdsWaitForSingleEvent (HotkeyTriggered, EFI_TIMER_PERIOD_SECONDS (1));
       if (!EFI_ERROR (Status)) {
-        TimeoutRemain = 0;
         break;
       }
     } else {
