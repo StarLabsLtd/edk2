@@ -37,6 +37,7 @@
 
 [LibraryClasses]
   BaseLib
+  BmpSupportLib
   UefiBootServicesTableLib
   UefiRuntimeServicesTableLib
   UefiLib
@@ -57,18 +58,22 @@
 
 [Guids]
   gEfiEndOfDxeEventGroupGuid
+  gEfiEventReadyToBootGuid
   gEfiGlobalVariableGuid
+  gEficorebootNvDataGuid
   gUefiShellFileGuid
 
 [Protocols]
   gEfiGenericMemTestProtocolGuid  ## CONSUMES
   gEfiGraphicsOutputProtocolGuid  ## CONSUMES
   gEfiBootLogoProtocolGuid        ## CONSUMES
+  gEfiHiiFontProtocolGuid         ## CONSUMES
   gEfiDxeSmmReadyToLockProtocolGuid
   gEfiSmmAccess2ProtocolGuid
   gEfiSerialIoProtocolGuid
   gEfiPciRootBridgeIoProtocolGuid
   gEfiPciIoProtocolGuid
+  gEfiBatteryStatusProtocolGuid        ## CONSUMES
 
 [Pcd]
   gEfiMdePkgTokenSpaceGuid.PcdPlatformBootTimeOut
