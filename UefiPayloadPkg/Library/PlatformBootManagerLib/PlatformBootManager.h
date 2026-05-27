@@ -9,6 +9,8 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 
 #include <PiDxe.h>
 #include <Protocol/LoadedImage.h>
+#include <Protocol/GraphicsOutput.h>
+#include <Protocol/HiiFont.h>
 
 #include <Library/DebugLib.h>
 #include <Library/BaseMemoryLib.h>
