@@ -59,7 +59,7 @@ formset
       align center;
 
     banner
-      title = STRING_TOKEN(STR_CUSTOMIZE_BANNER_LINE5_LEFT),
+      title = STRING_TOKEN(STR_FRONT_PAGE_BATTERY_STATUS),
       line  5,
       align left;
 
@@ -67,6 +67,8 @@ formset
       title = STRING_TOKEN(STR_CUSTOMIZE_BANNER_LINE5_RIGHT),
       line  5,
       align center;
+
+    subtitle text = STRING_TOKEN(STR_NULL_STRING);
 
     label LABEL_FRONTPAGE_INFORMATION;
     //
