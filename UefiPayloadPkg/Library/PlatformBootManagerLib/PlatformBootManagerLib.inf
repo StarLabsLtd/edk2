@@ -63,6 +63,7 @@
   gUefiShellFileGuid
 
 [Protocols]
+  gEsrtManagementProtocolGuid      ## CONSUMES
   gEfiGenericMemTestProtocolGuid  ## CONSUMES
   gEfiGraphicsOutputProtocolGuid  ## CONSUMES
   gEfiBootLogoProtocolGuid        ## CONSUMES

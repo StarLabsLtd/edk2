@@ -13,6 +13,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Library/BmpSupportLib.h>
 #include <Library/Tcg2PhysicalPresenceLib.h>
 #include <Protocol/BatteryStatus.h>
+#include <Protocol/EsrtManagement.h>
 #include <Protocol/FirmwareVolume2.h>
 
 #define LOW_BATTERY_BOOT_TIMEOUT  10
@@ -95,6 +96,27 @@ HaveCapsules (
   gRT->ResetSystem (EfiResetCold, EFI_SUCCESS, 0, NULL);
 
   return FALSE;
+}
+
+STATIC
+VOID
+SyncEsrtFmpInfo (
+  VOID
+  )
+{
+  EFI_STATUS                Status;
+  ESRT_MANAGEMENT_PROTOCOL  *EsrtManagement;
+
+  Status = gBS->LocateProtocol (&gEsrtManagementProtocolGuid, NULL, (VOID **)&EsrtManagement);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_WARN, "%a(): ESRT management protocol unavailable: %r\n", __func__, Status));
+    return;
+  }
+
+  Status = EsrtManagement->SyncEsrtFmp ();
+  if (EFI_ERROR (Status) && (Status != EFI_NOT_FOUND)) {
+    DEBUG ((DEBUG_ERROR, "%a(): failed to sync FMP ESRT state: %r\n", __func__, Status));
+  }
 }
 
 STATIC
@@ -1132,6 +1154,8 @@ PlatformBootManagerAfterConsole (
   } else {
     CoDClearCapsuleOnDiskFlag ();
   }
+
+  SyncEsrtFmpInfo ();
 
   //
   // Process TPM PPI request
