@@ -58,9 +58,6 @@ STATIC EFI_GUID  mLowBatteryLogoFileGuid = {
 };
 
 STATIC BOOLEAN  mLowBatteryBootGuardActive;
-STATIC BOOLEAN  mLowBatteryBootTimeoutSaved;
-STATIC UINT16   mLowBatteryBootTimeoutOriginal;
-STATIC EFI_EVENT  mLowBatteryBootTimeoutRestoreEvent;
 STATIC BOOLEAN  mLowBatteryBootLogoShown;
 
 STATIC
@@ -731,76 +728,36 @@ IsLowBatteryBootGuardRequired (
 
 STATIC
 VOID
-RestoreLowBatteryBootTimeout (
-  VOID
-  )
-{
-  EFI_STATUS  Status;
-
-  if (!mLowBatteryBootTimeoutSaved) {
-    return;
-  }
-
-  Status = PcdSet16S (PcdPlatformBootTimeOut, mLowBatteryBootTimeoutOriginal);
-  if (EFI_ERROR (Status)) {
-    DEBUG ((DEBUG_INFO, "%a: failed to restore boot timeout: %r\n", __func__, Status));
-  }
-
-  mLowBatteryBootTimeoutSaved = FALSE;
-
-  if (mLowBatteryBootTimeoutRestoreEvent != NULL) {
-    gBS->CloseEvent (mLowBatteryBootTimeoutRestoreEvent);
-    mLowBatteryBootTimeoutRestoreEvent = NULL;
-  }
-}
-
-STATIC
-VOID
-EFIAPI
-RestoreLowBatteryBootTimeoutEvent (
-  IN EFI_EVENT  Event,
-  IN VOID       *Context
-  )
-{
-  (VOID)Event;
-  (VOID)Context;
-
-  RestoreLowBatteryBootTimeout ();
-}
-
-STATIC
-VOID
 ConfigureLowBatteryBootGuard (
   VOID
   )
 {
-  EFI_STATUS  Status;
-
   mLowBatteryBootGuardActive = IsLowBatteryBootGuardRequired ();
   if (!mLowBatteryBootGuardActive) {
     return;
   }
 
   DEBUG ((DEBUG_INFO, "%a: using low-battery boot splash\n", __func__));
-  mLowBatteryBootTimeoutOriginal = PcdGet16 (PcdPlatformBootTimeOut);
-  mLowBatteryBootTimeoutSaved    = TRUE;
+}
 
-  Status = PcdSet16S (PcdPlatformBootTimeOut, LOW_BATTERY_BOOT_TIMEOUT);
-  if (EFI_ERROR (Status)) {
-    DEBUG ((DEBUG_INFO, "%a: failed to set low-battery boot timeout: %r\n", __func__, Status));
+/**
+  Return the timeout BDS should use for its boot wait loop.
+
+  @param Timeout  The configured boot timeout.
+
+  @return The timeout to use for the current boot.
+**/
+UINT16
+EFIAPI
+PlatformBootManagerGetWaitTimeout (
+  IN UINT16  Timeout
+  )
+{
+  if (mLowBatteryBootGuardActive) {
+    return LOW_BATTERY_BOOT_TIMEOUT;
   }
 
-  Status = gBS->CreateEventEx (
-                  EVT_NOTIFY_SIGNAL,
-                  TPL_CALLBACK,
-                  RestoreLowBatteryBootTimeoutEvent,
-                  NULL,
-                  &gEfiEventReadyToBootGuid,
-                  &mLowBatteryBootTimeoutRestoreEvent
-                  );
-  if (EFI_ERROR (Status)) {
-    DEBUG ((DEBUG_INFO, "%a: failed to create timeout restore event: %r\n", __func__, Status));
-  }
+  return Timeout;
 }
 
 /**
@@ -1273,6 +1230,7 @@ PlatformBootManagerAfterConsole (
   EFI_GRAPHICS_OUTPUT_BLT_PIXEL  White;
   EDKII_PLATFORM_LOGO_PROTOCOL   *PlatformLogo;
   EFI_STATUS                     Status;
+  UINT16                         BootTimeOut;
 
   Black.Blue = Black.Green = Black.Red = Black.Reserved = 0;
   White.Blue = White.Green = White.Red = White.Reserved = 0xFF;
@@ -1357,12 +1315,13 @@ PlatformBootManagerAfterConsole (
   //
   PlatformRegisterFvBootOption (&gUefiShellFileGuid, L"UEFI Shell", LOAD_OPTION_ACTIVE);
 
-  if (PcdGet16 (PcdPlatformBootTimeOut) == 0) {
+  BootTimeOut = PlatformBootManagerGetWaitTimeout (PcdGet16 (PcdPlatformBootTimeOut));
+  if (BootTimeOut == 0) {
     return;
   }
 
   if (FixedPcdGetBool (PcdBootManagerEscape)) {
-    if (!DisplayBootManagerPrompt (TRUE, PcdGet16 (PcdPlatformBootTimeOut))) {
+    if (!DisplayBootManagerPrompt (TRUE, BootTimeOut)) {
       if (mLowBatteryBootGuardActive) {
         Print (
           L"\n"
@@ -1370,7 +1329,7 @@ PlatformBootManagerAfterConsole (
           L"    Shutting down in %u seconds, press ENTER to boot directly.\n"
           L"    Esc or Down      to enter Boot Manager Menu.\n"
           L"\n",
-          LOW_BATTERY_BOOT_TIMEOUT
+          BootTimeOut
           );
       } else {
         Print (
@@ -1382,7 +1341,7 @@ PlatformBootManagerAfterConsole (
       }
     }
   } else {
-    if (!DisplayBootManagerPrompt (FALSE, PcdGet16 (PcdPlatformBootTimeOut))) {
+    if (!DisplayBootManagerPrompt (FALSE, BootTimeOut)) {
       if (mLowBatteryBootGuardActive) {
         Print (
           L"\n"
@@ -1390,7 +1349,7 @@ PlatformBootManagerAfterConsole (
           L"    Shutting down in %u seconds, press ENTER to boot directly.\n"
           L"    F2 or Down      to enter Boot Manager Menu.\n"
           L"\n",
-          LOW_BATTERY_BOOT_TIMEOUT
+          BootTimeOut
           );
       } else {
         Print (
@@ -1424,7 +1383,6 @@ PlatformBootManagerWaitCallback (
 
     if (TimeoutRemain == 0) {
       DEBUG ((DEBUG_INFO, "%a: low-battery boot splash timeout, shutting down\n", __func__));
-      RestoreLowBatteryBootTimeout ();
       gRT->ResetSystem (EfiResetShutdown, EFI_SUCCESS, 0, NULL);
     }
 
@@ -1456,6 +1414,5 @@ PlatformBootManagerUnableToBoot (
   VOID
   )
 {
-  RestoreLowBatteryBootTimeout ();
   return;
 }
