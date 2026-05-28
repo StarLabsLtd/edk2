@@ -291,11 +291,13 @@ BdsWait (
   )
 {
   EFI_STATUS  Status;
+  UINT16      BootTimeOut;
   UINT16      TimeoutRemain;
 
   DEBUG ((DEBUG_INFO, "[Bds]BdsWait ...Zzzzzzzzzzzz...\n"));
 
-  TimeoutRemain = PcdGet16 (PcdPlatformBootTimeOut);
+  BootTimeOut   = PlatformBootManagerGetWaitTimeout (PcdGet16 (PcdPlatformBootTimeOut));
+  TimeoutRemain = BootTimeOut;
   while (TimeoutRemain != 0) {
     DEBUG ((DEBUG_INFO, "[Bds]BdsWait(%d)..Zzzz...\n", (UINTN)TimeoutRemain));
     PlatformBootManagerWaitCallback (TimeoutRemain);
@@ -325,7 +327,7 @@ BdsWait (
   // Note that the (TimeoutRemain == 0) condition excludes
   // PcdPlatformBootTimeOut=0xFFFF, and that's deliberate.
   //
-  if ((PcdGet16 (PcdPlatformBootTimeOut) != 0) && (TimeoutRemain == 0)) {
+  if ((BootTimeOut != 0) && (TimeoutRemain == 0)) {
     PlatformBootManagerWaitCallback (0);
   }
 
