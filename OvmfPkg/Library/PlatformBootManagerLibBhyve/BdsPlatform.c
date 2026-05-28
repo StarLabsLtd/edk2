@@ -1726,6 +1726,22 @@ PlatformBootManagerWaitCallback (
 }
 
 /**
+  Return the timeout BDS should use for its boot wait loop.
+
+  @param Timeout  The configured boot timeout.
+
+  @return The timeout to use for the current boot.
+**/
+UINT16
+EFIAPI
+PlatformBootManagerGetWaitTimeout (
+  IN UINT16  Timeout
+  )
+{
+  return Timeout;
+}
+
+/**
   The function is called when no boot option could be launched,
   including platform recovery options and options pointing to applications
   built into firmware volumes.
