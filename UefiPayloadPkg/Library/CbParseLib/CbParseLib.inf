@@ -39,6 +39,7 @@
 
 [Guids]
   gEfiCfrSetupMenuFormGuid
+  gEdkiiDisplayNativeResolutionGuid
 
 [Pcd]
   gUefiPayloadPkgTokenSpaceGuid.PcdBootloaderParameter

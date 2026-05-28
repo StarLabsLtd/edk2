@@ -21,6 +21,7 @@
 #include <IndustryStandard/Acpi.h>
 #include <Coreboot.h>
 #include <Guid/CfrSetupMenuGuid.h>
+#include <Guid/DisplayNativeResolution.h>
 
 /**
   Map a coreboot memory type to the E820-style encoding used by
@@ -679,11 +680,37 @@ ParseMiscInfo (
   )
 {
   struct cb_cfr                         *CbCfrSetupMenu;
+  struct cb_display_native_resolution   *CbDisplayNativeResolution;
+  EDKII_DISPLAY_NATIVE_RESOLUTION       DisplayNativeResolution;
+  EDKII_DISPLAY_NATIVE_RESOLUTION       *DisplayNativeResolutionHob;
   UINT32                                CfrCalculatedChecksum;
   UINTN                                 ProcessedLength;
   CFR_OPTION_FORM                       *CbCfrOuterFormOffset;
   CFR_OPTION_FORM                       *CfrSetupMenuForm;
   CFR_VARBINARY                         *CfrFormName;
+
+  CbDisplayNativeResolution = FindCbTag (CB_TAG_DISPLAY_NATIVE_RESOLUTION);
+  if ((CbDisplayNativeResolution != NULL) &&
+      (CbDisplayNativeResolution->size >= sizeof (*CbDisplayNativeResolution)) &&
+      (CbDisplayNativeResolution->x_resolution != 0) &&
+      (CbDisplayNativeResolution->y_resolution != 0))
+  {
+    DisplayNativeResolution.HorizontalResolution = CbDisplayNativeResolution->x_resolution;
+    DisplayNativeResolution.VerticalResolution   = CbDisplayNativeResolution->y_resolution;
+    DisplayNativeResolutionHob = BuildGuidDataHob (
+                                   &gEdkiiDisplayNativeResolutionGuid,
+                                   &DisplayNativeResolution,
+                                   sizeof (DisplayNativeResolution)
+                                   );
+    if (DisplayNativeResolutionHob != NULL) {
+      DEBUG ((
+        DEBUG_INFO,
+        "Display native resolution: %ux%u\n",
+        DisplayNativeResolutionHob->HorizontalResolution,
+        DisplayNativeResolutionHob->VerticalResolution
+        ));
+    }
+  }
 
   //
   // CFR has several CB tags, though these are nested structures,

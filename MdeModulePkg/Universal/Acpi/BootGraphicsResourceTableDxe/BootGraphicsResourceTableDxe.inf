@@ -37,6 +37,7 @@
   UefiLib
   UefiBootServicesTableLib
   DebugLib
+  HobLib
   PcdLib
   SafeIntLib
   BmpSupportLib
@@ -55,6 +56,7 @@
 
 [Guids]
   gEfiEventReadyToBootGuid                      ## CONSUMES ## Event
+  gEdkiiDisplayNativeResolutionGuid             ## CONSUMES ## HOB
 
 [UserExtensions.TianoCore."ExtraFiles"]
   BootGraphicsResourceTableDxeExtra.uni

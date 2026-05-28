@@ -6,7 +6,7 @@
   SPDX-License-Identifier: BSD-2-Clause-Patent
 **/
 
-#include <Uefi.h>
+#include <PiDxe.h>
 
 #include <IndustryStandard/Acpi.h>
 
@@ -16,12 +16,14 @@
 #include <Protocol/BootLogo2.h>
 
 #include <Guid/EventGroup.h>
+#include <Guid/DisplayNativeResolution.h>
 
 #include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
 #include <Library/MemoryAllocationLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/DebugLib.h>
+#include <Library/HobLib.h>
 #include <Library/PcdLib.h>
 #include <Library/SafeIntLib.h>
 #include <Library/BmpSupportLib.h>
@@ -174,6 +176,345 @@ EFI_ACPI_5_0_BOOT_GRAPHICS_RESOURCE_TABLE  mBootGraphicsResourceTableTemplate = 
   0,                                 // Image Offset X
   0                                  // Image Offset Y
 };
+
+typedef struct {
+  UINTN    Scale;
+  UINTN    FramebufferWidth;
+  UINTN    FramebufferHeight;
+  UINTN    NativeWidth;
+  UINTN    NativeHeight;
+} BGRT_NATIVE_RESOLUTION_SCALE;
+
+/**
+  Scale a BLT buffer by an integer factor.
+
+  @param[in]  Source       Source BLT buffer.
+  @param[in]  SourceWidth  Source width in pixels.
+  @param[in]  SourceHeight Source height in pixels.
+  @param[in]  Scale        Integer scale factor.
+  @param[out] Destination  Allocated scaled BLT buffer.
+  @param[out] ScaledWidth  Scaled width in pixels.
+  @param[out] ScaledHeight Scaled height in pixels.
+
+  @retval EFI_SUCCESS           The buffer was scaled.
+  @retval EFI_INVALID_PARAMETER One or more parameters are invalid.
+  @retval EFI_OUT_OF_RESOURCES  The scaled buffer could not be allocated.
+**/
+STATIC
+EFI_STATUS
+ScaleBltBufferInteger (
+  IN  EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *Source,
+  IN  UINTN                          SourceWidth,
+  IN  UINTN                          SourceHeight,
+  IN  UINTN                          Scale,
+  OUT EFI_GRAPHICS_OUTPUT_BLT_PIXEL  **Destination,
+  OUT UINTN                          *ScaledWidth,
+  OUT UINTN                          *ScaledHeight
+  )
+{
+  EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *ScaledBuffer;
+  EFI_GRAPHICS_OUTPUT_BLT_PIXEL  Pixel;
+  EFI_STATUS                     Status;
+  UINTN                          BufferSize;
+  UINTN                          Column;
+  UINTN                          DestinationHeight;
+  UINTN                          DestinationWidth;
+  UINTN                          PixelCount;
+  UINTN                          Row;
+  UINTN                          ScaleColumn;
+  UINTN                          ScaleRow;
+  UINT32                         Result32;
+
+  if ((Source == NULL) || (Destination == NULL) || (ScaledWidth == NULL) ||
+      (ScaledHeight == NULL) || (SourceWidth == 0) || (SourceHeight == 0) ||
+      (Scale <= 1))
+  {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  Status = SafeUintnMult (SourceWidth, Scale, &DestinationWidth);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  Status = SafeUintnMult (SourceHeight, Scale, &DestinationHeight);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  Status = SafeUintnToUint32 (DestinationWidth, &Result32);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  Status = SafeUintnToUint32 (DestinationHeight, &Result32);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  Status = SafeUintnMult (DestinationWidth, DestinationHeight, &PixelCount);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  Status = SafeUintnMult (
+             PixelCount,
+             sizeof (EFI_GRAPHICS_OUTPUT_BLT_PIXEL),
+             &BufferSize
+             );
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  ScaledBuffer = AllocateZeroPool (BufferSize);
+  if (ScaledBuffer == NULL) {
+    return EFI_OUT_OF_RESOURCES;
+  }
+
+  for (Row = 0; Row < SourceHeight; Row++) {
+    for (Column = 0; Column < SourceWidth; Column++) {
+      Pixel = Source[Row * SourceWidth + Column];
+      for (ScaleRow = 0; ScaleRow < Scale; ScaleRow++) {
+        for (ScaleColumn = 0; ScaleColumn < Scale; ScaleColumn++) {
+          ScaledBuffer[((Row * Scale + ScaleRow) * DestinationWidth) + (Column * Scale + ScaleColumn)] = Pixel;
+        }
+      }
+    }
+  }
+
+  *Destination  = ScaledBuffer;
+  *ScaledWidth  = DestinationWidth;
+  *ScaledHeight = DestinationHeight;
+  return EFI_SUCCESS;
+}
+
+/**
+  Get the integer scale between the current firmware framebuffer and the native
+  display resolution, if the bootloader supplied one.
+
+  @param[out] NativeScale  Native-resolution scale information.
+
+  @retval TRUE   A same-aspect integer native scale is available.
+  @retval FALSE  Native resolution is unavailable or not an exact scale.
+**/
+STATIC
+BOOLEAN
+GetNativeResolutionScale (
+  OUT BGRT_NATIVE_RESOLUTION_SCALE  *NativeScale
+  )
+{
+  EDKII_DISPLAY_NATIVE_RESOLUTION  *NativeResolution;
+  EFI_GRAPHICS_OUTPUT_PROTOCOL     *GraphicsOutput;
+  EFI_HOB_GUID_TYPE                *GuidHob;
+  EFI_STATUS                       Status;
+  UINT32                           HorizontalResolution;
+  UINT32                           HorizontalScale;
+  UINT32                           VerticalResolution;
+  UINT32                           VerticalScale;
+
+  if (NativeScale == NULL) {
+    return FALSE;
+  }
+
+  ZeroMem (NativeScale, sizeof (*NativeScale));
+  NativeScale->Scale = 1;
+  GuidHob = GetFirstGuidHob (&gEdkiiDisplayNativeResolutionGuid);
+  if ((GuidHob == NULL) ||
+      (GET_GUID_HOB_DATA_SIZE (GuidHob) < sizeof (EDKII_DISPLAY_NATIVE_RESOLUTION)))
+  {
+    return FALSE;
+  }
+
+  NativeResolution = (EDKII_DISPLAY_NATIVE_RESOLUTION *)GET_GUID_HOB_DATA (GuidHob);
+  Status           = gBS->LocateProtocol (
+                            &gEfiGraphicsOutputProtocolGuid,
+                            NULL,
+                            (VOID **)&GraphicsOutput
+                            );
+  if (EFI_ERROR (Status) ||
+      (GraphicsOutput == NULL) ||
+      (GraphicsOutput->Mode == NULL) ||
+      (GraphicsOutput->Mode->Info == NULL))
+  {
+    return FALSE;
+  }
+
+  HorizontalResolution = GraphicsOutput->Mode->Info->HorizontalResolution;
+  VerticalResolution   = GraphicsOutput->Mode->Info->VerticalResolution;
+  if ((HorizontalResolution == 0) || (VerticalResolution == 0) ||
+      (NativeResolution->HorizontalResolution <= HorizontalResolution) ||
+      (NativeResolution->VerticalResolution <= VerticalResolution) ||
+      ((NativeResolution->HorizontalResolution % HorizontalResolution) != 0) ||
+      ((NativeResolution->VerticalResolution % VerticalResolution) != 0))
+  {
+    return FALSE;
+  }
+
+  HorizontalScale = NativeResolution->HorizontalResolution / HorizontalResolution;
+  VerticalScale   = NativeResolution->VerticalResolution / VerticalResolution;
+  if ((HorizontalScale <= 1) || (HorizontalScale != VerticalScale)) {
+    return FALSE;
+  }
+
+  NativeScale->Scale             = HorizontalScale;
+  NativeScale->FramebufferWidth  = HorizontalResolution;
+  NativeScale->FramebufferHeight = VerticalResolution;
+  NativeScale->NativeWidth       = NativeResolution->HorizontalResolution;
+  NativeScale->NativeHeight      = NativeResolution->VerticalResolution;
+  return TRUE;
+}
+
+/**
+  Scale a BGRT offset into native display coordinates.
+
+  If the source coordinate is centered in the firmware framebuffer, recenter in
+  the native coordinate space instead of multiplying the truncated source offset.
+
+  @param[in]  Destination       Source destination coordinate.
+  @param[in]  SourceExtent      Source logo extent.
+  @param[in]  ScaledExtent      Scaled logo extent.
+  @param[in]  FramebufferExtent Source framebuffer extent.
+  @param[in]  NativeExtent      Native display extent.
+  @param[in]  Scale             Integer scale factor.
+  @param[out] ScaledDestination Scaled destination coordinate.
+
+  @retval EFI_SUCCESS           The offset was scaled.
+  @retval EFI_INVALID_PARAMETER One or more parameters are invalid.
+  @retval EFI_UNSUPPORTED       The scaled logo does not fit the native extent.
+  @retval other                 The offset could not be scaled.
+**/
+STATIC
+EFI_STATUS
+ScaleBgrtDestination (
+  IN  UINTN  Destination,
+  IN  UINTN  SourceExtent,
+  IN  UINTN  ScaledExtent,
+  IN  UINTN  FramebufferExtent,
+  IN  UINTN  NativeExtent,
+  IN  UINTN  Scale,
+  OUT UINTN  *ScaledDestination
+  )
+{
+  if ((ScaledDestination == NULL) || (SourceExtent == 0) ||
+      (ScaledExtent == 0) || (FramebufferExtent < SourceExtent) ||
+      (NativeExtent < ScaledExtent) || (Scale <= 1))
+  {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  if (Destination == ((FramebufferExtent - SourceExtent) / 2)) {
+    *ScaledDestination = (NativeExtent - ScaledExtent) / 2;
+    return EFI_SUCCESS;
+  }
+
+  return SafeUintnMult (Destination, Scale, ScaledDestination);
+}
+
+/**
+  Scale the BGRT logo and offsets into native display coordinates.
+
+  @param[in,out] BltBuffer    Logo BLT buffer.
+  @param[in,out] DestinationX Logo destination X.
+  @param[in,out] DestinationY Logo destination Y.
+  @param[in,out] Width        Logo width.
+  @param[in,out] Height       Logo height.
+
+  @retval EFI_SUCCESS      The logo was scaled.
+  @retval EFI_NOT_FOUND    No native scale is available.
+  @retval other            The logo could not be scaled.
+**/
+STATIC
+EFI_STATUS
+ScaleBgrtLogoToNativeResolution (
+  IN OUT EFI_GRAPHICS_OUTPUT_BLT_PIXEL  **BltBuffer,
+  IN OUT UINTN                          *DestinationX,
+  IN OUT UINTN                          *DestinationY,
+  IN OUT UINTN                          *Width,
+  IN OUT UINTN                          *Height
+  )
+{
+  EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *ScaledBuffer;
+  BGRT_NATIVE_RESOLUTION_SCALE   NativeScale;
+  EFI_STATUS                     Status;
+  UINTN                          ScaledDestinationX;
+  UINTN                          ScaledDestinationY;
+  UINTN                          ScaledHeight;
+  UINTN                          ScaledWidth;
+
+  if ((BltBuffer == NULL) || (*BltBuffer == NULL) || (DestinationX == NULL) ||
+      (DestinationY == NULL) || (Width == NULL) || (Height == NULL))
+  {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  if (!GetNativeResolutionScale (&NativeScale)) {
+    return EFI_NOT_FOUND;
+  }
+
+  ScaledBuffer = NULL;
+  Status       = ScaleBltBufferInteger (
+                   *BltBuffer,
+                   *Width,
+                   *Height,
+                   NativeScale.Scale,
+                   &ScaledBuffer,
+                   &ScaledWidth,
+                   &ScaledHeight
+                   );
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  Status = ScaleBgrtDestination (
+             *DestinationX,
+             *Width,
+             ScaledWidth,
+             NativeScale.FramebufferWidth,
+             NativeScale.NativeWidth,
+             NativeScale.Scale,
+             &ScaledDestinationX
+             );
+  if (EFI_ERROR (Status)) {
+    FreePool (ScaledBuffer);
+    return Status;
+  }
+
+  Status = ScaleBgrtDestination (
+             *DestinationY,
+             *Height,
+             ScaledHeight,
+             NativeScale.FramebufferHeight,
+             NativeScale.NativeHeight,
+             NativeScale.Scale,
+             &ScaledDestinationY
+             );
+  if (EFI_ERROR (Status)) {
+    FreePool (ScaledBuffer);
+    return Status;
+  }
+
+  DEBUG ((
+    DEBUG_INFO,
+    "%a: scaled BGRT logo by %u from %ux%u @ %u,%u to %ux%u @ %u,%u\n",
+    __func__,
+    (UINT32)NativeScale.Scale,
+    (UINT32)*Width,
+    (UINT32)*Height,
+    (UINT32)*DestinationX,
+    (UINT32)*DestinationY,
+    (UINT32)ScaledWidth,
+    (UINT32)ScaledHeight,
+    (UINT32)ScaledDestinationX,
+    (UINT32)ScaledDestinationY
+    ));
+
+  *BltBuffer    = ScaledBuffer;
+  *DestinationX = ScaledDestinationX;
+  *DestinationY = ScaledDestinationY;
+  *Width        = ScaledWidth;
+  *Height       = ScaledHeight;
+  return EFI_SUCCESS;
+}
 
 /**
   Update information of logo image drawn on screen.
@@ -419,10 +760,15 @@ BgrtReadyToBootEventNotify (
   IN VOID       *Context
   )
 {
-  EFI_STATUS               Status;
-  EFI_ACPI_TABLE_PROTOCOL  *AcpiTableProtocol;
-  VOID                     *ImageBuffer;
-  UINT32                   BmpSize;
+  EFI_STATUS                     Status;
+  EFI_ACPI_TABLE_PROTOCOL        *AcpiTableProtocol;
+  EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *BgrtLogoBltBuffer;
+  VOID                           *ImageBuffer;
+  UINT32                         BmpSize;
+  UINTN                          BgrtLogoDestX;
+  UINTN                          BgrtLogoDestY;
+  UINTN                          BgrtLogoHeight;
+  UINTN                          BgrtLogoWidth;
 
   //
   // Get ACPI Table protocol.
@@ -467,6 +813,27 @@ BgrtReadyToBootEventNotify (
   }
 
   if (mAcpiBgrtBufferChanged) {
+    BgrtLogoBltBuffer = mLogoBltBuffer;
+    BgrtLogoDestX     = mLogoDestX;
+    BgrtLogoDestY     = mLogoDestY;
+    BgrtLogoWidth     = mLogoWidth;
+    BgrtLogoHeight    = mLogoHeight;
+    Status            = ScaleBgrtLogoToNativeResolution (
+                          &BgrtLogoBltBuffer,
+                          &BgrtLogoDestX,
+                          &BgrtLogoDestY,
+                          &BgrtLogoWidth,
+                          &BgrtLogoHeight
+                          );
+    if (EFI_ERROR (Status) && (Status != EFI_NOT_FOUND)) {
+      DEBUG ((DEBUG_INFO, "%a: failed to scale BGRT logo to native resolution: %r\n", __func__, Status));
+      BgrtLogoBltBuffer = mLogoBltBuffer;
+      BgrtLogoDestX     = mLogoDestX;
+      BgrtLogoDestY     = mLogoDestY;
+      BgrtLogoWidth     = mLogoWidth;
+      BgrtLogoHeight    = mLogoHeight;
+    }
+
     //
     // Free the old BMP image buffer
     //
@@ -481,12 +848,16 @@ BgrtReadyToBootEventNotify (
     //
     ImageBuffer = NULL;
     Status      = TranslateGopBltToBmp (
-                    mLogoBltBuffer,
-                    (UINT32)mLogoHeight,
-                    (UINT32)mLogoWidth,
+                    BgrtLogoBltBuffer,
+                    (UINT32)BgrtLogoHeight,
+                    (UINT32)BgrtLogoWidth,
                     &ImageBuffer,
                     &BmpSize
                     );
+    if (BgrtLogoBltBuffer != mLogoBltBuffer) {
+      FreePool (BgrtLogoBltBuffer);
+    }
+
     if (EFI_ERROR (Status)) {
       return;
     }
@@ -501,8 +872,8 @@ BgrtReadyToBootEventNotify (
     // Update BMP image fields of the Boot Graphics Resource Table
     //
     mBootGraphicsResourceTableTemplate.ImageAddress = (UINT64)(UINTN)ImageBuffer;
-    mBootGraphicsResourceTableTemplate.ImageOffsetX = (UINT32)mLogoDestX;
-    mBootGraphicsResourceTableTemplate.ImageOffsetY = (UINT32)mLogoDestY;
+    mBootGraphicsResourceTableTemplate.ImageOffsetX = (UINT32)BgrtLogoDestX;
+    mBootGraphicsResourceTableTemplate.ImageOffsetY = (UINT32)BgrtLogoDestY;
   }
 
   //

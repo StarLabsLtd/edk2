@@ -226,6 +226,14 @@ struct cb_framebuffer {
   UINT8     reserved_mask_size;
 };
 
+#define CB_TAG_DISPLAY_NATIVE_RESOLUTION  0x004a
+struct cb_display_native_resolution {
+  UINT32    tag;
+  UINT32    size;
+  UINT32    x_resolution;
+  UINT32    y_resolution;
+};
+
 #define CB_TAG_VDAT  0x0015
 struct cb_vdat {
   UINT32    tag;
