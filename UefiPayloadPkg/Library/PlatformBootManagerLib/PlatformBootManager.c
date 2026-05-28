@@ -232,10 +232,8 @@ DrawBootPromptLine (
   EFI_FONT_DISPLAY_INFO  FontInfo;
   EFI_HII_ROW_INFO       *RowInfoArray;
   UINTN                  RowInfoArraySize;
-  UINTN                  Columns;
-  UINTN                  Rows;
-  UINTN                  BaseGlyphWidth;
-  UINTN                  BaseGlyphHeight;
+  UINTN                  GlyphWidth;
+  UINTN                  GlyphHeight;
   UINTN                  PointX;
   UINTN                  PointY;
   UINTN                  BitmapWidth;
@@ -258,23 +256,10 @@ DrawBootPromptLine (
     return Status;
   }
 
-  Status = gST->ConOut->QueryMode (gST->ConOut, gST->ConOut->Mode->Mode, &Columns, &Rows);
-  if (EFI_ERROR (Status) || (Columns == 0) || (Rows == 0)) {
-    Columns = PcdGet32 (PcdConOutColumn);
-    Rows    = PcdGet32 (PcdConOutRow);
-    if ((Columns == 0) || (Rows == 0)) {
-      Columns = 80;
-      Rows    = 25;
-    }
-  }
-
-  BaseGlyphWidth  = EFI_GLYPH_WIDTH;
-  BaseGlyphHeight = EFI_GLYPH_HEIGHT;
-  PointX          = ((UINTN)GraphicsOutput->Mode->Info->HorizontalResolution - (Columns * BaseGlyphWidth)) / 2 + (Column * BaseGlyphWidth);
-  PointY          = ((UINTN)GraphicsOutput->Mode->Info->VerticalResolution - (Rows * BaseGlyphHeight)) / 2 + (Row * BaseGlyphHeight);
-  if (Row > 0) {
-    PointY += (Row - 1) * BaseGlyphHeight * TextScale;
-  }
+  GlyphWidth            = EFI_GLYPH_WIDTH * TextScale;
+  GlyphHeight           = EFI_GLYPH_HEIGHT * TextScale;
+  PointX                = Column * GlyphWidth;
+  PointY                = Row * GlyphHeight;
 
   Blt = AllocateZeroPool (sizeof (EFI_IMAGE_OUTPUT));
   if (Blt == NULL) {
@@ -478,7 +463,7 @@ DisplayBootManagerPrompt (
              GraphicsOutput,
              GetBootPromptSettingsLine (UseEscape),
              4,
-             2,
+             3,
              TextScale
              );
   return !EFI_ERROR (Status);
