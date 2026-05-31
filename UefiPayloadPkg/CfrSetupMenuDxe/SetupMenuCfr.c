@@ -63,6 +63,116 @@ STATIC CONST EFI_GUID  mOpalSetupVariableGuid = {
   0xbbf1acd2, 0x28d8, 0x44ea, { 0xa2, 0x91, 0x58, 0xa2, 0x37, 0xfe, 0xdf, 0x1a }
 };
 
+typedef struct {
+  UINT8   *Data;
+  UINTN   Size;
+  UINTN   Capacity;
+  UINT32  RecordCount;
+} CFR_FWUPD_SETTINGS_BUILDER;
+
+STATIC CFR_FWUPD_SETTINGS_BUILDER  mCfrFwupdSettings;
+
+STATIC
+EFI_STATUS
+CfrFwupdSettingsReserve (
+  IN UINTN  ExtraSize
+  )
+{
+  UINT8  *NewData;
+  UINTN  NewCapacity;
+
+  if (ExtraSize > MAX_UINTN - mCfrFwupdSettings.Size) {
+    return EFI_OUT_OF_RESOURCES;
+  }
+
+  if (mCfrFwupdSettings.Size + ExtraSize <= mCfrFwupdSettings.Capacity) {
+    return EFI_SUCCESS;
+  }
+
+  NewCapacity = (mCfrFwupdSettings.Capacity > 256) ? mCfrFwupdSettings.Capacity : 256;
+  while (NewCapacity < mCfrFwupdSettings.Size + ExtraSize) {
+    if (NewCapacity > MAX_UINTN / 2) {
+      return EFI_OUT_OF_RESOURCES;
+    }
+
+    NewCapacity *= 2;
+  }
+
+  NewData = ReallocatePool (
+              mCfrFwupdSettings.Capacity,
+              NewCapacity,
+              mCfrFwupdSettings.Data
+              );
+  if (NewData == NULL) {
+    return EFI_OUT_OF_RESOURCES;
+  }
+
+  mCfrFwupdSettings.Data     = NewData;
+  mCfrFwupdSettings.Capacity = NewCapacity;
+  return EFI_SUCCESS;
+}
+
+STATIC
+EFI_STATUS
+CfrFwupdSettingsAppend (
+  IN CONST VOID  *Data,
+  IN UINTN       DataSize
+  )
+{
+  EFI_STATUS  Status;
+
+  Status = CfrFwupdSettingsReserve (DataSize);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  if (DataSize > 0) {
+    CopyMem (mCfrFwupdSettings.Data + mCfrFwupdSettings.Size, Data, DataSize);
+  }
+
+  mCfrFwupdSettings.Size += DataSize;
+  return EFI_SUCCESS;
+}
+
+STATIC
+VOID
+CfrFwupdSettingsInit (
+  VOID
+  )
+{
+  CFR_FWUPD_SETTINGS_HEADER  Header;
+
+  if (mCfrFwupdSettings.Data != NULL) {
+    FreePool (mCfrFwupdSettings.Data);
+  }
+
+  ZeroMem (&mCfrFwupdSettings, sizeof (mCfrFwupdSettings));
+  ZeroMem (&Header, sizeof (Header));
+  Header.Magic      = CFR_FWUPD_SETTINGS_MAGIC;
+  Header.Version    = CFR_FWUPD_SETTINGS_VERSION;
+  Header.HeaderSize = sizeof (Header);
+  CfrFwupdSettingsAppend (&Header, sizeof (Header));
+}
+
+STATIC
+VOID *
+CfrExtractRecord (
+  IN     UINT8   *Buffer,
+  IN OUT UINTN   *Offset,
+  IN     UINT32  TargetTag
+  )
+{
+  CFR_VARBINARY  *Record;
+
+  Record = (CFR_VARBINARY *)(Buffer + *Offset);
+  if (Record->tag != TargetTag) {
+    return NULL;
+  }
+
+  *Offset += Record->size;
+  return Record;
+}
+
 STATIC
 BOOLEAN
 IsHiiPackageListPresent (
@@ -524,6 +634,197 @@ CfrConvertVarBinaryToUint32Array (
   *ArrayLength = CfrList->data_length / sizeof (UINT32);
 }
 
+STATIC
+EFI_STATUS
+CfrFwupdSettingsAppendVarBinary (
+  IN CFR_VARBINARY  *CfrString OPTIONAL
+  )
+{
+  if (CfrString == NULL) {
+    return EFI_SUCCESS;
+  }
+
+  return CfrFwupdSettingsAppend (CfrString->data, CfrString->data_length);
+}
+
+STATIC
+UINT32
+CfrFwupdEnumCount (
+  IN CFR_OPTION_NUMERIC  *Option,
+  IN UINTN               FirstEnumOffset
+  )
+{
+  UINT32          EnumCount;
+  UINTN           Offset;
+  CFR_ENUM_VALUE  *CfrEnumValue;
+
+  EnumCount = 0;
+  Offset    = FirstEnumOffset;
+  while (Offset < Option->size) {
+    CfrEnumValue = (CFR_ENUM_VALUE *)((UINT8 *)Option + Offset);
+    if ((CfrEnumValue->tag != CB_TAG_CFR_ENUM_VALUE) || (CfrEnumValue->size == 0)) {
+      break;
+    }
+
+    EnumCount++;
+    Offset += CfrEnumValue->size;
+  }
+
+  return EnumCount;
+}
+
+STATIC
+VOID
+CfrFwupdSettingsAddNumericOption (
+  IN CFR_OPTION_NUMERIC  *Option,
+  IN CFR_VARBINARY       *CfrOptionName,
+  IN CFR_VARBINARY       *CfrDisplayName,
+  IN CFR_VARBINARY       *CfrHelpText OPTIONAL,
+  IN CFR_RUNTIME_APPLY   *CfrRuntimeApply OPTIONAL,
+  IN UINTN               FirstEnumOffset
+  )
+{
+  EFI_STATUS                Status;
+  CFR_FWUPD_OPTION_RECORD   Record;
+  CFR_FWUPD_ENUM_RECORD     EnumRecord;
+  UINTN                     Offset;
+  CFR_ENUM_VALUE            *CfrEnumValue;
+  CFR_VARBINARY             *CfrEnumUiString;
+
+  if ((Option->flags & CFR_OPTFLAG_RUNTIME) == 0) {
+    return;
+  }
+
+  if (Option->flags & (CFR_OPTFLAG_SUPPRESS | CFR_OPTFLAG_VOLATILE)) {
+    return;
+  }
+
+  ZeroMem (&Record, sizeof (Record));
+  Record.HeaderSize    = sizeof (Record);
+  Record.CfrFlags      = Option->flags;
+  Record.ObjectId      = Option->object_id;
+  if (CfrRuntimeApply != NULL) {
+    Record.RuntimeApplyMethod = CfrRuntimeApply->method;
+    Record.RuntimeApplyId     = CfrRuntimeApply->id;
+  }
+
+  Record.DefaultValue  = Option->default_value;
+  Record.Min           = Option->min;
+  Record.Max           = Option->max;
+  Record.Step          = Option->step;
+  Record.DisplayFlags  = Option->display_flags;
+  Record.NameSize      = CfrOptionName->data_length;
+  Record.UiNameSize    = CfrDisplayName->data_length;
+  Record.HelpTextSize  = (CfrHelpText != NULL) ? CfrHelpText->data_length : 0;
+
+  if (Option->tag == CB_TAG_CFR_OPTION_ENUM) {
+    Record.Type      = CfrFwupdOptionTypeEnum;
+    Record.EnumCount = CfrFwupdEnumCount (Option, FirstEnumOffset);
+  } else if (Option->tag == CB_TAG_CFR_OPTION_NUMBER) {
+    Record.Type = CfrFwupdOptionTypeNumber;
+  } else if (Option->tag == CB_TAG_CFR_OPTION_BOOL) {
+    Record.Type = CfrFwupdOptionTypeBool;
+  } else {
+    return;
+  }
+
+  Status = CfrFwupdSettingsAppend (&Record, sizeof (Record));
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_WARN, "CFR: Failed to add fwupd option record: %r\n", Status));
+    return;
+  }
+
+  Status = CfrFwupdSettingsAppendVarBinary (CfrOptionName);
+  if (!EFI_ERROR (Status)) {
+    Status = CfrFwupdSettingsAppendVarBinary (CfrDisplayName);
+  }
+
+  if (!EFI_ERROR (Status)) {
+    Status = CfrFwupdSettingsAppendVarBinary (CfrHelpText);
+  }
+
+  Offset = FirstEnumOffset;
+  while (!EFI_ERROR (Status) && (Offset < Option->size)) {
+    CfrEnumValue = (CFR_ENUM_VALUE *)((UINT8 *)Option + Offset);
+    if ((CfrEnumValue->tag != CB_TAG_CFR_ENUM_VALUE) || (CfrEnumValue->size == 0)) {
+      break;
+    }
+
+    CfrEnumUiString = (CFR_VARBINARY *)((UINT8 *)CfrEnumValue + sizeof (CFR_ENUM_VALUE));
+    if (CfrEnumUiString->tag != CB_TAG_CFR_VARCHAR_UI_NAME) {
+      break;
+    }
+
+    EnumRecord.Value      = CfrEnumValue->value;
+    EnumRecord.UiNameSize = CfrEnumUiString->data_length;
+    Status = CfrFwupdSettingsAppend (&EnumRecord, sizeof (EnumRecord));
+    if (!EFI_ERROR (Status)) {
+      Status = CfrFwupdSettingsAppendVarBinary (CfrEnumUiString);
+    }
+
+    Offset += CfrEnumValue->size;
+  }
+
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_WARN, "CFR: Failed to add fwupd option data: %r\n", Status));
+    return;
+  }
+
+  mCfrFwupdSettings.RecordCount++;
+}
+
+STATIC
+VOID
+CfrFwupdSettingsPublish (
+  VOID
+  )
+{
+  EFI_STATUS                  Status;
+  CFR_FWUPD_SETTINGS_HEADER   *Header;
+  UINT32                      Attributes;
+
+  if (mCfrFwupdSettings.Data == NULL) {
+    return;
+  }
+
+  Header              = (CFR_FWUPD_SETTINGS_HEADER *)mCfrFwupdSettings.Data;
+  Header->Size        = mCfrFwupdSettings.Size;
+  Header->RecordCount = mCfrFwupdSettings.RecordCount;
+
+  Attributes = EFI_VARIABLE_BOOTSERVICE_ACCESS |
+               EFI_VARIABLE_RUNTIME_ACCESS;
+  Status = gRT->SetVariable (
+                  CFR_FWUPD_SETTINGS_VARIABLE_NAME,
+                  &gEficorebootNvDataGuid,
+                  Attributes,
+                  mCfrFwupdSettings.Size,
+                  mCfrFwupdSettings.Data
+                  );
+  if (Status == EFI_INVALID_PARAMETER) {
+    gRT->SetVariable (
+           CFR_FWUPD_SETTINGS_VARIABLE_NAME,
+           &gEficorebootNvDataGuid,
+           0,
+           0,
+           NULL
+           );
+    Status = gRT->SetVariable (
+                    CFR_FWUPD_SETTINGS_VARIABLE_NAME,
+                    &gEficorebootNvDataGuid,
+                    Attributes,
+                    mCfrFwupdSettings.Size,
+                    mCfrFwupdSettings.Data
+                    );
+  }
+
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_WARN, "CFR: Failed to publish fwupd settings: %r\n", Status));
+  }
+
+  FreePool (mCfrFwupdSettings.Data);
+  ZeroMem (&mCfrFwupdSettings, sizeof (mCfrFwupdSettings));
+}
+
 /**
   Produce unconditional HII `*_IF` for CFR flags.
 
@@ -973,6 +1274,7 @@ CfrProcessNumericOption (
   UINT32          *DepValues;
   UINT32          NumDepValues;
   CFR_VARBINARY   *CfrDepValues;
+  CFR_RUNTIME_APPLY *CfrRuntimeApply;
   UINTN           QuestionIdVarStoreId;
   UINT8           QuestionFlags;
   VOID            *DefaultOpCodeHandle;
@@ -1012,12 +1314,31 @@ CfrProcessNumericOption (
     CfrConvertVarBinaryToUint32Array (CfrDepValues, &DepValues, &NumDepValues);
   }
 
+  // Runtime apply is optional
+  CfrRuntimeApply = CfrExtractRecord (
+                      (UINT8 *)Option,
+                      &OptionProcessedLength,
+                      CB_TAG_CFR_RUNTIME_APPLY
+                      );
+  if (CfrRuntimeApply != NULL) {
+    ASSERT (CfrRuntimeApply->tag == CB_TAG_CFR_RUNTIME_APPLY);
+  }
+
   DEBUG ((
     DEBUG_INFO,
     "CFR: Processing option \"%a\", size 0x%x\n",
     CfrOptionName->data,
     Option->size
     ));
+
+  CfrFwupdSettingsAddNumericOption (
+    Option,
+    CfrOptionName,
+    CfrDisplayName,
+    CfrHelpText,
+    CfrRuntimeApply,
+    OptionProcessedLength
+    );
 
   //
   // Processing start
@@ -1394,6 +1715,8 @@ CfrCreateRuntimeComponents (
   EFI_STATUS          Status;
   UINT8               *TempHiiBuffer;
 
+  CfrFwupdSettingsInit ();
+
   //
   // Allocate GUIDed markers at runtime component offset in IFR
   //
@@ -1522,6 +1845,8 @@ CfrCreateRuntimeComponents (
              EndOpCodeHandle
              );
   ASSERT_EFI_ERROR (Status);
+
+  CfrFwupdSettingsPublish ();
 
   HiiFreeOpCodeHandle (StartOpCodeHandle);
   HiiFreeOpCodeHandle (EndOpCodeHandle);
