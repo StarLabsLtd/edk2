@@ -16,6 +16,51 @@
 ///
 extern EFI_GUID gEfiCfrSetupMenuFormGuid;
 
+#define CFR_FWUPD_SETTINGS_VARIABLE_NAME  L"CorebootCfrSettings"
+
+#define CFR_FWUPD_SETTINGS_MAGIC          SIGNATURE_32 ('C', 'F', 'W', 'D')
+#define CFR_FWUPD_SETTINGS_VERSION        2
+
+typedef enum {
+  CfrFwupdOptionTypeEnum   = 1,
+  CfrFwupdOptionTypeNumber = 2,
+  CfrFwupdOptionTypeBool   = 3,
+} CFR_FWUPD_OPTION_TYPE;
+
+#pragma pack (1)
+typedef struct {
+  UINT32  Magic;
+  UINT16  Version;
+  UINT16  HeaderSize;
+  UINT32  Size;
+  UINT32  RecordCount;
+} CFR_FWUPD_SETTINGS_HEADER;
+
+typedef struct {
+  UINT16  Type;
+  UINT16  HeaderSize;
+  UINT32  CfrFlags;
+  UINT64  ObjectId;
+  UINT32  RuntimeApplyMethod;
+  UINT32  RuntimeApplyId;
+  UINT32  DefaultValue;
+  UINT32  Min;
+  UINT32  Max;
+  UINT32  Step;
+  UINT32  DisplayFlags;
+  UINT32  NameSize;
+  UINT32  UiNameSize;
+  UINT32  HelpTextSize;
+  UINT32  EnumCount;
+} CFR_FWUPD_OPTION_RECORD;
+
+typedef struct {
+  UINT32  Value;
+  UINT32  UiNameSize;
+} CFR_FWUPD_ENUM_RECORD;
+
+#pragma pack ()
+
 /*
  * The following tags are for CFR (Cursed Form Representation) entries.
  *
@@ -47,6 +92,7 @@ enum cfr_option_flags {
 #define CB_TAG_CFR_VARCHAR_UI_HELPTEXT  0x0009
 #define CB_TAG_CFR_VARCHAR_DEF_VALUE    0x000a
 #define CB_TAG_CFR_DEP_VALUES           0x000c
+#define CB_TAG_CFR_RUNTIME_APPLY        0x000d
 #pragma pack (1)
 typedef struct {
   UINT32  tag;          /*
@@ -58,6 +104,18 @@ typedef struct {
   UINT32  data_length;  /* Length of data, including NULL terminator for strings */
   UINT8   data[];
 } CFR_VARBINARY;
+
+typedef enum {
+  CfrRuntimeApplyNone   = 0,
+  CfrRuntimeApplyApmCnt = 1,
+} CFR_RUNTIME_APPLY_METHOD;
+
+typedef struct {
+  UINT32  tag;     /* CFR_TAG_RUNTIME_APPLY */
+  UINT32  size;
+  UINT32  method;  /* CFR_RUNTIME_APPLY_METHOD */
+  UINT32  id;      /* Method-specific token */
+} CFR_RUNTIME_APPLY;
 
 #define CB_TAG_CFR_ENUM_VALUE  0x0002
 typedef struct {
@@ -95,6 +153,7 @@ typedef struct {
    * CFR_VARCHAR_UI_NAME      ui_name
    * CFR_VARCHAR_UI_HELPTEXT  ui_helptext (Optional)
    * CFR_DEP_VALUES           dependency_values (Optional)
+   * CFR_RUNTIME_APPLY        runtime_apply (Optional)
    * CFR_ENUM_VALUE           enum_values[]
    */
 } CFR_OPTION_NUMERIC;
