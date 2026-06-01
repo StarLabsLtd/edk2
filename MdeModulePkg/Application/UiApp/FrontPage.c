@@ -527,6 +527,8 @@ UpdateFrontPageBannerStrings (
   UINT64                   InstalledMemory;
   BOOLEAN                  FoundCpu;
   CHAR16                   EcVersion[9];
+  CHAR16                   *MissingString;
+  CHAR16                   *SerialNumber;
 
   InstalledMemory = 0;
   FoundCpu        = 0;
@@ -557,6 +559,11 @@ UpdateFrontPageBannerStrings (
     NewString = HiiGetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_EC_VERSION), NULL);
     UiCustomizeFrontPageBanner (5, TRUE, &NewString);
     HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_EC_VERSION), NewString, NULL);
+    FreePool (NewString);
+
+    NewString = HiiGetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_SERIAL_NUMBER), NULL);
+    UiCustomizeFrontPageBanner (6, TRUE, &NewString);
+    HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_SERIAL_NUMBER), NewString, NULL);
     FreePool (NewString);
 
     NewString = HiiGetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_MEMORY_SIZE), NULL);
@@ -643,6 +650,29 @@ UpdateFrontPageBannerStrings (
       UiCustomizeFrontPageBanner (1, TRUE, &NewString);
       HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_COMPUTER_MODEL), NewString, NULL);
       FreePool (NewString);
+
+      StrIndex = Type1Record->SerialNumber;
+      GetOptionalStringByIndex ((CHAR8 *)((UINT8 *)Type1Record + Type1Record->Hdr.Length), StrIndex, &SerialNumber);
+      if (SerialNumber != NULL) {
+        MissingString = GetStringById (STRING_TOKEN (STR_MISSING_STRING));
+        if ((SerialNumber[0] != CHAR_NULL) &&
+            ((MissingString == NULL) || (StrCmp (SerialNumber, MissingString) != 0)))
+        {
+          NewString = AllocateZeroPool (MAX_STRING_LEN * sizeof (CHAR16));
+          if (NewString != NULL) {
+            UnicodeSPrint (NewString, MAX_STRING_LEN * sizeof (CHAR16), L"%-24s%s", L"Serial number:", SerialNumber);
+            UiCustomizeFrontPageBanner (6, TRUE, &NewString);
+            HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_SERIAL_NUMBER), NewString, NULL);
+            FreePool (NewString);
+          }
+        }
+
+        if (MissingString != NULL) {
+          FreePool (MissingString);
+        }
+
+        FreePool (SerialNumber);
+      }
     }
 
     if ((Record->Type == SMBIOS_TYPE_PROCESSOR_INFORMATION) && !FoundCpu) {
