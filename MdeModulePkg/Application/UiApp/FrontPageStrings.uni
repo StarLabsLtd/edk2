@@ -61,6 +61,8 @@
                                        #language fr-FR  "Configure system settings."
 #string STR_FRONT_PAGE_EC_VERSION      #language en-US  ""
                                        #language fr-FR  ""
+#string STR_FRONT_PAGE_SERIAL_NUMBER   #language en-US  ""
+                                       #language fr-FR  ""
 #string STR_CUSTOMIZE_BANNER_LINE4_RIGHT #language en-US  ""
                                          #language fr-FR  ""
 #string STR_CUSTOMIZE_BANNER_LINE5_LEFT  #language en-US  ""
