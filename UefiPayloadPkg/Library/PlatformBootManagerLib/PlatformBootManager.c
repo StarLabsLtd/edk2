@@ -672,6 +672,32 @@ DisplayLowBatteryBootLogo (
 }
 
 STATIC
+VOID
+DisplayPlatformBootLogo (
+  VOID
+  )
+{
+  EFI_STATUS                    Status;
+  EDKII_PLATFORM_LOGO_PROTOCOL  *PlatformLogo;
+
+  if (mLowBatteryBootGuardActive) {
+    DisplayLowBatteryBootLogo ();
+    return;
+  }
+
+  Status = gBS->LocateProtocol (&gEdkiiPlatformLogoProtocolGuid, NULL, (VOID **)&PlatformLogo);
+  if (EFI_ERROR (Status)) {
+    return;
+  }
+
+  if ((gST != NULL) && (gST->ConOut != NULL)) {
+    gST->ConOut->ClearScreen (gST->ConOut);
+  }
+
+  BootLogoEnableLogo ();
+}
+
+STATIC
 BOOLEAN
 IsLowBatteryBootGuardRequired (
   VOID
@@ -1226,26 +1252,10 @@ PlatformBootManagerAfterConsole (
   VOID
   )
 {
-  EFI_GRAPHICS_OUTPUT_BLT_PIXEL  Black;
-  EFI_GRAPHICS_OUTPUT_BLT_PIXEL  White;
-  EDKII_PLATFORM_LOGO_PROTOCOL   *PlatformLogo;
-  EFI_STATUS                     Status;
-  UINT16                         BootTimeOut;
-
-  Black.Blue = Black.Green = Black.Red = Black.Reserved = 0;
-  White.Blue = White.Green = White.Red = White.Reserved = 0xFF;
+  EFI_STATUS  Status;
+  UINT16      BootTimeOut;
 
   ConfigureLowBatteryBootGuard ();
-
-  Status = gBS->LocateProtocol (&gEdkiiPlatformLogoProtocolGuid, NULL, (VOID **)&PlatformLogo);
-  if (!EFI_ERROR (Status)) {
-    gST->ConOut->ClearScreen (gST->ConOut);
-    if (mLowBatteryBootGuardActive) {
-      DisplayLowBatteryBootLogo ();
-    } else {
-      BootLogoEnableLogo ();
-    }
-  }
 
   //
   // Ensure TCG2 physical presence variables are initialized for the OPAL BlockSID UI.
@@ -1309,6 +1319,8 @@ PlatformBootManagerAfterConsole (
   if (EFI_ERROR (Status)) {
     Tcg2PhysicalPresenceLibProcessRequest (NULL); //Check for TPM2.0
   }
+
+  DisplayPlatformBootLogo ();
 
   //
   // Register UEFI Shell
