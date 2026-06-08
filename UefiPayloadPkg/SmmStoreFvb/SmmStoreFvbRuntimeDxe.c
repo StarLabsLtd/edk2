@@ -309,56 +309,6 @@ ValidateFvHeader (
   return EFI_SUCCESS;
 }
 
-STATIC
-EFI_STATUS
-SmmStoreIsErased (
-  IN  UINT32   BlockCount,
-  IN  UINTN    BlockSize,
-  OUT BOOLEAN  *IsErased
-  )
-{
-  UINT8       *Block;
-  UINTN       BlockIndex;
-  UINTN       Offset;
-  UINTN       ReadSize;
-  EFI_STATUS  Status;
-
-  if ((BlockCount == 0) || (BlockSize == 0) || (IsErased == NULL)) {
-    return EFI_INVALID_PARAMETER;
-  }
-
-  Block = AllocatePool (BlockSize);
-  if (Block == NULL) {
-    return EFI_OUT_OF_RESOURCES;
-  }
-
-  *IsErased = TRUE;
-  for (BlockIndex = 0; BlockIndex < BlockCount; BlockIndex++) {
-    ReadSize = BlockSize;
-    Status   = SmmStoreLibRead (BlockIndex, 0, &ReadSize, Block);
-    if (EFI_ERROR (Status)) {
-      FreePool (Block);
-      return Status;
-    }
-
-    if (ReadSize != BlockSize) {
-      FreePool (Block);
-      return EFI_DEVICE_ERROR;
-    }
-
-    for (Offset = 0; Offset < BlockSize; Offset++) {
-      if (Block[Offset] != 0xff) {
-        *IsErased = FALSE;
-        FreePool (Block);
-        return EFI_SUCCESS;
-      }
-    }
-  }
-
-  FreePool (Block);
-  return EFI_SUCCESS;
-}
-
 /**
  The GetAttributes() function retrieves the attributes and
  current settings of the block.
@@ -837,7 +787,6 @@ FvbInitialize (
 {
   EFI_STATUS     Status;
   BOOLEAN        ForceFormat;
-  BOOLEAN        IsErased;
   UINT32         FvbNumLba;
   EFI_BOOT_MODE  BootMode;
 
@@ -868,15 +817,7 @@ FvbInitialize (
                  PcdGet32 (PcdFlashNvStorageFtwSpareSize)) / Instance->BlockSize;
 
     if (!ForceFormat) {
-      Status = SmmStoreIsErased (FvbNumLba, Instance->BlockSize, &IsErased);
-      if (EFI_ERROR (Status)) {
-        return Status;
-      }
-
-      if (!IsErased) {
-        DEBUG ((DEBUG_ERROR, "%a: Refusing to format non-empty invalid SmmStore\n", __func__));
-        return EFI_VOLUME_CORRUPTED;
-      }
+      DEBUG ((DEBUG_WARN, "%a: Formatting invalid SmmStore\n", __func__));
     }
 
     Status = FvbEraseBlocks (&Instance->FvbProtocol, (EFI_LBA)0, FvbNumLba, EFI_LBA_LIST_TERMINATOR);
