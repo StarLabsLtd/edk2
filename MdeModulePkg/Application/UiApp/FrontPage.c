@@ -9,6 +9,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 
 #include "FrontPage.h"
 #include "FrontPageCustomizedUi.h"
+#include <Library/BootLogoLib.h>
 
 #define MAX_STRING_LEN  200
 
@@ -1039,6 +1040,8 @@ InitializeUserInterface (
   UiSetConsoleMode (TRUE);
   UiEntry (FALSE);
   UiSetConsoleMode (FALSE);
+  Status = BootLogoEnableLogo ();
+  DEBUG ((DEBUG_INFO, "%a: repainted boot logo after setup: %r\n", __func__, Status));
 
   UninitializeStringSupport ();
   HiiRemovePackages (HiiHandle);

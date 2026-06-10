@@ -54,6 +54,7 @@
   PcdLib
   UefiHiiServicesLib
   UefiBootManagerLib
+  BootLogoLib
 
 [Guids]
   gEfiIfrTianoGuid                              ## CONSUMES ## GUID (Extended IFR Guid Opcode)
