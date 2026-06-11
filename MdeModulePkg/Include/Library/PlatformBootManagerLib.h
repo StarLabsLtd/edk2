@@ -66,6 +66,16 @@ PlatformBootManagerWaitCallback (
   );
 
 /**
+  This function is called after the boot manager timeout wait exits and before
+  boot options are launched.
+**/
+VOID
+EFIAPI
+PlatformBootManagerAfterBootWait (
+  VOID
+  );
+
+/**
   The function is called when no boot option could be launched,
   including platform recovery options and options pointing to applications
   built into firmware volumes.
