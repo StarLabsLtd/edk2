@@ -17,6 +17,7 @@
 #include <Guid/MemoryMapInfoGuid.h>
 #include <Guid/AcpiBoardInfoGuid.h>
 #include <Guid/GraphicsInfoHob.h>
+#include <Guid/SmmStoreInfoGuid.h>
 #include <Guid/UniversalPayloadBase.h>
 #include <UniversalPayload/SmbiosTable.h>
 #include <UniversalPayload/AcpiTable.h>
@@ -31,6 +32,7 @@
 #include <Protocol/PciHostBridgeResourceAllocation.h>
 #include <Protocol/PciIo.h>
 #include <Guid/PciSegmentInfoGuid.h>
+#include <Coreboot.h>
 
 typedef enum {
   ReservedMemory = 1,
@@ -899,6 +901,125 @@ ParsePciRootBridge (
 }
 
 /**
+  Search a coreboot table for an SMMSTOREv2 record.
+
+  @param[in]  Header            Pointer to a coreboot table header.
+
+  @return Pointer to the SMMSTOREv2 record, or NULL if it is not present.
+**/
+STATIC
+struct cb_smmstorev2 *
+FindCorebootSmmStore (
+  IN struct cb_header  *Header
+  )
+{
+  UINT32            Index;
+  struct cb_record  *Record;
+
+  if ((Header == NULL) || (Header->signature != CB_HEADER_SIGNATURE)) {
+    return NULL;
+  }
+
+  Record = (struct cb_record *)((UINT8 *)Header + Header->header_bytes);
+  for (Index = 0; Index < Header->table_entries; Index++) {
+    if (Record->tag == CB_TAG_FORWARD) {
+      return FindCorebootSmmStore ((struct cb_header *)(UINTN)((struct cb_forward *)Record)->forward);
+    }
+
+    if (Record->tag == CB_TAG_SMMSTOREV2) {
+      return (struct cb_smmstorev2 *)Record;
+    }
+
+    Record = (struct cb_record *)((UINT8 *)Record + Record->size);
+  }
+
+  return NULL;
+}
+
+/**
+  Build the SMMSTORE info HOB from the coreboot table pointer in the UPL FDT.
+
+  coreboot's UPL handoff describes the coreboot table as a DT node. The normal
+  coreboot-table payload path already converts CB_TAG_SMMSTOREV2 into this HOB;
+  recreate that bridge here so the UPL path can use the same SMMSTORE runtime
+  implementation.
+
+  @param[in]  Fdt               Address of the FDT data.
+**/
+STATIC
+VOID
+BuildCorebootSmmStoreHob (
+  IN VOID  *Fdt
+  )
+{
+  CONST FDT_PROPERTY    *PropertyPtr;
+  CONST CHAR8           *TempStr;
+  INT32                 TempLen;
+  INT32                 Depth;
+  INT32                 Node;
+  UINT64                *Data64;
+  UINT64                TableAddress;
+  struct cb_smmstorev2  *CbSmmStore;
+  SMMSTORE_INFO         *SmmStoreInfo;
+  FDT_NODE_HEADER       *NodePtr;
+
+  Depth = 0;
+  for (Node = FdtNextNode (Fdt, 0, &Depth); Node >= 0; Node = FdtNextNode (Fdt, Node, &Depth)) {
+    NodePtr = (FDT_NODE_HEADER *)((CONST CHAR8 *)Fdt + Node + Fdt32ToCpu (((FDT_HEADER *)Fdt)->OffsetDtStruct));
+    if (AsciiStrCmp (NodePtr->Name, "coreboot") != 0) {
+      continue;
+    }
+
+    PropertyPtr = FdtGetProperty (Fdt, Node, "compatible", &TempLen);
+    if ((PropertyPtr == NULL) || (TempLen <= 0)) {
+      continue;
+    }
+
+    TempStr = (CONST CHAR8 *)PropertyPtr->Data;
+    if (AsciiStrCmp (TempStr, "coreboot") != 0) {
+      continue;
+    }
+
+    PropertyPtr = FdtGetProperty (Fdt, Node, "reg", &TempLen);
+    if ((PropertyPtr == NULL) || (TempLen < (INT32)sizeof (UINT64))) {
+      DEBUG ((DEBUG_WARN, "UPL coreboot node has no valid reg property\n"));
+      return;
+    }
+
+    Data64       = (UINT64 *)PropertyPtr->Data;
+    TableAddress = Fdt64ToCpu (ReadUnaligned64 (Data64));
+    CbSmmStore   = FindCorebootSmmStore ((struct cb_header *)(UINTN)TableAddress);
+    if (CbSmmStore == NULL) {
+      DEBUG ((DEBUG_WARN, "UPL coreboot table has no SMMSTOREv2 record\n"));
+      return;
+    }
+
+    SmmStoreInfo = BuildGuidHob (&gEfiSmmStoreInfoHobGuid, sizeof (*SmmStoreInfo));
+    if (SmmStoreInfo == NULL) {
+      DEBUG ((DEBUG_ERROR, "Failed to build UPL SMMSTORE info HOB\n"));
+      return;
+    }
+
+    SmmStoreInfo->ComBuffer     = CbSmmStore->com_buffer;
+    SmmStoreInfo->ComBufferSize = CbSmmStore->com_buffer_size;
+    SmmStoreInfo->BlockSize     = CbSmmStore->block_size;
+    SmmStoreInfo->NumBlocks     = CbSmmStore->num_blocks;
+    SmmStoreInfo->MmioAddress   = CbSmmStore->mmap_addr;
+    SmmStoreInfo->ApmCmd        = CbSmmStore->apm_cmd;
+
+    DEBUG ((DEBUG_INFO, "Created SmmStore info hob from UPL coreboot node\n"));
+    DEBUG ((DEBUG_INFO, "  block size: 0x%x\n", CbSmmStore->block_size));
+    DEBUG ((DEBUG_INFO, "  number of blocks: 0x%x\n", CbSmmStore->num_blocks));
+    DEBUG ((DEBUG_INFO, "  communication buffer: 0x%x\n", CbSmmStore->com_buffer));
+    DEBUG ((DEBUG_INFO, "  communication buffer size: 0x%x\n", CbSmmStore->com_buffer_size));
+    DEBUG ((DEBUG_INFO, "  MMIO address of store: 0x%x\n", CbSmmStore->mmap_addr));
+    return;
+  }
+
+  DEBUG ((DEBUG_WARN, "UPL FDT has no coreboot node for SMMSTORE handoff\n"));
+}
+
+/**
   It will parse FDT based on DTB from bootloaders.
 
   @param[in]  FdtBase               Address of the Fdt data.
@@ -1028,6 +1149,10 @@ ParseDtb (
     }
 
     BuildMemoryAllocationHob (Addr, Size, EfiReservedMemoryType);
+  }
+
+  if (IsHobConstructed) {
+    BuildCorebootSmmStoreHob (Fdt);
   }
 
   index = RootBridgeCount - 1;
