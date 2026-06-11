@@ -1093,6 +1093,8 @@ BdsEntry (
       BootNext = NULL;
     }
 
+    PlatformBootManagerAfterBootWait ();
+
     if (BootNext != NULL) {
       //
       // Delete "BootNext" NV variable before transferring control to it to prevent loops.
