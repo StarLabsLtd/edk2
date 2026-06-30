@@ -191,7 +191,8 @@ FixUpPcdDatabase (
 VOID
 BuildMemoryTypeInformationHob (
   IN EFI_MEMORY_TYPE_INFORMATION  *DefaultMemoryTypeInformation,
-  IN UINTN                        DefaultMemoryTypeInformationSize
+  IN UINTN                        DefaultMemoryTypeInformationSize,
+  IN EFI_BOOT_MODE                BootMode
   );
 
 /**
