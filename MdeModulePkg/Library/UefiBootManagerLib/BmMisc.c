@@ -9,6 +9,8 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 
 #include "InternalBm.h"
 
+#define PREVIOUS_MEMORY_TYPE_INFORMATION_VARIABLE_NAME  L"PreviousMemoryTypeInformation"
+
 /**
   Delete the instance in Multi which matches partly with Single instance
 
@@ -151,8 +153,12 @@ BmSetMemoryTypeInformationVariable (
   BootMode = GetBootModeHob ();
   //
   // In BOOT_IN_RECOVERY_MODE, Variable region is not reliable.
+  // In BOOT_ON_FLASH_UPDATE and BOOT_ON_S4_RESUME, keep the current quotas.
   //
-  if (BootMode == BOOT_IN_RECOVERY_MODE) {
+  if ((BootMode == BOOT_IN_RECOVERY_MODE) ||
+      (BootMode == BOOT_ON_FLASH_UPDATE) ||
+      (BootMode == BOOT_ON_S4_RESUME))
+  {
     return;
   }
 
@@ -204,6 +210,22 @@ BmSetMemoryTypeInformationVariable (
   PreviousMemoryTypeInformation = AllocateCopyPool (VariableSize, GET_GUID_HOB_DATA (GuidHob));
   if (PreviousMemoryTypeInformation == NULL) {
     return;
+  }
+
+  //
+  // Preserve the quotas that were used for this boot so S4 resume can seed DXE
+  // from the last known-good memory type information instead of the most recent
+  // auto-tuned value.
+  //
+  Status = BmSetVariableAndReportStatusCodeOnError (
+             PREVIOUS_MEMORY_TYPE_INFORMATION_VARIABLE_NAME,
+             &gEfiMemoryTypeInformationGuid,
+             EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_BOOTSERVICE_ACCESS,
+             VariableSize,
+             PreviousMemoryTypeInformation
+             );
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_WARN, "Previous Memory Type Information settings cannot be saved.\n"));
   }
 
   //
