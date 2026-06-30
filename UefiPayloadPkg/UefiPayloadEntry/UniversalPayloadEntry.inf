@@ -98,6 +98,8 @@
   gUefiPayloadPkgTokenSpaceGuid.PcdMemoryTypeEfiReservedMemoryType
   gUefiPayloadPkgTokenSpaceGuid.PcdMemoryTypeEfiRuntimeServicesData
   gUefiPayloadPkgTokenSpaceGuid.PcdMemoryTypeEfiRuntimeServicesCode
+  gUefiPayloadPkgTokenSpaceGuid.PcdMemoryTypeInformationBinBase
+  gUefiPayloadPkgTokenSpaceGuid.PcdMemoryTypeInformationBinSize
   gEfiMdeModulePkgTokenSpaceGuid.PcdSetNxForStack               ## SOMETIMES_CONSUMES
   gEfiMdeModulePkgTokenSpaceGuid.PcdDxeNxMemoryProtectionPolicy ## SOMETIMES_CONSUMES
   gEfiMdeModulePkgTokenSpaceGuid.PcdImageProtectionPolicy       ## SOMETIMES_CONSUMES
