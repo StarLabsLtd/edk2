@@ -53,6 +53,7 @@
 [Packages]
   MdePkg/MdePkg.dec
   MdeModulePkg/MdeModulePkg.dec
+  SecurityPkg/SecurityPkg.dec
   UefiCpuPkg/UefiCpuPkg.dec
   UefiPayloadPkg/UefiPayloadPkg.dec
 
@@ -90,6 +91,8 @@
   gUniversalPayloadSmbios3TableGuid
   gUniversalPayloadDeviceTreeGuid
   gEfiSmmStoreInfoHobGuid
+  gTcgEvent2EntryHobGuid
+  gEfiTcgPhysicalPresenceInfoHobGuid
   gEfiVariableGuid
   gEfiAuthenticatedVariableGuid
 
