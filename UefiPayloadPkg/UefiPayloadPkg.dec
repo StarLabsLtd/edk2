@@ -151,3 +151,6 @@ gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiWideAspectCapSupport|FALSE|BOOLEA
 ## mode crops to a centered viewport.
 gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiWideAspectCapWidth|16|UINT32|0x00000033
 gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiWideAspectCapHeight|9|UINT32|0x00000034
+
+## Hardware S5 sleep type written to PM1_CNT by ResetShutdown().
+gUefiPayloadPkgTokenSpaceGuid.PcdResetShutdownSleepType|7|UINT16|0x00000035
