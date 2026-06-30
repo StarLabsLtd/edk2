@@ -12,7 +12,12 @@
 #include <Library/IoLib.h>
 #include <Library/HobLib.h>
 #include <Library/BaseMemoryLib.h>
+#include <Library/PcdLib.h>
 #include <Guid/AcpiBoardInfoGuid.h>
+
+#define ACPI_PM1_CNT_SLP_TYP_MASK   0x3c00
+#define ACPI_PM1_CNT_SLP_TYP_SHIFT  10
+#define ACPI_PM1_CNT_SLP_EN         BIT13
 
 ACPI_BOARD_INFO  mAcpiBoardInfo;
 
@@ -123,8 +128,12 @@ ResetShutdown (
   // Transform system into S5 sleep state
   //
   PmCtrlReg = (UINTN)mAcpiBoardInfo.PmCtrlRegBase;
-  IoAndThenOr16 (PmCtrlReg, (UINT16) ~0x3c00, (UINT16)(7 << 10));
-  IoOr16 (PmCtrlReg, BIT13);
+  IoAndThenOr16 (
+    PmCtrlReg,
+    (UINT16) ~ACPI_PM1_CNT_SLP_TYP_MASK,
+    (UINT16)(FixedPcdGet16 (PcdResetShutdownSleepType) << ACPI_PM1_CNT_SLP_TYP_SHIFT)
+    );
+  IoOr16 (PmCtrlReg, ACPI_PM1_CNT_SLP_EN);
   CpuDeadLoop ();
 
   ASSERT (FALSE);
