@@ -123,6 +123,8 @@
   gUefiPayloadPkgTokenSpaceGuid.PcdMemoryTypeEfiReservedMemoryType
   gUefiPayloadPkgTokenSpaceGuid.PcdMemoryTypeEfiRuntimeServicesData
   gUefiPayloadPkgTokenSpaceGuid.PcdMemoryTypeEfiRuntimeServicesCode
+  gUefiPayloadPkgTokenSpaceGuid.PcdMemoryTypeInformationBinBase
+  gUefiPayloadPkgTokenSpaceGuid.PcdMemoryTypeInformationBinSize
   gUefiPayloadPkgTokenSpaceGuid.PcdFDTPageSize
 
 [BuildOptions]
