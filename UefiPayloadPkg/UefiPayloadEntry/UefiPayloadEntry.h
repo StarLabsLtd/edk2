@@ -27,6 +27,8 @@
 #include <Library/CpuLib.h>
 #include <IndustryStandard/Acpi.h>
 #include <IndustryStandard/MemoryMappedConfigurationSpaceAccessTable.h>
+#include <IndustryStandard/Tpm2Acpi.h>
+#include <IndustryStandard/UefiTcgPlatform.h>
 #include <Guid/SerialPortInfoGuid.h>
 #include <Guid/MemoryMapInfoGuid.h>
 #include <Guid/AcpiBoardInfoGuid.h>
@@ -40,6 +42,7 @@
 #include <Guid/PcdDataBaseSignatureGuid.h>
 #include <Guid/FirmwareInfoGuid.h>
 #include <Guid/SmmStoreInfoGuid.h>
+#include <Guid/TcgEventHob.h>
 #include <Guid/TcgPhysicalPresenceGuid.h>
 
 #define LEGACY_8259_MASK_REGISTER_MASTER  0x21
