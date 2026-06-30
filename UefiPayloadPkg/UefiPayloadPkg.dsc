@@ -51,6 +51,9 @@
   DEFINE PAYLOAD_FB_HIDPI_WIDE_ASPECT_CAP_SUPPORT = FALSE
   DEFINE PAYLOAD_FB_HIDPI_WIDE_ASPECT_CAP_WIDTH   = 16
   DEFINE PAYLOAD_FB_HIDPI_WIDE_ASPECT_CAP_HEIGHT  = 9
+  DEFINE MEMORY_TYPE_EFI_ACPI_RECLAIM_MEMORY = 0x19
+  DEFINE MEMORY_TYPE_INFORMATION_BIN_BASE = 0
+  DEFINE MEMORY_TYPE_INFORMATION_BIN_SIZE = 0
 
   #
   # Capsule updates
@@ -815,6 +818,9 @@
 
   ## Whether allows PCI RB to allocate DMA memory above 4GB
   gUefiPayloadPkgTokenSpaceGuid.PcdPciAllocateMemoryAbove4GB|FALSE
+  gUefiPayloadPkgTokenSpaceGuid.PcdMemoryTypeEfiACPIReclaimMemory|$(MEMORY_TYPE_EFI_ACPI_RECLAIM_MEMORY)
+  gUefiPayloadPkgTokenSpaceGuid.PcdMemoryTypeInformationBinBase|$(MEMORY_TYPE_INFORMATION_BIN_BASE)
+  gUefiPayloadPkgTokenSpaceGuid.PcdMemoryTypeInformationBinSize|$(MEMORY_TYPE_INFORMATION_BIN_SIZE)
 
 [PcdsFixedAtBuild.AARCH64]
   # System Memory Base -- fixed at 0x4000_0000
