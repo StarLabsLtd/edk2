@@ -34,7 +34,10 @@
   IoLib
   HobLib
   BaseMemoryLib
+  PcdLib
 
 [Guids]
   gUefiAcpiBoardInfoGuid
 
+[Pcd]
+  gUefiPayloadPkgTokenSpaceGuid.PcdResetShutdownSleepType
