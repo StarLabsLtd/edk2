@@ -53,6 +53,7 @@
 [Packages]
   MdePkg/MdePkg.dec
   MdeModulePkg/MdeModulePkg.dec
+  SecurityPkg/SecurityPkg.dec
   UefiCpuPkg/UefiCpuPkg.dec
   UefiPayloadPkg/UefiPayloadPkg.dec
 
@@ -94,6 +95,8 @@
   gEfiFirmwareInfoHobGuid
   gUefiPayloadCorebootTableGuid
   gEfiSmmStoreInfoHobGuid
+  gTcgEvent2EntryHobGuid
+  gEfiTcgPhysicalPresenceInfoHobGuid
   gEfiVariableGuid
   gEfiAuthenticatedVariableGuid
 

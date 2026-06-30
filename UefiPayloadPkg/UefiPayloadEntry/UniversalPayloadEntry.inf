@@ -38,6 +38,7 @@
 [Packages]
   MdePkg/MdePkg.dec
   MdeModulePkg/MdeModulePkg.dec
+  SecurityPkg/SecurityPkg.dec
   UefiCpuPkg/UefiCpuPkg.dec
   UefiPayloadPkg/UefiPayloadPkg.dec
 [LibraryClasses]
@@ -71,6 +72,8 @@
   gUniversalPayloadPciRootBridgeInfoGuid
   gUniversalPayloadSmbios3TableGuid
   gEfiSmmStoreInfoHobGuid
+  gTcgEvent2EntryHobGuid
+  gEfiTcgPhysicalPresenceInfoHobGuid
   gEfiVariableGuid
   gEfiAuthenticatedVariableGuid
 [FeaturePcd.IA32]
