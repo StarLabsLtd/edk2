@@ -17,6 +17,8 @@
 #define SMMSTORE_RET_UNSUPPORTED  2
 #define SMMSTORE_CMD_RAW_READ     5
 
+#define PREVIOUS_MEMORY_TYPE_INFORMATION_VARIABLE_NAME  L"PreviousMemoryTypeInformation"
+
 typedef struct {
   UINT32    BufSize;
   UINT32    BufOffset;
@@ -26,6 +28,66 @@ typedef struct {
 typedef union {
   SMM_STORE_PARAMS_READ    Read;
 } SMM_STORE_COM_BUF;
+
+STATIC
+BOOLEAN
+MemoryTypeInformationResourceHobExists (
+  VOID
+  )
+{
+  EFI_HOB_RESOURCE_DESCRIPTOR  *ResourceHob;
+  VOID                         *Hob;
+
+  Hob = GetFirstHob (EFI_HOB_TYPE_RESOURCE_DESCRIPTOR);
+  while (Hob != NULL) {
+    ResourceHob = (EFI_HOB_RESOURCE_DESCRIPTOR *)Hob;
+    if (CompareGuid (&ResourceHob->Owner, &gEfiMemoryTypeInformationGuid)) {
+      return TRUE;
+    }
+
+    Hob = GET_NEXT_HOB (Hob);
+    Hob = GetNextHob (EFI_HOB_TYPE_RESOURCE_DESCRIPTOR, Hob);
+  }
+
+  return FALSE;
+}
+
+STATIC
+VOID
+BuildMemoryTypeInformationResourceHob (
+  VOID
+  )
+{
+  EFI_PHYSICAL_ADDRESS         Base;
+  UINT64                       Size;
+  EFI_RESOURCE_ATTRIBUTE_TYPE  Attribute;
+
+  Base = FixedPcdGet32 (PcdMemoryTypeInformationBinBase);
+  Size = FixedPcdGet32 (PcdMemoryTypeInformationBinSize);
+
+  if ((Base == 0) || (Size == 0) || MemoryTypeInformationResourceHobExists ()) {
+    return;
+  }
+
+  Attribute = EFI_RESOURCE_ATTRIBUTE_PRESENT |
+              EFI_RESOURCE_ATTRIBUTE_INITIALIZED |
+              EFI_RESOURCE_ATTRIBUTE_TESTED;
+
+  BuildResourceDescriptorWithOwnerHob (
+    EFI_RESOURCE_SYSTEM_MEMORY,
+    Attribute,
+    Base,
+    Size,
+    &gEfiMemoryTypeInformationGuid
+    );
+
+  DEBUG ((
+    DEBUG_INFO,
+    "Memory Type Information bin owner HOB: base = 0x%lx, size = 0x%lx\n",
+    Base,
+    Size
+    ));
+}
 
 #if defined (MDE_CPU_X64)
 UINTN
@@ -438,20 +500,28 @@ ReadSmmStoreBytes (
 VOID
 BuildMemoryTypeInformationHob (
   IN EFI_MEMORY_TYPE_INFORMATION  *DefaultMemoryTypeInformation,
-  IN UINTN                        DefaultMemoryTypeInformationSize
+  IN UINTN                        DefaultMemoryTypeInformationSize,
+  IN EFI_BOOT_MODE                BootMode
   )
 {
   EFI_FIRMWARE_VOLUME_HEADER   FirmwareVolumeHeader;
   EFI_MEMORY_TYPE_INFORMATION  MemoryTypeInformation[EfiMaxMemoryType + 1];
+  CHAR16                       *MemoryTypeInformationVariableName;
   VARIABLE_STORE_HEADER        VariableStoreHeader;
   UINTN                        VariableDataOffset;
   UINTN                        VariableDataSize;
   UINTN                        VariableStoreOffset;
   EFI_STATUS                   Status;
 
+  BuildMemoryTypeInformationResourceHob ();
+
   if (GetFirstGuidHob (&gEfiMemoryTypeInformationGuid) != NULL) {
     return;
   }
+
+  MemoryTypeInformationVariableName = (BootMode == BOOT_ON_S4_RESUME) ?
+                                      PREVIOUS_MEMORY_TYPE_INFORMATION_VARIABLE_NAME :
+                                      EFI_MEMORY_TYPE_INFORMATION_VARIABLE_NAME;
 
   VariableDataSize = sizeof (FirmwareVolumeHeader);
   Status           = ReadSmmStoreBytes (0, &VariableDataSize, &FirmwareVolumeHeader);
@@ -474,7 +544,7 @@ BuildMemoryTypeInformationHob (
       if (FindVariableInSmmStore (
             VariableStoreOffset,
             &VariableStoreHeader,
-            EFI_MEMORY_TYPE_INFORMATION_VARIABLE_NAME,
+            MemoryTypeInformationVariableName,
             &gEfiMemoryTypeInformationGuid,
             &VariableDataOffset,
             &VariableDataSize
