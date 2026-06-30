@@ -551,7 +551,8 @@ FitBuildHobs (
   //
   BuildMemoryTypeInformationHob (
     mDefaultMemoryTypeInformation,
-    sizeof (mDefaultMemoryTypeInformation)
+    sizeof (mDefaultMemoryTypeInformation),
+    GetBootModeHob ()
     );
 
   //
