@@ -782,6 +782,7 @@
   gEfiMdeModulePkgTokenSpaceGuid.PcdSdMmcGenericTimeoutValue|$(SD_MMC_TIMEOUT)
   gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiWideAspectCapWidth|$(PAYLOAD_FB_HIDPI_WIDE_ASPECT_CAP_WIDTH)
   gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiWideAspectCapHeight|$(PAYLOAD_FB_HIDPI_WIDE_ASPECT_CAP_HEIGHT)
+  gUefiPayloadPkgTokenSpaceGuid.PcdResetShutdownSleepType|7
 
   gUefiPayloadPkgTokenSpaceGuid.PcdBootManagerEscape|$(BOOT_MANAGER_ESCAPE)
 
