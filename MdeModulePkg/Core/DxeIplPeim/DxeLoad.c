@@ -10,6 +10,8 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 
 #include "DxeIpl.h"
 
+#define PREVIOUS_MEMORY_TYPE_INFORMATION_VARIABLE_NAME  L"PreviousMemoryTypeInformation"
+
 //
 // Module Globals used in the DXE to PEI hand off
 // These must be module globals, so the stack can be switched
@@ -379,6 +381,8 @@ DxeLoadCore (
       DataSize = sizeof (MemoryData);
       Status   = Variable->GetVariable (
                              Variable,
+                             (BootMode == BOOT_ON_S4_RESUME) ?
+                             PREVIOUS_MEMORY_TYPE_INFORMATION_VARIABLE_NAME :
                              EFI_MEMORY_TYPE_INFORMATION_VARIABLE_NAME,
                              &gEfiMemoryTypeInformationGuid,
                              NULL,
