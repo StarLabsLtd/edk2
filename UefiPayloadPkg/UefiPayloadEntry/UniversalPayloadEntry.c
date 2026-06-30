@@ -496,7 +496,8 @@ _ModuleEntryPoint (
   //
   BuildMemoryTypeInformationHob (
     mDefaultMemoryTypeInformation,
-    sizeof (mDefaultMemoryTypeInformation)
+    sizeof (mDefaultMemoryTypeInformation),
+    GetBootModeHob ()
     );
 
   FixUpPcdDatabase (DxeFv);

@@ -617,7 +617,8 @@ _ModuleEntryPoint (
   //
   BuildMemoryTypeInformationHob (
     mDefaultMemoryTypeInformation,
-    sizeof (mDefaultMemoryTypeInformation)
+    sizeof (mDefaultMemoryTypeInformation),
+    HobInfo->BootMode
     );
 
   // Load the DXE Core

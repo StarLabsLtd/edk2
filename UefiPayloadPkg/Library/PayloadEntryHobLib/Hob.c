@@ -188,6 +188,29 @@ GetFirstHob (
 }
 
 /**
+  Get the system boot mode from the HOB list.
+
+  This function returns the system boot mode information from the
+  PHIT HOB in HOB list.
+
+  @return The Boot Mode.
+
+**/
+EFI_BOOT_MODE
+EFIAPI
+GetBootModeHob (
+  VOID
+  )
+{
+  EFI_HOB_HANDOFF_INFO_TABLE  *HandOffHob;
+
+  HandOffHob = (EFI_HOB_HANDOFF_INFO_TABLE *)GetHobList ();
+  ASSERT (HandOffHob != NULL);
+
+  return HandOffHob->BootMode;
+}
+
+/**
   This function searches the first instance of a HOB from the starting HOB pointer.
   Such HOB should satisfy two conditions:
   its HOB type is EFI_HOB_TYPE_GUID_EXTENSION and its GUID Name equals to the input Guid.
