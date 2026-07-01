@@ -167,8 +167,11 @@ GetMerlinBatteryInfo (
     return Status;
   }
 
-  // Check if battery is present and detected
-  *BatteryPresent = ((PowerState & MERLIN_BATTERY_PRESENT) != 0) && ((PowerState & MERLIN_BATTERY_DETECTED) != 0);
+  //
+  // Match the ACPI battery device and vendor firmware: ECPS bit 1 is the
+  // battery-present signal. Some Merlin EC firmware does not assert bit 2.
+  //
+  *BatteryPresent = ((PowerState & MERLIN_BATTERY_PRESENT) != 0);
 
   if (!*BatteryPresent) {
     *BatteryCharging   = FALSE;
