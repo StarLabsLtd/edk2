@@ -280,18 +280,20 @@ BdsWaitForSingleEvent (
   The function reads user inputs.
 
 **/
-VOID
+BOOLEAN
 BdsReadKeys (
   VOID
   )
 {
   EFI_STATUS     Status;
   EFI_INPUT_KEY  Key;
+  BOOLEAN        EnterPressed;
 
   if (PcdGetBool (PcdConInConnectOnDemand)) {
-    return;
+    return FALSE;
   }
 
+  EnterPressed = FALSE;
   while (gST->ConIn != NULL) {
     Status = gST->ConIn->ReadKeyStroke (gST->ConIn, &Key);
 
@@ -301,7 +303,13 @@ BdsReadKeys (
       //
       break;
     }
+
+    if ((Key.ScanCode == SCAN_NULL) && (Key.UnicodeChar == CHAR_CARRIAGE_RETURN)) {
+      EnterPressed = TRUE;
+    }
   }
+
+  return EnterPressed;
 }
 
 /**
@@ -328,8 +336,11 @@ BdsWait (
     DEBUG ((DEBUG_INFO, "[Bds]BdsWait(%d)..Zzzz...\n", (UINTN)TimeoutRemain));
     PlatformBootManagerWaitCallback (TimeoutRemain);
 
-    BdsReadKeys (); // BUGBUG: Only reading can signal HotkeyTriggered
-                    //         Can be removed after all keyboard drivers invoke callback in timer callback.
+    if (BdsReadKeys ()) {
+      break;
+    }
+    // BUGBUG: Only reading can signal HotkeyTriggered.
+    //         Can be removed after all keyboard drivers invoke callback in timer callback.
 
     if (HotkeyTriggered != NULL) {
       Status = BdsWaitForSingleEvent (HotkeyTriggered, EFI_TIMER_PERIOD_SECONDS (1));
