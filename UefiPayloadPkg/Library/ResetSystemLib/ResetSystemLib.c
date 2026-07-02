@@ -18,6 +18,10 @@
 #define ACPI_PM1_CNT_SLP_TYP_MASK   0x3c00
 #define ACPI_PM1_CNT_SLP_TYP_SHIFT  10
 #define ACPI_PM1_CNT_SLP_EN         BIT13
+#define LEGACY_RESET_CONTROL_REG    0xcf9
+#define LEGACY_RESET_FULL           BIT3
+#define LEGACY_RESET_CPU            BIT2
+#define LEGACY_RESET_SYSTEM         BIT1
 
 ACPI_BOARD_INFO  mAcpiBoardInfo;
 
@@ -74,7 +78,16 @@ ResetCold (
   // Flush before asserting reset so the platform does not hang mid-reboot.
   //
   AsmWbinvd ();
-  IoWrite8 ((UINTN)mAcpiBoardInfo.ResetRegAddress, mAcpiBoardInfo.ResetValue);
+  if (mAcpiBoardInfo.ResetRegAddress == LEGACY_RESET_CONTROL_REG) {
+    IoWrite8 (LEGACY_RESET_CONTROL_REG, LEGACY_RESET_FULL | LEGACY_RESET_SYSTEM);
+    IoWrite8 (
+      LEGACY_RESET_CONTROL_REG,
+      LEGACY_RESET_FULL | LEGACY_RESET_CPU | LEGACY_RESET_SYSTEM
+      );
+  } else {
+    IoWrite8 ((UINTN)mAcpiBoardInfo.ResetRegAddress, mAcpiBoardInfo.ResetValue);
+  }
+
   CpuDeadLoop ();
 }
 
