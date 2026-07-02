@@ -19,9 +19,9 @@
 #define ACPI_PM1_CNT_SLP_TYP_SHIFT  10
 #define ACPI_PM1_CNT_SLP_EN         BIT13
 #define LEGACY_RESET_CONTROL_REG    0xcf9
-#define LEGACY_RESET_CPU            BIT1
-#define LEGACY_RESET_SYSTEM         (BIT2 | BIT1)
-#define LEGACY_RESET_FULL           (BIT3 | BIT2 | BIT1)
+#define LEGACY_RESET_FULL           BIT3
+#define LEGACY_RESET_CPU            BIT2
+#define LEGACY_RESET_SYSTEM         BIT1
 
 ACPI_BOARD_INFO  mAcpiBoardInfo;
 
@@ -40,8 +40,13 @@ TriggerReset (
   // once fwupd-efi has finished a capsule update. Assert the CF9 sequence
   // explicitly as a fallback before entering the required dead loop.
   //
-  IoWrite8 (LEGACY_RESET_CONTROL_REG, LEGACY_RESET_CPU);
-  IoWrite8 (LEGACY_RESET_CONTROL_REG, FullReset ? LEGACY_RESET_FULL : LEGACY_RESET_SYSTEM);
+  if (FullReset) {
+    IoWrite8 (LEGACY_RESET_CONTROL_REG, LEGACY_RESET_FULL | LEGACY_RESET_SYSTEM);
+    IoWrite8 (LEGACY_RESET_CONTROL_REG, LEGACY_RESET_FULL | LEGACY_RESET_CPU | LEGACY_RESET_SYSTEM);
+  } else {
+    IoWrite8 (LEGACY_RESET_CONTROL_REG, LEGACY_RESET_SYSTEM);
+    IoWrite8 (LEGACY_RESET_CONTROL_REG, LEGACY_RESET_CPU | LEGACY_RESET_SYSTEM);
+  }
 }
 
 /**
