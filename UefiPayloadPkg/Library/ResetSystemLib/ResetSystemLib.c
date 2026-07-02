@@ -18,8 +18,36 @@
 #define ACPI_PM1_CNT_SLP_TYP_MASK   0x3c00
 #define ACPI_PM1_CNT_SLP_TYP_SHIFT  10
 #define ACPI_PM1_CNT_SLP_EN         BIT13
+#define LEGACY_RESET_CONTROL_REG    0xcf9
+#define LEGACY_RESET_FULL           BIT3
+#define LEGACY_RESET_CPU            BIT2
+#define LEGACY_RESET_SYSTEM         BIT1
 
 ACPI_BOARD_INFO  mAcpiBoardInfo;
+
+STATIC
+VOID
+TriggerReset (
+  IN BOOLEAN  FullReset
+  )
+{
+  if ((mAcpiBoardInfo.ResetRegAddress != 0) && (mAcpiBoardInfo.ResetValue != 0)) {
+    IoWrite8 ((UINTN)mAcpiBoardInfo.ResetRegAddress, mAcpiBoardInfo.ResetValue);
+  }
+
+  //
+  // Some Intel platforms do not reliably reset from a single FADT reset write
+  // once fwupd-efi has finished a capsule update. Assert the CF9 sequence
+  // explicitly as a fallback before entering the required dead loop.
+  //
+  if (FullReset) {
+    IoWrite8 (LEGACY_RESET_CONTROL_REG, LEGACY_RESET_FULL | LEGACY_RESET_SYSTEM);
+    IoWrite8 (LEGACY_RESET_CONTROL_REG, LEGACY_RESET_FULL | LEGACY_RESET_CPU | LEGACY_RESET_SYSTEM);
+  } else {
+    IoWrite8 (LEGACY_RESET_CONTROL_REG, LEGACY_RESET_SYSTEM);
+    IoWrite8 (LEGACY_RESET_CONTROL_REG, LEGACY_RESET_CPU | LEGACY_RESET_SYSTEM);
+  }
+}
 
 /**
   The constructor function to initialize mAcpiBoardInfo.
@@ -74,7 +102,7 @@ ResetCold (
   // Flush before asserting reset so the platform does not hang mid-reboot.
   //
   AsmWbinvd ();
-  IoWrite8 ((UINTN)mAcpiBoardInfo.ResetRegAddress, mAcpiBoardInfo.ResetValue);
+  TriggerReset (TRUE);
   CpuDeadLoop ();
 }
 
@@ -95,7 +123,7 @@ ResetWarm (
   // Keep the warm reset path consistent with cold reset for capsule updates.
   //
   AsmWbinvd ();
-  IoWrite8 ((UINTN)mAcpiBoardInfo.ResetRegAddress, mAcpiBoardInfo.ResetValue);
+  TriggerReset (FALSE);
   CpuDeadLoop ();
 }
 
