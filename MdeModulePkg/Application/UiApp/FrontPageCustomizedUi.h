@@ -12,7 +12,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
   Update the banner string in the front page.
 
   Current layout for the banner string like below:
-  PS: Totally only 6 lines of banner supported.
+  PS: Totally only 7 lines of banner supported.
 
   Line 1: Left BannerStr                           RightBannerStr
   Line 2: Left BannerStr                           RightBannerStr
@@ -20,6 +20,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
   Line 4: Left BannerStr                           RightBannerStr
   Line 5: Left BannerStr                           RightBannerStr
   Line 6: Left BannerStr                           RightBannerStr
+  Line 7: Left BannerStr                           RightBannerStr
   <EmptyLine>
   First menu in front page.
   ...
