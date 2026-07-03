@@ -306,12 +306,16 @@ ProcessUserOpcode (
                 ASSERT (gBannerData != NULL);
               }
 
-              CopyMem (
-                &gBannerData->Banner[((EFI_IFR_GUID_BANNER *)OpCodeData)->LineNumber][
-                                                                                      ((EFI_IFR_GUID_BANNER *)OpCodeData)->Alignment],
-                &((EFI_IFR_GUID_BANNER *)OpCodeData)->Title,
-                sizeof (EFI_STRING_ID)
-                );
+              if ((((EFI_IFR_GUID_BANNER *)OpCodeData)->LineNumber < BANNER_HEIGHT) &&
+                  (((EFI_IFR_GUID_BANNER *)OpCodeData)->Alignment < BANNER_COLUMNS))
+              {
+                CopyMem (
+                  &gBannerData->Banner[((EFI_IFR_GUID_BANNER *)OpCodeData)->LineNumber][
+                                                                                        ((EFI_IFR_GUID_BANNER *)OpCodeData)->Alignment],
+                  &((EFI_IFR_GUID_BANNER *)OpCodeData)->Title,
+                  sizeof (EFI_STRING_ID)
+                  );
+              }
             }
 
             break;
