@@ -10,8 +10,11 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include "FrontPage.h"
 #include "FrontPageCustomizedUi.h"
 #include <Library/BootLogoLib.h>
+#include <Protocol/BatteryStatus.h>
 
 #define MAX_STRING_LEN  200
+#define FRONT_PAGE_BATTERY_REFRESH_SECONDS  15
+#define FRONT_PAGE_BATTERY_ROW              7
 
 EFI_GUID  mFrontPageGuid = FRONT_PAGE_FORMSET_GUID;
 
@@ -20,6 +23,11 @@ BOOLEAN  mResetRequired = FALSE;
 EFI_FORM_BROWSER2_PROTOCOL         *gFormBrowser2;
 CHAR8                              *mLanguageString;
 BOOLEAN                             mModeInitialized = FALSE;
+EFI_EVENT                           mBatteryUpdateTimer = NULL;
+BOOLEAN                             mFrontPageActive = FALSE;
+STATIC UINT8                        mLastBatteryPercentage = 0xFE;
+STATIC BOOLEAN                      mLastBatteryPresent = FALSE;
+STATIC BOOLEAN                      mLastBatteryCharging = FALSE;
 //
 // Boot video resolution and text mode.
 //
@@ -46,6 +54,18 @@ FRONT_PAGE_CALLBACK_DATA  gFrontPagePrivate = {
     FrontPageCallback
   }
 };
+
+STATIC
+VOID
+UpdateFrontPageBatteryStatus (
+  IN BOOLEAN  ForceRedraw
+  );
+
+STATIC
+VOID
+SetFrontPageBatteryRefreshTimer (
+  IN BOOLEAN  Enable
+  );
 
 HII_VENDOR_DEVICE_PATH  mFrontPageHiiVendorDevicePath = {
   {
@@ -183,6 +203,15 @@ FrontPageCallback (
   OUT EFI_BROWSER_ACTION_REQUEST            *ActionRequest
   )
 {
+  if (Action == EFI_BROWSER_ACTION_FORM_OPEN) {
+    mFrontPageActive = TRUE;
+    UpdateFrontPageBatteryStatus (TRUE);
+    SetFrontPageBatteryRefreshTimer (TRUE);
+  } else if (Action == EFI_BROWSER_ACTION_FORM_CLOSE) {
+    SetFrontPageBatteryRefreshTimer (FALSE);
+    mFrontPageActive = FALSE;
+  }
+
   return UiFrontPageCallbackHandler (gFrontPagePrivate.HiiHandle, Action, QuestionId, Type, Value, ActionRequest);
 }
 
@@ -240,6 +269,206 @@ UpdateFrontPageForm (
 
   HiiFreeOpCodeHandle (StartOpCodeHandle);
   HiiFreeOpCodeHandle (EndOpCodeHandle);
+}
+
+STATIC
+VOID
+DrawFrontPageBatteryStatus (
+  IN CONST CHAR16  *BatteryString
+  )
+{
+  EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL  *ConOut;
+  EFI_STATUS                       Status;
+  UINTN                            SavedColumn;
+  UINTN                            SavedRow;
+  UINTN                            Columns;
+  UINTN                            Rows;
+  UINTN                            Index;
+  UINTN                            ClearWidth;
+  CHAR16                           ClearString[MAX_STRING_LEN];
+
+  if (!mFrontPageActive || (gST == NULL) || (gST->ConOut == NULL) || (gST->ConOut->Mode == NULL)) {
+    return;
+  }
+
+  ConOut = gST->ConOut;
+  Status = ConOut->QueryMode (ConOut, ConOut->Mode->Mode, &Columns, &Rows);
+  if (EFI_ERROR (Status) || (Columns <= 1) || (FRONT_PAGE_BATTERY_ROW >= Rows)) {
+    return;
+  }
+
+  SavedColumn = ConOut->Mode->CursorColumn;
+  SavedRow    = ConOut->Mode->CursorRow;
+
+  ClearWidth = Columns - 1;
+  if (ClearWidth >= MAX_STRING_LEN) {
+    ClearWidth = MAX_STRING_LEN - 1;
+  }
+
+  for (Index = 0; Index < ClearWidth; Index++) {
+    ClearString[Index] = L' ';
+  }
+
+  ClearString[ClearWidth] = CHAR_NULL;
+
+  if (!EFI_ERROR (ConOut->SetCursorPosition (ConOut, 1, FRONT_PAGE_BATTERY_ROW))) {
+    ConOut->OutputString (ConOut, ClearString);
+    ConOut->SetCursorPosition (ConOut, 1, FRONT_PAGE_BATTERY_ROW);
+    if ((BatteryString != NULL) && (BatteryString[0] != CHAR_NULL)) {
+      ConOut->OutputString (ConOut, (CHAR16 *)BatteryString);
+    }
+  }
+
+  ConOut->SetCursorPosition (ConOut, SavedColumn, SavedRow);
+}
+
+STATIC
+VOID
+UpdateFrontPageBatteryStatus (
+  IN BOOLEAN  ForceRedraw
+  )
+{
+  EFI_STATUS                   Status;
+  EFI_BATTERY_STATUS_PROTOCOL  *BatteryStatus;
+  UINT8                        BatteryPercentage;
+  BOOLEAN                      BatteryPresent;
+  BOOLEAN                      BatteryCharging;
+  CHAR16                       *BatteryString;
+  BOOLEAN                      Changed;
+
+  BatteryPercentage = 0xFF;
+  BatteryPresent    = FALSE;
+  BatteryCharging   = FALSE;
+
+  Status = gBS->LocateProtocol (&gEfiBatteryStatusProtocolGuid, NULL, (VOID **)&BatteryStatus);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_INFO, "%a: battery status protocol unavailable: %r\n", __func__, Status));
+    if (ForceRedraw || mLastBatteryPresent) {
+      HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_BATTERY_STATUS), L"", NULL);
+      DrawFrontPageBatteryStatus (L"");
+      mLastBatteryPresent = FALSE;
+    }
+
+    return;
+  }
+
+  Status = BatteryStatus->GetBatteryInfo (
+                            BatteryStatus,
+                            &BatteryPercentage,
+                            &BatteryPresent,
+                            &BatteryCharging
+                            );
+  if (EFI_ERROR (Status) || !BatteryPresent) {
+    DEBUG ((DEBUG_INFO, "%a: battery unavailable: %r present=%d\n", __func__, Status, BatteryPresent));
+    if (ForceRedraw || mLastBatteryPresent) {
+      HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_BATTERY_STATUS), L"", NULL);
+      DrawFrontPageBatteryStatus (L"");
+      mLastBatteryPresent = FALSE;
+    }
+
+    return;
+  }
+
+  Changed = ForceRedraw ||
+            (BatteryPercentage != mLastBatteryPercentage) ||
+            (BatteryPresent != mLastBatteryPresent) ||
+            (BatteryCharging != mLastBatteryCharging);
+  if (!Changed) {
+    return;
+  }
+
+  BatteryString = AllocateZeroPool (MAX_STRING_LEN * sizeof (CHAR16));
+  if (BatteryString == NULL) {
+    DEBUG ((DEBUG_WARN, "%a: failed to allocate battery banner string\n", __func__));
+    return;
+  }
+
+  if (BatteryPercentage == 0xFF) {
+    UnicodeSPrint (
+      BatteryString,
+      MAX_STRING_LEN * sizeof (CHAR16),
+      L"%-24s%s",
+      L"Battery:",
+      L"present"
+      );
+  } else {
+    UnicodeSPrint (
+      BatteryString,
+      MAX_STRING_LEN * sizeof (CHAR16),
+      BatteryCharging ? L"%-24s%u%% (charging)" : L"%-24s%u%%",
+      L"Battery:",
+      BatteryPercentage
+      );
+  }
+
+  UiCustomizeFrontPageBanner (FRONT_PAGE_BATTERY_ROW, TRUE, &BatteryString);
+  HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_BATTERY_STATUS), BatteryString, NULL);
+  DrawFrontPageBatteryStatus (BatteryString);
+
+  mLastBatteryPercentage = BatteryPercentage;
+  mLastBatteryPresent    = BatteryPresent;
+  mLastBatteryCharging   = BatteryCharging;
+
+  DEBUG ((
+    DEBUG_INFO,
+    "%a: battery=%u%% present=%d charging=%d\n",
+    __func__,
+    BatteryPercentage,
+    BatteryPresent,
+    BatteryCharging
+    ));
+
+  FreePool (BatteryString);
+}
+
+STATIC
+VOID
+EFIAPI
+FrontPageBatteryUpdateTimerCallback (
+  IN EFI_EVENT  Event,
+  IN VOID       *Context
+  )
+{
+  if (mFrontPageActive) {
+    UpdateFrontPageBatteryStatus (FALSE);
+  }
+}
+
+STATIC
+VOID
+SetFrontPageBatteryRefreshTimer (
+  IN BOOLEAN  Enable
+  )
+{
+  EFI_STATUS  Status;
+
+  if (Enable) {
+    if (mBatteryUpdateTimer == NULL) {
+      Status = gBS->CreateEvent (
+                      EVT_TIMER | EVT_NOTIFY_SIGNAL,
+                      TPL_CALLBACK,
+                      FrontPageBatteryUpdateTimerCallback,
+                      NULL,
+                      &mBatteryUpdateTimer
+                      );
+      if (EFI_ERROR (Status)) {
+        DEBUG ((DEBUG_WARN, "%a: failed to create battery update timer: %r\n", __func__, Status));
+        mBatteryUpdateTimer = NULL;
+        return;
+      }
+    }
+
+    Status = gBS->SetTimer (
+                    mBatteryUpdateTimer,
+                    TimerPeriodic,
+                    FRONT_PAGE_BATTERY_REFRESH_SECONDS * 10000000
+                    );
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_WARN, "%a: failed to arm battery update timer: %r\n", __func__, Status));
+    }
+  } else if (mBatteryUpdateTimer != NULL) {
+    gBS->SetTimer (mBatteryUpdateTimer, TimerCancel, 0);
+  }
 }
 
 /**
@@ -357,6 +586,12 @@ FreeFrontPage (
   )
 {
   EFI_STATUS  Status;
+
+  if (mBatteryUpdateTimer != NULL) {
+    gBS->SetTimer (mBatteryUpdateTimer, TimerCancel, 0);
+    gBS->CloseEvent (mBatteryUpdateTimer);
+    mBatteryUpdateTimer = NULL;
+  }
 
   Status = gBS->UninstallMultipleProtocolInterfaces (
                   gFrontPagePrivate.DriverHandle,
@@ -572,6 +807,7 @@ UpdateFrontPageBannerStrings (
     HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_MEMORY_SIZE), NewString, NULL);
     FreePool (NewString);
 
+    UpdateFrontPageBatteryStatus (TRUE);
     return;
   }
 
@@ -726,6 +962,8 @@ UpdateFrontPageBannerStrings (
   UiCustomizeFrontPageBanner (3, TRUE, &NewString);
   HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_MEMORY_SIZE), NewString, NULL);
   FreePool (NewString);
+
+  UpdateFrontPageBatteryStatus (TRUE);
 }
 
 /**
