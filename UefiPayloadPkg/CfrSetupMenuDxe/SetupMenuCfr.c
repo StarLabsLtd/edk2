@@ -1597,7 +1597,15 @@ CfrProcessNumericOption (
 
   HiiFreeOpCodeHandle (DefaultOpCodeHandle);
 
-  ASSERT (OptionProcessedLength == Option->size);
+  if (OptionProcessedLength != Option->size) {
+    DEBUG ((
+      DEBUG_WARN,
+      "CFR: Option \"%a\" processed length 0x%x does not match size 0x%x\n",
+      CfrOptionName->data,
+      OptionProcessedLength,
+      Option->size
+      ));
+  }
   *ProcessedLength += Option->size;
 }
 
@@ -1824,7 +1832,15 @@ CfrProcessCharacterOption (
     ASSERT (TempHiiBuffer != NULL);
   }
 
-  ASSERT (OptionProcessedLength == Option->size);
+  if (OptionProcessedLength != Option->size) {
+    DEBUG ((
+      DEBUG_WARN,
+      "CFR: Option \"%a\" processed length 0x%x does not match size 0x%x\n",
+      CfrOptionName->data,
+      OptionProcessedLength,
+      Option->size
+      ));
+  }
   *ProcessedLength += Option->size;
 }
 
