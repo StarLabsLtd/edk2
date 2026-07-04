@@ -159,13 +159,35 @@ VOID *
 CfrExtractRecord (
   IN     UINT8   *Buffer,
   IN OUT UINTN   *Offset,
-  IN     UINT32  TargetTag
+  IN     UINTN   BufferSize,
+  IN     UINT32  TargetTag,
+  IN     UINTN   MinimumSize
   )
 {
   CFR_VARBINARY  *Record;
 
+  if ((*Offset > BufferSize) ||
+      ((BufferSize - *Offset) < sizeof (UINT32) * 2))
+  {
+    return NULL;
+  }
+
   Record = (CFR_VARBINARY *)(Buffer + *Offset);
   if (Record->tag != TargetTag) {
+    return NULL;
+  }
+
+  if ((Record->size < MinimumSize) ||
+      (Record->size > (BufferSize - *Offset)))
+  {
+    DEBUG ((
+      DEBUG_WARN,
+      "CFR: record tag 0x%x at offset 0x%x has invalid size 0x%x within 0x%x\n",
+      Record->tag,
+      *Offset,
+      Record->size,
+      BufferSize
+      ));
     return NULL;
   }
 
@@ -1165,6 +1187,7 @@ CfrProcessFormOption (
   UINT32              *DepValues;
   UINT32              NumDepValues;
   CFR_VARBINARY       *CfrDepValues;
+  UINTN               OptionProcessedLength;
   CHAR16              *HiiFormNameString;
   EFI_STRING_ID       HiiFormNameStringId;
   UINT8               *TempHiiBuffer;
@@ -1172,14 +1195,24 @@ CfrProcessFormOption (
   //
   // Extract variable-length fields that follow the header
   //
-  *ProcessedLength += sizeof (CFR_OPTION_FORM);
-  CfrFormName = CfrExtractVarBinary ((UINT8 *)Option, ProcessedLength, CB_TAG_CFR_VARCHAR_UI_NAME);
+  OptionProcessedLength = sizeof (CFR_OPTION_FORM);
+  CfrFormName = CfrExtractVarBinary (
+                  (UINT8 *)Option,
+                  &OptionProcessedLength,
+                  Option->size,
+                  CB_TAG_CFR_VARCHAR_UI_NAME
+                  );
   ASSERT (CfrFormName != NULL);
 
   // Dependency values are optional
   DepValues = NULL;
   NumDepValues = 0;
-  CfrDepValues = CfrExtractVarBinary ((UINT8 *)Option, ProcessedLength, CB_TAG_CFR_DEP_VALUES);
+  CfrDepValues = CfrExtractVarBinary (
+                   (UINT8 *)Option,
+                   &OptionProcessedLength,
+                   Option->size,
+                   CB_TAG_CFR_DEP_VALUES
+                   );
   if (CfrDepValues != NULL) {
     ASSERT (CfrDepValues->tag == CB_TAG_CFR_DEP_VALUES);
     CfrConvertVarBinaryToUint32Array (CfrDepValues, &DepValues, &NumDepValues);
@@ -1252,6 +1285,8 @@ CfrProcessFormOption (
     TempHiiBuffer = HiiCreateEndOpCode (StartOpCodeHandle);
     ASSERT (TempHiiBuffer != NULL);
   }
+
+  *ProcessedLength += OptionProcessedLength;
 }
 
 /**
@@ -1294,13 +1329,28 @@ CfrProcessNumericOption (
   //
   OptionProcessedLength = sizeof (CFR_OPTION_NUMERIC);
 
-  CfrOptionName = CfrExtractVarBinary ((UINT8 *)Option, &OptionProcessedLength, CB_TAG_CFR_VARCHAR_OPT_NAME);
+  CfrOptionName = CfrExtractVarBinary (
+                    (UINT8 *)Option,
+                    &OptionProcessedLength,
+                    Option->size,
+                    CB_TAG_CFR_VARCHAR_OPT_NAME
+                    );
   ASSERT (CfrOptionName != NULL);
-  CfrDisplayName = CfrExtractVarBinary ((UINT8 *)Option, &OptionProcessedLength, CB_TAG_CFR_VARCHAR_UI_NAME);
+  CfrDisplayName = CfrExtractVarBinary (
+                     (UINT8 *)Option,
+                     &OptionProcessedLength,
+                     Option->size,
+                     CB_TAG_CFR_VARCHAR_UI_NAME
+                     );
   ASSERT (CfrDisplayName != NULL);
 
   // Help text is optional
-  CfrHelpText = CfrExtractVarBinary ((UINT8 *)Option, &OptionProcessedLength, CB_TAG_CFR_VARCHAR_UI_HELPTEXT);
+  CfrHelpText = CfrExtractVarBinary (
+                  (UINT8 *)Option,
+                  &OptionProcessedLength,
+                  Option->size,
+                  CB_TAG_CFR_VARCHAR_UI_HELPTEXT
+                  );
   if (CfrHelpText != NULL) {
     ASSERT (CfrHelpText->tag == CB_TAG_CFR_VARCHAR_UI_HELPTEXT);
   }
@@ -1308,7 +1358,12 @@ CfrProcessNumericOption (
   // Dependency values are optional
   DepValues = NULL;
   NumDepValues = 0;
-  CfrDepValues = CfrExtractVarBinary ((UINT8 *)Option, &OptionProcessedLength, CB_TAG_CFR_DEP_VALUES);
+  CfrDepValues = CfrExtractVarBinary (
+                   (UINT8 *)Option,
+                   &OptionProcessedLength,
+                   Option->size,
+                   CB_TAG_CFR_DEP_VALUES
+                   );
   if (CfrDepValues != NULL) {
     ASSERT (CfrDepValues->tag == CB_TAG_CFR_DEP_VALUES);
     CfrConvertVarBinaryToUint32Array (CfrDepValues, &DepValues, &NumDepValues);
@@ -1318,7 +1373,9 @@ CfrProcessNumericOption (
   CfrRuntimeApply = CfrExtractRecord (
                       (UINT8 *)Option,
                       &OptionProcessedLength,
-                      CB_TAG_CFR_RUNTIME_APPLY
+                      Option->size,
+                      CB_TAG_CFR_RUNTIME_APPLY,
+                      sizeof (CFR_RUNTIME_APPLY)
                       );
   if (CfrRuntimeApply != NULL) {
     ASSERT (CfrRuntimeApply->tag == CB_TAG_CFR_RUNTIME_APPLY);
@@ -1544,7 +1601,12 @@ CfrProcessCharacterOption (
   // Only true string options have variables
   CfrOptionName = NULL;
   if (Option->tag == CB_TAG_CFR_OPTION_VARCHAR) {
-    CfrDefaultValue = CfrExtractVarBinary ((UINT8 *)Option, &OptionProcessedLength, CB_TAG_CFR_VARCHAR_DEF_VALUE);
+    CfrDefaultValue = CfrExtractVarBinary (
+                        (UINT8 *)Option,
+                        &OptionProcessedLength,
+                        Option->size,
+                        CB_TAG_CFR_VARCHAR_DEF_VALUE
+                        );
     ASSERT (CfrDefaultValue != NULL);
 
     if (CfrDefaultValue->data_length > 0xFF) {
@@ -1553,15 +1615,30 @@ CfrProcessCharacterOption (
       return;
     }
 
-    CfrOptionName = CfrExtractVarBinary ((UINT8 *)Option, &OptionProcessedLength, CB_TAG_CFR_VARCHAR_OPT_NAME);
+    CfrOptionName = CfrExtractVarBinary (
+                      (UINT8 *)Option,
+                      &OptionProcessedLength,
+                      Option->size,
+                      CB_TAG_CFR_VARCHAR_OPT_NAME
+                      );
     ASSERT (CfrOptionName != NULL);
   }
 
-  CfrDisplayName = CfrExtractVarBinary ((UINT8 *)Option, &OptionProcessedLength, CB_TAG_CFR_VARCHAR_UI_NAME);
+  CfrDisplayName = CfrExtractVarBinary (
+                     (UINT8 *)Option,
+                     &OptionProcessedLength,
+                     Option->size,
+                     CB_TAG_CFR_VARCHAR_UI_NAME
+                     );
   ASSERT (CfrDisplayName != NULL);
 
   // Help text is optional
-  CfrHelpText = CfrExtractVarBinary ((UINT8 *)Option, &OptionProcessedLength, CB_TAG_CFR_VARCHAR_UI_HELPTEXT);
+  CfrHelpText = CfrExtractVarBinary (
+                  (UINT8 *)Option,
+                  &OptionProcessedLength,
+                  Option->size,
+                  CB_TAG_CFR_VARCHAR_UI_HELPTEXT
+                  );
   if (CfrHelpText != NULL) {
     ASSERT (CfrHelpText->tag == CB_TAG_CFR_VARCHAR_UI_HELPTEXT);
   }
@@ -1569,7 +1646,12 @@ CfrProcessCharacterOption (
   // Dependency values are optional
   DepValues = NULL;
   NumDepValues = 0;
-  CfrDepValues = CfrExtractVarBinary ((UINT8 *)Option, &OptionProcessedLength, CB_TAG_CFR_DEP_VALUES);
+  CfrDepValues = CfrExtractVarBinary (
+                   (UINT8 *)Option,
+                   &OptionProcessedLength,
+                   Option->size,
+                   CB_TAG_CFR_DEP_VALUES
+                   );
   if (CfrDepValues != NULL) {
     ASSERT (CfrDepValues->tag == CB_TAG_CFR_DEP_VALUES);
     CfrConvertVarBinaryToUint32Array (CfrDepValues, &DepValues, &NumDepValues);

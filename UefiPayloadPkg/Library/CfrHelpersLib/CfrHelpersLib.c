@@ -28,13 +28,35 @@ EFIAPI
 CfrExtractVarBinary (
   IN     UINT8   *Buffer,
   IN OUT UINTN   *Offset,
+  IN     UINTN   BufferSize,
   IN     UINT32  TargetTag
   )
 {
   CFR_VARBINARY  *CfrVarBinary;
 
+  if ((*Offset > BufferSize) ||
+      ((BufferSize - *Offset) < sizeof (CFR_VARBINARY)))
+  {
+    return NULL;
+  }
+
   CfrVarBinary = (CFR_VARBINARY *)(Buffer + *Offset);
   if (CfrVarBinary->tag != TargetTag) {
+    return NULL;
+  }
+
+  if ((CfrVarBinary->size < sizeof (CFR_VARBINARY)) ||
+      (CfrVarBinary->size > (BufferSize - *Offset)) ||
+      (CfrVarBinary->data_length > (CfrVarBinary->size - sizeof (CFR_VARBINARY))))
+  {
+    DEBUG ((
+      DEBUG_WARN,
+      "CFR: record tag 0x%x at offset 0x%x has invalid size 0x%x within 0x%x\n",
+      CfrVarBinary->tag,
+      *Offset,
+      CfrVarBinary->size,
+      BufferSize
+      ));
     return NULL;
   }
 
@@ -86,7 +108,12 @@ CfrOptionGetDefaultValue (
     CfrFormHob = GET_GUID_HOB_DATA (GuidHob);
 
     ProcessedLength = sizeof (CFR_OPTION_FORM);
-    CfrFormName = CfrExtractVarBinary ((UINT8 *)CfrFormHob, &ProcessedLength, CB_TAG_CFR_VARCHAR_UI_NAME);
+    CfrFormName = CfrExtractVarBinary (
+                    (UINT8 *)CfrFormHob,
+                    &ProcessedLength,
+                    CfrFormHob->size,
+                    CB_TAG_CFR_VARCHAR_UI_NAME
+                    );
     ASSERT (CfrFormName != NULL);
 
     //
@@ -107,7 +134,12 @@ CfrOptionGetDefaultValue (
         case CB_TAG_CFR_OPTION_FORM:
           // Processing nested forms, don't advance by `size`
           ProcessedLength += sizeof (CFR_OPTION_FORM);
-          CfrFormName = CfrExtractVarBinary ((UINT8 *)CfrFormHob, &ProcessedLength, CB_TAG_CFR_VARCHAR_UI_NAME);
+          CfrFormName = CfrExtractVarBinary (
+                          (UINT8 *)CfrFormHob,
+                          &ProcessedLength,
+                          CfrFormHob->size,
+                          CB_TAG_CFR_VARCHAR_UI_NAME
+                          );
           ASSERT (CfrFormName != NULL);
 
           // Forms do not have default values
@@ -119,7 +151,12 @@ CfrOptionGetDefaultValue (
         case CB_TAG_CFR_OPTION_NUMBER:
         case CB_TAG_CFR_OPTION_BOOL:
           OptionProcessedLength = sizeof (CFR_OPTION_NUMERIC);
-          CfrOptionName = CfrExtractVarBinary ((UINT8 *)CfrFormData, &OptionProcessedLength, CB_TAG_CFR_VARCHAR_OPT_NAME);
+          CfrOptionName = CfrExtractVarBinary (
+                            (UINT8 *)CfrFormData,
+                            &OptionProcessedLength,
+                            CfrFormData->size,
+                            CB_TAG_CFR_VARCHAR_OPT_NAME
+                            );
           ASSERT (CfrOptionName != NULL);
 
           if (AsciiStrCmp (OptionName, (CHAR8 *)CfrOptionName->data) == 0) {
@@ -134,17 +171,37 @@ CfrOptionGetDefaultValue (
         case CB_TAG_CFR_OPTION_VARCHAR:
           // Currently required to remove intermediate VARBINARY structs of UI data
           OptionProcessedLength = sizeof (CFR_OPTION_VARCHAR);
-          CfrOptionName = CfrExtractVarBinary ((UINT8 *)CfrFormData, &OptionProcessedLength, CB_TAG_CFR_VARCHAR_OPT_NAME);
+          CfrOptionName = CfrExtractVarBinary (
+                            (UINT8 *)CfrFormData,
+                            &OptionProcessedLength,
+                            CfrFormData->size,
+                            CB_TAG_CFR_VARCHAR_OPT_NAME
+                            );
           ASSERT (CfrOptionName != NULL);
 
-          TempUiName = CfrExtractVarBinary ((UINT8 *)CfrFormData, &OptionProcessedLength, CB_TAG_CFR_VARCHAR_UI_NAME);
+          TempUiName = CfrExtractVarBinary (
+                         (UINT8 *)CfrFormData,
+                         &OptionProcessedLength,
+                         CfrFormData->size,
+                         CB_TAG_CFR_VARCHAR_UI_NAME
+                         );
           ASSERT (TempUiName != NULL);
-          TempHelpText = CfrExtractVarBinary ((UINT8 *)CfrFormData, &OptionProcessedLength, CB_TAG_CFR_VARCHAR_UI_HELPTEXT);
+          TempHelpText = CfrExtractVarBinary (
+                           (UINT8 *)CfrFormData,
+                           &OptionProcessedLength,
+                           CfrFormData->size,
+                           CB_TAG_CFR_VARCHAR_UI_HELPTEXT
+                           );
           if (TempHelpText != NULL) {
             ASSERT (TempHelpText->tag == CB_TAG_CFR_VARCHAR_UI_HELPTEXT);
           }
 
-          CfrDefaultValue = CfrExtractVarBinary ((UINT8 *)CfrFormData, &OptionProcessedLength, CB_TAG_CFR_VARCHAR_DEF_VALUE);
+          CfrDefaultValue = CfrExtractVarBinary (
+                              (UINT8 *)CfrFormData,
+                              &OptionProcessedLength,
+                              CfrFormData->size,
+                              CB_TAG_CFR_VARCHAR_DEF_VALUE
+                              );
           ASSERT (CfrDefaultValue != NULL);
 
           if (AsciiStrCmp (OptionName, (CHAR8 *)CfrOptionName->data) == 0) {
