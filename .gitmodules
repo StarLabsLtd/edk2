@@ -40,4 +40,4 @@
 	url = https://github.com/TrustedComputingGroup/TPM
 [submodule "LvglPkg"]
 	path = LvglPkg
-	url = https://github.com/MrChromebox/LvglPkg.git
+	url = https://github.com/Sean-StarLabs/LvglPkg.git
