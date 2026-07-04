@@ -27,6 +27,7 @@ EFIAPI
 CfrExtractVarBinary (
   IN     UINT8   *Buffer,
   IN OUT UINTN   *Offset,
+  IN     UINTN   BufferSize,
   IN     UINT32  TargetTag
   );
 
