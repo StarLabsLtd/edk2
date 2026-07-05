@@ -709,6 +709,7 @@ BdsEntry (
   CHAR16                          BootNextVariableName[sizeof ("Boot####")];
   EFI_BOOT_MANAGER_LOAD_OPTION    BootManagerMenu;
   BOOLEAN                         BootFwUi;
+  BOOLEAN                         BootFwUiAttempted;
   BOOLEAN                         PlatformRecovery;
   BOOLEAN                         BootSuccess;
   EFI_DEVICE_PATH_PROTOCOL        *FilePath;
@@ -716,9 +717,10 @@ BdsEntry (
   EFI_BOOT_MANAGER_LOAD_OPTION    PlatformDefaultBootOption;
   BOOLEAN                         PlatformDefaultBootOptionValid;
 
-  HotkeyTriggered = NULL;
-  Status          = EFI_SUCCESS;
-  BootSuccess     = FALSE;
+  HotkeyTriggered   = NULL;
+  Status            = EFI_SUCCESS;
+  BootSuccess       = FALSE;
+  BootFwUiAttempted = FALSE;
 
   //
   // Insert the performance probe
@@ -1046,18 +1048,32 @@ BdsEntry (
   //
   // Launch Boot Manager Menu directly when EFI_OS_INDICATIONS_BOOT_TO_FW_UI is set. Skip HotkeyBoot
   //
-  if (BootFwUi && (BootManagerMenuStatus != EFI_NOT_FOUND)) {
-    //
-    // Follow generic rule, Call BdsDxeOnConnectConInCallBack to connect ConIn before enter UI
-    //
-    if (PcdGetBool (PcdConInConnectOnDemand)) {
-      BdsDxeOnConnectConInCallBack (NULL, NULL);
-    }
+  if (BootFwUi) {
+    if (BootManagerMenuStatus != EFI_NOT_FOUND) {
+      //
+      // Follow generic rule, Call BdsDxeOnConnectConInCallBack to connect ConIn before enter UI
+      //
+      if (PcdGetBool (PcdConInConnectOnDemand)) {
+        BdsDxeOnConnectConInCallBack (NULL, NULL);
+      }
 
-    //
-    // Directly enter the setup page.
-    //
-    EfiBootManagerBoot (&BootManagerMenu);
+      //
+      // The OS-request path bypasses BdsWait(), unlike hotkey setup entry.
+      // Drain stale keystrokes so a pending Enter cannot immediately activate
+      // the Front Page Continue action and fall through to the OS.
+      //
+      BdsReadKeys ();
+
+      //
+      // Directly enter the setup page.
+      //
+      DEBUG ((DEBUG_INFO, "[Bds]Booting firmware setup menu from OsIndications\n"));
+      BootFwUiAttempted = TRUE;
+      EfiBootManagerBoot (&BootManagerMenu);
+      DEBUG ((DEBUG_INFO, "[Bds]Firmware setup menu returned: %r\n", BootManagerMenu.Status));
+    } else {
+      DEBUG ((DEBUG_WARN, "[Bds]Boot-to-firmware-UI requested but Boot Manager Menu is unavailable\n"));
+    }
   }
 
   if (!PlatformRecovery) {
@@ -1070,18 +1086,28 @@ BdsEntry (
       EfiBootManagerFreeLoadOptions (LoadOptions, LoadOptionCount);
     }
 
-    //
-    // Execute Key####
-    //
-    PERF_INMODULE_BEGIN ("BdsWait");
-    BdsWait (HotkeyTriggered);
-    PERF_INMODULE_END ("BdsWait");
-    //
-    // BdsReadKeys() can be removed after all keyboard drivers invoke callback in timer callback.
-    //
-    BdsReadKeys ();
+    if (!BootFwUiAttempted) {
+      //
+      // Execute Key####
+      //
+      PERF_INMODULE_BEGIN ("BdsWait");
+      BdsWait (HotkeyTriggered);
+      PERF_INMODULE_END ("BdsWait");
+      //
+      // BdsReadKeys() can be removed after all keyboard drivers invoke callback in timer callback.
+      //
+      BdsReadKeys ();
 
-    EfiBootManagerHotkeyBoot ();
+      EfiBootManagerHotkeyBoot ();
+    } else {
+      //
+      // The OS-requested setup path has already consumed this boot's intent.
+      // Do not process a hotkey that was pressed at the splash while setup was
+      // launching, otherwise exiting setup can immediately enter setup again.
+      //
+      BdsReadKeys ();
+      DEBUG ((DEBUG_INFO, "[Bds]Skipping hotkey boot after OsIndications setup\n"));
+    }
 
     PlatformBootManagerAfterBootWait ();
 
