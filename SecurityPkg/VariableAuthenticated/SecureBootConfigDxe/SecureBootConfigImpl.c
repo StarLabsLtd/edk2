@@ -4372,8 +4372,25 @@ KeyEnrollReset (
 {
   EFI_STATUS  Status;
   UINT8       SetupMode;
+  UINT8       *SecureBootEnable;
+  BOOLEAN     SecureBootWasEnabled;
 
-  Status = EFI_SUCCESS;
+  Status               = EFI_SUCCESS;
+  SecureBootEnable     = NULL;
+  SecureBootWasEnabled = FALSE;
+
+  //
+  // Preserve current Secure Boot enable/disable policy.
+  //
+  GetVariable2 (EFI_SECURE_BOOT_ENABLE_NAME, &gEfiSecureBootEnableDisableGuid, (VOID **)&SecureBootEnable, NULL);
+  if ((SecureBootEnable != NULL) && (*SecureBootEnable == SECURE_BOOT_ENABLE)) {
+    SecureBootWasEnabled = TRUE;
+  }
+
+  if (SecureBootEnable != NULL) {
+    FreePool (SecureBootEnable);
+    SecureBootEnable = NULL;
+  }
 
   Status = SetSecureBootMode (CUSTOM_SECURE_BOOT_MODE);
   if (EFI_ERROR (Status)) {
@@ -4473,6 +4490,16 @@ KeyEnrollReset (
       "Cannot set CustomMode to STANDARD_SECURE_BOOT_MODE\n"
       "Please do it manually, otherwise system can be easily compromised\n"
       ));
+  }
+
+  //
+  // Restore previous Secure Boot state.
+  //
+  if (!SecureBootWasEnabled) {
+    Status = SaveSecureBootVariable (SECURE_BOOT_DISABLE);
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_ERROR, "Cannot restore SecureBootEnable to DISABLE: %r\n", Status));
+    }
   }
 
   return Status;
