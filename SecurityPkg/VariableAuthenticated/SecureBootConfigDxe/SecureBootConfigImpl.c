@@ -4387,9 +4387,43 @@ KeyEnrollReset (
   )
 {
   EFI_STATUS  Status;
+  EFI_STATUS  RestoreStatus;
   UINT8       SetupMode;
+  UINT8       *SecureBootEnable;
+  UINTN       SecureBootEnableSize;
+  BOOLEAN     SecureBootWasEnabled;
 
-  Status = EFI_SUCCESS;
+  Status               = EFI_SUCCESS;
+  SecureBootEnable     = NULL;
+  SecureBootWasEnabled = FALSE;
+
+  //
+  // Preserve current Secure Boot enable/disable policy.
+  //
+  SecureBootEnableSize = 0;
+  Status = GetVariable2 (EFI_SECURE_BOOT_ENABLE_NAME, &gEfiSecureBootEnableDisableGuid, (VOID **)&SecureBootEnable, &SecureBootEnableSize);
+  if (EFI_ERROR (Status) && (Status != EFI_NOT_FOUND)) {
+    return Status;
+  }
+
+  if (!EFI_ERROR (Status) &&
+      ((SecureBootEnable == NULL) || (SecureBootEnableSize != sizeof (*SecureBootEnable)) ||
+       (*SecureBootEnable > SECURE_BOOT_ENABLE)))
+  {
+    if (SecureBootEnable != NULL) {
+      FreePool (SecureBootEnable);
+    }
+
+    return EFI_COMPROMISED_DATA;
+  }
+  if ((SecureBootEnable != NULL) && (*SecureBootEnable == SECURE_BOOT_ENABLE)) {
+    SecureBootWasEnabled = TRUE;
+  }
+
+  if (SecureBootEnable != NULL) {
+    FreePool (SecureBootEnable);
+    SecureBootEnable = NULL;
+  }
 
   Status = SetSecureBootMode (CUSTOM_SECURE_BOOT_MODE);
   if (EFI_ERROR (Status)) {
@@ -4400,31 +4434,31 @@ KeyEnrollReset (
   Status = DeleteDb ();
   if (EFI_ERROR (Status) && (Status != EFI_NOT_FOUND)) {
     DEBUG ((DEBUG_ERROR, "Fail to clear DB: %r\n", Status));
-    return Status;
+    goto error;
   }
 
   Status = DeleteDbx ();
   if (EFI_ERROR (Status) && (Status != EFI_NOT_FOUND)) {
     DEBUG ((DEBUG_ERROR, "Fail to clear DBX: %r\n", Status));
-    return Status;
+    goto error;
   }
 
   Status = DeleteDbt ();
   if (EFI_ERROR (Status) && (Status != EFI_NOT_FOUND)) {
     DEBUG ((DEBUG_ERROR, "Fail to clear DBT: %r\n", Status));
-    return Status;
+    goto error;
   }
 
   Status = DeleteKEK ();
   if (EFI_ERROR (Status) && (Status != EFI_NOT_FOUND)) {
     DEBUG ((DEBUG_ERROR, "Fail to clear KEK: %r\n", Status));
-    return Status;
+    goto error;
   }
 
   Status = DeletePlatformKey ();
   if (EFI_ERROR (Status) && (Status != EFI_NOT_FOUND)) {
     DEBUG ((DEBUG_ERROR, "Fail to clear PK: %r\n", Status));
-    return Status;
+    goto error;
   }
 
   // After PK clear, Setup Mode shall be enabled
@@ -4435,12 +4469,13 @@ KeyEnrollReset (
       "Cannot get SetupMode variable: %r\n",
       Status
       ));
-    return Status;
+    goto error;
   }
 
   if (SetupMode == USER_MODE) {
     DEBUG ((DEBUG_INFO, "Skipped - USER_MODE\n"));
-    return EFI_SUCCESS;
+    Status = EFI_DEVICE_ERROR;
+    goto error;
   }
 
   Status = SetSecureBootMode (CUSTOM_SECURE_BOOT_MODE);
@@ -4450,7 +4485,7 @@ KeyEnrollReset (
       "Cannot set CUSTOM_SECURE_BOOT_MODE: %r\n",
       Status
       ));
-    return EFI_SUCCESS;
+    goto error;
   }
 
   // Enroll all the keys from default variables
@@ -4461,36 +4496,43 @@ KeyEnrollReset (
   }
 
   Status = EnrollDbxFromDefault ();
-  if (EFI_ERROR (Status)) {
+  if (EFI_ERROR (Status) && (Status != EFI_NOT_FOUND)) {
     DEBUG ((DEBUG_ERROR, "Cannot enroll dbx: %r\n", Status));
+    goto cleardbs;
   }
 
   Status = EnrollDbtFromDefault ();
-  if (EFI_ERROR (Status)) {
+  if (EFI_ERROR (Status) && (Status != EFI_NOT_FOUND)) {
     DEBUG ((DEBUG_ERROR, "Cannot enroll dbt: %r\n", Status));
+    goto cleardbs;
   }
 
   Status = EnrollKEKFromDefault ();
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "Cannot enroll KEK: %r\n", Status));
-    goto cleardbs;
+    goto clearKEK;
   }
 
   Status = EnrollPKFromDefault ();
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "Cannot enroll PK: %r\n", Status));
-    goto clearKEK;
   }
 
-  Status = SetSecureBootMode (STANDARD_SECURE_BOOT_MODE);
-  if (EFI_ERROR (Status)) {
-    DEBUG ((
-      DEBUG_ERROR,
-      "Cannot set CustomMode to STANDARD_SECURE_BOOT_MODE\n"
-      "Please do it manually, otherwise system can be easily compromised\n"
-      ));
+  // PK may already have been committed even if enrollment returned an error.
+  // Keep the databases, restore policy, and do not load another image until
+  // the variable driver has reconciled the live SecureBoot state on reboot.
+  RestoreStatus = SetSecureBootMode (STANDARD_SECURE_BOOT_MODE);
+  if (EFI_ERROR (RestoreStatus) && !EFI_ERROR (Status)) {
+    Status = RestoreStatus;
   }
 
+  RestoreStatus = SaveSecureBootVariable (SecureBootWasEnabled ? SECURE_BOOT_ENABLE : SECURE_BOOT_DISABLE);
+  if (EFI_ERROR (RestoreStatus) && !EFI_ERROR (Status)) {
+    Status = RestoreStatus;
+  }
+
+  gRT->ResetSystem (EFI_ERROR (Status) ? EfiResetShutdown : EfiResetCold, Status, 0, NULL);
+  CpuDeadLoop ();
   return Status;
 
 clearKEK:
@@ -4502,8 +4544,11 @@ cleardbs:
   DeleteDb ();
 
 error:
-  if (SetSecureBootMode (STANDARD_SECURE_BOOT_MODE) != EFI_SUCCESS) {
-    DEBUG ((DEBUG_ERROR, "Cannot set mode to Secure: %r\n", Status));
+  RestoreStatus = SetSecureBootMode (STANDARD_SECURE_BOOT_MODE);
+  if (EFI_ERROR (RestoreStatus)) {
+    DEBUG ((DEBUG_ERROR, "Cannot restore Standard Mode: %r\n", RestoreStatus));
+    gRT->ResetSystem (EfiResetShutdown, RestoreStatus, 0, NULL);
+    CpuDeadLoop ();
   }
 
   return Status;
@@ -5214,6 +5259,7 @@ SecureBootCallback (
                         STRING_TOKEN (STR_SECUREBOOT_SIMPLE_RESET_TO_DEFAULTS_POPUP) :
                         STRING_TOKEN (STR_RESET_TO_DEFAULTS_POPUP);
 
+        UserSelection = EfiHiiPopupSelectionNo;
         Status = HiiPopup->CreatePopup (
                              HiiPopup,
                              EfiHiiPopupStyleInfo,
@@ -5222,6 +5268,10 @@ SecureBootCallback (
                              PopupStringId,
                              &UserSelection
                              );
+        if (EFI_ERROR (Status)) {
+          break;
+        }
+
         if (UserSelection == EfiHiiPopupSelectionYes) {
           Status = KeyEnrollReset ();
         }
