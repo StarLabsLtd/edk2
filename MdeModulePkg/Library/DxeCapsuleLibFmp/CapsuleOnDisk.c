@@ -8,6 +8,8 @@
 
 #include "CapsuleOnDisk.h"
 
+#define COD_RELOCATION_LOAD_OPTION_SCAN_FALLBACK  0xffff
+
 /**
   Return if this capsule is a capsule name capsule, based upon CapsuleHeader.
 
@@ -20,6 +22,30 @@ BOOLEAN
 IsCapsuleNameCapsule (
   IN EFI_CAPSULE_HEADER  *CapsuleHeader
   );
+
+STATIC
+BOOLEAN
+CoDFileAttributeMatches (
+  IN UINT64  FileAttribute,
+  IN UINT64  FileAttr
+  )
+{
+  if ((FileAttribute & EFI_FILE_DIRECTORY) != 0) {
+    return FALSE;
+  }
+
+  if ((FileAttribute & FileAttr) != 0) {
+    return TRUE;
+  }
+
+  //
+  // Some filesystem drivers report regular capsule files without
+  // EFI_FILE_ARCHIVE set.  The caller already opened the trusted
+  // \EFI\UpdateCapsule directory, so accept any non-directory file when
+  // looking for archive/system capsule files.
+  //
+  return (FileAttr & (EFI_FILE_ARCHIVE | EFI_FILE_SYSTEM)) != 0;
+}
 
 /**
   Check the integrity of the capsule name capsule.
@@ -710,7 +736,7 @@ GetFileInfoListInAlphabetFromDir (
     //
     // Skip file with mismatching File attribute
     //
-    if ((FileInfo->Attribute & (FileAttr)) == 0) {
+    if (!CoDFileAttributeMatches (FileInfo->Attribute, FileAttr)) {
       continue;
     }
 
@@ -877,6 +903,172 @@ EXIT:
   }
 
   return Status;
+}
+
+STATIC
+VOID
+CoDFreeFileInfoList (
+  IN OUT LIST_ENTRY  *FileInfoList
+  )
+{
+  LIST_ENTRY       *Link;
+  FILE_INFO_ENTRY  *FileInfoEntry;
+
+  while (!IsListEmpty (FileInfoList)) {
+    Link = FileInfoList->ForwardLink;
+    RemoveEntryList (Link);
+
+    FileInfoEntry = CR (Link, FILE_INFO_ENTRY, Link, FILE_INFO_SIGNATURE);
+
+    FreePool (FileInfoEntry->FileInfo);
+    FreePool (FileInfoEntry->FileNameFirstPart);
+    FreePool (FileInfoEntry->FileNameSecondPart);
+    FreePool (FileInfoEntry);
+  }
+}
+
+STATIC
+EFI_STATUS
+CoDOpenCapsuleDirectoryOnFs (
+  IN  EFI_HANDLE       FsHandle,
+  OUT EFI_FILE_HANDLE  *FileDir
+  )
+{
+  EFI_STATUS                       Status;
+  EFI_SIMPLE_FILE_SYSTEM_PROTOCOL  *Fs;
+  EFI_FILE_HANDLE                  RootDir;
+
+  *FileDir = NULL;
+  RootDir  = NULL;
+
+  Status = gBS->HandleProtocol (FsHandle, &gEfiSimpleFileSystemProtocolGuid, (VOID **)&Fs);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  Status = Fs->OpenVolume (Fs, &RootDir);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  Status = RootDir->Open (
+                      RootDir,
+                      FileDir,
+                      EFI_CAPSULE_FILE_DIRECTORY,
+                      EFI_FILE_MODE_READ,
+                      0
+                      );
+  RootDir->Close (RootDir);
+
+  return Status;
+}
+
+STATIC
+EFI_STATUS
+CoDCountCapsulesOnFs (
+  IN  EFI_HANDLE  FsHandle,
+  OUT UINTN       *FileCount
+  )
+{
+  EFI_STATUS       Status;
+  EFI_FILE_HANDLE  FileDir;
+  LIST_ENTRY       FileInfoList;
+
+  *FileCount = 0;
+
+  Status = CoDOpenCapsuleDirectoryOnFs (FsHandle, &FileDir);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  Status = GetFileInfoListInAlphabetFromDir (
+             FileDir,
+             EFI_FILE_SYSTEM | EFI_FILE_ARCHIVE,
+             &FileInfoList,
+             FileCount
+             );
+  FileDir->Close (FileDir);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  CoDFreeFileInfoList (&FileInfoList);
+  return EFI_SUCCESS;
+}
+
+STATIC
+EFI_STATUS
+CoDSelectCapsuleFs (
+  IN  EFI_HANDLE  PreferredFsHandle OPTIONAL,
+  OUT EFI_HANDLE  *FsHandle,
+  OUT BOOLEAN     *UsedPreferred OPTIONAL,
+  OUT UINTN       *FileCount OPTIONAL
+  )
+{
+  EFI_STATUS  Status;
+  EFI_HANDLE  *HandleBuffer;
+  UINTN       NumberOfHandles;
+  UINTN       Index;
+  UINTN       CandidateCount;
+
+  *FsHandle       = NULL;
+  HandleBuffer    = NULL;
+  NumberOfHandles = 0;
+
+  if (UsedPreferred != NULL) {
+    *UsedPreferred = FALSE;
+  }
+
+  if (FileCount != NULL) {
+    *FileCount = 0;
+  }
+
+  if (PreferredFsHandle != NULL) {
+    Status = CoDCountCapsulesOnFs (PreferredFsHandle, &CandidateCount);
+    if (!EFI_ERROR (Status) && (CandidateCount > 0)) {
+      *FsHandle = PreferredFsHandle;
+      if (UsedPreferred != NULL) {
+        *UsedPreferred = TRUE;
+      }
+
+      if (FileCount != NULL) {
+        *FileCount = CandidateCount;
+      }
+
+      return EFI_SUCCESS;
+    }
+  }
+
+  EfiBootManagerConnectAll ();
+
+  Status = gBS->LocateHandleBuffer (
+                  ByProtocol,
+                  &gEfiSimpleFileSystemProtocolGuid,
+                  NULL,
+                  &NumberOfHandles,
+                  &HandleBuffer
+                  );
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  for (Index = 0; Index < NumberOfHandles; Index++) {
+    Status = CoDCountCapsulesOnFs (HandleBuffer[Index], &CandidateCount);
+    if (EFI_ERROR (Status) || (CandidateCount == 0)) {
+      continue;
+    }
+
+    *FsHandle = HandleBuffer[Index];
+    if (FileCount != NULL) {
+      *FileCount = CandidateCount;
+    }
+
+    FreePool (HandleBuffer);
+    return EFI_SUCCESS;
+  }
+
+  FreePool (HandleBuffer);
+  return EFI_NOT_FOUND;
 }
 
 /**
@@ -1137,75 +1329,35 @@ CoDPresent (
   IN UINTN  MaxRetry
   )
 {
-  EFI_STATUS                       Status;
-  EFI_HANDLE                       FsHandle;
-  EFI_SIMPLE_FILE_SYSTEM_PROTOCOL  *Fs;
-  EFI_FILE_HANDLE                  RootDir;
-  EFI_FILE_HANDLE                  FileDir;
-  UINT16                           *TempOptionNumber;
-  UINTN                            FileCount;
-  LIST_ENTRY                       FileInfoList;
-  LIST_ENTRY                       *Link;
-  FILE_INFO_ENTRY                  *FileInfoEntry;
+  EFI_STATUS  Status;
+  EFI_HANDLE  ActiveFsHandle;
+  EFI_HANDLE  CapsuleFsHandle;
+  UINT16      *TempOptionNumber;
+  UINTN       FileCount;
 
   if (!PcdGetBool (PcdCapsuleOnDiskSupport)) {
     return FALSE;
   }
 
   TempOptionNumber = NULL;
-  Status = GetEfiSysPartitionFromActiveBootOption (MaxRetry, &TempOptionNumber, &FsHandle);
+  ActiveFsHandle   = NULL;
+  CapsuleFsHandle  = NULL;
+  FileCount        = 0;
+
+  Status = GetEfiSysPartitionFromActiveBootOption (MaxRetry, &TempOptionNumber, &ActiveFsHandle);
   if (EFI_ERROR (Status)) {
-    return FALSE;
+    DEBUG ((DEBUG_INFO, "CoDPresent active boot option lookup failed: %r\n", Status));
   }
 
-  Status = gBS->HandleProtocol (FsHandle, &gEfiSimpleFileSystemProtocolGuid, (VOID **)&Fs);
-  if (EFI_ERROR (Status)) {
-    return FALSE;
-  }
-
-  Status = Fs->OpenVolume (Fs, &RootDir);
-  if (EFI_ERROR (Status)) {
-    return FALSE;
-  }
-
-  Status = RootDir->Open (
-                      RootDir,
-                      &FileDir,
-                      EFI_CAPSULE_FILE_DIRECTORY,
-                      EFI_FILE_MODE_READ,
-                      0
-                      );
-  if (EFI_ERROR (Status)) {
-    DEBUG ((DEBUG_INFO, "CoDPresent failed to open %s: %r\n", EFI_CAPSULE_FILE_DIRECTORY, Status));
-    RootDir->Close (RootDir);
-    return FALSE;
-  }
-
-  RootDir->Close (RootDir);
-
-  FileCount = 0;
-  Status = GetFileInfoListInAlphabetFromDir (
-             FileDir,
-             EFI_FILE_SYSTEM | EFI_FILE_ARCHIVE,
-             &FileInfoList,
+  Status = CoDSelectCapsuleFs (
+             ActiveFsHandle,
+             &CapsuleFsHandle,
+             NULL,
              &FileCount
              );
-  FileDir->Close (FileDir);
   if (EFI_ERROR (Status)) {
-    DEBUG ((DEBUG_ERROR, "GetFileInfoListInAlphabetFromDir failed: %r\n", Status));
+    DEBUG ((DEBUG_INFO, "%a(): found no capsule filesystem: %r\n", __func__, Status));
     return FALSE;
-  }
-
-  while (!IsListEmpty (&FileInfoList)) {
-    Link = FileInfoList.ForwardLink;
-    RemoveEntryList (Link);
-
-    FileInfoEntry = CR (Link, FILE_INFO_ENTRY, Link, FILE_INFO_SIGNATURE);
-
-    FreePool (FileInfoEntry->FileInfo);
-    FreePool (FileInfoEntry->FileNameFirstPart);
-    FreePool (FileInfoEntry->FileNameSecondPart);
-    FreePool (FileInfoEntry);
   }
 
   DEBUG ((DEBUG_INFO, "%a(): found %u potential on-disk capsule(s)\n", __func__, FileCount));
@@ -1236,44 +1388,38 @@ CoDGetAll (
   OUT UINT16      *LoadOptionNumber
   )
 {
-  EFI_STATUS                       Status;
-  EFI_SIMPLE_FILE_SYSTEM_PROTOCOL  *Fs;
-  EFI_FILE_HANDLE                  RootDir;
-  EFI_FILE_HANDLE                  FileDir;
-  UINT16                           *TempOptionNumber;
+  EFI_STATUS       Status;
+  EFI_HANDLE       ActiveFsHandle;
+  EFI_FILE_HANDLE  FileDir;
+  UINT16           *TempOptionNumber;
+  BOOLEAN          UsedPreferred;
 
   TempOptionNumber = NULL;
+  ActiveFsHandle   = NULL;
+  FileDir          = NULL;
+  UsedPreferred    = FALSE;
   *CapsuleNum      = 0;
 
-  Status = GetEfiSysPartitionFromActiveBootOption (MaxRetry, &TempOptionNumber, FsHandle);
+  Status = GetEfiSysPartitionFromActiveBootOption (MaxRetry, &TempOptionNumber, &ActiveFsHandle);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_INFO, "CoDGetAll active boot option lookup failed: %r\n", Status));
+  }
+
+  Status = CoDSelectCapsuleFs (
+             ActiveFsHandle,
+             FsHandle,
+             &UsedPreferred,
+             NULL
+             );
   if (EFI_ERROR (Status)) {
     return Status;
   }
 
-  Status = gBS->HandleProtocol (*FsHandle, &gEfiSimpleFileSystemProtocolGuid, (VOID **)&Fs);
+  Status = CoDOpenCapsuleDirectoryOnFs (*FsHandle, &FileDir);
   if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "CoDGetAll failed to open capsule directory: %r\n", Status));
     return Status;
   }
-
-  Status = Fs->OpenVolume (Fs, &RootDir);
-  if (EFI_ERROR (Status)) {
-    return Status;
-  }
-
-  Status = RootDir->Open (
-                      RootDir,
-                      &FileDir,
-                      EFI_CAPSULE_FILE_DIRECTORY,
-                      EFI_FILE_MODE_READ,
-                      0
-                      );
-  if (EFI_ERROR (Status)) {
-    DEBUG ((DEBUG_ERROR, "CodLibGetAllCapsuleOnDisk fail to open RootDir!\n"));
-    RootDir->Close (RootDir);
-    return Status;
-  }
-
-  RootDir->Close (RootDir);
 
   //
   // Only Load files with EFI_FILE_SYSTEM or EFI_FILE_ARCHIVE attribute
@@ -1296,7 +1442,11 @@ CoDGetAll (
   FileDir->Close (FileDir);
 
   if (LoadOptionNumber != NULL) {
-    *LoadOptionNumber = *TempOptionNumber;
+    if (UsedPreferred && (TempOptionNumber != NULL)) {
+      *LoadOptionNumber = *TempOptionNumber;
+    } else {
+      *LoadOptionNumber = COD_RELOCATION_LOAD_OPTION_SCAN_FALLBACK;
+    }
   }
 
   return Status;
@@ -2029,6 +2179,89 @@ CoDRelocateCapsule (
 }
 
 /**
+  Remove the temp capsule relocation file from a filesystem handle.
+**/
+STATIC
+EFI_STATUS
+CoDRemoveTempFileOnFs (
+  IN EFI_HANDLE  FsHandle
+  )
+{
+  EFI_STATUS                       Status;
+  EFI_SIMPLE_FILE_SYSTEM_PROTOCOL  *Fs;
+  EFI_FILE_HANDLE                  RootDir;
+  EFI_FILE_HANDLE                  TempCodFile;
+
+  RootDir     = NULL;
+  TempCodFile = NULL;
+
+  Status = gBS->HandleProtocol (FsHandle, &gEfiSimpleFileSystemProtocolGuid, (VOID **)&Fs);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  Status = Fs->OpenVolume (Fs, &RootDir);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  Status = RootDir->Open (
+                      RootDir,
+                      &TempCodFile,
+                      (CHAR16 *)PcdGetPtr (PcdCoDRelocationFileName),
+                      EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE,
+                      0
+                      );
+  if (!EFI_ERROR (Status)) {
+    Status = TempCodFile->Delete (TempCodFile);
+  }
+
+  RootDir->Close (RootDir);
+  return Status;
+}
+
+/**
+  Remove the temp capsule relocation file by scanning all filesystems.
+**/
+STATIC
+EFI_STATUS
+CoDRemoveTempFileByScan (
+  VOID
+  )
+{
+  EFI_STATUS  Status;
+  EFI_HANDLE  *HandleBuffer;
+  UINTN       NumberOfHandles;
+  UINTN       Index;
+  BOOLEAN     Removed;
+
+  HandleBuffer    = NULL;
+  NumberOfHandles = 0;
+  Removed         = FALSE;
+
+  Status = gBS->LocateHandleBuffer (
+                  ByProtocol,
+                  &gEfiSimpleFileSystemProtocolGuid,
+                  NULL,
+                  &NumberOfHandles,
+                  &HandleBuffer
+                  );
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  for (Index = 0; Index < NumberOfHandles; Index++) {
+    Status = CoDRemoveTempFileOnFs (HandleBuffer[Index]);
+    if (!EFI_ERROR (Status)) {
+      Removed = TRUE;
+    }
+  }
+
+  FreePool (HandleBuffer);
+  return Removed ? EFI_SUCCESS : EFI_NOT_FOUND;
+}
+
+/**
   Remove the temp file from the root of EFI System Partition.
   Device enumeration like USB costs time, user can input MaxRetry to tell function to retry.
   Function will stall 100ms between each retry.
@@ -2045,17 +2278,12 @@ CoDRemoveTempFile (
   UINTN  MaxRetry
   )
 {
-  EFI_STATUS                       Status;
-  UINTN                            DataSize;
-  UINT16                           *LoadOptionNumber;
-  EFI_SIMPLE_FILE_SYSTEM_PROTOCOL  *Fs;
-  EFI_HANDLE                       FsHandle;
-  EFI_FILE_HANDLE                  RootDir;
-  EFI_FILE_HANDLE                  TempCodFile;
+  EFI_STATUS  Status;
+  UINTN       DataSize;
+  UINT16      *LoadOptionNumber;
+  EFI_HANDLE  FsHandle;
 
-  RootDir     = NULL;
-  TempCodFile = NULL;
-  DataSize    = sizeof (UINT16);
+  DataSize = sizeof (UINT16);
 
   LoadOptionNumber = AllocatePool (sizeof (UINT16));
   if (LoadOptionNumber == NULL) {
@@ -2076,40 +2304,37 @@ CoDRemoveTempFile (
     goto EXIT;
   }
 
+  if (*LoadOptionNumber == COD_RELOCATION_LOAD_OPTION_SCAN_FALLBACK) {
+    Status = CoDRemoveTempFileByScan ();
+    if (EFI_ERROR (Status)) {
+      goto EXIT;
+    }
+
+    goto CLEAR_RELOCATION_VAR;
+  }
+
   //
   // Get the EFI file system from the boot option where the capsules are relocated
   //
   Status = GetEfiSysPartitionFromActiveBootOption (MaxRetry, &LoadOptionNumber, &FsHandle);
   if (EFI_ERROR (Status)) {
-    goto EXIT;
+    Status = CoDRemoveTempFileByScan ();
+    if (EFI_ERROR (Status)) {
+      goto EXIT;
+    }
+
+    goto CLEAR_RELOCATION_VAR;
   }
 
-  Status = gBS->HandleProtocol (FsHandle, &gEfiSimpleFileSystemProtocolGuid, (VOID **)&Fs);
+  Status = CoDRemoveTempFileOnFs (FsHandle);
   if (EFI_ERROR (Status)) {
-    goto EXIT;
+    Status = CoDRemoveTempFileByScan ();
+    if (EFI_ERROR (Status)) {
+      goto EXIT;
+    }
   }
 
-  Status = Fs->OpenVolume (Fs, &RootDir);
-  if (EFI_ERROR (Status)) {
-    goto EXIT;
-  }
-
-  //
-  // Delete the TempCoDFile
-  //
-  Status = RootDir->Open (
-                      RootDir,
-                      &TempCodFile,
-                      (CHAR16 *)PcdGetPtr (PcdCoDRelocationFileName),
-                      EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE,
-                      0
-                      );
-  if (EFI_ERROR (Status)) {
-    goto EXIT;
-  }
-
-  TempCodFile->Delete (TempCodFile);
-
+CLEAR_RELOCATION_VAR:
   //
   // Clear "CoDRelocationLoadOption" variable
   //
@@ -2124,10 +2349,6 @@ CoDRemoveTempFile (
 EXIT:
   if (LoadOptionNumber != NULL) {
     FreePool (LoadOptionNumber);
-  }
-
-  if (RootDir != NULL) {
-    RootDir->Close (RootDir);
   }
 
   return Status;
