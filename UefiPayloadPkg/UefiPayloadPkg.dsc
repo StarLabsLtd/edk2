@@ -75,6 +75,8 @@
   # so platforms can point at a build-local generated file under Conf/ (or elsewhere).
   #
   DEFINE FMP_DEVICE_PKCS7_PCD_INC     = BaseTools/Source/Python/Pkcs7Sign/TestRoot.cer.gFmpDevicePkgTokenSpaceGuid.PcdFmpDevicePkcs7CertBufferXdr.inc
+  # EC updates use the main-firmware root unless a platform supplies a separate root.
+  DEFINE FMP_DEVICE_EC_PKCS7_PCD_INC  = $(FMP_DEVICE_PKCS7_PCD_INC)
 
   #
   # Crypto Support
@@ -1214,7 +1216,7 @@
       gUefiPayloadPkgTokenSpaceGuid.PcdStarLabsEcBoardId|$(CAPSULE_EC_BOARD_ID)
       gUefiPayloadPkgTokenSpaceGuid.PcdStarLabsEcChipId|$(CAPSULE_EC_CHIP_ID)
       gUefiPayloadPkgTokenSpaceGuid.PcdStarLabsEcLowestSupportedVersion|$(CAPSULE_EC_LOWEST_SUPPORTED_VERSION)
-      !include $(FMP_DEVICE_PKCS7_PCD_INC)
+      !include $(FMP_DEVICE_EC_PKCS7_PCD_INC)
     <LibraryClasses>
       FmpDeviceLib|UefiPayloadPkg/Library/FmpDeviceEcSmmLib/FmpDeviceEcSmmLib.inf
   }
