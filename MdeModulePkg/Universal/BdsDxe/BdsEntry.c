@@ -13,8 +13,10 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 **/
 
 #include "Bds.h"
+#include "BootNextPolicy.h"
 #include "Language.h"
 #include "HwErrRecSupport.h"
+#include <Library/HobLib.h>
 #include <Library/VariablePolicyHelperLib.h>
 
 #define SET_BOOT_OPTION_SUPPORT_KEY_COUNT(a, c)  { \
@@ -706,6 +708,7 @@ BdsEntry (
   UINTN                           Index;
   EFI_BOOT_MANAGER_LOAD_OPTION    LoadOption;
   UINT16                          *BootNext;
+  UINT16                          *CurrentBootNext;
   CHAR16                          BootNextVariableName[sizeof ("Boot####")];
   EFI_BOOT_MANAGER_LOAD_OPTION    BootManagerMenu;
   BOOLEAN                         BootFwUi;
@@ -716,11 +719,16 @@ BdsEntry (
   EFI_STATUS                      BootManagerMenuStatus;
   EFI_BOOT_MANAGER_LOAD_OPTION    PlatformDefaultBootOption;
   BOOLEAN                         PlatformDefaultBootOptionValid;
+  BOOLEAN                         CapsuleDeliveryRequested;
+  VOID                            *PreserveCapsuleBootNext;
 
-  HotkeyTriggered   = NULL;
-  Status            = EFI_SUCCESS;
-  BootSuccess       = FALSE;
-  BootFwUiAttempted = FALSE;
+  HotkeyTriggered          = NULL;
+  Status                   = EFI_SUCCESS;
+  BootSuccess              = FALSE;
+  BootFwUiAttempted        = FALSE;
+  CurrentBootNext          = NULL;
+  CapsuleDeliveryRequested = FALSE;
+  PreserveCapsuleBootNext  = NULL;
 
   //
   // Insert the performance probe
@@ -823,6 +831,19 @@ BdsEntry (
 
     BootNext = NULL;
   }
+
+  DataSize = sizeof (OsIndication);
+  Status   = gRT->GetVariable (
+                    EFI_OS_INDICATIONS_VARIABLE_NAME,
+                    &gEfiGlobalVariableGuid,
+                    NULL,
+                    &DataSize,
+                    &OsIndication
+                    );
+  CapsuleDeliveryRequested = (BOOLEAN)(
+                                        !EFI_ERROR (Status) &&
+                                        ((OsIndication & EFI_OS_INDICATIONS_FILE_CAPSULE_DELIVERY_SUPPORTED) != 0)
+                                        );
 
   //
   // Initialize the platform language variables
@@ -1110,6 +1131,50 @@ BdsEntry (
     }
 
     PlatformBootManagerAfterBootWait ();
+
+    DataSize = 0;
+    GetEfiGlobalVariable2 (
+      EFI_BOOT_NEXT_VARIABLE_NAME,
+      (VOID **)&CurrentBootNext,
+      &DataSize
+      );
+    if ((BootNext != NULL) &&
+        ((CurrentBootNext == NULL) ||
+         (DataSize != sizeof (UINT16)) ||
+         (*CurrentBootNext != *BootNext)))
+    {
+      //
+      // Platform policy cleared or replaced the cached request. A replacement
+      // remains non-volatile for the next boot and must not be consumed now.
+      //
+      FreePool (BootNext);
+      BootNext = NULL;
+    }
+
+    if (CurrentBootNext != NULL) {
+      FreePool (CurrentBootNext);
+      CurrentBootNext = NULL;
+    }
+
+    Status = gBS->LocateProtocol (
+                    &gEdkiiPreserveCapsuleBootNextProtocolGuid,
+                    NULL,
+                    &PreserveCapsuleBootNext
+                    );
+    if (BdsShouldPreserveCapsuleBootNext (
+          BootNext != NULL,
+          CapsuleDeliveryRequested,
+          GetBootModeHob (),
+          !EFI_ERROR (Status)
+          ))
+    {
+      //
+      // Keep the capsule request for the next normal boot. Consuming BootNext
+      // would either replace an S4 resume or discard a deferred retry path.
+      //
+      FreePool (BootNext);
+      BootNext = NULL;
+    }
 
     if (BootNext != NULL) {
       //
