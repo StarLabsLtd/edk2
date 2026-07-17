@@ -32,6 +32,8 @@
   HwErrRecSupport.h
   Language.c
   BdsEntry.c
+  BootNextPolicy.c
+  BootNextPolicy.h
 
 
 [Packages]
@@ -52,6 +54,7 @@
   UefiBootManagerLib
   VariablePolicyHelperLib
   PlatformBootManagerLib
+  HobLib
   PcdLib
   PrintLib
 
@@ -80,6 +83,7 @@
   gEfiSimpleTextInputExProtocolGuid             ## CONSUMES
   gEdkiiVariablePolicyProtocolGuid              ## SOMETIMES_CONSUMES
   gEfiDeferredImageLoadProtocolGuid             ## CONSUMES
+  gEdkiiPreserveCapsuleBootNextProtocolGuid     ## SOMETIMES_CONSUMES
 
 [FeaturePcd]
   gEfiMdePkgTokenSpaceGuid.PcdUefiVariableDefaultLangDeprecate    ## CONSUMES

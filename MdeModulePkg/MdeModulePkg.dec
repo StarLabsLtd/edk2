@@ -744,6 +744,9 @@
   ## Include/Protocol/PlatformBootManager.h
   gEdkiiPlatformBootManagerProtocolGuid = { 0xaa17add4, 0x756c, 0x460d, { 0x94, 0xb8, 0x43, 0x88, 0xd7, 0xfb, 0x3e, 0x59 } }
 
+  ## Marker protocol requesting that BDS preserve a capsule-associated BootNext.
+  gEdkiiPreserveCapsuleBootNextProtocolGuid = { 0x5d865fff, 0x6902, 0x4fd7, { 0x8e, 0x91, 0x36, 0xaa, 0x9c, 0x79, 0x82, 0xa6 } }
+
 #
 # [Error.gEfiMdeModulePkgTokenSpaceGuid]
 #   0x80000001 | Invalid value provided.
