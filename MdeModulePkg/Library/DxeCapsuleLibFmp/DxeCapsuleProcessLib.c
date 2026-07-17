@@ -122,6 +122,13 @@ ValidateCapsuleNameCapsuleIntegrity (
   OUT UINTN               *CapsuleNameNum
   );
 
+EFI_STATUS
+CheckFmpCapsuleExclusivity (
+  IN  EFI_CAPSULE_HEADER  *CapsuleHeader,
+  IN  CONST EFI_GUID      *ExclusiveImageId,
+  OUT BOOLEAN             *IsExclusive
+  );
+
 extern BOOLEAN  mDxeCapsuleLibEndOfDxe;
 BOOLEAN         mNeedReset = FALSE;
 
@@ -129,6 +136,66 @@ VOID        **mCapsulePtr;
 CHAR16      **mCapsuleNamePtr;
 EFI_STATUS  *mCapsuleStatusArray;
 UINT32      mCapsuleTotalNumber;
+
+STATIC
+EFI_STATUS
+EnforceExclusiveFmpPolicy (
+  VOID
+  )
+{
+  EFI_CAPSULE_HEADER  *CapsuleHeader;
+  CONST EFI_GUID      *ExclusiveImageId;
+  EFI_STATUS          Status;
+  BOOLEAN             IsExclusive;
+  UINT32              ExclusiveCount;
+  UINT32              Index;
+
+  ExclusiveImageId = (CONST EFI_GUID *)PcdGetPtr (PcdExclusiveFmpImageTypeIdGuid);
+  if (IsZeroGuid (ExclusiveImageId)) {
+    return EFI_SUCCESS;
+  }
+
+  ExclusiveCount = 0;
+  for (Index = 0; Index < mCapsuleTotalNumber; ++Index) {
+    CapsuleHeader = (EFI_CAPSULE_HEADER *)mCapsulePtr[Index];
+    if (!IsFmpCapsule (CapsuleHeader)) {
+      continue;
+    }
+
+    Status = ValidateFmpCapsule (CapsuleHeader, NULL);
+    if (EFI_ERROR (Status)) {
+      continue;
+    }
+
+    Status = CheckFmpCapsuleExclusivity (
+               CapsuleHeader,
+               ExclusiveImageId,
+               &IsExclusive
+               );
+    if (EFI_ERROR (Status)) {
+      goto Reject;
+    }
+
+    if (IsExclusive) {
+      ++ExclusiveCount;
+    }
+  }
+
+  if ((ExclusiveCount == 0) ||
+      ((ExclusiveCount == 1) && (mCapsuleTotalNumber == 1)))
+  {
+    return EFI_SUCCESS;
+  }
+
+Reject:
+  DEBUG ((DEBUG_ERROR, "Exclusive FMP image must be the only capsule and payload without reset flags\n"));
+  for (Index = 0; Index < mCapsuleTotalNumber; ++Index) {
+    mCapsuleStatusArray[Index] = EFI_ABORTED;
+  }
+
+  mNeedReset = TRUE;
+  return EFI_SECURITY_VIOLATION;
+}
 
 /**
   The firmware implements to process the capsule image.
@@ -559,6 +626,11 @@ ProcessTheseCapsules (
     DEBUG ((DEBUG_ERROR, "We can not find capsule data in capsule update boot mode.\n"));
     mNeedReset = TRUE;
     return EFI_SUCCESS;
+  }
+
+  Status = EnforceExclusiveFmpPolicy ();
+  if (EFI_ERROR (Status)) {
+    return Status;
   }
 
   if (AreAllImagesProcessed ()) {

@@ -345,6 +345,69 @@ ValidateFmpCapsule (
 }
 
 /**
+  Check whether a validated FMP capsule targets an exclusive image type.
+
+  @param[in]  CapsuleHeader      Validated outer capsule header.
+  @param[in]  ExclusiveImageId  Image type that requires an exclusive update.
+  @param[out] IsExclusive       TRUE if the capsule targets ExclusiveImageId.
+
+  @retval EFI_SUCCESS             The capsule satisfies the exclusive policy.
+  @retval EFI_SECURITY_VIOLATION  The exclusive image is not the sole payload
+                                  or the outer capsule requests a reset.
+**/
+EFI_STATUS
+CheckFmpCapsuleExclusivity (
+  IN  EFI_CAPSULE_HEADER  *CapsuleHeader,
+  IN  CONST EFI_GUID      *ExclusiveImageId,
+  OUT BOOLEAN             *IsExclusive
+  )
+{
+  EFI_CAPSULE_HEADER                            *NestedHeader;
+  EFI_FIRMWARE_MANAGEMENT_CAPSULE_HEADER        *FmpCapsuleHeader;
+  EFI_FIRMWARE_MANAGEMENT_CAPSULE_IMAGE_HEADER  *ImageHeader;
+  UINT64                                        *ItemOffsetList;
+  UINT32                                        Index;
+  UINT32                                        ItemCount;
+
+  *IsExclusive = FALSE;
+  NestedHeader = CapsuleHeader;
+  while (!IsFmpCapsuleGuid (&NestedHeader->CapsuleGuid)) {
+    NestedHeader = (EFI_CAPSULE_HEADER *)((UINT8 *)NestedHeader + NestedHeader->HeaderSize);
+  }
+
+  FmpCapsuleHeader = (EFI_FIRMWARE_MANAGEMENT_CAPSULE_HEADER *)(
+                       (UINT8 *)NestedHeader + NestedHeader->HeaderSize
+                       );
+  ItemOffsetList = (UINT64 *)(FmpCapsuleHeader + 1);
+  ItemCount      = FmpCapsuleHeader->EmbeddedDriverCount +
+                   FmpCapsuleHeader->PayloadItemCount;
+  for (Index = FmpCapsuleHeader->EmbeddedDriverCount; Index < ItemCount; ++Index) {
+    ImageHeader = (EFI_FIRMWARE_MANAGEMENT_CAPSULE_IMAGE_HEADER *)(
+                    (UINT8 *)FmpCapsuleHeader + ItemOffsetList[Index]
+                    );
+    if (CompareGuid (&ImageHeader->UpdateImageTypeId, ExclusiveImageId)) {
+      *IsExclusive = TRUE;
+      break;
+    }
+  }
+
+  if (!*IsExclusive) {
+    return EFI_SUCCESS;
+  }
+
+  if ((FmpCapsuleHeader->EmbeddedDriverCount != 0) ||
+      (FmpCapsuleHeader->PayloadItemCount != 1) ||
+      ((CapsuleHeader->Flags &
+        (CAPSULE_FLAGS_INITIATE_RESET |
+         PcdGet16 (PcdSystemRebootAfterCapsuleProcessFlag))) != 0))
+  {
+    return EFI_SECURITY_VIOLATION;
+  }
+
+  return EFI_SUCCESS;
+}
+
+/**
   Those capsules supported by the firmwares.
 
   Caution: This function may receive untrusted input.

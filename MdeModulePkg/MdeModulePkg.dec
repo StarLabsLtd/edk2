@@ -2177,6 +2177,12 @@
   # @Prompt Flag to request system reboot after processing capsule.
   gEfiMdeModulePkgTokenSpaceGuid.PcdSystemRebootAfterCapsuleProcessFlag|0x0001|UINT16|0x0000006d
 
+  ## FMP image type that must be the only payload in its capsule update boot.
+  # A zero GUID disables the policy. The selected capsule must not request an
+  # immediate reset, allowing its device FMP to choose the required power state.
+  # @Prompt Exclusive FMP image type GUID.
+  gEfiMdeModulePkgTokenSpaceGuid.PcdExclusiveFmpImageTypeIdGuid|{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}|VOID*|0x0000006e
+
   ## Default OEM ID for ACPI table creation, its length must be 0x6 bytes to follow ACPI specification.
   # @Prompt Default OEM ID for ACPI table creation.
   gEfiMdeModulePkgTokenSpaceGuid.PcdAcpiDefaultOemId|"INTEL "|VOID*|0x30001034

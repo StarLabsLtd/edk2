@@ -15,6 +15,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Protocol/BatteryStatus.h>
 #include <Protocol/EsrtManagement.h>
 #include <Protocol/FirmwareVolume2.h>
+#include <Protocol/StarLabsEcMirrorPending.h>
 
 #define LOW_BATTERY_BOOT_TIMEOUT  10
 #define BOOT_UI_HIDPI_HORIZONTAL_RESOLUTION  1920
@@ -991,6 +992,50 @@ PlatformRegisterFvBootOption (
     Register new Driver#### or Boot####;
     Signal ReadyToLock event.
 **/
+STATIC
+VOID
+HandleEcMirrorResult (
+  VOID
+  )
+{
+  STAR_LABS_EC_MIRROR_PENDING_PROTOCOL  *EcMirrorPending;
+  EFI_STATUS                            Status;
+
+  Status = gBS->LocateProtocol (
+                  &gStarLabsEcMirrorPendingProtocolGuid,
+                  NULL,
+                  (VOID **)&EcMirrorPending
+                  );
+  if (EFI_ERROR (Status)) {
+    return;
+  }
+
+  if ((EcMirrorPending->Revision == STAR_LABS_EC_MIRROR_PENDING_REVISION) &&
+      !EcMirrorPending->ResetSafe)
+  {
+    DEBUG ((DEBUG_ERROR, "EC mirror request state is uncertain; refusing to reset\n"));
+    CpuDeadLoop ();
+  }
+
+  if ((EcMirrorPending->Revision == STAR_LABS_EC_MIRROR_PENDING_REVISION) &&
+      EcMirrorPending->Finalized)
+  {
+    DEBUG ((
+      DEBUG_INFO,
+      "EC mirror armed for board %u chip 0x%04x version 0x%08x; entering S5\n",
+      EcMirrorPending->BoardId,
+      EcMirrorPending->ChipId,
+      EcMirrorPending->Version
+    ));
+    gRT->ResetSystem (EfiResetShutdown, EFI_SUCCESS, 0, NULL);
+    CpuDeadLoop ();
+  }
+
+  DEBUG ((DEBUG_ERROR, "EC mirror finalization did not complete\n"));
+  gRT->ResetSystem (EfiResetCold, EFI_SUCCESS, 0, NULL);
+  CpuDeadLoop ();
+}
+
 VOID
 EFIAPI
 PlatformBootManagerBeforeConsole (
@@ -1058,6 +1103,12 @@ PlatformBootManagerBeforeConsole (
     if (EFI_ERROR (Status)) {
       DEBUG ((DEBUG_ERROR, "%a(): ProcessCapsule() failed with: %r\n", __func__, Status));
     }
+
+    //
+    // A zero-driver EC FMP is complete now. Select S5 before dispatching any
+    // deferred firmware or connecting devices can stale its digest/power proof.
+    //
+    HandleEcMirrorResult ();
   }
 
   //
@@ -1132,14 +1183,8 @@ PlatformBootManagerAfterConsole (
     }
 
     //
-    // Reset the system to disable SMI handler in order to exclude the
-    // possibility of it being used outside of the firmware.
-    //
-    // In practice, this will rarely execute because even the first
-    // ProcessCapsules() invocation might do a reset if all capsules were
-    // processed and at least one of them needed a reset.  This is just to catch
-    // a case when this doesn't happen which is possible on error.
-    //
+    HandleEcMirrorResult ();
+
     gRT->ResetSystem (EfiResetCold, EFI_SUCCESS, 0, NULL);
   } else {
     CoDClearCapsuleOnDiskFlag ();

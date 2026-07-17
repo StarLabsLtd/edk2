@@ -73,6 +73,7 @@
   gEfiSerialIoProtocolGuid
   gEfiPciRootBridgeIoProtocolGuid
   gEfiBatteryStatusProtocolGuid        ## CONSUMES
+  gStarLabsEcMirrorPendingProtocolGuid ## CONSUMES
 
 [Pcd]
   gEfiMdePkgTokenSpaceGuid.PcdPlatformBootTimeOut

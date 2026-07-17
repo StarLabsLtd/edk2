@@ -32,6 +32,7 @@ STATIC SMMSTORE_INFO  *mSmmStoreInfo;
 #define SMMSTORE_TRIGGER_SMI_RETRY_COUNT  127
 #define SMMSTORE_CALL_RETRY_COUNT         8
 #define SMMSTORE_CALL_RETRY_STALL_US      250
+#define SMMSTORE_EC_MUTATION_ATTEMPTS     1
 
 STATIC
 VOID
@@ -71,6 +72,8 @@ StallBetweenCallAttempts (
   @param SubCmd  The subcommand to execute in the Smi handler.
   @param Arg     Optional argument to pass to the Smi handler. Typically a pointer
                  in 'flat' memory mode, which points to read only memory.
+  @param Attempts       Maximum number of SMI call attempts.
+  @param TriggerRetries Number of low-level APM trigger retries per call.
 
   @retval EFI_NO_RESPONSE       The SmmStore is not present or didn't response.
   @retval EFI_UNSUPPORTED       The request isn't supported.
@@ -79,10 +82,12 @@ StallBetweenCallAttempts (
 **/
 STATIC
 EFI_STATUS
-CallSmm (
+CallSmmWithTriggerRetries (
   UINT8  Cmd,
   UINT8  SubCmd,
-  UINTN  Arg
+  UINTN  Arg,
+  UINTN  Attempts,
+  UINTN  TriggerRetries
   )
 {
   CONST UINTN  Rax = ((SubCmd << 8) | Cmd);
@@ -92,8 +97,8 @@ CallSmm (
   BOOLEAN      SawResponse;
 
   SawResponse = FALSE;
-  for (Attempt = 0; Attempt < SMMSTORE_CALL_RETRY_COUNT; ++Attempt) {
-    Result = TriggerSmi (Rax, Rbx, SMMSTORE_TRIGGER_SMI_RETRY_COUNT);
+  for (Attempt = 0; Attempt < Attempts; ++Attempt) {
+    Result = TriggerSmi (Rax, Rbx, TriggerRetries);
     if (Result == Rax) {
       StallBetweenCallAttempts (Attempt);
       continue;
@@ -108,6 +113,24 @@ CallSmm (
   }
 
   return SawResponse ? EFI_DEVICE_ERROR : EFI_NO_RESPONSE;
+}
+
+STATIC
+EFI_STATUS
+CallSmm (
+  UINT8  Cmd,
+  UINT8  SubCmd,
+  UINTN  Arg,
+  UINTN  Attempts
+  )
+{
+  return CallSmmWithTriggerRetries (
+           Cmd,
+           SubCmd,
+           Arg,
+           Attempts,
+           SMMSTORE_TRIGGER_SMI_RETRY_COUNT
+           );
 }
 
 /**
@@ -223,7 +246,12 @@ ReadBlock (
   mArgComBuf->Read.BufOffset = Offset;
   mArgComBuf->Read.BlockId   = Lba;
 
-  Status = CallSmm (mSmmStoreInfo->ApmCmd, ReadCmd, mArgComBufPhys);
+  Status = CallSmm (
+             mSmmStoreInfo->ApmCmd,
+             ReadCmd,
+             mArgComBufPhys,
+             SMMSTORE_CALL_RETRY_COUNT
+             );
   if (EFI_ERROR (Status)) {
     return Status;
   }
@@ -326,6 +354,24 @@ SmmStoreLibReadAnyBlock (
 }
 
 /**
+  Read from a block relative to the FMAP EC region.
+**/
+EFI_STATUS
+SmmStoreLibReadEcBlock (
+  IN        EFI_LBA  Lba,
+  IN        UINTN    Offset,
+  IN        UINTN    *NumBytes,
+  IN        UINT8    *Buffer
+  )
+{
+  if (mSmmStoreInfo == NULL) {
+    return EFI_NO_MEDIA;
+  }
+
+  return ReadBlock (Lba, Offset, NumBytes, Buffer, SMMSTORE_CMD_USE_EC_REGION | SMMSTORE_CMD_RAW_READ);
+}
+
+/**
   Write a flash block.  The whole flash is represented as a
   sequence of blocks.
 
@@ -366,7 +412,22 @@ WriteBlock (
 
   CopyMem ((VOID *)(UINTN)(mSmmStoreInfo->ComBuffer + Offset), Buffer, *NumBytes);
 
-  return CallSmm (mSmmStoreInfo->ApmCmd, WriteCmd, mArgComBufPhys);
+  if ((WriteCmd & SMMSTORE_CMD_USE_EC_REGION) != 0) {
+    return CallSmmWithTriggerRetries (
+             mSmmStoreInfo->ApmCmd,
+             WriteCmd,
+             mArgComBufPhys,
+             SMMSTORE_EC_MUTATION_ATTEMPTS,
+             0
+             );
+  }
+
+  return CallSmm (
+           mSmmStoreInfo->ApmCmd,
+           WriteCmd,
+           mArgComBufPhys,
+           SMMSTORE_CALL_RETRY_COUNT
+           );
 }
 
 /**
@@ -425,6 +486,24 @@ SmmStoreLibWriteAnyBlock (
 }
 
 /**
+  Write to a block relative to the FMAP EC region.
+**/
+EFI_STATUS
+SmmStoreLibWriteEcBlock (
+  IN        EFI_LBA  Lba,
+  IN        UINTN    Offset,
+  IN        UINTN    *NumBytes,
+  IN        UINT8    *Buffer
+  )
+{
+  if (mSmmStoreInfo == NULL) {
+    return EFI_NO_MEDIA;
+  }
+
+  return WriteBlock (Lba, Offset, NumBytes, Buffer, SMMSTORE_CMD_USE_EC_REGION | SMMSTORE_CMD_RAW_WRITE);
+}
+
+/**
   Erase a SmmStore block
 
   @param Lba    The logical block index to erase.
@@ -445,7 +524,12 @@ SmmStoreLibEraseBlock (
 
   mArgComBuf->Clear.BlockId = Lba;
 
-  return CallSmm (mSmmStoreInfo->ApmCmd, SMMSTORE_CMD_RAW_CLEAR, mArgComBufPhys);
+  return CallSmm (
+           mSmmStoreInfo->ApmCmd,
+           SMMSTORE_CMD_RAW_CLEAR,
+           mArgComBufPhys,
+           SMMSTORE_CALL_RETRY_COUNT
+           );
 }
 
 /**
@@ -469,7 +553,31 @@ SmmStoreLibEraseAnyBlock (
   return CallSmm (
            mSmmStoreInfo->ApmCmd,
            SMMSTORE_CMD_USE_FULL_FLASH | SMMSTORE_CMD_RAW_CLEAR,
-           mArgComBufPhys
+           mArgComBufPhys,
+           SMMSTORE_CALL_RETRY_COUNT
+           );
+}
+
+/**
+  Erase a block relative to the FMAP EC region.
+**/
+EFI_STATUS
+SmmStoreLibEraseEcBlock (
+  IN EFI_LBA  Lba
+  )
+{
+  if (mSmmStoreInfo == NULL) {
+    return EFI_NO_MEDIA;
+  }
+
+  mArgComBuf->Clear.BlockId = Lba;
+
+  return CallSmmWithTriggerRetries (
+           mSmmStoreInfo->ApmCmd,
+           SMMSTORE_CMD_USE_EC_REGION | SMMSTORE_CMD_RAW_CLEAR,
+           mArgComBufPhys,
+           SMMSTORE_EC_MUTATION_ATTEMPTS,
+           0
            );
 }
 

@@ -20,6 +20,7 @@
 #define SMMSTORE_CMD_RAW_CLEAR  7
 
 /* Used by capsule updates as a standalone command or modifier to v2 commands */
+#define SMMSTORE_CMD_USE_EC_REGION   0x40
 #define SMMSTORE_CMD_USE_FULL_FLASH  0x80
 
 /*

@@ -86,6 +86,22 @@ SmmStoreLibReadAnyBlock (
   );
 
 /**
+  Read from a block relative to the FMAP EC region.
+
+  @param[in] Lba      The EC-region logical block index to read from.
+  @param[in] Offset   Offset into the block at which to begin reading.
+  @param[in] NumBytes On input, the requested size; on output, the actual size.
+  @param[in] Buffer   Pointer to the buffer to read into.
+**/
+EFI_STATUS
+SmmStoreLibReadEcBlock (
+  IN        EFI_LBA  Lba,
+  IN        UINTN    Offset,
+  IN        UINTN    *NumBytes,
+  IN        UINT8    *Buffer
+  );
+
+/**
   Write to SmmStore
 
   @param[in] Lba      The starting logical block index to write to.
@@ -123,6 +139,22 @@ SmmStoreLibWriteAnyBlock (
   );
 
 /**
+  Write to a block relative to the FMAP EC region.
+
+  @param[in] Lba      The EC-region logical block index to write to.
+  @param[in] Offset   Offset into the block at which to begin writing.
+  @param[in] NumBytes On input, the requested size; on output, the actual size.
+  @param[in] Buffer   Pointer to the data to write.
+**/
+EFI_STATUS
+SmmStoreLibWriteEcBlock (
+  IN        EFI_LBA  Lba,
+  IN        UINTN    Offset,
+  IN        UINTN    *NumBytes,
+  IN        UINT8    *Buffer
+  );
+
+/**
   Erase a block using the SmmStore
 
   @param Lba    The logical block index to erase.
@@ -143,6 +175,16 @@ SmmStoreLibEraseBlock (
 EFI_STATUS
 SmmStoreLibEraseAnyBlock (
   IN         EFI_LBA  Lba
+  );
+
+/**
+  Erase a block relative to the FMAP EC region.
+
+  @param Lba  The EC-region logical block index to erase.
+**/
+EFI_STATUS
+SmmStoreLibEraseEcBlock (
+  IN EFI_LBA  Lba
   );
 
 /**

@@ -63,6 +63,11 @@
   #
   DEFINE CAPSULE_SUPPORT              = FALSE
   DEFINE CAPSULE_MAIN_FW_GUID         =
+  DEFINE CAPSULE_EC_SUPPORT           = FALSE
+  DEFINE CAPSULE_EC_FW_GUID           =
+  DEFINE CAPSULE_EC_BOARD_ID          = 0
+  DEFINE CAPSULE_EC_CHIP_ID           = 0
+  DEFINE CAPSULE_EC_LOWEST_SUPPORTED_VERSION = 0
   DEFINE CAPSULE_EMBED_FMP_DXE        = FALSE
   #
   # Path (relative to WORKSPACE) for PcdFmpDevicePkcs7CertBufferXdr DSC include.
@@ -766,6 +771,11 @@
   gEfiMdeModulePkgTokenSpaceGuid.PcdCapsuleFmpSupport|$(CAPSULE_SUPPORT)
   ## Whether embedded drivers in FMP capsules are supported (opt-in).
   gEfiMdeModulePkgTokenSpaceGuid.PcdCapsuleEmbeddedDriverSupport|FALSE
+!if $(CAPSULE_EC_SUPPORT)
+  ## EC activation requires an EC-only update boot and a platform-selected S5.
+  # This test GUID must be replaced together with the production EC FMP GUID.
+  gEfiMdeModulePkgTokenSpaceGuid.PcdExclusiveFmpImageTypeIdGuid|{0xea, 0x7a, 0xc0, 0x86, 0x55, 0x3f, 0xa6, 0x50, 0x95, 0xc5, 0xd4, 0x0d, 0xe7, 0xd2, 0x76, 0x4a}
+!endif
 
   ## User Authentication PCD
   gUserAuthFeaturePkgTokenSpaceGuid.PcdPasswordCleared|FALSE
@@ -1180,6 +1190,35 @@
       FmpDeviceLib|FmpDevicePkg/Library/FmpDeviceLibNull/FmpDeviceLibNull.inf
 !endif
   }
+!if $(CAPSULE_EC_SUPPORT) == TRUE
+!if $(CAPSULE_EMBED_FMP_DXE) == TRUE
+  !error "CAPSULE_EC_SUPPORT requires CAPSULE_EMBED_FMP_DXE=FALSE"
+!endif
+!if "$(CAPSULE_EC_FW_GUID)" == ""
+  !error "CAPSULE_EC_FW_GUID must be set when CAPSULE_EC_SUPPORT is TRUE"
+!endif
+!if "$(CAPSULE_EC_FW_GUID)" != "86c07aea-3f55-50a6-95c5-d40de7d2764a"
+  !error "CAPSULE_EC_FW_GUID must match PcdExclusiveFmpImageTypeIdGuid"
+!endif
+!if $(CAPSULE_EC_BOARD_ID) == 0 || $(CAPSULE_EC_CHIP_ID) == 0
+  !error "CAPSULE_EC_BOARD_ID and CAPSULE_EC_CHIP_ID must be set for EC capsules"
+!endif
+!if $(CAPSULE_EC_LOWEST_SUPPORTED_VERSION) == 0
+  !error "CAPSULE_EC_LOWEST_SUPPORTED_VERSION must be set for EC capsules"
+!endif
+  FmpDevicePkg/FmpDxe/FmpDxe.inf {
+    <Defines>
+      FILE_GUID = $(CAPSULE_EC_FW_GUID)
+    <PcdsFixedAtBuild>
+      gFmpDevicePkgTokenSpaceGuid.PcdFmpDeviceImageIdName|L"Embedded Controller"
+      gUefiPayloadPkgTokenSpaceGuid.PcdStarLabsEcBoardId|$(CAPSULE_EC_BOARD_ID)
+      gUefiPayloadPkgTokenSpaceGuid.PcdStarLabsEcChipId|$(CAPSULE_EC_CHIP_ID)
+      gUefiPayloadPkgTokenSpaceGuid.PcdStarLabsEcLowestSupportedVersion|$(CAPSULE_EC_LOWEST_SUPPORTED_VERSION)
+      !include $(FMP_DEVICE_PKCS7_PCD_INC)
+    <LibraryClasses>
+      FmpDeviceLib|UefiPayloadPkg/Library/FmpDeviceEcSmmLib/FmpDeviceEcSmmLib.inf
+  }
+!endif
   MdeModulePkg/Universal/EsrtDxe/EsrtDxe.inf
 !endif
 

@@ -1,0 +1,45 @@
+## @file
+#  EC-only FMP device library using the scoped coreboot SMMSTORE EC region.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION     = 0x00010005
+  BASE_NAME       = FmpDeviceEcSmmLib
+  FILE_GUID       = E4708CB4-936B-4EDF-AB1F-546EE39BB471
+  MODULE_TYPE     = DXE_DRIVER
+  VERSION_STRING  = 1.0
+  LIBRARY_CLASS   = FmpDeviceLib|DXE_DRIVER UEFI_DRIVER
+  CONSTRUCTOR     = FmpDeviceEcSmmLibConstructor
+
+[Sources]
+  FmpDeviceEcSmmLib.c
+
+[LibraryClasses]
+  BaseCryptLib
+  BaseLib
+  BaseMemoryLib
+  IoLib
+  MemoryAllocationLib
+  PcdLib
+  PrintLib
+  SmmStoreLib
+  TimerLib
+  UefiBootServicesTableLib
+
+[Packages]
+  CryptoPkg/CryptoPkg.dec
+  FmpDevicePkg/FmpDevicePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  MdePkg/MdePkg.dec
+  UefiPayloadPkg/UefiPayloadPkg.dec
+
+[Pcd]
+  gEfiMdeModulePkgTokenSpaceGuid.PcdExclusiveFmpImageTypeIdGuid
+  gUefiPayloadPkgTokenSpaceGuid.PcdStarLabsEcBoardId
+  gUefiPayloadPkgTokenSpaceGuid.PcdStarLabsEcChipId
+  gUefiPayloadPkgTokenSpaceGuid.PcdStarLabsEcLowestSupportedVersion
+
+[Protocols]
+  gStarLabsEcMirrorPendingProtocolGuid  ## PRODUCES
