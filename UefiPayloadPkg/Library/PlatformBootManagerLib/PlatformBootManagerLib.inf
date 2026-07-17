@@ -73,14 +73,19 @@
   gEfiSerialIoProtocolGuid
   gEfiPciRootBridgeIoProtocolGuid
   gEfiBatteryStatusProtocolGuid        ## CONSUMES
+  gEdkiiPreserveCapsuleBootNextProtocolGuid  ## PRODUCES
 
 [Pcd]
   gEfiMdePkgTokenSpaceGuid.PcdPlatformBootTimeOut
   gEfiMdeModulePkgTokenSpaceGuid.PcdConOutRow
   gEfiMdeModulePkgTokenSpaceGuid.PcdConOutColumn
   gEfiMdeModulePkgTokenSpaceGuid.PcdConInConnectOnDemand
+  gEfiMdeModulePkgTokenSpaceGuid.PcdCapsuleInRamSupport
   gEfiMdePkgTokenSpaceGuid.PcdUartDefaultBaudRate
   gEfiMdePkgTokenSpaceGuid.PcdUartDefaultDataBits
   gEfiMdePkgTokenSpaceGuid.PcdUartDefaultParity
   gEfiMdePkgTokenSpaceGuid.PcdUartDefaultStopBits
   gUefiPayloadPkgTokenSpaceGuid.PcdBootManagerEscape
+
+[FeaturePcd]
+  gEfiMdeModulePkgTokenSpaceGuid.PcdCapsuleOnDiskConnectBootDevice
