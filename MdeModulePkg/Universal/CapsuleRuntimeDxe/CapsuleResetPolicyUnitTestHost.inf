@@ -1,0 +1,27 @@
+## @file
+# Host unit tests for capsule staging reset policy.
+#
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION         = 0x00010017
+  BASE_NAME           = CapsuleResetPolicyUnitTest
+  FILE_GUID           = 9D0CAEC9-AE85-4D68-BE96-03284D8348E6
+  VERSION_STRING      = 1.0
+  MODULE_TYPE         = HOST_APPLICATION
+
+[Sources]
+  CapsuleResetPolicyUnitTest.c
+  CapsuleResetPolicy.c
+  CapsuleResetPolicy.h
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  UnitTestFrameworkPkg/UnitTestFrameworkPkg.dec
+
+[LibraryClasses]
+  DebugLib
+  MemoryAllocationLib
+  UnitTestLib
