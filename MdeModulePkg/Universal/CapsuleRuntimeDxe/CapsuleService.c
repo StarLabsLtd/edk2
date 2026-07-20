@@ -10,6 +10,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 **/
 
 #include "CapsuleService.h"
+#include "CapsuleResetPolicy.h"
 
 //
 // Handle for the installation of Capsule Architecture Protocol.
@@ -224,7 +225,7 @@ UpdateCapsule (
       // will initiate a reset of the platform which is compatible with the passed-in capsule request and will
       // not return back to the caller.
       //
-      EfiResetSystem (EfiResetCold, EFI_SUCCESS, 0, NULL);
+      EfiResetSystem (GetCapsuleResetType (TRUE), EFI_SUCCESS, 0, NULL);
     }
   }
 
@@ -350,13 +351,13 @@ QueryCapsuleCapabilities (
       return EFI_UNSUPPORTED;
     }
 
-    *ResetType         = EfiResetCold;
+    *ResetType         = GetCapsuleResetType (TRUE);
     *MaxiumCapsuleSize = (UINT64)mMaxSizePopulateCapsule;
   } else {
     //
     // For non-reset capsule image.
     //
-    *ResetType         = EfiResetCold;
+    *ResetType         = GetCapsuleResetType (FALSE);
     *MaxiumCapsuleSize = (UINT64)mMaxSizeNonPopulateCapsule;
   }
 
