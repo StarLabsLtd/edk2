@@ -29,6 +29,8 @@
 [Sources]
   CapsuleService.c
   CapsuleService.h
+  CapsuleResetPolicy.c
+  CapsuleResetPolicy.h
 
 [Sources.Ia32, Sources.EBC, Sources.AARCH64, Sources.RISCV64, Sources.LOONGARCH64]
   SaveLongModeContext.c
