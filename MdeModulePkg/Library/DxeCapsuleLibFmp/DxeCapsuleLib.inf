@@ -73,7 +73,8 @@
   gEfiMdeModulePkgTokenSpaceGuid.PcdExclusiveFmpImageTypeIdGuid              ## CONSUMES
 
 [FeaturePcd]
-  gEfiMdeModulePkgTokenSpaceGuid.PcdSupportUpdateCapsuleReset ## CONSUMES
+  gEfiMdeModulePkgTokenSpaceGuid.PcdSupportUpdateCapsuleReset           ## CONSUMES
+  gEfiMdeModulePkgTokenSpaceGuid.PcdCapsuleOnDiskConnectBootDevice      ## CONSUMES
 
 [Protocols]
   gEsrtManagementProtocolGuid                   ## CONSUMES

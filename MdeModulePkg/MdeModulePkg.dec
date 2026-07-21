@@ -744,6 +744,9 @@
   ## Include/Protocol/PlatformBootManager.h
   gEdkiiPlatformBootManagerProtocolGuid = { 0xaa17add4, 0x756c, 0x460d, { 0x94, 0xb8, 0x43, 0x88, 0xd7, 0xfb, 0x3e, 0x59 } }
 
+  ## Marker protocol requesting that BDS preserve a capsule-associated BootNext.
+  gEdkiiPreserveCapsuleBootNextProtocolGuid = { 0x5d865fff, 0x6902, 0x4fd7, { 0x8e, 0x91, 0x36, 0xaa, 0x9c, 0x79, 0x82, 0xa6 } }
+
 #
 # [Error.gEfiMdeModulePkgTokenSpaceGuid]
 #   0x80000001 | Invalid value provided.
@@ -769,6 +772,12 @@
   #   FALSE - Does not support update capsule across a system reset.<BR>
   # @Prompt Enable update capsule across a system reset.
   gEfiMdeModulePkgTokenSpaceGuid.PcdSupportUpdateCapsuleReset|FALSE|BOOLEAN|0x0001001d
+
+  ## Connect the active boot device while discovering Capsules On Disk before EndOfDxe.<BR><BR>
+  #  Device connection can discover and dispatch option ROMs. Platforms must only enable this
+  #  feature when an image-dispatch policy is active before Capsule On Disk discovery.<BR>
+  # @Prompt Connect the active boot device for early Capsule On Disk discovery.
+  gEfiMdeModulePkgTokenSpaceGuid.PcdCapsuleOnDiskConnectBootDevice|FALSE|BOOLEAN|0x000100C8
 
   ## Indicates if all PCD PPI services will be enabled.<BR><BR>
   #   TRUE  - All PCD PPI services will be produced.<BR>

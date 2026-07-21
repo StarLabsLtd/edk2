@@ -728,6 +728,12 @@
   gEfiMdeModulePkgTokenSpaceGuid.PcdPciDegradeResourceForOptionRom|FALSE
   ## Whether capsules are allowed to persist across reset.
   gEfiMdeModulePkgTokenSpaceGuid.PcdSupportUpdateCapsuleReset|$(CAPSULE_SUPPORT)
+!if $(CAPSULE_SUPPORT) == TRUE && $(SECURITY_STUB_ENABLE) == TRUE
+  ## SecurityStubDxe supplies image-dispatch policy for early storage connection.
+  gEfiMdeModulePkgTokenSpaceGuid.PcdCapsuleOnDiskConnectBootDevice|TRUE
+!else
+  gEfiMdeModulePkgTokenSpaceGuid.PcdCapsuleOnDiskConnectBootDevice|FALSE
+!endif
 
 [PcdsFeatureFlag.X64]
   gEfiMdeModulePkgTokenSpaceGuid.PcdDxeIplSwitchToLongMode|TRUE

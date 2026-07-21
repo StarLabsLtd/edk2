@@ -20,27 +20,31 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #define LOW_BATTERY_BOOT_TIMEOUT  10
 #define BOOT_UI_HIDPI_HORIZONTAL_RESOLUTION  1920
 #define BOOT_UI_HIDPI_VERTICAL_RESOLUTION    1080
+#define CAPSULE_RETRY_DEFERRED_VARIABLE_NAME  L"DiskCapsulesRetryDeferred"
 
 STATIC EFI_GUID  mLowBatteryLogoFileGuid = {
   0xbe6e1243, 0x682c, 0x4186, { 0x81, 0x51, 0x44, 0x8d, 0x48, 0xaf, 0xe3, 0x41 }
 };
 
-STATIC BOOLEAN  mLowBatteryBootGuardActive;
-STATIC BOOLEAN  mLowBatteryBootLogoShown;
+STATIC BOOLEAN     mLowBatteryBootGuardActive;
+STATIC BOOLEAN     mLowBatteryBootLogoShown;
+STATIC BOOLEAN     mCapsuleRetryDeferred;
+STATIC BOOLEAN     mPreserveCapsuleBootNextProtocol;
+STATIC EFI_HANDLE  mPreserveCapsuleBootNextHandle;
 
 STATIC
-VOID
+EFI_STATUS
 DropCorebootVariable (
   IN CHAR16  *Name
   )
 {
-  gRT->SetVariable (
-         Name,
-         &gEficorebootNvDataGuid,
-         0,
-         0,
-         NULL
-         );
+  return gRT->SetVariable (
+                Name,
+                &gEficorebootNvDataGuid,
+                0,
+                0,
+                NULL
+                );
 }
 
 STATIC
@@ -63,25 +67,164 @@ RequestDiskCapsulesBoot (
 
 STATIC
 BOOLEAN
-HaveCapsules (
+ConsumeCapsuleRetryDeferred (
   VOID
   )
 {
   EFI_STATUS  Status;
+  EFI_STATUS  UninstallStatus;
+  BOOLEAN     Value;
+  UINTN       DataSize;
 
-  if (GetBootModeHob () == BOOT_ON_FLASH_UPDATE) {
+  if (mCapsuleRetryDeferred) {
     return TRUE;
+  }
+
+  Value    = FALSE;
+  DataSize = sizeof (Value);
+  Status   = gRT->GetVariable (
+                    CAPSULE_RETRY_DEFERRED_VARIABLE_NAME,
+                    &gEficorebootNvDataGuid,
+                    NULL,
+                    &DataSize,
+                    &Value
+                    );
+  if (EFI_ERROR (Status) || (DataSize != sizeof (Value)) || !Value) {
+    return FALSE;
+  }
+
+  Status = gBS->InstallProtocolInterface (
+                  &mPreserveCapsuleBootNextHandle,
+                  &gEdkiiPreserveCapsuleBootNextProtocolGuid,
+                  EFI_NATIVE_INTERFACE,
+                  &mPreserveCapsuleBootNextProtocol
+                  );
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "%a(): failed to preserve BootNext: %r\n", __func__, Status));
+    return FALSE;
+  }
+
+  Status = DropCorebootVariable (CAPSULE_RETRY_DEFERRED_VARIABLE_NAME);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "%a(): failed to consume retry marker: %r\n", __func__, Status));
+    UninstallStatus = gBS->UninstallProtocolInterface (
+                             mPreserveCapsuleBootNextHandle,
+                             &gEdkiiPreserveCapsuleBootNextProtocolGuid,
+                             &mPreserveCapsuleBootNextProtocol
+                             );
+    if (EFI_ERROR (UninstallStatus)) {
+      DEBUG ((DEBUG_ERROR, "%a(): failed to release BootNext policy: %r\n", __func__, UninstallStatus));
+    } else {
+      mPreserveCapsuleBootNextHandle = NULL;
+    }
+
+    return FALSE;
+  }
+
+  mCapsuleRetryDeferred = TRUE;
+  return TRUE;
+}
+
+STATIC
+EFI_STATUS
+DeferCapsuleRetry (
+  VOID
+  )
+{
+  EFI_STATUS  Status;
+  BOOLEAN     Value;
+  UINTN       DataSize;
+
+  Value    = FALSE;
+  DataSize = sizeof (Value);
+  Status   = gRT->GetVariable (
+                    CAPSULE_RETRY_DEFERRED_VARIABLE_NAME,
+                    &gEficorebootNvDataGuid,
+                    NULL,
+                    &DataSize,
+                    &Value
+                    );
+  if (Status != EFI_NOT_FOUND) {
+    return EFI_ERROR (Status) ? Status : EFI_ALREADY_STARTED;
+  }
+
+  Value = TRUE;
+  return gRT->SetVariable (
+                CAPSULE_RETRY_DEFERRED_VARIABLE_NAME,
+                &gEficorebootNvDataGuid,
+                EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_NON_VOLATILE,
+                sizeof (Value),
+                &Value
+                );
+}
+
+STATIC
+BOOLEAN
+HaveCapsules (
+  VOID
+  )
+{
+  EFI_BOOT_MODE  BootMode;
+  EFI_STATUS     Status;
+  BOOLEAN        BootDeviceReady;
+  BOOLEAN        ConnectBootDevice;
+  BOOLEAN        ConnectAllNeeded;
+
+  BootMode          = GetBootModeHob ();
+  ConnectBootDevice = FeaturePcdGet (PcdCapsuleOnDiskConnectBootDevice);
+  if (BootMode == BOOT_ON_S4_RESUME) {
+    //
+    // Preserve the request for the next normal boot without changing the S4
+    // handle graph or inherited memory map.
+    //
+    return FALSE;
+  }
+
+  if (BootMode == BOOT_ON_FLASH_UPDATE) {
+    if (CoDCheckCapsuleOnDiskFlag ()) {
+      CoDPresent (3, ConnectBootDevice, NULL, NULL);
+    }
+
+    return TRUE;
+  }
+
+  if (ConsumeCapsuleRetryDeferred ()) {
+    DEBUG ((DEBUG_WARN, "On-disk capsules: deferring retry until the next boot\n"));
+    return FALSE;
   }
 
   if (!CoDCheckCapsuleOnDiskFlag ()) {
     return FALSE;
   }
 
+  //
+  // SecurityStubDxe defers third-party images until ReadyToLock is installed
+  // below. Connect only the active boot device so disk-only boot options expose
+  // their ESP in time to request coreboot flash access.
+  //
   DEBUG ((DEBUG_INFO, "On-disk capsules: processing request from OS\n"));
 
-  if (!CoDPresent (3)) {
-    DEBUG ((DEBUG_INFO, "On-disk capsules: found no capsules\n"));
-    return FALSE;
+  BootDeviceReady = FALSE;
+  ConnectAllNeeded = FALSE;
+  if (!CoDPresent (3, ConnectBootDevice, &BootDeviceReady, &ConnectAllNeeded)) {
+    if (BootDeviceReady) {
+      DEBUG ((DEBUG_INFO, "On-disk capsules: found no capsules\n"));
+      return FALSE;
+    }
+
+    if (!PcdGetBool (PcdCapsuleInRamSupport)) {
+      if (!CoDPresent (3, FALSE, &BootDeviceReady, NULL)) {
+        DEBUG ((DEBUG_INFO, "On-disk capsules: found no capsules\n"));
+        return FALSE;
+      }
+    } else {
+      if (!ConnectAllNeeded) {
+        DEBUG ((DEBUG_INFO, "On-disk capsules: boot device lookup failed\n"));
+        return FALSE;
+      }
+
+      DEBUG ((DEBUG_INFO, "On-disk capsules: deferring discovery to update boot\n"));
+    }
   }
 
   Status = RequestDiskCapsulesBoot ();
@@ -1144,6 +1287,7 @@ PlatformBootManagerAfterConsole (
   )
 {
   EFI_STATUS  Status;
+  EFI_STATUS  RetryStatus;
   UINT16      BootTimeOut;
 
   ConfigureLowBatteryBootGuard ();
@@ -1180,13 +1324,26 @@ PlatformBootManagerAfterConsole (
     Status = ProcessCapsules ();
     if (EFI_ERROR (Status)) {
       DEBUG ((DEBUG_ERROR, "%a(): ProcessCapsule() failed with: %r\n", __func__, Status));
+      if (CoDCheckCapsuleOnDiskFlag ()) {
+        RetryStatus = DeferCapsuleRetry ();
+        if (EFI_ERROR (RetryStatus)) {
+          DEBUG ((DEBUG_ERROR, "%a(): failed to defer capsule retry: %r\n", __func__, RetryStatus));
+          RetryStatus = CoDClearCapsuleOnDiskFlag ();
+          if (EFI_ERROR (RetryStatus)) {
+            DEBUG ((DEBUG_ERROR, "%a(): failed to retire capsule request: %r\n", __func__, RetryStatus));
+            CpuDeadLoop ();
+          }
+        }
+      }
     }
 
     //
     HandleEcMirrorResult ();
 
     gRT->ResetSystem (EfiResetCold, EFI_SUCCESS, 0, NULL);
-  } else {
+  } else if ((GetBootModeHob () != BOOT_ON_S4_RESUME) &&
+             !mCapsuleRetryDeferred)
+  {
     CoDClearCapsuleOnDiskFlag ();
   }
 
