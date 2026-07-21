@@ -1219,6 +1219,9 @@
       FILE_GUID = $(CAPSULE_EC_FW_GUID)
     <PcdsFixedAtBuild>
       gFmpDevicePkgTokenSpaceGuid.PcdFmpDeviceImageIdName|L"Embedded Controller"
+      # Disk capsules are processed in BDS after EndOfDxe. Defer only the EC
+      # FMP software lock to ReadyToBoot.
+      gFmpDevicePkgTokenSpaceGuid.PcdFmpDeviceLockEventGuid|{GUID("7CE88FB3-4BD7-4679-87A8-A8D8DEE50D2B")}
       gUefiPayloadPkgTokenSpaceGuid.PcdStarLabsEcBoardId|$(CAPSULE_EC_BOARD_ID)
       gUefiPayloadPkgTokenSpaceGuid.PcdStarLabsEcChipId|$(CAPSULE_EC_CHIP_ID)
       gUefiPayloadPkgTokenSpaceGuid.PcdStarLabsEcLowestSupportedVersion|$(CAPSULE_EC_LOWEST_SUPPORTED_VERSION)
