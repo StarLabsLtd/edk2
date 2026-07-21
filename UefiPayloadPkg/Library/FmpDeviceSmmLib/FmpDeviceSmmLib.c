@@ -33,6 +33,9 @@
 #include <Library/UefiRuntimeServicesTableLib.h>
 #include <Coreboot.h>
 
+#include "FmpDeviceSmmFlashRetry.h"
+#include "FmpDeviceSmmUpdatePolicy.h"
+
 //
 // Minimal FMAP parsing to locate and compare the flash map before updating.
 //
@@ -65,7 +68,6 @@ typedef struct {
 //
 #define REGION_MANIFEST_SIGNATURE      SIGNATURE_32 ('R', 'M', 'A', 'P')
 #define REGION_MANIFEST_VERSION        1
-#define SMMSTORE_FLASH_RETRY_COUNT     4
 #define SMMSTORE_FLASH_RETRY_STALL_US  500
 #define INTEL_DESCRIPTOR_SIGNATURE     0x0ff0a55a
 #define INTEL_DESCRIPTOR_SIGNATURE_OFF 0x10
@@ -97,6 +99,46 @@ StallBetweenFlashAttempts (
 
 STATIC
 EFI_STATUS
+ReadAnyBlock (
+  IN     EFI_LBA  Lba,
+  IN     UINTN    Offset,
+  IN OUT UINTN    *NumBytes,
+  OUT    UINT8    *Buffer
+  )
+{
+  return SmmStoreLibReadAnyBlock (Lba, Offset, NumBytes, Buffer);
+}
+
+STATIC
+EFI_STATUS
+WriteAnyBlock (
+  IN     EFI_LBA  Lba,
+  IN     UINTN    Offset,
+  IN OUT UINTN    *NumBytes,
+  IN     UINT8    *Buffer
+  )
+{
+  return SmmStoreLibWriteAnyBlock (Lba, Offset, NumBytes, Buffer);
+}
+
+STATIC
+EFI_STATUS
+EraseAnyBlock (
+  IN EFI_LBA  Lba
+  )
+{
+  return SmmStoreLibEraseAnyBlock (Lba);
+}
+
+STATIC CONST FMP_DEVICE_FLASH_IO  mFlashIo = {
+  ReadAnyBlock,
+  WriteAnyBlock,
+  EraseAnyBlock,
+  StallBetweenFlashAttempts
+};
+
+STATIC
+EFI_STATUS
 ReadAnyBlockWithRetry (
   IN     EFI_LBA  Lba,
   IN     UINTN    Offset,
@@ -104,124 +146,7 @@ ReadAnyBlockWithRetry (
   OUT    VOID     *Buffer
   )
 {
-  EFI_STATUS  Status;
-  UINTN       Attempt;
-  UINTN       RequestedBytes;
-  UINTN       ActualBytes;
-
-  if ((NumBytes == NULL) || (Buffer == NULL)) {
-    return EFI_INVALID_PARAMETER;
-  }
-
-  RequestedBytes = *NumBytes;
-  Status         = EFI_DEVICE_ERROR;
-  ActualBytes    = 0;
-
-  for (Attempt = 0; Attempt < SMMSTORE_FLASH_RETRY_COUNT; ++Attempt) {
-    ActualBytes = RequestedBytes;
-    Status      = SmmStoreLibReadAnyBlock (Lba, Offset, &ActualBytes, Buffer);
-    if (!EFI_ERROR (Status) && (ActualBytes == RequestedBytes)) {
-      *NumBytes = ActualBytes;
-      return EFI_SUCCESS;
-    }
-
-    *NumBytes = ActualBytes;
-    StallBetweenFlashAttempts (Attempt);
-  }
-
-  if (!EFI_ERROR (Status)) {
-    Status = EFI_DEVICE_ERROR;
-  }
-
-  return Status;
-}
-
-STATIC
-EFI_STATUS
-EraseAnyBlockWithRetry (
-  IN EFI_LBA  Lba
-  )
-{
-  EFI_STATUS  Status;
-  UINTN       Attempt;
-
-  Status = EFI_DEVICE_ERROR;
-  for (Attempt = 0; Attempt < SMMSTORE_FLASH_RETRY_COUNT; ++Attempt) {
-    Status = SmmStoreLibEraseAnyBlock (Lba);
-    if (!EFI_ERROR (Status)) {
-      return EFI_SUCCESS;
-    }
-
-    StallBetweenFlashAttempts (Attempt);
-  }
-
-  return Status;
-}
-
-STATIC
-EFI_STATUS
-WriteAnyBlockWithRetry (
-  IN     EFI_LBA  Lba,
-  IN     UINTN    Offset,
-  IN OUT UINTN    *NumBytes,
-  IN     VOID     *Buffer
-  )
-{
-  EFI_STATUS  Status;
-  UINTN       Attempt;
-  UINTN       RequestedBytes;
-  UINTN       ActualBytes;
-
-  if ((NumBytes == NULL) || (Buffer == NULL)) {
-    return EFI_INVALID_PARAMETER;
-  }
-
-  RequestedBytes = *NumBytes;
-  Status         = EFI_DEVICE_ERROR;
-  ActualBytes    = 0;
-
-  for (Attempt = 0; Attempt < SMMSTORE_FLASH_RETRY_COUNT; ++Attempt) {
-    ActualBytes = RequestedBytes;
-    Status      = SmmStoreLibWriteAnyBlock (Lba, Offset, &ActualBytes, Buffer);
-    if (!EFI_ERROR (Status) && (ActualBytes == RequestedBytes)) {
-      *NumBytes = ActualBytes;
-      return EFI_SUCCESS;
-    }
-
-    *NumBytes = ActualBytes;
-    StallBetweenFlashAttempts (Attempt);
-  }
-
-  if (!EFI_ERROR (Status)) {
-    Status = EFI_DEVICE_ERROR;
-  }
-
-  return Status;
-}
-
-STATIC
-EFI_STATUS
-VerifyAnyBlockWrite (
-  IN  EFI_LBA      Lba,
-  IN  CONST UINT8  *Expected,
-  OUT UINT8        *VerifyBuffer,
-  IN  UINTN        BlockSize
-  )
-{
-  EFI_STATUS  Status;
-  UINTN       NumBytes;
-
-  if ((Expected == NULL) || (VerifyBuffer == NULL) || (BlockSize == 0)) {
-    return EFI_INVALID_PARAMETER;
-  }
-
-  NumBytes = BlockSize;
-  Status   = ReadAnyBlockWithRetry (Lba, 0, &NumBytes, VerifyBuffer);
-  if (EFI_ERROR (Status) || (NumBytes != BlockSize)) {
-    return EFI_DEVICE_ERROR;
-  }
-
-  return (CompareMem (VerifyBuffer, Expected, BlockSize) == 0) ? EFI_SUCCESS : EFI_VOLUME_CORRUPTED;
+  return FmpDeviceFlashReadWithRetry (&mFlashIo, Lba, Offset, NumBytes, Buffer);
 }
 
 STATIC
@@ -233,39 +158,7 @@ ProgramAnyBlockWithRetry (
   IN  UINTN        BlockSize
   )
 {
-  EFI_STATUS  Status;
-  UINTN       Attempt;
-  UINTN       NumBytes;
-
-  if ((Expected == NULL) || (VerifyBuffer == NULL) || (BlockSize == 0)) {
-    return EFI_INVALID_PARAMETER;
-  }
-
-  Status = EFI_DEVICE_ERROR;
-  for (Attempt = 0; Attempt < SMMSTORE_FLASH_RETRY_COUNT; ++Attempt) {
-    Status = EraseAnyBlockWithRetry (Lba);
-    if (EFI_ERROR (Status)) {
-      StallBetweenFlashAttempts (Attempt);
-      continue;
-    }
-
-    NumBytes = BlockSize;
-    Status   = WriteAnyBlockWithRetry (Lba, 0, &NumBytes, (VOID *)Expected);
-    if (EFI_ERROR (Status) || (NumBytes != BlockSize)) {
-      Status = EFI_DEVICE_ERROR;
-      StallBetweenFlashAttempts (Attempt);
-      continue;
-    }
-
-    Status = VerifyAnyBlockWrite (Lba, Expected, VerifyBuffer, BlockSize);
-    if (!EFI_ERROR (Status)) {
-      return EFI_SUCCESS;
-    }
-
-    StallBetweenFlashAttempts (Attempt);
-  }
-
-  return Status;
+  return FmpDeviceFlashProgramWithRetry (&mFlashIo, Lba, Expected, VerifyBuffer, BlockSize);
 }
 
 STATIC
@@ -1927,6 +1820,9 @@ FmpDeviceSetImageWithStatus (
   VOID                         *FlashFmapBuffer;
   FMAP_HEADER                  *FlashFmapHeader;
   FMAP_AREA                    *FlashFmapAreas;
+  BOOLEAN                      VariableStorePreserved;
+  UINTN                        VariableStoreOffset;
+  UINTN                        VariableStoreSize;
 
   *LastAttemptStatus = LAST_ATTEMPT_STATUS_ERROR_UNSUCCESSFUL;
   BlockCount         = 0;
@@ -1968,9 +1864,12 @@ FmpDeviceSetImageWithStatus (
   FmapAreas          = NULL;
   FmapOffset         = 0;
   FmapLength         = 0;
-  FlashFmapBuffer    = NULL;
-  FlashFmapHeader    = NULL;
-  FlashFmapAreas     = NULL;
+  FlashFmapBuffer        = NULL;
+  FlashFmapHeader        = NULL;
+  FlashFmapAreas         = NULL;
+  VariableStorePreserved = FALSE;
+  VariableStoreOffset    = 0;
+  VariableStoreSize      = 0;
 
   Status = LocateRegionManifest (Image, ImageSize, &ManifestEntryCount, &ManifestEntries, &BaseImageSize);
   if (EFI_ERROR (Status)) {
@@ -2058,6 +1957,7 @@ FmpDeviceSetImageWithStatus (
     UINTN       CapsuleRegionSize;
     UINTN       FlashRegionOffset;
     UINTN       FlashRegionSize;
+    CONST CHAR8  SmmStoreRegionName[16] = "SMMSTORE";
 
     LayoutMismatch      = FALSE;
     MismatchIndex       = MAX_UINTN;
@@ -2077,6 +1977,23 @@ FmpDeviceSetImageWithStatus (
     if (EFI_ERROR (FlashFmapStatus)) {
       LayoutMismatch = TRUE;
       DEBUG ((DEBUG_WARN, "%a(): failed to load flash FMAP: %r\n", __func__, FlashFmapStatus));
+    } else {
+      Status = FindFmapRegion (
+                 FlashFmapHeader,
+                 FlashFmapAreas,
+                 FlashFmapHeader->AreaCount,
+                 SmmStoreRegionName,
+                 &VariableStoreOffset,
+                 &VariableStoreSize
+                 );
+      if (!EFI_ERROR (Status) && (VariableStoreSize != 0) &&
+          (VariableStoreOffset < BaseImageSize) &&
+          (VariableStoreSize <= (BaseImageSize - VariableStoreOffset)))
+      {
+        VariableStorePreserved = TRUE;
+      } else {
+        DEBUG ((DEBUG_WARN, "%a(): current SMMSTORE range is unavailable or invalid\n", __func__));
+      }
     }
 
     TotalSteps = 0;
@@ -2130,6 +2047,15 @@ FmpDeviceSetImageWithStatus (
             FlashRegionOffset = 0;
             FlashRegionSize   = 0;
           }
+        } else if (VariableStorePreserved &&
+                   FmpDeviceFlashRangesOverlap (
+                     FlashRegionOffset,
+                     FlashRegionSize,
+                     VariableStoreOffset,
+                     VariableStoreSize
+                     ))
+        {
+          VariableStorePreserved = FALSE;
         }
       }
 
@@ -2149,8 +2075,9 @@ FmpDeviceSetImageWithStatus (
       CHAR8        RegionName[17];
       CONST CHAR8  *BiosRegionSource;
 
-      UseManifest   = FALSE;
-      UseBiosRegion = FALSE;
+      UseManifest            = FALSE;
+      UseBiosRegion          = FALSE;
+      VariableStorePreserved = FALSE;
 
       if (MismatchIndex != MAX_UINTN) {
         CopyMem (RegionName, ManifestEntries[MismatchIndex].RegionName, 16);
@@ -2345,32 +2272,33 @@ FmpDeviceSetImageWithStatus (
   *LastAttemptStatus = LAST_ATTEMPT_STATUS_SUCCESS;
 
   //
-  // Updating the firmware on system flash overwrites SMMSTORE region which
-  // backs up EFI variables of the running firmware.  At this point both SMI
-  // handler from coreboot and variable services of EDK can be mistaken in
-  // their assumptions about the location, size and contents of the region.
-  // Accessing flash where SMMSTORE used to be can lead to unexpected results
-  // including corruption of the new image outside of its SMMSTORE.  Switch to
-  // the use of stubs for dealing with EFI variables that do nothing.
+  // A full-flash, BIOS-region, or overlapping manifest update can overwrite
+  // the SMMSTORE region that backs EFI variables.  In those cases, the running
+  // coreboot SMI handler and EDK variable services may have stale assumptions
+  // about the store, so replace the services with failure stubs.
   //
-  // New firmware will not report result of flashing in any way unless some
-  // kind of communication mechanism is implemented for this purpose.
+  // A manifest update may keep using variable services only when the live FMAP
+  // was read successfully, all selected regions matched the live layout, and
+  // none overlapped the live SMMSTORE range.  This lets FmpDxe persist final
+  // last-attempt state before the mandatory reset.
   //
   // If there was an error, it's unclear whether these stubs would be of any
   // help, so they are employed only on successful flashing.
   //
 
-  gRT->GetVariable         = GetVariableHook;
-  gRT->GetNextVariableName = GetNextVariableNameHook;
-  gRT->SetVariable         = SetVariableHook;
-  gRT->QueryVariableInfo   = QueryVariableInfoHook;
+  if (FmpDeviceShouldDisableVariableServices (UseManifest && VariableStorePreserved)) {
+    gRT->GetVariable         = GetVariableHook;
+    gRT->GetNextVariableName = GetNextVariableNameHook;
+    gRT->SetVariable         = SetVariableHook;
+    gRT->QueryVariableInfo   = QueryVariableInfoHook;
 
-  gRT->Hdr.CRC32 = 0;
-  gBS->CalculateCrc32 (
-         (UINT8 *)&gRT->Hdr,
-         gRT->Hdr.HeaderSize,
-         &gRT->Hdr.CRC32
-         );
+    gRT->Hdr.CRC32 = 0;
+    gBS->CalculateCrc32 (
+           (UINT8 *)&gRT->Hdr,
+           gRT->Hdr.HeaderSize,
+           &gRT->Hdr.CRC32
+           );
+  }
 
   return EFI_SUCCESS;
 

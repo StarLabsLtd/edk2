@@ -21,6 +21,10 @@
 
 [Sources]
   FmpDeviceSmmLib.c
+  FmpDeviceSmmFlashRetry.c
+  FmpDeviceSmmFlashRetry.h
+  FmpDeviceSmmUpdatePolicy.c
+  FmpDeviceSmmUpdatePolicy.h
 
 [LibraryClasses]
   BaseMemoryLib
