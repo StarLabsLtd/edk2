@@ -101,6 +101,7 @@
   # CPU options
   #
   DEFINE MAX_LOGICAL_PROCESSORS       = 1024
+  DEFINE CPU_REFRESH_GCD_MEMORY_ATTRIBUTES = TRUE
 
   #
   # PCI options
@@ -817,6 +818,7 @@
 
   # coreboot/FSP has already configured MTRRs before entering the payload.
   gUefiCpuPkgTokenSpaceGuid.PcdCpuDisableMtrrProgramming|TRUE
+  gUefiCpuPkgTokenSpaceGuid.PcdCpuRefreshGcdMemoryAttributes|$(CPU_REFRESH_GCD_MEMORY_ATTRIBUTES)
 
 !if $(SECURE_BOOT_ENABLE) == TRUE
   # Override the default values from SecurityPkg to ensure images from all sources are verified in secure boot
