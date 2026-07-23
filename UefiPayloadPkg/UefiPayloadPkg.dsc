@@ -53,6 +53,8 @@
   #
   # CAPSULE_MAIN_FW_GUID specifies GUID to be used by FmpDxe when
   # CAPSULE_SUPPORT is set to TRUE
+  # CAPSULE_EMBED_FMP_DXE permits FmpDxe to be embedded in update capsules
+  # in addition to including it in the payload FV.
   #
   DEFINE CAPSULE_SUPPORT              = FALSE
   DEFINE CAPSULE_MAIN_FW_GUID         =
@@ -62,6 +64,7 @@
   # so platforms can point at a build-local generated file under Conf/ (or elsewhere).
   #
   DEFINE FMP_DEVICE_PKCS7_PCD_INC     = BaseTools/Source/Python/Pkcs7Sign/TestRoot.cer.gFmpDevicePkgTokenSpaceGuid.PcdFmpDevicePkcs7CertBufferXdr.inc
+  DEFINE CAPSULE_EMBED_FMP_DXE        = FALSE
 
   #
   # Crypto Support
@@ -647,6 +650,8 @@
 
   ## Whether FMP capsules are enabled.
   gEfiMdeModulePkgTokenSpaceGuid.PcdCapsuleFmpSupport|$(CAPSULE_SUPPORT)
+  ## Whether embedded drivers in FMP capsules are supported.
+  gEfiMdeModulePkgTokenSpaceGuid.PcdCapsuleEmbeddedDriverSupport|$(CAPSULE_EMBED_FMP_DXE)
 
 !if $(CRYPTO_PROTOCOL_SUPPORT) == TRUE
 !if $(CRYPTO_DRIVER_EXTERNAL_SUPPORT) == FALSE
@@ -1001,7 +1006,10 @@
   }
   MdeModulePkg/Application/BootManagerMenuApp/BootManagerMenuApp.inf
 !if $(CAPSULE_SUPPORT) == TRUE
-  # Build FmpDxe meant for the inclusion into an update capsule as an embedded driver.
+!if "$(CAPSULE_MAIN_FW_GUID)" == ""
+  !error "CAPSULE_MAIN_FW_GUID must be set when CAPSULE_SUPPORT is TRUE"
+!endif
+  # Build FmpDxe for the payload FV or inclusion in an update capsule.
   FmpDevicePkg/FmpDxe/FmpDxe.inf {
     <Defines>
       # FmpDxe interprets its FILE_GUID as firmware GUID.  This allows including
