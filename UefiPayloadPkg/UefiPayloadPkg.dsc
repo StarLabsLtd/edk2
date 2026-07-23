@@ -245,6 +245,13 @@
 !endif
 
 [BuildOptions.AARCH64]
+!if $(CBMEM_TIMESTAMPS) == TRUE
+  GCC:*_*_*_CC_FLAGS             = -D CBMEM_TIMESTAMPS=1
+  INTEL:*_*_*_CC_FLAGS           = /D CBMEM_TIMESTAMPS=1
+  MSFT:*_*_*_CC_FLAGS            = /D CBMEM_TIMESTAMPS=1
+!endif
+
+[BuildOptions.AARCH64]
   GCC:*_*_*_CC_FLAGS         = -mstrict-align
   GCC:*_GCC_*_CC_FLAGS         = -mcmodel=tiny
   GCC:*_CLANGDWARF_*_CC_FLAGS  = -mcmodel=tiny
