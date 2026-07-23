@@ -553,9 +553,6 @@ _ModuleEntryPoint (
 
   Status = PcdSet64S (PcdBootloaderParameter, BootloaderParameter);
   ASSERT_EFI_ERROR (Status);
-  CbMemTimestampAdd (CBMEM_TS_UPL_ENTRY);
-  CbMemLogSummary ();
-
   // Initialize floating point operating environment to be compliant with UEFI spec.
   InitializeFloatingPointUnits ();
 
@@ -602,6 +599,8 @@ _ModuleEntryPoint (
 
   // The library constructors might depend on serial port, so call it after serial port hob
   ProcessLibraryConstructorList ();
+  CbMemTimestampAdd (CBMEM_TS_UPL_ENTRY);
+  CbMemLogSummary ();
   DEBUG ((DEBUG_INFO, "sizeof(UINTN) = 0x%x\n", sizeof (UINTN)));
   DEBUG ((DEBUG_INFO, "MemBase       = 0x%llx\n", (UINT64)MemBase));
   DEBUG ((DEBUG_INFO, "HobMemBase    = 0x%llx\n", (UINT64)HobMemBase));

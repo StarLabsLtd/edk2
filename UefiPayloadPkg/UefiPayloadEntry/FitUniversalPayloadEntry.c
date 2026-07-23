@@ -511,9 +511,6 @@ FitUplEntryPoint (
   if (EFI_ERROR (Status)) {
     return Status;
   }
-  CbMemTimestampAdd (CBMEM_TS_UPL_ENTRY);
-  CbMemLogSummary ();
-
   if (FixedPcdGetBool (PcdHandOffFdtEnable)) {
     mHobList = (VOID *)NULL;
   } else {
@@ -524,6 +521,9 @@ FitUplEntryPoint (
   FdtBaseResvd = 0;
   // Call constructor for all libraries
   ProcessLibraryConstructorList ();
+
+  CbMemTimestampAdd (CBMEM_TS_UPL_ENTRY);
+  CbMemLogSummary ();
 
   DEBUG ((DEBUG_INFO, "Entering Universal Payload...\n"));
   DEBUG ((DEBUG_INFO, "sizeof(UINTN) = 0x%x\n", sizeof (UINTN)));
