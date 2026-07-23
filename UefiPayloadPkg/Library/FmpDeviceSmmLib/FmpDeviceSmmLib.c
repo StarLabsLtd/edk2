@@ -495,7 +495,7 @@ FindFmapRegion (
   UINT64  Base;
   UINTN   Index;
   CHAR8   FmapName[33];
-  CHAR8   ManifestName[REGION_MANIFEST_NAME_LEN + 1];
+  CHAR8   ManifestName[17];
 
   if ((FmapHeader == NULL) || (Areas == NULL) || (Name == NULL) ||
       (RegionOffset == NULL) || (RegionSize == NULL))
