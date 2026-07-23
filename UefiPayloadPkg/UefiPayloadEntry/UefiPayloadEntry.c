@@ -556,8 +556,9 @@ _ModuleEntryPoint (
   UNIVERSAL_PAYLOAD_SERIAL_PORT_INFO  *UniversalSerialPort;
   EFI_HOB_HANDOFF_INFO_TABLE          *HobInfo;
 
-  Status = PcdSet64S (PcdBootloaderParameter, BootloaderParameter);
-  ASSERT_EFI_ERROR (Status);
+  PatchPcdSet64 (PcdBootloaderParameter, BootloaderParameter);
+  CbMemTimestampAdd (CBMEM_TS_UPL_ENTRY);
+  CbMemLogSummary ();
 
   // Initialize floating point operating environment to be compliant with UEFI spec.
   InitializeFloatingPointUnits ();
@@ -615,6 +616,7 @@ _ModuleEntryPoint (
     DEBUG ((DEBUG_ERROR, "BuildHobFromBl Status = %r\n", Status));
     return Status;
   }
+  CbMemTimestampAdd (CBMEM_TS_UPL_HOB_READY);
 
   // Build other HOBs required by DXE
   BuildGenericHob ();
@@ -629,8 +631,10 @@ _ModuleEntryPoint (
     );
 
   // Load the DXE Core
+  CbMemTimestampAdd (CBMEM_TS_UPL_DXE_LOAD_START);
   Status = LoadDxeCore (&DxeCoreEntryPoint);
   ASSERT_EFI_ERROR (Status);
+  CbMemTimestampAdd (CBMEM_TS_UPL_DXE_LOAD_END);
 
   DEBUG ((DEBUG_INFO, "DxeCoreEntryPoint = 0x%lx\n", DxeCoreEntryPoint));
 
@@ -648,6 +652,7 @@ _ModuleEntryPoint (
   IoWrite8 (LEGACY_8259_MASK_REGISTER_SLAVE, 0xFF);
 
   Hob.HandoffInformationTable = (EFI_HOB_HANDOFF_INFO_TABLE *)GetFirstHob (EFI_HOB_TYPE_HANDOFF);
+  CbMemTimestampAdd (CBMEM_TS_UPL_DXE_HANDOFF);
   HandOffToDxeCore (DxeCoreEntryPoint, Hob);
 
   // Should not get here

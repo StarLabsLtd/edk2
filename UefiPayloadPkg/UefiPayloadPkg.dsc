@@ -43,6 +43,7 @@
   DEFINE PS2_MOUSE_ENABLE             = TRUE
   DEFINE SD_MMC_TIMEOUT               = 1000000
   DEFINE USE_CBMEM_FOR_CONSOLE        = FALSE
+  DEFINE CBMEM_TIMESTAMPS              = FALSE
   DEFINE BOOTSPLASH_IMAGE             = FALSE
   DEFINE NVME_ENABLE                  = TRUE
   DEFINE LOCKBOX_SUPPORT              = FALSE
@@ -303,6 +304,11 @@
   CustomFdtNodeParserLib|UefiPayloadPkg/Library/CustomFdtNodeParserNullLib/CustomFdtNodeParserNullLib.inf
   PayloadEntryHelperLib|UefiPayloadPkg/Library/PayloadEntryHelperLib/PayloadEntryHelperLib.inf
   MemoryAllocationLib|UefiPayloadPkg/Library/PayloadEntryMemoryAllocationLib/PayloadEntryMemoryAllocationLib.inf
+!if $(BOOTLOADER) == "COREBOOT"
+  CbMemLib|UefiPayloadPkg/Library/CbMemLib/CbMemLib.inf
+!else
+  CbMemLib|UefiPayloadPkg/Library/CbMemLib/CbMemLibNull.inf
+!endif
 
   #
   # UEFI & PI
@@ -720,6 +726,7 @@
 [PcdsFeatureFlag]
   gEfiMdeModulePkgTokenSpaceGuid.PcdConOutGopSupport|TRUE
   gUefiPayloadPkgTokenSpaceGuid.PcdConnectAllDevices|$(CONNECT_ALL_DEVICES)
+  gUefiPayloadPkgTokenSpaceGuid.PcdCbmemTimestamps|$(CBMEM_TIMESTAMPS)
   gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiWideAspectCapSupport|$(PAYLOAD_FB_HIDPI_WIDE_ASPECT_CAP_SUPPORT)
   ## This PCD specified whether ACPI SDT protocol is installed.
   gEfiMdeModulePkgTokenSpaceGuid.PcdInstallAcpiSdtProtocol|TRUE
@@ -1124,6 +1131,9 @@
 !endif
 
 [Components.X64, Components.AARCH64]
+!if $(CBMEM_TIMESTAMPS) == TRUE
+  UefiPayloadPkg/CbMemTimestampDxe/CbMemTimestampDxe.inf
+!endif
   #
   # DXE Core
   #

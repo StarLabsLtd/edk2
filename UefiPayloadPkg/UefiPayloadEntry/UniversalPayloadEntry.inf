@@ -54,6 +54,7 @@
   StackCheckLib
   UefiCpuBaseArchSupportLib
   MemoryAllocationLib
+  CbMemLib
 
 [Guids]
   gEfiMemoryTypeInformationGuid
@@ -90,6 +91,7 @@
   gEfiMdeModulePkgTokenSpaceGuid.PcdGhcbSize                            ## CONSUMES
   gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFdMemBase
   gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFdMemSize
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootloaderParameter
   gUefiPayloadPkgTokenSpaceGuid.PcdSystemMemoryUefiRegionSize
   gUefiPayloadPkgTokenSpaceGuid.PcdMemoryTypeEfiACPIMemoryNVS
   gUefiPayloadPkgTokenSpaceGuid.PcdMemoryTypeEfiACPIReclaimMemory

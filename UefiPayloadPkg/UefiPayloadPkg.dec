@@ -147,6 +147,7 @@ gUefiPayloadPkgTokenSpaceGuid.PcdPciAllocateMemoryAbove4GB|FALSE|BOOLEAN|0x00000
 ## option is launched. Platforms that disable this can connect the selected
 ## path on demand and discover removable media only when needed.
 gUefiPayloadPkgTokenSpaceGuid.PcdConnectAllDevices|TRUE|BOOLEAN|0x0000002F
+gUefiPayloadPkgTokenSpaceGuid.PcdCbmemTimestamps|FALSE|BOOLEAN|0x00000030
 
 gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiWideAspectCapSupport|FALSE|BOOLEAN|0x00000032
 

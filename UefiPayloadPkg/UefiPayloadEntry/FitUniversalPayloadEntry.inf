@@ -72,6 +72,7 @@
   PcdLib
   StackCheckLib
   MemoryAllocationLib
+  CbMemLib
 
 [Guids]
   gEfiMemoryTypeInformationGuid
@@ -113,6 +114,7 @@
   gEfiMdeModulePkgTokenSpaceGuid.PcdGhcbSize                            ## CONSUMES
   gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFdMemBase
   gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFdMemSize
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootloaderParameter
   gUefiPayloadPkgTokenSpaceGuid.PcdSystemMemoryUefiRegionSize
   gEfiMdeModulePkgTokenSpaceGuid.PcdSetNxForStack               ## SOMETIMES_CONSUMES
   gEfiMdeModulePkgTokenSpaceGuid.PcdDxeNxMemoryProtectionPolicy ## SOMETIMES_CONSUMES
