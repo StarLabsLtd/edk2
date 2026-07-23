@@ -10,6 +10,7 @@
 #include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
 #include <Library/DebugLib.h>
+#include <Library/FdtLib.h>
 #include <Library/PcdLib.h>
 
 #include <Library/CbMemLib.h>
@@ -40,12 +41,141 @@ CbMemUnpackReferenceAddress (
 }
 
 STATIC
+UINT16
+CorebootChecksum16 (
+  IN CONST VOID  *Buffer,
+  IN UINTN        Length
+  )
+{
+  CONST UINT8  *Data;
+  UINT32       Sum;
+  UINT32       Value;
+  UINTN        Index;
+
+  Data = Buffer;
+  Sum  = 0;
+  for (Index = 0; Index < Length; Index++) {
+    Value = Data[Index];
+    if ((Index & 1) != 0) {
+      Value <<= 8;
+    }
+
+    Sum += Value;
+    if (Sum >= 0x10000) {
+      Sum = (Sum + (Sum >> 16)) & 0xFFFF;
+    }
+  }
+
+  return (UINT16)((~Sum) & 0xFFFF);
+}
+
+STATIC
+RETURN_STATUS
+ValidateCorebootTable (
+  IN struct cb_header  *Header,
+  IN UINTN             TableSize
+  )
+{
+  UINTN  HeaderSize;
+  UINTN  EntriesSize;
+
+  if ((Header == NULL) || (TableSize < sizeof (*Header)) ||
+      (Header->signature != CB_HEADER_SIGNATURE) ||
+      (Header->header_bytes < sizeof (*Header)) ||
+      (Header->header_bytes > TableSize) ||
+      (Header->table_bytes < sizeof (struct cb_record)) ||
+      (Header->table_bytes > (TableSize - Header->header_bytes)) ||
+      (Header->table_entries > (Header->table_bytes / sizeof (struct cb_record))))
+  {
+    return RETURN_COMPROMISED_DATA;
+  }
+
+  HeaderSize = Header->header_bytes;
+  EntriesSize = Header->table_bytes;
+  if ((CorebootChecksum16 (Header, HeaderSize) != 0) ||
+      (CorebootChecksum16 ((UINT8 *)Header + HeaderSize, EntriesSize) !=
+       Header->table_checksum))
+  {
+    return RETURN_CRC_ERROR;
+  }
+
+  return RETURN_SUCCESS;
+}
+
+STATIC
+struct cb_header *
+GetCbTableFromFdt (
+  IN VOID  *Fdt
+  )
+{
+  INT32               CorebootNode;
+  INT32               FirmwareNode;
+  INT32               PropertyLength;
+  CONST FDT_PROPERTY  *Property;
+  CONST UINT64        *Reg;
+  UINT64              CbmemAddress;
+  UINT64              CbmemEnd;
+  UINT64              CbmemSize;
+  UINT64              TableAddress;
+  UINT64              TableEnd;
+  UINT64              TableSize;
+  struct cb_header    *Header;
+
+  if ((Fdt == NULL) || (FdtCheckHeader (Fdt) != 0)) {
+    return NULL;
+  }
+
+  FirmwareNode = FdtSubnodeOffsetNameLen (Fdt, 0, "firmware", sizeof ("firmware") - 1);
+  if (FirmwareNode < 0) {
+    return NULL;
+  }
+
+  CorebootNode = FdtSubnodeOffsetNameLen (
+                   Fdt,
+                   FirmwareNode,
+                   "coreboot",
+                   sizeof ("coreboot") - 1
+                   );
+  if (CorebootNode < 0) {
+    return NULL;
+  }
+
+  Property = FdtGetProperty (Fdt, CorebootNode, "reg", &PropertyLength);
+  if ((Property == NULL) || (PropertyLength != (4 * sizeof (UINT64)))) {
+    return NULL;
+  }
+
+  Reg          = (CONST UINT64 *)Property->Data;
+  TableAddress = Fdt64ToCpu (ReadUnaligned64 (&Reg[0]));
+  TableSize    = Fdt64ToCpu (ReadUnaligned64 (&Reg[1]));
+  CbmemAddress = Fdt64ToCpu (ReadUnaligned64 (&Reg[2]));
+  CbmemSize    = Fdt64ToCpu (ReadUnaligned64 (&Reg[3]));
+
+  if ((TableAddress > MAX_UINTN) || (TableSize < sizeof (*Header)) ||
+      (TableAddress > (MAX_UINT64 - TableSize)) ||
+      (CbmemAddress > (MAX_UINT64 - CbmemSize)))
+  {
+    return NULL;
+  }
+
+  TableEnd = TableAddress + TableSize;
+  CbmemEnd = CbmemAddress + CbmemSize;
+  if ((TableAddress < CbmemAddress) || (TableEnd > CbmemEnd)) {
+    return NULL;
+  }
+
+  Header = (struct cb_header *)(UINTN)TableAddress;
+  return RETURN_ERROR (ValidateCorebootTable (Header, (UINTN)TableSize)) ? NULL : Header;
+}
+
+STATIC
 RETURN_STATUS
 GetCorebootTable (
   OUT struct cb_header  **Header
   )
 {
   struct cb_header  *Candidate;
+  RETURN_STATUS      Status;
 
   if (Header == NULL) {
     return RETURN_INVALID_PARAMETER;
@@ -53,11 +183,20 @@ GetCorebootTable (
 
   *Header   = NULL;
   Candidate = (struct cb_header *)(UINTN)PcdGet64 (PcdBootloaderParameter);
-  if ((Candidate == NULL) || (Candidate->signature != CB_HEADER_SIGNATURE) ||
-      (Candidate->header_bytes < sizeof (*Candidate)) ||
-      (Candidate->table_bytes < sizeof (struct cb_record)))
-  {
+  Status = ValidateCorebootTable (Candidate, MAX_UINTN);
+  if (!RETURN_ERROR (Status)) {
+    *Header = Candidate;
+    return RETURN_SUCCESS;
+  }
+
+  Candidate = GetCbTableFromFdt ((VOID *)(UINTN)PcdGet64 (PcdBootloaderParameter));
+  if (Candidate == NULL) {
     return RETURN_NOT_FOUND;
+  }
+
+  Status = PcdSet64S (PcdBootloaderParameter, (UINT64)(UINTN)Candidate);
+  if (RETURN_ERROR (Status)) {
+    return Status;
   }
 
   *Header = Candidate;
