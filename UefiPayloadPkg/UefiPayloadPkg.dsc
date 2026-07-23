@@ -796,6 +796,21 @@
   ## Whether embedded drivers in FMP capsules are supported.
   gEfiMdeModulePkgTokenSpaceGuid.PcdCapsuleEmbeddedDriverSupport|$(CAPSULE_EMBED_FMP_DXE)
 
+  ## User Authentication PCD
+  gUserAuthFeaturePkgTokenSpaceGuid.PcdPasswordCleared|FALSE
+
+!if "$(SECURE_BOOT_SIMPLE_UI)" == "TRUE" || "$(SECURE_BOOT_SIMPLE_UI)" == "ON" || "$(SECURE_BOOT_SIMPLE_UI)" == "1"
+  gEfiSecurityPkgTokenSpaceGuid.PcdSecureBootConfigSimpleUi|TRUE
+!endif
+
+!if "$(TPM_SIMPLE_UI)" == "TRUE" || "$(TPM_SIMPLE_UI)" == "ON" || "$(TPM_SIMPLE_UI)" == "1"
+  gEfiSecurityPkgTokenSpaceGuid.PcdTcg2ConfigSimpleUi|TRUE
+!endif
+
+!if "$(TCG_STORAGE_SIMPLE_UI)" == "TRUE" || "$(TCG_STORAGE_SIMPLE_UI)" == "ON" || "$(TCG_STORAGE_SIMPLE_UI)" == "1"
+  gEfiSecurityPkgTokenSpaceGuid.PcdTcgStorageSimpleUi|TRUE
+!endif
+
 !if $(CRYPTO_PROTOCOL_SUPPORT) == TRUE
 !if $(CRYPTO_DRIVER_EXTERNAL_SUPPORT) == FALSE
   gEfiCryptoPkgTokenSpaceGuid.PcdCryptoServiceFamilyEnable.HmacSha256.Family                        | PCD_CRYPTO_SERVICE_ENABLE_FAMILY
