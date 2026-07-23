@@ -25,6 +25,7 @@
   BaseMemoryLib
   DebugLib
   FdtLib
+  HobLib
   PcdLib
 
 [Pcd]

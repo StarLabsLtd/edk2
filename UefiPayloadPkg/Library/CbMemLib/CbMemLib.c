@@ -7,10 +7,15 @@
 #include <Base.h>
 #include <Coreboot.h>
 
+#include <Uefi/UefiBaseType.h>
+#include <Uefi/UefiSpec.h>
+#include <Pi/PiMultiPhase.h>
+
 #include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
 #include <Library/DebugLib.h>
 #include <Library/FdtLib.h>
+#include <Library/HobLib.h>
 #include <Library/PcdLib.h>
 
 #include <Library/CbMemLib.h>
@@ -18,6 +23,17 @@
 #ifndef CBMEM_TIMESTAMPS
 #define CBMEM_TIMESTAMPS  0
 #endif
+
+STATIC CONST EFI_GUID mCbMemTableHobGuid = {
+  0x9e0d4b6f, 0xa8e8, 0x4d7e,
+  { 0x9a, 0x2d, 0x31, 0x0d, 0x4c, 0x9a, 0x8f, 0x2b }
+};
+
+struct cbmem_table_hob {
+  UINT64  Address;
+  UINT32  Size;
+  UINT32  Reserved;
+};
 
 STATIC
 UINT64
@@ -175,6 +191,8 @@ GetCorebootTable (
   )
 {
   struct cb_header  *Candidate;
+  struct cbmem_table_hob  *TableHob;
+  VOID                *GuidHob;
   RETURN_STATUS      Status;
 
   if (Header == NULL) {
@@ -190,16 +208,34 @@ GetCorebootTable (
   }
 
   Candidate = GetCbTableFromFdt ((VOID *)(UINTN)PcdGet64 (PcdBootloaderParameter));
-  if (Candidate == NULL) {
+  if (Candidate != NULL) {
+    Status = PcdSet64S (PcdBootloaderParameter, (UINT64)(UINTN)Candidate);
+    if (RETURN_ERROR (Status)) {
+      return Status;
+    }
+
+    *Header = Candidate;
+    return RETURN_SUCCESS;
+  }
+
+  GuidHob = GetFirstGuidHob (&mCbMemTableHobGuid);
+  if (GuidHob == NULL ||
+      GET_GUID_HOB_DATA_SIZE (GuidHob) < sizeof (*TableHob))
+  {
     return RETURN_NOT_FOUND;
   }
 
-  Status = PcdSet64S (PcdBootloaderParameter, (UINT64)(UINTN)Candidate);
-  if (RETURN_ERROR (Status)) {
-    return Status;
+  TableHob = (struct cbmem_table_hob *)GET_GUID_HOB_DATA (GuidHob);
+  if ((TableHob->Address > MAX_UINTN) ||
+      RETURN_ERROR (ValidateCorebootTable (
+        (struct cb_header *)(UINTN)TableHob->Address,
+        TableHob->Size
+        )))
+  {
+    return RETURN_COMPROMISED_DATA;
   }
 
-  *Header = Candidate;
+  *Header = (struct cb_header *)(UINTN)TableHob->Address;
   return RETURN_SUCCESS;
 }
 
@@ -367,6 +403,31 @@ CbMemFind (
   }
 
   return GetLegacyCbmemPointer (Id, Address, Size);
+}
+
+RETURN_STATUS
+EFIAPI
+CbMemPublishTableHob (
+  VOID
+  )
+{
+  struct cb_header       *Header;
+  struct cbmem_table_hob  TableHob;
+  RETURN_STATUS           Status;
+
+  Status = GetCorebootTable (&Header);
+  if (RETURN_ERROR (Status)) {
+    return Status;
+  }
+
+  TableHob.Address  = (UINT64)(UINTN)Header;
+  TableHob.Size     = Header->header_bytes + Header->table_bytes;
+  TableHob.Reserved = 0;
+  return (BuildGuidDataHob (
+            &mCbMemTableHobGuid,
+            &TableHob,
+            sizeof (TableHob)
+            ) == NULL) ? RETURN_OUT_OF_RESOURCES : RETURN_SUCCESS;
 }
 
 RETURN_STATUS

@@ -37,6 +37,18 @@ CbMemFind (
   );
 
 /**
+  Publish the validated coreboot table address for later payload modules.
+
+  The entry module's bootloader-parameter PCD is patchable per module, so
+  later DXE modules use this HOB to find the same coreboot table.
+**/
+RETURN_STATUS
+EFIAPI
+CbMemPublishTableHob (
+  VOID
+  );
+
+/**
   Add one payload timestamp to coreboot's existing timestamp table.
 
   The timestamp uses the same x86 TSC and base-time convention as coreboot,

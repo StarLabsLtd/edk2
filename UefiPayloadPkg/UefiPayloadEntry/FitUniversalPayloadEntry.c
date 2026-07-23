@@ -554,6 +554,10 @@ FitUplEntryPoint (
   if (EFI_ERROR (Status)) {
     return Status;
   }
+  Status = CbMemPublishTableHob ();
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_WARN, "CBMEM: failed to publish table HOB: %r\n", Status));
+  }
   CbMemTimestampAdd (CBMEM_TS_UPL_HOB_READY);
 
   // Call constructor for all libraries again since hobs were built
