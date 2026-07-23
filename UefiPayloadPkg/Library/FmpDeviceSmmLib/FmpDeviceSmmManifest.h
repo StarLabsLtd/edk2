@@ -11,7 +11,7 @@
 
 #define REGION_MANIFEST_SIGNATURE  SIGNATURE_32 ('R', 'M', 'A', 'P')
 #define REGION_MANIFEST_VERSION    1
-#define REGION_MANIFEST_NAME_LEN   32
+#define REGION_MANIFEST_NAME_LEN   16
 
 #pragma pack(1)
 typedef struct {

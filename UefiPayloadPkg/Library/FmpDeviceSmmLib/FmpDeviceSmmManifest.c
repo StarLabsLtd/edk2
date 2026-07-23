@@ -22,7 +22,7 @@
 STATIC
 BOOLEAN
 RegionNameIsValid (
-  IN CONST CHAR8  Name[16]
+  IN CONST CHAR8  Name[REGION_MANIFEST_NAME_LEN]
   )
 {
   BOOLEAN  HasCharacter;
@@ -32,7 +32,7 @@ RegionNameIsValid (
   HasCharacter = FALSE;
   Terminated   = FALSE;
 
-  for (Index = 0; Index < 16; ++Index) {
+  for (Index = 0; Index < REGION_MANIFEST_NAME_LEN; ++Index) {
     if (Name[Index] == '\0') {
       Terminated = TRUE;
       continue;
