@@ -42,7 +42,9 @@
   DEFINE PRIORITIZE_INTERNAL          = FALSE
   DEFINE SD_MMC_TIMEOUT               = 1000000
   DEFINE USE_CBMEM_FOR_CONSOLE        = FALSE
+  DEFINE CBMEM_TIMESTAMPS              = FALSE
   DEFINE BOOTSPLASH_IMAGE             = TRUE
+  DEFINE USE_SPI_FLASH_FOR_CONSOLE    = FALSE
   DEFINE NVME_ENABLE                  = TRUE
   DEFINE UFS_ENABLE                   = TRUE
   DEFINE CAPSULE_SUPPORT              = FALSE
@@ -349,6 +351,7 @@
   CustomFdtNodeParserLib|UefiPayloadPkg/Library/CustomFdtNodeParserNullLib/CustomFdtNodeParserNullLib.inf
   PayloadEntryHelperLib|UefiPayloadPkg/Library/PayloadEntryHelperLib/PayloadEntryHelperLib.inf
   MemoryAllocationLib|UefiPayloadPkg/Library/PayloadEntryMemoryAllocationLib/PayloadEntryMemoryAllocationLib.inf
+  CbMemLib|UefiPayloadPkg/Library/CbMemLib/CbMemLib.inf
 
   #
   # UEFI & PI
@@ -1174,6 +1177,10 @@
 !endif
 
 [Components.X64, Components.AARCH64]
+!if $(CBMEM_TIMESTAMPS) == TRUE
+  UefiPayloadPkg/CbMemTimestampDxe/CbMemTimestampDxe.inf
+!endif
+
   #
   # DXE Core
   #
