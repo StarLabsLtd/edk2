@@ -486,7 +486,9 @@ ApInitializeSync (
   //
   // Sync BSP's MTRR table to AP
   //
-  MtrrSetAllMtrrs (&CpuMpData->MtrrTable);
+  if (!PcdGetBool (PcdCpuDisableMtrrProgramming)) {
+    MtrrSetAllMtrrs (&CpuMpData->MtrrTable);
+  }
 }
 
 /**
@@ -2446,10 +2448,12 @@ MpInitLibInitialize (
   //
   // Store BSP's MTRR setting
   //
-  MtrrGetAllMtrrs (&CpuMpData->MtrrTable);
+  if (!PcdGetBool (PcdCpuDisableMtrrProgramming)) {
+    MtrrGetAllMtrrs (&CpuMpData->MtrrTable);
+  }
 
   //
-  // Wakeup APs to do some AP initialize sync (Microcode & MTRR)
+  // Wake APs to synchronize microcode and, when enabled, MTRRs.
   //
   if (CpuMpData->CpuCount > 1) {
     WakeUpAP (CpuMpData, TRUE, 0, ApInitializeSync, CpuMpData, TRUE);

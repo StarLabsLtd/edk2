@@ -71,6 +71,7 @@
   CpuPageTableLib
 
 [Pcd]
+  gUefiCpuPkgTokenSpaceGuid.PcdCpuDisableMtrrProgramming          ## CONSUMES
   gEfiMdeModulePkgTokenSpaceGuid.PcdGhcbBase                       ## CONSUMES
   gEfiMdePkgTokenSpaceGuid.PcdConfidentialComputingGuestAttr       ## CONSUMES
   gUefiCpuPkgTokenSpaceGuid.PcdCpuMaxLogicalProcessorNumber        ## CONSUMES
