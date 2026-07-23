@@ -387,6 +387,10 @@ CpuSetMemoryAttributes (
 
     CurrentCacheType = MtrrGetMemoryAttribute (BaseAddress);
     if (CurrentCacheType != CacheType) {
+      if (PcdGetBool (PcdCpuDisableMtrrProgramming)) {
+        return EFI_UNSUPPORTED;
+      }
+
       //
       // call MTRR library function
       //
@@ -1034,7 +1038,9 @@ InitializeCpu (
   //
   // Refresh GCD memory space map according to MTRR value.
   //
-  RefreshGcdMemoryAttributes ();
+  if (PcdGetBool (PcdCpuRefreshGcdMemoryAttributes)) {
+    RefreshGcdMemoryAttributes ();
+  }
 
   //
   // Add and allocate local APIC memory mapped space
