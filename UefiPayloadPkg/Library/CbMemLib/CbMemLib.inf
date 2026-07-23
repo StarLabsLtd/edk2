@@ -23,5 +23,8 @@
 [LibraryClasses]
   BaseLib
   BaseMemoryLib
-  BlParseLib
   DebugLib
+  PcdLib
+
+[Pcd]
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootloaderParameter

@@ -9,8 +9,8 @@
 
 #include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
-#include <Library/BlParseLib.h>
 #include <Library/DebugLib.h>
+#include <Library/PcdLib.h>
 
 #include <Library/CbMemLib.h>
 
@@ -52,7 +52,7 @@ GetCorebootTable (
   }
 
   *Header   = NULL;
-  Candidate = (struct cb_header *)GetParameterBase ();
+  Candidate = (struct cb_header *)(UINTN)PcdGet64 (PcdBootloaderParameter);
   if ((Candidate == NULL) || (Candidate->signature != CB_HEADER_SIGNATURE) ||
       (Candidate->header_bytes < sizeof (*Candidate)) ||
       (Candidate->table_bytes < sizeof (struct cb_record)))
