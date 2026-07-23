@@ -62,8 +62,8 @@
   #
   # CAPSULE_MAIN_FW_GUID specifies GUID to be used by FmpDxe when
   # CAPSULE_SUPPORT is set to TRUE
-  # CAPSULE_EMBED_FMP_DXE permits FmpDxe to be embedded in update capsules
-  # in addition to including it in the payload FV.
+  # CAPSULE_EMBED_FMP_DXE embeds FmpDxe in update capsules instead of
+  # including it in the payload FV.
   #
   DEFINE CAPSULE_SUPPORT              = FALSE
   DEFINE CAPSULE_MAIN_FW_GUID         =
@@ -792,21 +792,6 @@
   gEfiMdeModulePkgTokenSpaceGuid.PcdCapsuleFmpSupport|$(CAPSULE_SUPPORT)
   ## Whether embedded drivers in FMP capsules are supported.
   gEfiMdeModulePkgTokenSpaceGuid.PcdCapsuleEmbeddedDriverSupport|$(CAPSULE_EMBED_FMP_DXE)
-
-  ## User Authentication PCD
-  gUserAuthFeaturePkgTokenSpaceGuid.PcdPasswordCleared|FALSE
-
-!if "$(SECURE_BOOT_SIMPLE_UI)" == "TRUE" || "$(SECURE_BOOT_SIMPLE_UI)" == "ON" || "$(SECURE_BOOT_SIMPLE_UI)" == "1"
-  gEfiSecurityPkgTokenSpaceGuid.PcdSecureBootConfigSimpleUi|TRUE
-!endif
-
-!if "$(TPM_SIMPLE_UI)" == "TRUE" || "$(TPM_SIMPLE_UI)" == "ON" || "$(TPM_SIMPLE_UI)" == "1"
-  gEfiSecurityPkgTokenSpaceGuid.PcdTcg2ConfigSimpleUi|TRUE
-!endif
-
-!if "$(TCG_STORAGE_SIMPLE_UI)" == "TRUE" || "$(TCG_STORAGE_SIMPLE_UI)" == "ON" || "$(TCG_STORAGE_SIMPLE_UI)" == "1"
-  gEfiSecurityPkgTokenSpaceGuid.PcdTcgStorageSimpleUi|TRUE
-!endif
 
 !if $(CRYPTO_PROTOCOL_SUPPORT) == TRUE
 !if $(CRYPTO_DRIVER_EXTERNAL_SUPPORT) == FALSE
