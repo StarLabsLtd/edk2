@@ -295,6 +295,13 @@ BdsReadKeys (
     return FALSE;
   }
 
+  if ((gST->ConIn == NULL) ||
+      (gST->ConIn->WaitForKey == NULL) ||
+      EFI_ERROR (gBS->CheckEvent (gST->ConIn->WaitForKey)))
+  {
+    return FALSE;
+  }
+
   EnterPressed = FALSE;
   while (gST->ConIn != NULL) {
     Status = gST->ConIn->ReadKeyStroke (gST->ConIn, &Key);
@@ -338,11 +345,9 @@ BdsWait (
     DEBUG ((DEBUG_INFO, "[Bds]BdsWait(%d)..Zzzz...\n", (UINTN)TimeoutRemain));
     PlatformBootManagerWaitCallback (TimeoutRemain);
 
-    if (BdsReadKeys ()) {
-      break;
-    }
-    // BUGBUG: Only reading can signal HotkeyTriggered.
-    //         Can be removed after all keyboard drivers invoke callback in timer callback.
+    // Do not synchronously read ConIn here. Some USB input drivers perform
+    // device discovery from ReadKeyStroke(), turning each countdown tick into
+    // a full USB scan. Hotkey notifications are delivered through the event.
 
     if (HotkeyTriggered != NULL) {
       Status = BdsWaitForSingleEvent (HotkeyTriggered, EFI_TIMER_PERIOD_SECONDS (1));
@@ -1114,10 +1119,6 @@ BdsEntry (
       PERF_INMODULE_BEGIN ("BdsWait");
       BdsWait (HotkeyTriggered);
       PERF_INMODULE_END ("BdsWait");
-      //
-      // BdsReadKeys() can be removed after all keyboard drivers invoke callback in timer callback.
-      //
-      BdsReadKeys ();
 
       EfiBootManagerHotkeyBoot ();
     } else {
