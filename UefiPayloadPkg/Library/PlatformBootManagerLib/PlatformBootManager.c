@@ -472,8 +472,15 @@ PlatformBootManagerAfterConsole (
     BootLogoEnableLogo ();
   }
 
-  EfiBootManagerConnectAll ();
-  EfiBootManagerRefreshAllBootOption ();
+  if (FeaturePcdGet (PcdConnectAllDevices)) {
+    EfiBootManagerConnectAll ();
+    EfiBootManagerRefreshAllBootOption ();
+  } else {
+    DEBUG ((
+      DEBUG_INFO,
+      "Skipping global device discovery; connecting the selected boot path on demand\n"
+      ));
+  }
 
   //
   // Active BOOT_ON_FLASH_UPDATE mode means that at least one capsule has been

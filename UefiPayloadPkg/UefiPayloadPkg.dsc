@@ -228,6 +228,7 @@
   DEFINE TPM_ENABLE                     = TRUE
   DEFINE TPM2_ENABLE                    = TRUE
   DEFINE TPM1_ENABLE                    = TRUE
+  DEFINE CONNECT_ALL_DEVICES            = FALSE
 
 [BuildOptions]
   *_*_*_CC_FLAGS                 = -D DISABLE_NEW_DEPRECATED_INTERFACES
@@ -444,6 +445,10 @@
     BlParseLib|UefiPayloadPkg/Library/CbParseLib/CbParseLib.inf
   !else
     BlParseLib|UefiPayloadPkg/Library/SblParseLib/SblParseLib.inf
+  !endif
+!else
+  !if $(CBMEM_TIMESTAMPS) == TRUE && $(BOOTLOADER) == "COREBOOT"
+    BlParseLib|UefiPayloadPkg/Library/CbParseLib/CbParseLib.inf
   !endif
 !endif
   CfrHelpersLib|UefiPayloadPkg/Library/CfrHelpersLib/CfrHelpersLib.inf
@@ -757,6 +762,7 @@
 ################################################################################
 [PcdsFeatureFlag]
   gEfiMdeModulePkgTokenSpaceGuid.PcdConOutGopSupport|TRUE
+  gUefiPayloadPkgTokenSpaceGuid.PcdConnectAllDevices|$(CONNECT_ALL_DEVICES)
   ## This PCD specified whether ACPI SDT protocol is installed.
   gEfiMdeModulePkgTokenSpaceGuid.PcdInstallAcpiSdtProtocol|TRUE
   gEfiMdeModulePkgTokenSpaceGuid.PcdHiiOsRuntimeSupport|FALSE

@@ -80,3 +80,6 @@
   gUefiPayloadPkgTokenSpaceGuid.PcdSerialTerminalPrintEnabled
   gUefiPayloadPkgTokenSpaceGuid.PcdiPXEFile
   gUefiPayloadPkgTokenSpaceGuid.PcdiPXEOptionName
+
+[FeaturePcd]
+  gUefiPayloadPkgTokenSpaceGuid.PcdConnectAllDevices
