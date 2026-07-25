@@ -1089,7 +1089,7 @@ PlatformSelectedBootOptionUsesInternalDisk (
   if (!EFI_ERROR (Status) && (DataSize == sizeof (BootNext))) {
     UnicodeSPrint (BootOptionName, sizeof (BootOptionName), L"Boot%04x", BootNext);
     Status = EfiBootManagerVariableToLoadOption (BootOptionName, &BootNextOption);
-    if (!EFI_ERROR (Status) && ((BootNextOption.Attributes & LOAD_OPTION_ACTIVE) != 0)) {
+    if (!EFI_ERROR (Status)) {
       SelectedOption = &BootNextOption;
       HaveBootNext   = TRUE;
     }
