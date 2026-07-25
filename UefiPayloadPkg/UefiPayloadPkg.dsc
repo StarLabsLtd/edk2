@@ -383,6 +383,10 @@
   !else
     BlParseLib|UefiPayloadPkg/Library/SblParseLib/SblParseLib.inf
   !endif
+!else
+  !if $(USE_CBMEM_FOR_CONSOLE) == TRUE && $(BOOTLOADER) == "COREBOOT"
+    BlParseLib|UefiPayloadPkg/Library/CbParseLib/CbParseLib.inf
+  !endif
 !endif
   CfrHelpersLib|UefiPayloadPkg/Library/CfrHelpersLib/CfrHelpersLib.inf
 
