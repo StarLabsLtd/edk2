@@ -687,7 +687,7 @@ RefreshGcdMemoryAttributes (
 {
   mIsFlushingGCD = TRUE;
 
-  if (IsMtrrSupported ()) {
+  if (PcdGetBool (PcdCpuRefreshGcdMemoryAttributes) && IsMtrrSupported ()) {
     RefreshMemoryAttributesFromMtrr ();
   }
 
@@ -1038,9 +1038,7 @@ InitializeCpu (
   //
   // Refresh GCD memory space map according to MTRR value.
   //
-  if (PcdGetBool (PcdCpuRefreshGcdMemoryAttributes)) {
-    RefreshGcdMemoryAttributes ();
-  }
+  RefreshGcdMemoryAttributes ();
 
   //
   // Add and allocate local APIC memory mapped space
