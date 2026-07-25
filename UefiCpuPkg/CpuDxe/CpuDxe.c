@@ -35,6 +35,10 @@ MtrrRangeMatches (
   UINT64               CoveredAddress;
   UINT64               RangeEnd;
 
+  if (!MtrrIsHardwareSupported ()) {
+    return FALSE;
+  }
+
   if (Length > MAX_UINT64 - BaseAddress) {
     return FALSE;
   }
@@ -417,7 +421,8 @@ CpuSetMemoryAttributes (
   }
 
   if (CacheAttributes != 0) {
-    if (!PcdGetBool (PcdCpuDisableMtrrProgramming) && !IsMtrrSupported ()) {
+    if ((PcdGetBool (PcdCpuDisableMtrrProgramming) && !MtrrIsHardwareSupported ()) ||
+        (!PcdGetBool (PcdCpuDisableMtrrProgramming) && !IsMtrrSupported ())) {
       return EFI_UNSUPPORTED;
     }
 
@@ -747,8 +752,7 @@ RefreshGcdMemoryAttributes (
 {
   mIsFlushingGCD = TRUE;
 
-  if (PcdGetBool (PcdCpuRefreshGcdMemoryAttributes) &&
-      (PcdGetBool (PcdCpuDisableMtrrProgramming) || IsMtrrSupported ())) {
+  if (PcdGetBool (PcdCpuRefreshGcdMemoryAttributes) && MtrrIsHardwareSupported ()) {
     RefreshMemoryAttributesFromMtrr ();
   }
 

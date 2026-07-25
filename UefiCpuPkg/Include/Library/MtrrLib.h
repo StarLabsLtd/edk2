@@ -275,6 +275,19 @@ IsMtrrSupported (
   );
 
 /**
+  Checks whether the processor exposes readable MTRRs.
+
+  @retval TRUE  MTRR state can be read from the processor.
+  @retval FALSE MTRR state cannot be read from the processor.
+
+**/
+BOOLEAN
+EFIAPI
+MtrrIsHardwareSupported (
+  VOID
+  );
+
+/**
   Returns the default MTRR cache type for the system.
 
   @return  The default MTRR cache type.
