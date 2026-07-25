@@ -89,3 +89,4 @@
 
 [FeaturePcd]
   gEfiMdeModulePkgTokenSpaceGuid.PcdCapsuleOnDiskConnectBootDevice
+  gUefiPayloadPkgTokenSpaceGuid.PcdConnectAllDevices

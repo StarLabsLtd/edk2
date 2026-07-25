@@ -1247,8 +1247,15 @@ PlatformBootManagerAfterConsole (
   Tcg2PhysicalPresenceLibProcessRequest (NULL);
 
   if (GetBootModeHob () != BOOT_ON_S4_RESUME) {
-    EfiBootManagerConnectAll ();
-    EfiBootManagerRefreshAllBootOption ();
+    if (FeaturePcdGet (PcdConnectAllDevices)) {
+      EfiBootManagerConnectAll ();
+      EfiBootManagerRefreshAllBootOption ();
+    } else {
+      DEBUG ((
+        DEBUG_INFO,
+        "Skipping global device discovery; connecting the selected boot path on demand\n"
+        ));
+    }
   } else {
     //
     // Avoid a global ConnectAll()/RefreshAllBootOption() on S4 resume.
