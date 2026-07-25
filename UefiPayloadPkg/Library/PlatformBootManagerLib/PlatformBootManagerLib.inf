@@ -72,6 +72,7 @@
   gEfiSmmAccess2ProtocolGuid
   gEfiSerialIoProtocolGuid
   gEfiPciRootBridgeIoProtocolGuid
+  gEfiPciIoProtocolGuid
   gEfiBatteryStatusProtocolGuid        ## CONSUMES
 
 [Pcd]
