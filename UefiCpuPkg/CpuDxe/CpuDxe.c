@@ -382,7 +382,6 @@ CpuSetMemoryAttributes (
   MTRR_SETTINGS             MtrrSettings;
   UINT64                    CacheAttributes;
   UINT64                    MemoryAttributes;
-  MTRR_MEMORY_CACHE_TYPE    CurrentCacheType;
 
   //
   // If this function is called because GCD SetMemorySpaceAttributes () is called
@@ -418,7 +417,7 @@ CpuSetMemoryAttributes (
   }
 
   if (CacheAttributes != 0) {
-    if (!IsMtrrSupported ()) {
+    if (!PcdGetBool (PcdCpuDisableMtrrProgramming) && !IsMtrrSupported ()) {
       return EFI_UNSUPPORTED;
     }
 
@@ -447,13 +446,11 @@ CpuSetMemoryAttributes (
         return EFI_INVALID_PARAMETER;
     }
 
-    CurrentCacheType = MtrrGetMemoryAttribute (BaseAddress);
     if (PcdGetBool (PcdCpuDisableMtrrProgramming)) {
       if (!MtrrRangeMatches (BaseAddress, Length, CacheType)) {
         return EFI_UNSUPPORTED;
       }
-    } else if (CurrentCacheType != CacheType) {
-
+    } else if (MtrrGetMemoryAttribute (BaseAddress) != CacheType) {
       //
       // call MTRR library function
       //
