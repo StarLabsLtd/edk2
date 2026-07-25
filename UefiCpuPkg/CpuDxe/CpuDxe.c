@@ -19,6 +19,68 @@ BOOLEAN     mIsFlushingGCD;
 BOOLEAN     mIsAllocatingPageTable = FALSE;
 UINT64      mTimerPeriod           = 0;
 
+STATIC
+BOOLEAN
+MtrrRangeMatches (
+  IN EFI_PHYSICAL_ADDRESS       BaseAddress,
+  IN UINT64                     Length,
+  IN MTRR_MEMORY_CACHE_TYPE     CacheType
+  )
+{
+  RETURN_STATUS        ReturnStatus;
+  MTRR_MEMORY_RANGE    *Ranges;
+  UINTN                RangeCount;
+  UINTN                Index;
+  UINT64               EndAddress;
+  UINT64               CoveredAddress;
+  UINT64               RangeEnd;
+
+  if (Length > MAX_UINT64 - BaseAddress) {
+    return FALSE;
+  }
+
+  RangeCount   = 0;
+  ReturnStatus = MtrrGetMemoryAttributesInMtrrSettings (NULL, NULL, &RangeCount);
+  if (ReturnStatus != RETURN_BUFFER_TOO_SMALL || RangeCount == 0) {
+    return FALSE;
+  }
+
+  Ranges = AllocatePool (RangeCount * sizeof (*Ranges));
+  if (Ranges == NULL) {
+    return FALSE;
+  }
+
+  ReturnStatus = MtrrGetMemoryAttributesInMtrrSettings (NULL, Ranges, &RangeCount);
+  if (RETURN_ERROR (ReturnStatus)) {
+    FreePool (Ranges);
+    return FALSE;
+  }
+
+  EndAddress     = BaseAddress + Length;
+  CoveredAddress = BaseAddress;
+  for (Index = 0; Index < RangeCount && CoveredAddress < EndAddress; Index++) {
+    if (Ranges[Index].Length > MAX_UINT64 - Ranges[Index].BaseAddress) {
+      FreePool (Ranges);
+      return FALSE;
+    }
+
+    RangeEnd = Ranges[Index].BaseAddress + Ranges[Index].Length;
+    if ((RangeEnd <= CoveredAddress) || (Ranges[Index].BaseAddress >= EndAddress)) {
+      continue;
+    }
+
+    if (Ranges[Index].BaseAddress > CoveredAddress || Ranges[Index].Type != CacheType) {
+      FreePool (Ranges);
+      return FALSE;
+    }
+
+    CoveredAddress = MIN (RangeEnd, EndAddress);
+  }
+
+  FreePool (Ranges);
+  return CoveredAddress == EndAddress;
+}
+
 EFI_CPU_ARCH_PROTOCOL  gCpu = {
   CpuFlushCpuDataCache,
   CpuEnableInterrupt,
@@ -386,10 +448,11 @@ CpuSetMemoryAttributes (
     }
 
     CurrentCacheType = MtrrGetMemoryAttribute (BaseAddress);
-    if (CurrentCacheType != CacheType) {
-      if (PcdGetBool (PcdCpuDisableMtrrProgramming)) {
+    if (PcdGetBool (PcdCpuDisableMtrrProgramming)) {
+      if (!MtrrRangeMatches (BaseAddress, Length, CacheType)) {
         return EFI_UNSUPPORTED;
       }
+    } else if (CurrentCacheType != CacheType) {
 
       //
       // call MTRR library function
