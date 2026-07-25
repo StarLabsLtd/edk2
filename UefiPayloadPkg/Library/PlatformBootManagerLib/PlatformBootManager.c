@@ -1027,8 +1027,7 @@ PlatformBootOptionUsesInternalDisk (
   BOOLEAN                   HasHardDrive;
 
   if ((BootOption == NULL) ||
-      (BootOption->FilePath == NULL) ||
-      ((BootOption->Attributes & LOAD_OPTION_ACTIVE) == 0))
+      (BootOption->FilePath == NULL))
   {
     return FALSE;
   }
