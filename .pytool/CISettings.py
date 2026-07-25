@@ -195,8 +195,6 @@ class Settings(CiBuildSettingsManager, UpdateSettingsManager, SetupSettingsManag
         rs.append(RequiredSubmodule(
             "MdeModulePkg/Universal/RegularExpressionDxe/oniguruma", False))
         rs.append(RequiredSubmodule(
-            "MdeModulePkg/Library/BrotliCustomDecompressLib/brotli", False))
-        rs.append(RequiredSubmodule(
             "BaseTools/Source/C/BrotliCompress/brotli", False))
         rs.append(RequiredSubmodule(
             "RedfishPkg/Library/JsonLib/jansson", False))
@@ -204,8 +202,6 @@ class Settings(CiBuildSettingsManager, UpdateSettingsManager, SetupSettingsManag
             "UnitTestFrameworkPkg/Library/SubhookLib/subhook", False))
         rs.append(RequiredSubmodule(
             "MdePkg/Library/BaseFdtLib/libfdt", False))
-        rs.append(RequiredSubmodule(
-            "MdePkg/Library/MipiSysTLib/mipisyst", False))
         rs.append(RequiredSubmodule(
             "CryptoPkg/Library/MbedTlsLib/mbedtls", False))
         rs.append(RequiredSubmodule(
