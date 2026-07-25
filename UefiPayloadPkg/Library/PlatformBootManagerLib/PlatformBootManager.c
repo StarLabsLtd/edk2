@@ -10,6 +10,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include "PlatformBootManager.h"
 #include "PlatformConsole.h"
 #include <Guid/EventGroup.h>
+#include <Guid/GlobalVariable.h>
 #include <Library/BmpSupportLib.h>
 #include <Library/Tcg2PhysicalPresenceLib.h>
 #include <IndustryStandard/Pci.h>
