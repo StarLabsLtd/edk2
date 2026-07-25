@@ -84,3 +84,6 @@
   gEfiMdePkgTokenSpaceGuid.PcdUartDefaultParity
   gEfiMdePkgTokenSpaceGuid.PcdUartDefaultStopBits
   gUefiPayloadPkgTokenSpaceGuid.PcdBootManagerEscape
+[FeaturePcd]
+  gUefiPayloadPkgTokenSpaceGuid.PcdConnectAllDevices
+  gEfiMdeModulePkgTokenSpaceGuid.PcdCapsuleOnDiskConnectBootDevice
