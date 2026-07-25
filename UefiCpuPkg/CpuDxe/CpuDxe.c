@@ -747,7 +747,8 @@ RefreshGcdMemoryAttributes (
 {
   mIsFlushingGCD = TRUE;
 
-  if (PcdGetBool (PcdCpuRefreshGcdMemoryAttributes) && IsMtrrSupported ()) {
+  if (PcdGetBool (PcdCpuRefreshGcdMemoryAttributes) &&
+      (PcdGetBool (PcdCpuDisableMtrrProgramming) || IsMtrrSupported ())) {
     RefreshMemoryAttributesFromMtrr ();
   }
 
