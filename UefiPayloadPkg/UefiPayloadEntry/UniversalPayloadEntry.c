@@ -497,6 +497,10 @@ _ModuleEntryPoint (
   // Build HOB based on information from Bootloader
   Status = BuildHobs (BootloaderParameter, &DxeFv);
   ASSERT_EFI_ERROR (Status);
+  Status = CbMemPublishTableHob ();
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_WARN, "CBMEM: failed to publish table HOB: %r\n", Status));
+  }
   CbMemTimestampAdd (CBMEM_TS_UPL_HOB_READY);
 
   //

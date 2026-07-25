@@ -25,7 +25,11 @@
   BaseMemoryLib
   BlParseLib
   DebugLib
+  HobLib
   PcdLib
+
+[Guids]
+  gUefiPayloadCorebootTableGuid
 
 [FeaturePcd]
   gUefiPayloadPkgTokenSpaceGuid.PcdCbmemTimestamps

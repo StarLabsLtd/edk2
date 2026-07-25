@@ -6,11 +6,13 @@
 
 #include <Base.h>
 #include <Coreboot.h>
+#include <Guid/CbMemTableHob.h>
 
 #include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
 #include <Library/BlParseLib.h>
 #include <Library/DebugLib.h>
+#include <Library/HobLib.h>
 #include <Library/PcdLib.h>
 
 #include <Library/CbMemLib.h>
@@ -42,7 +44,9 @@ GetCorebootTable (
   OUT struct cb_header  **Header
   )
 {
-  struct cb_header  *Candidate;
+  struct cb_header     *Candidate;
+  COREBOOT_TABLE_HOB   *TableHob;
+  VOID                 *GuidHob;
 
   if (Header == NULL) {
     return RETURN_INVALID_PARAMETER;
@@ -50,11 +54,29 @@ GetCorebootTable (
 
   *Header   = NULL;
   Candidate = (struct cb_header *)GetParameterBase ();
-  if ((Candidate == NULL) || (Candidate->signature != CB_HEADER_SIGNATURE) ||
-      (Candidate->header_bytes < sizeof (*Candidate)) ||
-      (Candidate->table_bytes < sizeof (struct cb_record)))
+  if ((Candidate != NULL) && (Candidate->signature == CB_HEADER_SIGNATURE) &&
+      (Candidate->header_bytes >= sizeof (*Candidate)) &&
+      (Candidate->table_bytes >= sizeof (struct cb_record)))
+  {
+    *Header = Candidate;
+    return RETURN_SUCCESS;
+  }
+
+  GuidHob = GetFirstGuidHob (&gUefiPayloadCorebootTableGuid);
+  if ((GuidHob == NULL) ||
+      (GET_GUID_HOB_DATA_SIZE (GuidHob) < sizeof (*TableHob)))
   {
     return RETURN_NOT_FOUND;
+  }
+
+  TableHob = (COREBOOT_TABLE_HOB *)GET_GUID_HOB_DATA (GuidHob);
+  Candidate = (struct cb_header *)(UINTN)TableHob->Address;
+  if ((Candidate == NULL) || (Candidate->signature != CB_HEADER_SIGNATURE) ||
+      (Candidate->header_bytes < sizeof (*Candidate)) ||
+      (Candidate->table_bytes < sizeof (struct cb_record)) ||
+      (TableHob->Size < Candidate->header_bytes + Candidate->table_bytes))
+  {
+    return RETURN_COMPROMISED_DATA;
   }
 
   *Header = Candidate;
@@ -229,6 +251,31 @@ CbMemFind (
 
 RETURN_STATUS
 EFIAPI
+CbMemPublishTableHob (
+  VOID
+  )
+{
+  struct cb_header      *Header;
+  COREBOOT_TABLE_HOB    TableHob;
+  RETURN_STATUS         Status;
+
+  Status = GetCorebootTable (&Header);
+  if (RETURN_ERROR (Status)) {
+    return Status;
+  }
+
+  TableHob.Address  = (UINT64)(UINTN)Header;
+  TableHob.Size     = Header->header_bytes + Header->table_bytes;
+  TableHob.Reserved = 0;
+  return (BuildGuidDataHob (
+            &gUefiPayloadCorebootTableGuid,
+            &TableHob,
+            sizeof (TableHob)
+            ) == NULL) ? RETURN_OUT_OF_RESOURCES : RETURN_SUCCESS;
+}
+
+RETURN_STATUS
+EFIAPI
 CbMemLogSummary (
   VOID
   )
@@ -293,9 +340,14 @@ CbMemTimestampAdd (
     return Status;
   }
 
-  if ((Size < sizeof (*Table)) || (Table->num_entries >= Table->max_entries) ||
-      (Table->max_entries > ((Size - sizeof (*Table)) / sizeof (Table->entries[0]))))
+  if ((Size != 0) &&
+      ((Size < sizeof (*Table)) ||
+       (Table->max_entries > ((Size - sizeof (*Table)) / sizeof (Table->entries[0])))))
   {
+    return RETURN_COMPROMISED_DATA;
+  }
+
+  if ((Table->max_entries == 0) || (Table->num_entries >= Table->max_entries)) {
     return RETURN_COMPROMISED_DATA;
   }
 

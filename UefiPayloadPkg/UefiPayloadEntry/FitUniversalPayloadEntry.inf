@@ -91,6 +91,7 @@
   gUniversalPayloadPciRootBridgeInfoGuid
   gUniversalPayloadSmbios3TableGuid
   gUniversalPayloadDeviceTreeGuid
+  gUefiPayloadCorebootTableGuid
   gEfiSmmStoreInfoHobGuid
   gTcgEvent2EntryHobGuid
   gEfiTcgPhysicalPresenceInfoHobGuid
