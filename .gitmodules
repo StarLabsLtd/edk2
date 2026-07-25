@@ -4,6 +4,9 @@
 [submodule "UnitTestFrameworkPkg/Library/CmockaLib/cmocka"]
 	path = UnitTestFrameworkPkg/Library/CmockaLib/cmocka
 	url = https://github.com/tianocore/edk2-cmocka.git
+[submodule "MdeModulePkg/Universal/RegularExpressionDxe/oniguruma"]
+	path = MdeModulePkg/Universal/RegularExpressionDxe/oniguruma
+	url = https://github.com/kkos/oniguruma
 [submodule "BaseTools/Source/C/BrotliCompress/brotli"]
 	path = BaseTools/Source/C/BrotliCompress/brotli
 	url = https://github.com/google/brotli
