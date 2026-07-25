@@ -88,4 +88,5 @@
   gUefiPayloadPkgTokenSpaceGuid.PcdBootManagerEscape
 
 [FeaturePcd]
+  gUefiPayloadPkgTokenSpaceGuid.PcdConnectAllDevices
   gEfiMdeModulePkgTokenSpaceGuid.PcdCapsuleOnDiskConnectBootDevice
