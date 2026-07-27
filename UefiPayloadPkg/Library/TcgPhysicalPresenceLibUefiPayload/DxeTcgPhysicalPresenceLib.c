@@ -107,18 +107,17 @@ QemuTpmInitPPI12 (
   VOID
   )
 {
-  EFI_STATUS                       Status;
-  QEMU_FWCFG_TPM_CONFIG            Config;
-  BOOLEAN                          PPIinMMIO;
-  EFI_PHYSICAL_ADDRESS             PpiAddress64;
-  EFI_GCD_MEMORY_SPACE_DESCRIPTOR  Descriptor;
-  UINTN                            Idx;
+  EFI_STATUS                              Status;
+  TCG2_PHYSICAL_PRESENCE_PLATFORM_CONFIG  Config;
+  EFI_PHYSICAL_ADDRESS                    PpiAddress64;
+  EFI_GCD_MEMORY_SPACE_DESCRIPTOR         Descriptor;
+  UINTN                                   Idx;
 
   if (mPpi != NULL) {
     return EFI_SUCCESS;
   }
 
-  Status = TpmPPIPlatformReadConfig (&Config, &PPIinMMIO);
+  Status = TpmPpiPlatformReadConfig (&Config);
   if (EFI_ERROR (Status)) {
     return Status;
   }
@@ -144,7 +143,7 @@ QemuTpmInitPPI12 (
     goto InvalidPpiAddress;
   }
 
-  if (PPIinMMIO) {
+  if (Config.PpiInMmio) {
     if (!EFI_ERROR (Status) &&
         (Descriptor.GcdMemoryType != EfiGcdMemoryTypeMemoryMappedIo &&
         Descriptor.GcdMemoryType != EfiGcdMemoryTypeNonExistent)) {
