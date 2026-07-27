@@ -620,6 +620,8 @@ FitUplEntryPoint (
   if (EFI_ERROR (Status)) {
     return Status;
   }
+  CbMemTimestampAdd (CBMEM_TS_UPL_ENTRY);
+  CbMemLogSummary ();
 
   if (FixedPcdGetBool (PcdHandOffFdtEnable)) {
     mHobList = (VOID *)NULL;
@@ -660,6 +662,11 @@ FitUplEntryPoint (
   if (EFI_ERROR (Status)) {
     return Status;
   }
+  Status = CbMemPublishTableHob ();
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_WARN, "CBMEM: failed to publish table HOB: %r\n", Status));
+  }
+  CbMemTimestampAdd (CBMEM_TS_UPL_HOB_READY);
 
   // Call constructor for all libraries again since hobs were built
   ProcessLibraryConstructorList ();
@@ -672,10 +679,13 @@ FitUplEntryPoint (
     );
 
   FixUpPcdDatabase (DxeFv);
+  CbMemTimestampAdd (CBMEM_TS_UPL_DXE_LOAD_START);
   Status = UniversalLoadDxeCore (DxeFv, &DxeCoreEntryPoint);
   ASSERT_EFI_ERROR (Status);
+  CbMemTimestampAdd (CBMEM_TS_UPL_DXE_LOAD_END);
 
   Hob.HandoffInformationTable = (EFI_HOB_HANDOFF_INFO_TABLE *)GetFirstHob (EFI_HOB_TYPE_HANDOFF);
+  CbMemTimestampAdd (CBMEM_TS_UPL_DXE_HANDOFF);
   HandOffToDxeCore (DxeCoreEntryPoint, Hob);
 
   // Should not get here
