@@ -70,6 +70,7 @@
   StackCheckLib
   MemoryAllocationLib
   BlParseLib
+  CbMemLib
 
 [Guids]
   gEfiMemoryTypeInformationGuid
@@ -89,6 +90,7 @@
   gUniversalPayloadSmbios3TableGuid
   gUniversalPayloadDeviceTreeGuid
   gEfiFirmwareInfoHobGuid
+  gUefiPayloadCorebootTableGuid
   gEfiSmmStoreInfoHobGuid
 
 [FeaturePcd.IA32]
@@ -108,6 +110,7 @@
   gEfiMdeModulePkgTokenSpaceGuid.PcdGhcbSize                            ## CONSUMES
   gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFdMemBase
   gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFdMemSize
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootloaderParameter
   gUefiPayloadPkgTokenSpaceGuid.PcdSystemMemoryUefiRegionSize
   gEfiMdeModulePkgTokenSpaceGuid.PcdSetNxForStack               ## SOMETIMES_CONSUMES
   gEfiMdeModulePkgTokenSpaceGuid.PcdDxeNxMemoryProtectionPolicy ## SOMETIMES_CONSUMES
