@@ -50,6 +50,7 @@
   DEFINE PAYLOAD_FB_HIDPI_WIDE_ASPECT_CAP_SUPPORT = FALSE
   DEFINE PAYLOAD_FB_HIDPI_WIDE_ASPECT_CAP_WIDTH   = 16
   DEFINE PAYLOAD_FB_HIDPI_WIDE_ASPECT_CAP_HEIGHT  = 9
+  DEFINE CONNECT_ALL_DEVICES          = TRUE
 
   #
   # Capsule updates
@@ -618,6 +619,7 @@
 [PcdsFeatureFlag]
   gEfiMdeModulePkgTokenSpaceGuid.PcdConOutGopSupport|TRUE
   gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiWideAspectCapSupport|$(PAYLOAD_FB_HIDPI_WIDE_ASPECT_CAP_SUPPORT)
+  gUefiPayloadPkgTokenSpaceGuid.PcdConnectAllDevices|$(CONNECT_ALL_DEVICES)
   ## This PCD specified whether ACPI SDT protocol is installed.
   gEfiMdeModulePkgTokenSpaceGuid.PcdInstallAcpiSdtProtocol|TRUE
   gEfiMdeModulePkgTokenSpaceGuid.PcdHiiOsRuntimeSupport|FALSE
