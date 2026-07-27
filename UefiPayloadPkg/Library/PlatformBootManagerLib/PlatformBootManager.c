@@ -63,74 +63,6 @@ STATIC BOOLEAN  mLowBatteryBootLogoShown;
 
 STATIC
 VOID
-DropCorebootVariable (
-  IN CHAR16  *Name
-  )
-{
-  gRT->SetVariable (
-         Name,
-         &gEficorebootNvDataGuid,
-         0,
-         0,
-         NULL
-         );
-}
-
-STATIC
-EFI_STATUS
-RequestDiskCapsulesBoot (
-  VOID
-  )
-{
-  BOOLEAN  Value;
-
-  Value = TRUE;
-  return gRT->SetVariable (
-                L"DiskCapsulesBoot",
-                &gEficorebootNvDataGuid,
-                EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_NON_VOLATILE,
-                sizeof (Value),
-                &Value
-                );
-}
-
-STATIC
-BOOLEAN
-HaveCapsules (
-  VOID
-  )
-{
-  EFI_STATUS  Status;
-
-  if (GetBootModeHob () == BOOT_ON_FLASH_UPDATE) {
-    return TRUE;
-  }
-
-  if (!CoDCheckCapsuleOnDiskFlag ()) {
-    return FALSE;
-  }
-
-  DEBUG ((DEBUG_INFO, "On-disk capsules: processing request from OS\n"));
-
-  if (!CoDPresent (3)) {
-    DEBUG ((DEBUG_INFO, "On-disk capsules: found no capsules\n"));
-    return FALSE;
-  }
-
-  Status = RequestDiskCapsulesBoot ();
-  if (EFI_ERROR (Status)) {
-    DEBUG ((DEBUG_ERROR, "On-disk capsules: failed requesting disk boot: %r\n", Status));
-    return FALSE;
-  }
-
-  DEBUG ((DEBUG_INFO, "On-disk capsules: resetting for coreboot flash access\n"));
-  gRT->ResetSystem (EfiResetCold, EFI_SUCCESS, 0, NULL);
-
-  return FALSE;
-}
-
-STATIC
-VOID
 SyncEsrtFmpInfo (
   VOID
   )
@@ -1195,8 +1127,6 @@ PlatformBootManagerBeforeConsole (
   EDKII_PLATFORM_LOGO_PROTOCOL  *PlatformLogo;
   BOOLEAN                       ConsoleInitialized;
 
-  DropCorebootVariable (L"DiskCapsulesBoot");
-
   //
   // Register ENTER as CONTINUE key
   //
@@ -1233,7 +1163,7 @@ PlatformBootManagerBeforeConsole (
   // Process update capsules that don't contain embedded drivers.
   //
   ConsoleInitialized = FALSE;
-  if (HaveCapsules ()) {
+  if (GetBootModeHob () == BOOT_ON_FLASH_UPDATE) {
     // TODO: when enabling capsule support for laptops, add a battery check here
     PlatformConsoleInit ();
     ConsoleInitialized = TRUE;
@@ -1321,7 +1251,7 @@ PlatformBootManagerAfterConsole (
   // Process update capsules that weren't processed on the first call to
   // ProcessCapsules() in PlatformBootManagerBeforeConsole().
   //
-  if (HaveCapsules ()) {
+  if (GetBootModeHob () == BOOT_ON_FLASH_UPDATE) {
     // TODO: when enabling capsule support for laptops, add a battery check here
     Status = ProcessCapsules ();
     if (EFI_ERROR (Status)) {
@@ -1338,8 +1268,6 @@ PlatformBootManagerAfterConsole (
     // a case when this doesn't happen which is possible on error.
     //
     gRT->ResetSystem (EfiResetCold, EFI_SUCCESS, 0, NULL);
-  } else {
-    CoDClearCapsuleOnDiskFlag ();
   }
 
   SyncEsrtFmpInfo ();

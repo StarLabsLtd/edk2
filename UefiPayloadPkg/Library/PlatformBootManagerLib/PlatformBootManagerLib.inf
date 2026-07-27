@@ -60,7 +60,6 @@
   gEfiEndOfDxeEventGroupGuid
   gEfiEventReadyToBootGuid
   gEfiGlobalVariableGuid
-  gEficorebootNvDataGuid
   gUefiShellFileGuid
 
 [Protocols]
