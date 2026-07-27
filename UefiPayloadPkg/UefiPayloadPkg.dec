@@ -129,6 +129,11 @@ gUefiPayloadPkgTokenSpaceGuid.PcdPciAllocateMemoryAbove4GB|FALSE|BOOLEAN|0x00000
 [PcdsFeatureFlag]
 gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiWideAspectCapSupport|FALSE|BOOLEAN|0x00000032
 
+## Indicates whether all boot devices are connected before the selected boot
+## option is launched. Platforms that disable this can connect the selected
+## path on demand and discover removable media only when needed.
+gUefiPayloadPkgTokenSpaceGuid.PcdConnectAllDevices|TRUE|BOOLEAN|0x00000035
+
 [PcdsFixedAtBuild]
 ## If PcdPayloadFbHiDpiWideAspectCapSupport is enabled and the physical
 ## framebuffer is wider than the configured aspect ratio, the alternate setup GOP
