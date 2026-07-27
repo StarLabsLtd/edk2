@@ -155,6 +155,14 @@ gUefiPayloadPkgTokenSpaceGuid.PcdConnectAllDevices|TRUE|BOOLEAN|0x00000035
 gUefiPayloadPkgTokenSpaceGuid.PcdCbmemTimestamps|FALSE|BOOLEAN|0x00000036
 
 [PcdsFixedAtBuild]
+## If PcdFspGopBasicHiDpiSupport is enabled and the physical framebuffer
+## resolution is greater than both thresholds, the GOP exposes an additional mode
+## with width/height scaled down by 2. This HiDPI mode uses PixelBltOnly and does
+## not provide a direct framebuffer (FrameBufferBase == 0).
+gUefiPayloadPkgTokenSpaceGuid.PcdFspGopBasicHiDpiScaleThresholdHorizontal|1920|UINT32|0x00000030
+gUefiPayloadPkgTokenSpaceGuid.PcdFspGopBasicHiDpiScaleThresholdVertical|1080|UINT32|0x00000031
+
+[PcdsFixedAtBuild]
 ## If PcdPayloadFbHiDpiWideAspectCapSupport is enabled and the physical
 ## framebuffer is wider than the configured aspect ratio, the alternate setup GOP
 ## mode crops to a centered viewport.
