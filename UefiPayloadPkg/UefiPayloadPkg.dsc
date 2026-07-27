@@ -26,7 +26,8 @@
   BUILD_TARGETS                       = DEBUG|RELEASE|NOOPT
   SKUID_IDENTIFIER                    = DEFAULT
   BUILD_ARCH                          = Legacy
-  OUTPUT_DIRECTORY                    = Build/UefiPayloadPkg$(BUILD_ARCH)
+  DEFINE CDK2_OUTPUT_DIRECTORY        = Build/UefiPayloadPkg$(BUILD_ARCH)
+  OUTPUT_DIRECTORY                    = $(CDK2_OUTPUT_DIRECTORY)
   FLASH_DEFINITION                    = UefiPayloadPkg/UefiPayloadPkg.fdf
   PCD_DYNAMIC_AS_DYNAMICEX            = TRUE
 
@@ -171,6 +172,7 @@
   DEFINE RTC_TARGET_REGISTER = 0x71
 
   DEFINE SERIAL_DRIVER_ENABLE = TRUE
+  DEFINE CDK2_FLAT_DXE_FV     = FALSE
   DEFINE PERFORMANCE_MEASUREMENT_ENABLE  = FALSE
 
   # For recent X86 CPU, 0x15 CPUID instruction will return Time Stamp Counter Frequence.
@@ -265,6 +267,7 @@
 
 [LibraryClasses]
   GptLib|MdeModulePkg/Library/GptLib/GptLib.inf
+  Cdk2PlatformLib|UefiPayloadPkg/cdk2/Library/Cdk2PlatformLib/Cdk2PlatformLib.inf
 
   #
   # Entry point
@@ -1107,7 +1110,11 @@
       UefiPayloadPkg/UefiPayloadEntry/UefiPayloadEntry.inf
     !endif
   !else
-    UefiPayloadPkg/UefiPayloadEntry/UefiPayloadEntry.inf
+    !if $(CDK2_FLAT_DXE_FV) == TRUE
+      UefiPayloadPkg/cdk2/backend/edk2/entry/UefiPayloadEntry.inf
+    !else
+      UefiPayloadPkg/UefiPayloadEntry/UefiPayloadEntry.inf
+    !endif
   !endif
 !else
   [Components.X64, Components.AARCH64]
@@ -1128,7 +1135,11 @@
       UefiPayloadPkg/UefiPayloadEntry/UefiPayloadEntry.inf
     !endif
   !else
-    UefiPayloadPkg/UefiPayloadEntry/UefiPayloadEntry.inf
+    !if $(CDK2_FLAT_DXE_FV) == TRUE
+      UefiPayloadPkg/cdk2/backend/edk2/entry/UefiPayloadEntry.inf
+    !else
+      UefiPayloadPkg/UefiPayloadEntry/UefiPayloadEntry.inf
+    !endif
   !endif
 !endif
 

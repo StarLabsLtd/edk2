@@ -16,6 +16,7 @@
 
 [Includes]
   Include
+  cdk2/include
 
 [LibraryClasses]
   PayloadEntryHelperLib|Include/Library/PayloadEntryHelperLib.h

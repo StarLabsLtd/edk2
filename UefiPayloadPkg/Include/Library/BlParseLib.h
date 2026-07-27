@@ -69,7 +69,7 @@ ParseMemoryInfo (
 /**
   Acquire SMBIOS table from bootloader.
 
-  @param  SmBiosEntryPoint          Pointer to the SMBIOS structure.
+  @param  SmbiosTable           Pointer to the system table info
 
   @retval RETURN_SUCCESS            Successfully find out the tables.
   @retval RETURN_NOT_FOUND          Failed to find the tables.
@@ -78,22 +78,7 @@ ParseMemoryInfo (
 RETURN_STATUS
 EFIAPI
 ParseSmbiosTable (
-  OUT UINT64  *SmBiosEntryPoint
-  );
-
-/**
-  Parse the boot mode from the coreboot table in memory.
-
-  @param  Mode              Pointer to the boot mode variable
-
-  @retval RETURN_SUCCESS     Successfully find out the memory information.
-  @retval RETURN_NOT_FOUND   Failed to find the memory information.
-
-**/
-RETURN_STATUS
-EFIAPI
-ParseBootMode (
-  OUT EFI_BOOT_MODE  *Mode
+  OUT UNIVERSAL_PAYLOAD_SMBIOS_TABLE  *SmbiosTable
   );
 
 /**
@@ -197,6 +182,19 @@ RETURN_STATUS
 EFIAPI
 ParseCapsules (
   IN BL_CAPSULE_CALLBACK  CapsuleCallback
+  );
+
+/**
+  Parse bootloader's information to check whether EDK should look for on-disk
+  capsules.
+
+  @retval TRUE   Should check for on-disk capsules.
+  @retval FALSE  On-disk capsules should not be processed on this boot.
+**/
+BOOLEAN
+EFIAPI
+ParseIsDiskCapsulesBoot (
+  VOID
   );
 /**
   Find the Tcg Physical Presence store information

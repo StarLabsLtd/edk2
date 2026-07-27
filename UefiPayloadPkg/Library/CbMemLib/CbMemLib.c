@@ -63,6 +63,10 @@ GetCorebootTable (
       (GET_GUID_HOB_DATA_SIZE (GuidHob) >= sizeof (*TableHob)))
   {
     TableHob  = (COREBOOT_TABLE_HOB *)GET_GUID_HOB_DATA (GuidHob);
+    if (TableHob->Address > MAX_UINTN) {
+      return RETURN_UNSUPPORTED;
+    }
+
     Candidate = (struct cb_header *)(UINTN)TableHob->Address;
     if ((Candidate != NULL) && (Candidate->signature == CB_HEADER_SIGNATURE) &&
         (Candidate->header_bytes >= sizeof (*Candidate)) &&
@@ -159,6 +163,7 @@ GetLegacyCbmemPointer (
 {
   struct cb_record     *Record;
   struct cb_cbmem_ref  *Reference;
+  UINT64               ReferenceAddress;
   UINT32               Tag;
   RETURN_STATUS        Status;
 
@@ -183,7 +188,12 @@ GetLegacyCbmemPointer (
   }
 
   Reference = (struct cb_cbmem_ref *)Record;
-  *Address  = (VOID *)(UINTN)CbMemUnpackReferenceAddress (Reference->cbmem_addr);
+  ReferenceAddress = CbMemUnpackReferenceAddress (Reference->cbmem_addr);
+  if (ReferenceAddress > MAX_UINTN) {
+    return RETURN_UNSUPPORTED;
+  }
+
+  *Address = (VOID *)(UINTN)ReferenceAddress;
   if (Size != NULL) {
     *Size = 0;
   }
@@ -204,6 +214,7 @@ CbMemFind (
   struct cb_header       *Header;
   UINT8                  *Cursor;
   UINT8                  *End;
+  UINT64                 EntryAddress;
   UINTN                  Index;
   RETURN_STATUS          Status;
 
@@ -242,7 +253,12 @@ CbMemFind (
     {
       Entry = (struct cb_cbmem_entry *)Record;
       if (Entry->id == Id) {
-        *Address = (VOID *)(UINTN)CbMemUnpack64 (Entry->address);
+        EntryAddress = CbMemUnpack64 (Entry->address);
+        if (EntryAddress > MAX_UINTN) {
+          return RETURN_UNSUPPORTED;
+        }
+
+        *Address = (VOID *)(UINTN)EntryAddress;
         *Size    = Entry->entry_size;
         return (*Address == NULL) ? RETURN_COMPROMISED_DATA : RETURN_SUCCESS;
       }
