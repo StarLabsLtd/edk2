@@ -100,18 +100,17 @@ QemuTpmInitPPI (
   VOID
   )
 {
-  EFI_STATUS                       Status;
-  QEMU_FWCFG_TPM_CONFIG            Config;
-  BOOLEAN                          PPIinMMIO;
-  EFI_PHYSICAL_ADDRESS             PpiAddress64;
-  EFI_GCD_MEMORY_SPACE_DESCRIPTOR  Descriptor;
-  UINTN                            Idx;
+  EFI_STATUS                              Status;
+  TCG2_PHYSICAL_PRESENCE_PLATFORM_CONFIG  Config;
+  EFI_PHYSICAL_ADDRESS                    PpiAddress64;
+  EFI_GCD_MEMORY_SPACE_DESCRIPTOR         Descriptor;
+  UINTN                                   Idx;
 
   if (mPpi != NULL) {
     return EFI_SUCCESS;
   }
 
-  Status = TpmPPIPlatformReadConfig (&Config, &PPIinMMIO);
+  Status = TpmPpiPlatformReadConfig (&Config);
   if (EFI_ERROR (Status)) {
     return Status;
   }
@@ -137,7 +136,7 @@ QemuTpmInitPPI (
     goto InvalidPpiAddress;
   }
 
-  if (PPIinMMIO) {
+  if (Config.PpiInMmio) {
     if (!EFI_ERROR (Status) &&
         (Descriptor.GcdMemoryType != EfiGcdMemoryTypeMemoryMappedIo &&
         Descriptor.GcdMemoryType != EfiGcdMemoryTypeNonExistent)) {
@@ -157,7 +156,7 @@ QemuTpmInitPPI (
     mPpi->Func[Idx] = 0;
   }
 
-  if (Config.TpmVersion == QEMU_TPM_VERSION_2) {
+  if (Config.TpmVersion == Tcg2PhysicalPresenceTpmVersion20) {
     mPpi->Func[TCG2_PHYSICAL_PRESENCE_NO_ACTION]         = TPM_PPI_FLAGS;
     mPpi->Func[TCG2_PHYSICAL_PRESENCE_CLEAR]             = TPM_PPI_FLAGS;
     mPpi->Func[TCG2_PHYSICAL_PRESENCE_ENABLE_CLEAR]      = TPM_PPI_FLAGS;

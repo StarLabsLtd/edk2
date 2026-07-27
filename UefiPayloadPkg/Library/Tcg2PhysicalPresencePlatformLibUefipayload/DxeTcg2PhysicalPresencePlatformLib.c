@@ -14,8 +14,6 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 
 #include <PiDxe.h>
 
-#include <IndustryStandard/QemuTpm.h>
-
 #include <Library/Tcg2PhysicalPresencePlatformLib.h>
 #include <Library/HobLib.h>
 #include <Library/DebugLib.h>
@@ -26,20 +24,24 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 /**
   Reads QEMU PPI config from TcgPhysicalPresenceInfoHobGuid.
 
-  @param[out]  The Config structure to read to.
-  @param[out]  The PPIinMMIO is True when the PPI is in MMIO memory space
+  @param[out]  Config  The config structure to fill in.
 
   @retval EFI_SUCCESS           Operation completed successfully.
+  @retval EFI_INVALID_PARAMETER Config is NULL.
   @retval EFI_PROTOCOL_ERROR    Invalid HOB entry.
 **/
 EFI_STATUS
-TpmPPIPlatformReadConfig (
-  OUT QEMU_FWCFG_TPM_CONFIG *Config,
-  OUT BOOLEAN               *PPIinMMIO
+EFIAPI
+TpmPpiPlatformReadConfig (
+  OUT TCG2_PHYSICAL_PRESENCE_PLATFORM_CONFIG  *Config
   )
 {
   EFI_HOB_GUID_TYPE                       *GuidHob;
   TCG_PHYSICAL_PRESENCE_INFO              *pPPInfo;
+
+  if (Config == NULL) {
+    return EFI_INVALID_PARAMETER;
+  }
 
   //
   // Find the TPM Physical Presence HOB
@@ -59,22 +61,20 @@ TpmPPIPlatformReadConfig (
   }
 
   if (pPPInfo->TpmVersion == UEFIPAYLOAD_TPM_VERSION_1_2) {
-    Config->TpmVersion = QEMU_TPM_VERSION_1_2;
+    Config->TpmVersion = Tcg2PhysicalPresenceTpmVersion12;
   } else if (pPPInfo->TpmVersion == UEFIPAYLOAD_TPM_VERSION_2) {
-    Config->TpmVersion = QEMU_TPM_VERSION_2;
+    Config->TpmVersion = Tcg2PhysicalPresenceTpmVersion20;
   } else {
     return EFI_UNSUPPORTED;
   }
 
-  if (pPPInfo->PpiVersion == UEFIPAYLOAD_TPM_PPI_VERSION_NONE) {
-    Config->PpiVersion = QEMU_TPM_PPI_VERSION_NONE;
-  } else if (pPPInfo->PpiVersion == UEFIPAYLOAD_TPM_PPI_VERSION_1_30) {
-    Config->PpiVersion = QEMU_TPM_PPI_VERSION_1_30;
-  } else {
+  if ((pPPInfo->PpiVersion != UEFIPAYLOAD_TPM_PPI_VERSION_NONE) &&
+      (pPPInfo->PpiVersion != UEFIPAYLOAD_TPM_PPI_VERSION_1_30))
+  {
     return EFI_UNSUPPORTED;
   }
 
-  *PPIinMMIO = FALSE;
+  Config->PpiInMmio = FALSE;
 
   return EFI_SUCCESS;
 }
