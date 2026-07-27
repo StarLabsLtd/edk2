@@ -132,6 +132,11 @@ gUefiPayloadPkgTokenSpaceGuid.PcdFspGopBasicHiDpiSupport|FALSE|BOOLEAN|0x0000002
 ## when the physical framebuffer is wider than the configured aspect ratio.
 gUefiPayloadPkgTokenSpaceGuid.PcdFspGopBasicHiDpiWideAspectCapSupport|FALSE|BOOLEAN|0x00000032
 
+## Indicates whether all boot devices are connected before the selected boot
+## option is launched. Platforms that disable this can connect the selected
+## path on demand and discover removable media only when needed.
+gUefiPayloadPkgTokenSpaceGuid.PcdConnectAllDevices|TRUE|BOOLEAN|0x00000035
+
 [PcdsFixedAtBuild]
 ## If PcdFspGopBasicHiDpiSupport is enabled and the physical framebuffer
 ## resolution is greater than both thresholds, the GOP exposes an additional mode
