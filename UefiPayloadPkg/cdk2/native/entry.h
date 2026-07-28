@@ -24,7 +24,6 @@
   @retval Other                  A module returned an error.
 **/
 EFI_STATUS
-EFIAPI
 Cdk2NativeRunModules (
   IN OUT CDK2_NATIVE_CONTEXT  *Context
   );
@@ -38,7 +37,6 @@ Cdk2NativeRunModules (
   @retval Other                  Stage initialization or module failure.
 **/
 EFI_STATUS
-EFIAPI
 Cdk2NativeStageEntry (
   IN UINTN  BootloaderParameter
   );

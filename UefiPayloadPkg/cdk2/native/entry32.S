@@ -86,8 +86,7 @@ cdk2_long_mode_entry:
         movw    %ax, %gs
 
         movabs  $cdk2_boot_stack_top, %rsp
-        andq    $-16, %rsp
-        subq    $8, %rsp           /* SysV x64 call-entry alignment */
+        andq    $-16, %rsp         /* SysV x64 pre-call alignment */
         movl    cdk2_bootloader_parameter, %edi
         call    Cdk2NativeStageEntry
 
