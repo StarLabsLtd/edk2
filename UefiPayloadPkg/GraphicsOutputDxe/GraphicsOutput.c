@@ -13,6 +13,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 
 #include <Library/PcdLib.h>
 #include <Library/SafeIntLib.h>
+#include <Protocol/BootLogo2.h>
 
 #define GRAPHICS_OUTPUT_MODE_PHYSICAL  0
 #define GRAPHICS_OUTPUT_MODE_HIDPI     1
@@ -371,6 +372,85 @@ GraphicsOutputSetModeInternal (
 }
 
 /**
+  Redraw the registered boot logo into the current graphics mode.
+
+  @param  GraphicsOutput  The Graphics Output Protocol instance.
+
+**/
+static VOID
+RestoreBootLogo (
+  IN EFI_GRAPHICS_OUTPUT_PROTOCOL  *GraphicsOutput
+  )
+{
+  EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *Logo;
+  EDKII_BOOT_LOGO2_PROTOCOL      *BootLogo;
+  EFI_STATUS                     Status;
+  UINTN                          DestinationX;
+  UINTN                          DestinationY;
+  UINTN                          Height;
+  UINTN                          Width;
+
+  if ((GraphicsOutput == NULL) ||
+      (GraphicsOutput->Mode == NULL) ||
+      (GraphicsOutput->Mode->Info == NULL))
+  {
+    return;
+  }
+
+  Status = gBS->LocateProtocol (
+                  &gEdkiiBootLogo2ProtocolGuid,
+                  NULL,
+                  (VOID **)&BootLogo
+                  );
+  if (EFI_ERROR (Status) || (BootLogo == NULL)) {
+    return;
+  }
+
+  Logo         = NULL;
+  DestinationX = 0;
+  DestinationY = 0;
+  Width        = 0;
+  Height       = 0;
+  Status       = BootLogo->GetBootLogo (
+                             BootLogo,
+                             &Logo,
+                             &DestinationX,
+                             &DestinationY,
+                             &Width,
+                             &Height
+                             );
+  if (EFI_ERROR (Status) || (Logo == NULL) || (Width == 0) || (Height == 0)) {
+    return;
+  }
+
+  if ((DestinationX > GraphicsOutput->Mode->Info->HorizontalResolution) ||
+      (DestinationY > GraphicsOutput->Mode->Info->VerticalResolution) ||
+      (Width > (GraphicsOutput->Mode->Info->HorizontalResolution - DestinationX)) ||
+      (Height > (GraphicsOutput->Mode->Info->VerticalResolution - DestinationY)) ||
+      (Width > (MAX_UINTN / sizeof (EFI_GRAPHICS_OUTPUT_BLT_PIXEL))))
+  {
+    DEBUG ((DEBUG_VERBOSE, "[%a]: boot logo does not fit current GOP mode\n", gEfiCallerBaseName));
+    return;
+  }
+
+  Status = GraphicsOutput->Blt (
+                             GraphicsOutput,
+                             Logo,
+                             EfiBltBufferToVideo,
+                             0,
+                             0,
+                             DestinationX,
+                             DestinationY,
+                             Width,
+                             Height,
+                             Width * sizeof (EFI_GRAPHICS_OUTPUT_BLT_PIXEL)
+                             );
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_VERBOSE, "[%a]: boot logo restore failed: %r\n", gEfiCallerBaseName, Status));
+  }
+}
+
+/**
   Set the video device into the specified mode and clears the visible portions of
   the output display to black.
 
@@ -428,7 +508,13 @@ GraphicsOutputReadyToBoot (
     // Switch back to a mode that provides a direct framebuffer before
     // launching the OS (e.g. for efifb or other direct-writes users).
     //
-    GraphicsOutputSetModeInternal (&Private->GraphicsOutput, GRAPHICS_OUTPUT_MODE_PHYSICAL, FALSE);
+    Status = GraphicsOutputSetModeInternal (&Private->GraphicsOutput, GRAPHICS_OUTPUT_MODE_PHYSICAL, FALSE);
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_VERBOSE, "[%a]: physical GOP restore failed: %r\n", gEfiCallerBaseName, Status));
+      return;
+    }
+
+    RestoreBootLogo (&Private->GraphicsOutput);
 
     //
     // Restore the physical-mode resolution PCDs so late DXE text/graphics code
@@ -1497,7 +1583,7 @@ GraphicsOutputDriverBindingStart (
     if (Private->HasHiDpiMode) {
       Status = gBS->CreateEventEx (
                       EVT_NOTIFY_SIGNAL,
-                      TPL_CALLBACK,
+                      TPL_NOTIFY,
                       GraphicsOutputReadyToBoot,
                       Private,
                       &gEfiEventReadyToBootGuid,

@@ -52,6 +52,7 @@
   gEfiEventReadyToBootGuid                      ## CONSUMES
 
 [Protocols]
+  gEdkiiBootLogo2ProtocolGuid                   ## SOMETIMES_CONSUMES
   gEfiGraphicsOutputProtocolGuid                ## BY_START
   gEfiDevicePathProtocolGuid                    ## BY_START
   gEfiPciIoProtocolGuid                         ## TO_START
