@@ -155,7 +155,29 @@ awk 'NR == FNR { fv[$$1] = 1; next } \
   "$(CDK2_BACKEND_DXE_FV_GUIDS)" "$(CDK2_BACKEND_SELECTED_DXE_GUIDS)" || { \
   echo "cdk2 EDK2 DXE FV placement mismatch" >&2; exit 1; \
 } && \
-find "$(CDK2_BACKEND_BUILD_DIR)/FV/Ffs" -type f -iname '*.ffs' -print | sort > "$(CDK2_BACKEND_FFS_LIST)"
+find "$(CDK2_BACKEND_BUILD_DIR)/FV/Ffs" -type f -iname '*.ffs' -print | sort | \
+awk 'NR == FNR { dxe[$$1] = 1; next } \
+  { \
+    file = $$NF; \
+    sub(/^.*\//, "", file); \
+    guid = toupper(substr(file, 1, 36)); \
+    if (guid in dxe) { \
+      if (guid in found) { \
+        print "duplicate DXE FV FFS: " guid > "/dev/stderr"; \
+        failed = 1; next; \
+      } \
+      found[guid] = 1; print $$0; \
+    } \
+  } \
+  END { \
+    for (guid in dxe) { \
+      if (!(guid in found)) { \
+        print "DXE FV FFS missing from build output: " guid > "/dev/stderr"; \
+        failed = 1; \
+      } \
+    } \
+    exit failed ? 1 : 0; \
+  }' "$(CDK2_BACKEND_DXE_FV_GUIDS)" - > "$(CDK2_BACKEND_FFS_LIST)"
 endef
 
 # The generic cdk2 build only asks a backend for a completed payload. Keep
