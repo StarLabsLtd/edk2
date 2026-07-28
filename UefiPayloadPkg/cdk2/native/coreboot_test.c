@@ -172,12 +172,16 @@ main (
   UINTN                       StackCount;
   UINTN                       CpuCount;
   UINTN                       GuidCount;
+  UINTN                       CodeAllocationCount;
+  UINTN                       ModuleCount;
   UINTN                       TableSize;
   CONST VOID                 *Record;
   CONST struct cb_serial      *Serial;
   CONST struct cb_framebuffer *Framebuffer;
   EFI_GUID                    TestGuid;
   EFI_GUID                    StackGuid;
+  EFI_GUID                    ModuleGuid;
+  EFI_GUID                    DxeCoreGuid;
   EFI_GUID                    ZeroGuid;
   UINT8                       TestData[4];
   EFI_STATUS                  Status;
@@ -363,6 +367,64 @@ main (
   Failures += Expect (AllocationCount == 2, "allocation HOB count is wrong");
   Failures += Expect (StackCount == 1, "stack HOB owner GUID is wrong");
   Failures += Expect (CpuCount == 1, "CPU HOB count is wrong");
+
+  DxeCoreGuid = (EFI_GUID){ 0x86d70125, 0xbaa3, 0x4296, { 0xa6, 0x2f, 0x60, 0x2b, 0xeb, 0xbb, 0x90, 0x8e } };
+  Status = Cdk2CorebootAppendMemoryAllocationHob (
+             HobInfo,
+             0x00400000,
+             2 * EFI_PAGE_SIZE,
+             EfiBootServicesCode
+             );
+  Failures += Expect (Status == EFI_SUCCESS, "loaded-image allocation HOB failed");
+  Status = Cdk2CorebootAppendModuleHob (
+             HobInfo,
+             &DxeCoreGuid,
+             0x00400000,
+             2 * EFI_PAGE_SIZE,
+             0x00401000
+             );
+  Failures += Expect (Status == EFI_SUCCESS, "module HOB failed");
+
+  CodeAllocationCount = 0;
+  ModuleCount         = 0;
+  ModuleGuid          = (EFI_GUID)EFI_HOB_MEMORY_ALLOC_MODULE_GUID;
+  HobCursor           = (UINTN)(VOID *)HobInfo;
+  while (HobCursor < (UINTN)HobInfo->EfiEndOfHobList) {
+    Hob = (EFI_HOB_GENERIC_HEADER *)(UINTN)HobCursor;
+    if (Hob->HobType == EFI_HOB_TYPE_MEMORY_ALLOCATION) {
+      EFI_HOB_MEMORY_ALLOCATION         *Allocation;
+      EFI_HOB_MEMORY_ALLOCATION_MODULE  *Module;
+
+      Allocation = (EFI_HOB_MEMORY_ALLOCATION *)(VOID *)Hob;
+      if (Allocation->AllocDescriptor.MemoryBaseAddress == 0x00400000 &&
+          Allocation->AllocDescriptor.MemoryLength == 2 * EFI_PAGE_SIZE)
+      {
+        if (memcmp (&Allocation->AllocDescriptor.Name, &ZeroGuid, sizeof (ZeroGuid)) == 0) {
+          Failures += Expect (
+                        Allocation->AllocDescriptor.MemoryType == EfiBootServicesCode,
+                        "loaded-image allocation type is wrong"
+                        );
+          CodeAllocationCount++;
+        } else if (memcmp (&Allocation->AllocDescriptor.Name, &ModuleGuid, sizeof (ModuleGuid)) == 0) {
+          Module = (EFI_HOB_MEMORY_ALLOCATION_MODULE *)(VOID *)Hob;
+          Failures += Expect (
+                        Module->MemoryAllocationHeader.MemoryType == EfiBootServicesCode,
+                        "module allocation type is wrong"
+                        );
+          Failures += Expect (
+                        memcmp (&Module->ModuleName, &DxeCoreGuid, sizeof (DxeCoreGuid)) == 0,
+                        "module name is wrong"
+                        );
+          Failures += Expect (Module->EntryPoint == 0x00401000, "module entry point is wrong");
+          ModuleCount++;
+        }
+      }
+    }
+
+    HobCursor += (Hob->HobLength + 7U) & ~(UINTN)7U;
+  }
+  Failures += Expect (CodeAllocationCount == 1, "loaded-image allocation HOB count is wrong");
+  Failures += Expect (ModuleCount == 1, "loaded-image module HOB count is wrong");
 
   TestGuid = (EFI_GUID){ 0x12345678, 0x9abc, 0xdef0, { 1, 2, 3, 4, 5, 6, 7, 8 } };
   TestData[0] = 0xaa;

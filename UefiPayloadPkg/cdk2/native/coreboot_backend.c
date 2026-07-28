@@ -575,6 +575,7 @@ Cdk2CorebootLoadDxeCore (
   UINTN                  FvSize;
   UINTN                  AvailablePages;
   UINTN                  Pages;
+  UINTN                  LoadedImageSize;
   EFI_STATUS             Status;
 
   if (Context == NULL || EntryPoint == NULL || ImageBase == NULL || ImageSize == NULL ||
@@ -627,11 +628,22 @@ Cdk2CorebootLoadDxeCore (
     return Status;
   }
 
+  LoadedImageSize = EFI_SIZE_TO_PAGES (*ImageSize) * EFI_PAGE_SIZE;
+  Status = Cdk2CorebootAppendMemoryAllocationHob (
+             (EFI_HOB_HANDOFF_INFO_TABLE *)Context->HobList,
+             *ImageBase,
+             LoadedImageSize,
+             EfiBootServicesCode
+             );
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
   return Cdk2CorebootAppendModuleHob (
            (EFI_HOB_HANDOFF_INFO_TABLE *)Context->HobList,
            &DxeCore.DxeCoreFile->Name,
            *ImageBase,
-           EFI_SIZE_TO_PAGES (*ImageSize) * EFI_PAGE_SIZE,
+           LoadedImageSize,
            *EntryPoint
            );
 }
