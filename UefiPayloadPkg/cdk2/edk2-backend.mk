@@ -135,6 +135,7 @@ CDK2_BACKEND_DXE_FV_GUIDS := $(CDK2_BUILD_DIR)/cdk2-dxe-fv-guids.txt
 CDK2_BACKEND_SELECTED_DXE_GUIDS := $(CDK2_BUILD_DIR)/cdk2-selected-dxe-guids.txt
 
 define CDK2_BACKEND_BUILD
+rm -rf "$(CDK2_BACKEND_BUILD_DIR)"
 cd "$(CDK2_ROOT)" && \
 source edksetup.sh >/dev/null && \
 $(CDK2_BACKEND_BUILD_COMMAND) $(foreach arch,$(CDK2_BACKEND_ARCHES),-a $(arch)) -b $(CDK2_TARGET) -t $(CDK2_BACKEND_TOOLCHAIN) \
