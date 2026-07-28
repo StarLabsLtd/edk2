@@ -24,53 +24,15 @@ CDK2_NATIVE_DIR := $(CDK2_DIR)/native
 CDK2_BACKEND ?= edk2
 CDK2_BACKEND_FILE ?= $(CDK2_DIR)$(CDK2_BACKEND)-backend.mk
 CDK2_BACKEND_INTERFACE_VERSION := 1
-
-# A source defconfig keeps the first invocation self-contained. Subsequent
-# invocations use the solver's generated .config, so dependencies and defaults
-# are resolved exactly once rather than being emulated by Make conditionals.
-ifneq ($(wildcard $(CDK2_CONFIG)),)
--include $(CDK2_CONFIG)
-else
--include $(CDK2_DEFCONFIG)
-endif
-include $(CDK2_NATIVE_DIR)/Makefile
-
-ifeq ($(CONFIG_CDK2_PAYLOAD),y)
-else
-$(error CONFIG_CDK2_PAYLOAD must be enabled in $(CDK2_CONFIG) or $(CDK2_DEFCONFIG))
-endif
-
-ifeq ($(CONFIG_CDK2_BUILD_DEBUG),y)
-CDK2_TARGET := DEBUG
-else
-CDK2_TARGET := RELEASE
-endif
-
-include $(CDK2_BACKEND_FILE)
-
-ifneq ($(CDK2_BACKEND_INTERFACE_VERSION),$(CDK2_BACKEND_SUPPORTED_INTERFACE_VERSION))
-$(error cdk2 backend interface mismatch: requested $(CDK2_BACKEND_INTERFACE_VERSION), backend supports $(CDK2_BACKEND_SUPPORTED_INTERFACE_VERSION))
-endif
-
-$(foreach required,BUILD ASSEMBLE CHECK CLEAN WRITE_MANIFEST PRINT_MODULES,$(if $(strip $(CDK2_BACKEND_$(required))),,$(error cdk2 backend '$(CDK2_BACKEND_NAME)' does not implement CDK2_BACKEND_$(required))))
+CDK2_CONFIG_TARGETS := build build-image check manifest modules native-stage \
+	native-coreboot-stage native-coreboot-image native-check native-pack \
+	native-service-test native-coreboot-test native-fv-test native-pe-test print
 
 .PHONY: all build build-image config defconfig olddefconfig menuconfig prepare-kconfig check \
-	manifest modules native-stage native-check print clean
+	manifest modules native-stage native-coreboot-stage native-coreboot-image native-check \
+	native-pack native-service-test native-coreboot-test native-fv-test native-pe-test print clean
 
 all: build
-
-build: $(CDK2_CONFIG) $(CDK2_CONFIG_HEADER) check
-	@$(MAKE) --no-print-directory -f "$(CDK2_DIR)/Makefile" \
-		CDK2_CONFIG_READY=1 build-image
-
-build-image: manifest native-stage native-check
-	@mkdir -p "$(dir $(CDK2_OUTPUT))"
-	$(CDK2_BACKEND_BUILD)
-	@printf '%s\n' "cdk2 $(CDK2_BACKEND_NAME) module closure: $(words $(CDK2_SELECTED_MODULES)) selected modules"
-	$(CDK2_BACKEND_ASSEMBLE)
-	$(MAKE) --no-print-directory -f "$(CDK2_DIR)/Makefile" CDK2_CONFIG_READY=1 native-coreboot-image
-	@test -s "$(CDK2_OUTPUT)"
-	@sha256sum "$(CDK2_OUTPUT)"
 
 prepare-kconfig:
 	@mkdir -p "$(CDK2_KCONFIG_WORKDIR)"
@@ -119,6 +81,40 @@ $(CDK2_CONFIG_HEADER): $(CDK2_CONFIG)
 		printf '%s\n' '#endif'; \
 	} > "$@"
 
+ifeq ($(CDK2_CONFIG_READY),1)
+include $(CDK2_CONFIG)
+include $(CDK2_NATIVE_DIR)/Makefile
+
+ifeq ($(CONFIG_CDK2_PAYLOAD),y)
+else
+$(error CONFIG_CDK2_PAYLOAD must be enabled in $(CDK2_CONFIG))
+endif
+
+ifeq ($(CONFIG_CDK2_BUILD_DEBUG),y)
+CDK2_TARGET := DEBUG
+else
+CDK2_TARGET := RELEASE
+endif
+
+include $(CDK2_BACKEND_FILE)
+
+ifneq ($(CDK2_BACKEND_INTERFACE_VERSION),$(CDK2_BACKEND_SUPPORTED_INTERFACE_VERSION))
+$(error cdk2 backend interface mismatch: requested $(CDK2_BACKEND_INTERFACE_VERSION), backend supports $(CDK2_BACKEND_SUPPORTED_INTERFACE_VERSION))
+endif
+
+$(foreach required,BUILD ASSEMBLE CHECK CLEAN WRITE_MANIFEST PRINT_MODULES,$(if $(strip $(CDK2_BACKEND_$(required))),,$(error cdk2 backend '$(CDK2_BACKEND_NAME)' does not implement CDK2_BACKEND_$(required))))
+
+build: build-image
+
+build-image: manifest native-stage native-check
+	@mkdir -p "$(dir $(CDK2_OUTPUT))"
+	$(CDK2_BACKEND_BUILD)
+	@printf '%s\n' "cdk2 $(CDK2_BACKEND_NAME) module closure: $(words $(CDK2_SELECTED_MODULES)) selected modules"
+	$(CDK2_BACKEND_ASSEMBLE)
+	$(MAKE) --no-print-directory -f "$(CDK2_DIR)/Makefile" CDK2_CONFIG_READY=1 native-coreboot-image
+	@test -s "$(CDK2_OUTPUT)"
+	@sha256sum "$(CDK2_OUTPUT)"
+
 check: $(CDK2_CONFIG_HEADER)
 	$(CDK2_BACKEND_CHECK)
 
@@ -126,7 +122,7 @@ manifest: check
 	$(CDK2_BACKEND_WRITE_MANIFEST)
 
 modules:
-	$(CDK2_BACKEND_PRINT_MODULES)
+	@$(CDK2_BACKEND_PRINT_MODULES)
 
 print:
 	@printf 'target=%s\n' '$(CDK2_TARGET)'
@@ -148,3 +144,10 @@ print:
 clean:
 	$(CDK2_BACKEND_CLEAN)
 	rm -rf "$(CDK2_BUILD_DIR)"
+else
+$(CDK2_CONFIG_TARGETS): $(CDK2_CONFIG) $(CDK2_CONFIG_HEADER)
+	@$(MAKE) --no-print-directory -f "$(CDK2_DIR)/Makefile" CDK2_CONFIG_READY=1 $@
+
+clean:
+	rm -rf "$(CDK2_BUILD_DIR)"
+endif
