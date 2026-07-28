@@ -367,6 +367,10 @@ RelocatePe (
     // EDK2's X64 PIE entry uses RIP-relative references and advertises an
     // image base of zero, so it does not need a relocation directory.
     if (OriginalBase == 0) {
+      if (OptionalMagic == 0x020BU) {
+        Put64 (Image->Data + OptionalOffset + ImageBaseOffset, TargetBase);
+      }
+
       return;
     }
 

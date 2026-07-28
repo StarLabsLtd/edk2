@@ -19,6 +19,7 @@ CDK2_NATIVE_PACKER ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-fvpack
 CDK2_NATIVE_SERVICE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-services-test
 CDK2_NATIVE_COREBOOT_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-coreboot-test
 CDK2_NATIVE_FV_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-fv-test
+CDK2_NATIVE_FVPACK_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-fvpack-test
 CDK2_NATIVE_PE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-pe-test
 CDK2_NATIVE_ELF_CHECK ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-elfcheck
 CDK2_NATIVE_CC ?= $(CC)
@@ -59,7 +60,7 @@ CDK2_NATIVE_OVERRIDE_LINK_INPUTS := $(foreach obj,$(CDK2_NATIVE_OVERRIDE_OBJS),"
 CDK2_NATIVE_LINK_FLAGS := -static -no-pie -nostdlib -nostartfiles -nodefaultlibs -Wl,-z,max-page-size=0x1000 -Wl,-z,common-page-size=0x1000 -Wl,-T,"$(CDK2_NATIVE_DIR)/cdk2.ld"
 CDK2_NATIVE_LINK_POST_MAP_FLAGS := -Wl,--gc-sections -Wl,--build-id=none
 
-.PHONY: native-stage native-coreboot-stage native-coreboot-image native-check native-pack native-service-test native-coreboot-test native-fv-test native-pe-test FORCE
+.PHONY: native-stage native-coreboot-stage native-coreboot-image native-check native-pack native-service-test native-coreboot-test native-fv-test native-fvpack-test native-pe-test FORCE
 
 ifeq ($(CONFIG_CDK2_NATIVE_STAGE),y)
 native-stage: $(CDK2_NATIVE_ELF)
@@ -67,7 +68,7 @@ native-coreboot-stage: $(CDK2_NATIVE_COREBOOT_ELF)
 native-coreboot-image: $(CDK2_NATIVE_COREBOOT_IMAGE) $(CDK2_NATIVE_FV_TEST) $(CDK2_NATIVE_ELF_CHECK)
 	@"$(CDK2_NATIVE_FV_TEST)" "$(CDK2_OUTPUT)"
 	@"$(CDK2_NATIVE_ELF_CHECK)" --entry Cdk2CorebootEntry32 --require-fv "$(CDK2_NATIVE_COREBOOT_IMAGE)"
-native-check: $(CDK2_CONFIG_HEADER) $(CDK2_NATIVE_ELF) $(CDK2_NATIVE_OVERRIDE_ELF) $(CDK2_NATIVE_COREBOOT_ELF) $(CDK2_NATIVE_COREBOOT_ENTRY) $(CDK2_NATIVE_PACKER) $(CDK2_NATIVE_SERVICE_TEST) $(CDK2_NATIVE_COREBOOT_TEST) $(CDK2_NATIVE_FV_TEST) $(CDK2_NATIVE_PE_TEST) $(CDK2_NATIVE_ELF_CHECK)
+native-check: $(CDK2_CONFIG_HEADER) $(CDK2_NATIVE_ELF) $(CDK2_NATIVE_OVERRIDE_ELF) $(CDK2_NATIVE_COREBOOT_ELF) $(CDK2_NATIVE_COREBOOT_ENTRY) $(CDK2_NATIVE_PACKER) $(CDK2_NATIVE_SERVICE_TEST) $(CDK2_NATIVE_COREBOOT_TEST) $(CDK2_NATIVE_FV_TEST) $(CDK2_NATIVE_FVPACK_TEST) $(CDK2_NATIVE_PE_TEST) $(CDK2_NATIVE_ELF_CHECK)
 	@nm "$(CDK2_NATIVE_ELF)" | grep -Eq '[[:space:]]W[[:space:]]Cdk2PlatformInitializeNativeContext$$'
 	@nm "$(CDK2_NATIVE_ELF)" | grep -Eq '[[:space:]]W[[:space:]]Cdk2PlatformLateInit$$'
 	@nm "$(CDK2_NATIVE_OVERRIDE_ELF)" | grep -Eq '[[:space:]]T[[:space:]]Cdk2PlatformInitializeNativeContext$$'
@@ -80,6 +81,7 @@ native-check: $(CDK2_CONFIG_HEADER) $(CDK2_NATIVE_ELF) $(CDK2_NATIVE_OVERRIDE_EL
 	@"$(CDK2_NATIVE_SERVICE_TEST)"
 	@"$(CDK2_NATIVE_COREBOOT_TEST)"
 	@"$(CDK2_NATIVE_FV_TEST)"
+	@"$(CDK2_NATIVE_FVPACK_TEST)" "$(CDK2_NATIVE_PACKER)" "$(CDK2_NATIVE_BUILD_DIR)"
 	@"$(CDK2_NATIVE_PE_TEST)"
 	@printf '%s\n' "native cdk2 stage: $(CDK2_NATIVE_ELF)"
 	@printf '%s\n' "native cdk2 FV packer: $(CDK2_NATIVE_PACKER)"
@@ -93,10 +95,11 @@ native-coreboot-stage:
 native-coreboot-image:
 	@printf '%s\n' 'native cdk2 coreboot image: disabled by Kconfig'
 
-native-check: $(CDK2_CONFIG_HEADER) $(CDK2_NATIVE_PACKER) $(CDK2_NATIVE_SERVICE_TEST) $(CDK2_NATIVE_COREBOOT_TEST) $(CDK2_NATIVE_FV_TEST) $(CDK2_NATIVE_PE_TEST)
+native-check: $(CDK2_CONFIG_HEADER) $(CDK2_NATIVE_PACKER) $(CDK2_NATIVE_SERVICE_TEST) $(CDK2_NATIVE_COREBOOT_TEST) $(CDK2_NATIVE_FV_TEST) $(CDK2_NATIVE_FVPACK_TEST) $(CDK2_NATIVE_PE_TEST)
 	@"$(CDK2_NATIVE_SERVICE_TEST)"
 	@"$(CDK2_NATIVE_COREBOOT_TEST)"
 	@"$(CDK2_NATIVE_FV_TEST)"
+	@"$(CDK2_NATIVE_FVPACK_TEST)" "$(CDK2_NATIVE_PACKER)" "$(CDK2_NATIVE_BUILD_DIR)"
 	@"$(CDK2_NATIVE_PE_TEST)"
 	@printf '%s\n' 'native cdk2 stage: disabled by Kconfig'
 	@printf '%s\n' "native cdk2 FV packer: $(CDK2_NATIVE_PACKER)"
@@ -113,6 +116,9 @@ native-coreboot-test: $(CDK2_NATIVE_COREBOOT_TEST)
 
 native-fv-test: $(CDK2_NATIVE_FV_TEST)
 	@"$(CDK2_NATIVE_FV_TEST)"
+
+native-fvpack-test: $(CDK2_NATIVE_FVPACK_TEST) $(CDK2_NATIVE_PACKER)
+	@"$(CDK2_NATIVE_FVPACK_TEST)" "$(CDK2_NATIVE_PACKER)" "$(CDK2_NATIVE_BUILD_DIR)"
 
 native-pe-test: $(CDK2_NATIVE_PE_TEST)
 	@"$(CDK2_NATIVE_PE_TEST)"
@@ -188,6 +194,9 @@ $(CDK2_NATIVE_COREBOOT_TEST): $(CDK2_NATIVE_DIR)/coreboot.c $(CDK2_NATIVE_DIR)/c
 
 $(CDK2_NATIVE_FV_TEST): $(CDK2_NATIVE_DIR)/fv.c $(CDK2_NATIVE_DIR)/fv.h $(CDK2_NATIVE_DIR)/fv_test.c $(CDK2_ROOT)/MdePkg/Include/Pi/PiFirmwareFile.h $(CDK2_ROOT)/MdePkg/Include/Pi/PiFirmwareVolume.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CC) $(CDK2_NATIVE_HOST_CFLAGS) -MMD -MP -MF "$(CDK2_NATIVE_BUILD_DIR)/fv-test.d" -MT "$@" $(CDK2_NATIVE_INCLUDES) -I$(CDK2_NATIVE_DIR) -o "$@" "$(CDK2_NATIVE_DIR)/fv.c" "$(CDK2_NATIVE_DIR)/fv_test.c"
+
+$(CDK2_NATIVE_FVPACK_TEST): $(CDK2_NATIVE_DIR)/fvpack_test.c $(CDK2_ROOT)/MdePkg/Include/IndustryStandard/PeImage.h $(CDK2_ROOT)/MdePkg/Include/Pi/PiFirmwareFile.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CC) $(CDK2_NATIVE_HOST_CFLAGS) -MMD -MP -MF "$(CDK2_NATIVE_BUILD_DIR)/fvpack-test.d" -MT "$@" $(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_NATIVE_DIR)/fvpack_test.c"
 
 $(CDK2_NATIVE_PE_TEST): $(CDK2_NATIVE_DIR)/pe.c $(CDK2_NATIVE_DIR)/pe.h $(CDK2_NATIVE_DIR)/pe_test.c $(CDK2_ROOT)/MdePkg/Include/IndustryStandard/PeImage.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CC) $(CDK2_NATIVE_HOST_CFLAGS) -MMD -MP -MF "$(CDK2_NATIVE_BUILD_DIR)/pe-test.d" -MT "$@" $(CDK2_NATIVE_INCLUDES) -I$(CDK2_NATIVE_DIR) -o "$@" "$(CDK2_NATIVE_DIR)/pe.c" "$(CDK2_NATIVE_DIR)/pe_test.c"
