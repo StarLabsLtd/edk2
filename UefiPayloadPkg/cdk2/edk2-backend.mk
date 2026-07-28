@@ -15,6 +15,16 @@ CDK2_BACKEND_ARCHES ?= X64
 CDK2_BACKEND_BUILD_ARCH ?= X64
 CDK2_BACKEND_OUTPUT_DIRECTORY ?= Build/cdk2/edk2/UefiPayloadPkg$(CDK2_BACKEND_BUILD_ARCH)
 
+ifneq ($(strip $(CDK2_BACKEND_ENTRY_ARCH)),X64)
+$(error cdk2 direct EDK II backend is X64-only: CDK2_BACKEND_ENTRY_ARCH=$(CDK2_BACKEND_ENTRY_ARCH))
+endif
+ifneq ($(strip $(CDK2_BACKEND_ARCHES)),X64)
+$(error cdk2 direct EDK II backend is X64-only: CDK2_BACKEND_ARCHES=$(CDK2_BACKEND_ARCHES))
+endif
+ifneq ($(strip $(CDK2_BACKEND_BUILD_ARCH)),X64)
+$(error cdk2 direct EDK II backend is X64-only: CDK2_BACKEND_BUILD_ARCH=$(CDK2_BACKEND_BUILD_ARCH))
+endif
+
 include $(CDK2_DIR)/modules.mk
 
 # These are EDK II build definitions, not cdk2 policy. Keep their translation
