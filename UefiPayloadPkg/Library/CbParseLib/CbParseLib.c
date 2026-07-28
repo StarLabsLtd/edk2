@@ -626,7 +626,7 @@ ParseBootMode (
 /**
   Acquire SMBIOS table from coreboot.
 
-  @param  SmBiosEntryPoint          Pointer to the SMBIOS structure.
+  @param  SmbiosTable               Pointer to the SMBIOS table information.
 
   @retval RETURN_SUCCESS            Successfully find out the tables.
   @retval RETURN_NOT_FOUND          Failed to find the tables.
@@ -635,14 +635,14 @@ ParseBootMode (
 RETURN_STATUS
 EFIAPI
 ParseSmbiosTable (
-  OUT UINT64  *SmBiosEntryPoint
+  OUT UNIVERSAL_PAYLOAD_SMBIOS_TABLE  *SmbiosTable
   )
 {
   EFI_STATUS  Status;
   VOID        *MemTable;
   UINT32      MemTableSize;
 
-  if (SmBiosEntryPoint == NULL) {
+  if (SmbiosTable == NULL) {
     return RETURN_INVALID_PARAMETER;
   }
 
@@ -651,7 +651,7 @@ ParseSmbiosTable (
     return EFI_NOT_FOUND;
   }
 
-  *SmBiosEntryPoint = (UINT64)(UINTN)MemTable;
+  SmbiosTable->SmBiosEntryPoint = (UINT64)(UINTN)MemTable;
 
   return RETURN_SUCCESS;
 }
@@ -1080,6 +1080,29 @@ ParseCapsules (
   }
 
   return RETURN_SUCCESS;
+}
+
+/**
+  Parse bootloader's information to check whether EDK should look for on-disk
+  capsules.
+
+  @retval TRUE   Should check for on-disk capsules.
+  @retval FALSE  On-disk capsules should not be processed on this boot.
+**/
+BOOLEAN
+EFIAPI
+ParseIsDiskCapsulesBoot (
+  VOID
+  )
+{
+  struct cb_boot_info  *BootInfo;
+
+  BootInfo = FindCbTag (CB_TAG_BOOT_INFO);
+  if (BootInfo == NULL) {
+    return FALSE;
+  }
+
+  return BootInfo->is_disk_capsules_boot != 0;
 }
 
 /**

@@ -325,6 +325,14 @@ struct cb_range {
   UINT32    range_size;
 } __attribute__ ((packed));
 
+#define CB_TAG_BOOT_INFO  0x00a1
+struct cb_boot_info {
+  UINT32    tag;
+  UINT32    size;
+  UINT8     is_disk_capsules_boot;
+  UINT8     pad[3];
+} __attribute__ ((packed));
+
 #define CB_TAG_CFR_ROOT  0x0047
 struct cb_cfr {
   UINT32 tag;

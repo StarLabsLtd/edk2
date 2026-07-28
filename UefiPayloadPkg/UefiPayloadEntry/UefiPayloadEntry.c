@@ -360,7 +360,7 @@ BuildHobFromBl (
   UNIVERSAL_PAYLOAD_SMBIOS_TABLE    *SmBiosTableHob;
   UNIVERSAL_PAYLOAD_ACPI_TABLE      *AcpiTableHob;
   EFI_BOOT_MODE                     BootMode;
-  UINT64                            SmBiosEntryPoint;
+  UNIVERSAL_PAYLOAD_SMBIOS_TABLE    SmbiosTableInfo;
 
   //
   // First find TOLUD
@@ -446,14 +446,14 @@ BuildHobFromBl (
   //
   // Create SmBios table Hob
   //
-  Status = ParseSmbiosTable (&SmBiosEntryPoint);
+  Status = ParseSmbiosTable (&SmbiosTableInfo);
   if (!EFI_ERROR (Status)) {
-    DEBUG ((DEBUG_INFO, "Detected Smbios Table at 0x%lx\n", SmBiosEntryPoint));
+    DEBUG ((DEBUG_INFO, "Detected Smbios Table at 0x%lx\n", SmbiosTableInfo.SmBiosEntryPoint));
     SmBiosTableHob = BuildGuidHob (&gUniversalPayloadSmbiosTableGuid, sizeof (UNIVERSAL_PAYLOAD_SMBIOS_TABLE));
     ASSERT (SmBiosTableHob != NULL);
     SmBiosTableHob->Header.Revision  = UNIVERSAL_PAYLOAD_SMBIOS_TABLE_REVISION;
     SmBiosTableHob->Header.Length    = sizeof (UNIVERSAL_PAYLOAD_SMBIOS_TABLE);
-    SmBiosTableHob->SmBiosEntryPoint = SmBiosEntryPoint;
+    SmBiosTableHob->SmBiosEntryPoint = SmbiosTableInfo.SmBiosEntryPoint;
     DEBUG ((DEBUG_INFO, "Create smbios table gUniversalPayloadSmbiosTableGuid guid hob\n"));
   }
 
