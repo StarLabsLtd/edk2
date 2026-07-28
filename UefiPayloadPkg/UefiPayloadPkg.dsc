@@ -1225,6 +1225,9 @@
   }
   MdeModulePkg/Universal/EsrtDxe/EsrtDxe.inf
 !endif
+!if $(ESRT_SUPPORT) == TRUE && $(CAPSULE_SUPPORT) == FALSE
+  MdeModulePkg/Universal/EsrtDxe/EsrtDxe.inf
+!endif
 
 
   MdeModulePkg/Universal/Metronome/Metronome.inf
