@@ -102,6 +102,21 @@ native-check: $(CDK2_CONFIG_HEADER) $(CDK2_NATIVE_PACKER) $(CDK2_NATIVE_SERVICE_
 	@printf '%s\n' "native cdk2 FV packer: $(CDK2_NATIVE_PACKER)"
 endif
 
+native-pack: $(CDK2_NATIVE_PACKER)
+	@printf '%s\n' "native cdk2 FV packer: $(CDK2_NATIVE_PACKER)"
+
+native-service-test: $(CDK2_NATIVE_SERVICE_TEST)
+	@"$(CDK2_NATIVE_SERVICE_TEST)"
+
+native-coreboot-test: $(CDK2_NATIVE_COREBOOT_TEST)
+	@"$(CDK2_NATIVE_COREBOOT_TEST)"
+
+native-fv-test: $(CDK2_NATIVE_FV_TEST)
+	@"$(CDK2_NATIVE_FV_TEST)"
+
+native-pe-test: $(CDK2_NATIVE_PE_TEST)
+	@"$(CDK2_NATIVE_PE_TEST)"
+
 $(CDK2_NATIVE_BUILD_DIR):
 	@mkdir -p "$@"
 
