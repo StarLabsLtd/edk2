@@ -89,7 +89,7 @@ config CDK2_SMMSTORE
 config CDK2_CAPSULE
     bool "Include capsule update support"
     default n
-    depends on CDK2_SMM && CDK2_ESRT
+    depends on CDK2_SMM && CDK2_ESRT && CDK2_GRAPHICS
 
 config CDK2_SECURE_BOOT
     bool "Enable secure boot support"
