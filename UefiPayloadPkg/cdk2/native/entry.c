@@ -103,11 +103,9 @@ Cdk2NativeStageEntry (
   CDK2_NATIVE_CONTEXT  Context = { 0 };
   EFI_STATUS            Status;
 
-  Status = Cdk2NativeInitializeStageContext (&Context, BootloaderParameter);
-  if (EFI_ERROR (Status)) {
-    return Status;
-  }
-
+  // The platform backend owns native-context construction from the bootloader
+  // handoff. The freestanding entry only forwards the original coreboot
+  // argument so the direct coreboot and EDK II adapters share one init boundary.
   Status = Cdk2PlatformInitializeNativeContext (&Context, BootloaderParameter);
   if (EFI_ERROR (Status)) {
     return Status;
