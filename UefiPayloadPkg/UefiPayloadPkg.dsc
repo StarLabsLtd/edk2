@@ -243,9 +243,25 @@
   CLANGPDB:*_*_*_DLINK_FLAGS = /ALIGN:4096
   MSFT:*_*_*_DLINK_FLAGS     = /ALIGN:4096
 
+# GenFw derives the cdk2 SEC PE/COFF alignment from the ELF section alignment.
+[BuildOptions.common.EDKII.SEC]
+  GCC:*_*_*_CC_FLAGS         = -DCDK2_PECOFF_ALIGN=4096
+  GCC:*_*_*_DLINK_FLAGS      = -z common-page-size=0x1000
+  XCODE:*_*_*_DLINK_FLAGS    = -seg1addr 0x1000 -segalign 0x1000
+  XCODE:*_*_*_MTOC_FLAGS     = -align 0x1000
+  CLANGPDB:*_*_*_DLINK_FLAGS = /ALIGN:4096
+  MSFT:*_*_*_DLINK_FLAGS     = /ALIGN:4096
+
 # Force non-runtime PE/COFF sections to be aligned at 4KB boundaries so
 # DXE Core can apply page-level image protection, including NX.
 [BuildOptions.common.EDKII.DXE_CORE, BuildOptions.common.EDKII.DXE_DRIVER, BuildOptions.common.EDKII.UEFI_DRIVER, BuildOptions.common.EDKII.UEFI_APPLICATION]
+  GCC:*_*_*_DLINK_FLAGS      = -z common-page-size=0x1000
+  XCODE:*_*_*_DLINK_FLAGS    = -seg1addr 0x1000 -segalign 0x1000
+  XCODE:*_*_*_MTOC_FLAGS     = -align 0x1000
+  CLANGPDB:*_*_*_DLINK_FLAGS = /ALIGN:4096
+  MSFT:*_*_*_DLINK_FLAGS     = /ALIGN:4096
+
+[BuildOptions.common.EDKII.DXE_SMM_DRIVER, BuildOptions.common.EDKII.SMM_CORE]
   GCC:*_*_*_DLINK_FLAGS      = -z common-page-size=0x1000
   XCODE:*_*_*_DLINK_FLAGS    = -seg1addr 0x1000 -segalign 0x1000
   XCODE:*_*_*_MTOC_FLAGS     = -align 0x1000
@@ -257,6 +273,14 @@
 
 [BuildOptions.AARCH64.EDKII.DXE_RUNTIME_DRIVER]
   GCC:*_*_*_DLINK_FLAGS      = -z common-page-size=0x10000
+!else
+[BuildOptions.common.EDKII.SEC]
+  GCC:*_*_*_CC_FLAGS         = -DCDK2_PECOFF_ALIGN=64
+
+[BuildOptions.common.EDKII.SEC, BuildOptions.common.EDKII.DXE_RUNTIME_DRIVER, BuildOptions.common.EDKII.DXE_CORE, BuildOptions.common.EDKII.DXE_DRIVER, BuildOptions.common.EDKII.UEFI_DRIVER, BuildOptions.common.EDKII.UEFI_APPLICATION, BuildOptions.common.EDKII.DXE_SMM_DRIVER, BuildOptions.common.EDKII.SMM_CORE]
+  GCC:DEBUG_GCC_X64_DLINK_FLAGS   == -nostdlib -Wl,-n,-q,--gc-sections -z max-page-size=0x40 -z common-page-size=0x40 -Wl,--entry,$(IMAGE_ENTRY_POINT) -u $(IMAGE_ENTRY_POINT) -Wl,-Map,$(DEST_DIR_DEBUG)/$(BASE_NAME).map,--whole-archive -Wl,-melf_x86_64,--oformat=elf64-x86-64,-pie -Wl,--fatal-warnings -Wl,-z,noexecstack -Wl,-z,notext -flto -Os
+  GCC:RELEASE_GCC_X64_DLINK_FLAGS == -nostdlib -Wl,-n,-q,--gc-sections -z max-page-size=0x40 -z common-page-size=0x40 -Wl,--entry,$(IMAGE_ENTRY_POINT) -u $(IMAGE_ENTRY_POINT) -Wl,-Map,$(DEST_DIR_DEBUG)/$(BASE_NAME).map,--whole-archive -Wl,-melf_x86_64,--oformat=elf64-x86-64,-pie -Wl,--fatal-warnings -Wl,-z,noexecstack -Wl,-z,notext -flto -Os
+  GCC:NOOPT_GCC_X64_DLINK_FLAGS   == -nostdlib -Wl,-n,-q,--gc-sections -z max-page-size=0x40 -z common-page-size=0x40 -Wl,--entry,$(IMAGE_ENTRY_POINT) -u $(IMAGE_ENTRY_POINT) -Wl,-Map,$(DEST_DIR_DEBUG)/$(BASE_NAME).map,--whole-archive -Wl,-melf_x86_64,--oformat=elf64-x86-64,-pie -Wl,--fatal-warnings -Wl,-z,noexecstack -Wl,-z,notext -O0
 !endif
 
 ################################################################################

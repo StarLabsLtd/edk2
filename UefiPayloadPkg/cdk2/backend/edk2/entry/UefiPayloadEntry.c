@@ -11,6 +11,16 @@
 #include "Cdk2EfiEntry.h"
 #include "../Cdk2EfiBackend.h"
 
+#ifndef CDK2_PECOFF_ALIGN
+#define CDK2_PECOFF_ALIGN  64
+#endif
+
+#if defined (__GNUC__)
+#define CDK2_PECOFF_ALIGN_ATTRIBUTE  __attribute__ ((aligned (CDK2_PECOFF_ALIGN)))
+#else
+#define CDK2_PECOFF_ALIGN_ATTRIBUTE
+#endif
+
 /**
   Entry point to the C language phase of UEFI payload.
 
@@ -20,6 +30,7 @@
 **/
 EFI_STATUS
 EFIAPI
+CDK2_PECOFF_ALIGN_ATTRIBUTE
 _ModuleEntryPoint (
   IN UINTN  BootloaderParameter
   )
