@@ -372,10 +372,14 @@ main (void)
 
   Context.Backend.LoadDxeCore = TestLoadDxeCore;
   Failures += Expect (Cdk2NativeLoadImage (&Context, Cdk2NativeImageDxeCore, &EntryPoint) == EFI_SUCCESS, "DXE core load");
-  Failures += Expect (mLateInitCalls == 1, "late-init hook");
+  Failures += Expect (mLateInitCalls == 0, "late-init deferred until transfer");
   Failures += Expect (EntryPoint == 0x00401000, "DXE core entry point");
   Failures += Expect (Context.ImageBase == 0x00400000, "DXE core image base");
   Failures += Expect (Context.ImageSize == 0x00020000, "DXE core image size");
+  Context.Backend.Transfer = TestTransfer;
+  Failures += Expect (Cdk2NativeTransfer (&Context) == EFI_SUCCESS, "transfer service");
+  Failures += Expect (mLateInitCalls == 1, "late-init hook");
+  Failures += Expect (mTransferCalls == 1, "transfer callback");
   Context.Backend.LoadDxeCore = NULL;
   Failures += Expect (Cdk2NativeLoadImage (&Context, Cdk2NativeImageDxeCore, &EntryPoint) == EFI_UNSUPPORTED, "DXE core callback required");
 
@@ -466,15 +470,19 @@ main (void)
   Failures += Expect (Cdk2NativePrepareEntry (&Prepared) == EFI_SUCCESS, "prepare entry");
   Failures += Expect (Prepared.HobList != NULL, "prepared HOB list");
   Failures += Expect (Prepared.ImageEntryPoint == 0x00401000, "prepared DXE entry point");
+  Failures += Expect (mLateInitCalls == 1, "prepare entry defers late-init");
 
   Incomplete = Prepared;
   Incomplete.Backend.Transfer = NULL;
   Failures += Expect (Cdk2NativeValidateBackend (&Incomplete) == EFI_UNSUPPORTED, "missing transfer rejected");
 
+  mLateInitCalls = 0;
+  mTransferCalls = 0;
   Failures += Expect (
                 Cdk2NativePayloadEntry (0x12345678, TestInitializeContext) == EFI_SUCCESS,
                 "native payload entry flow"
                 );
+  Failures += Expect (mLateInitCalls == 1, "native payload late-init hook");
   Failures += Expect (mTransferCalls == 1, "native payload transfer");
 
   return Failures == 0 ? 0 : 1;

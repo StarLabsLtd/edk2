@@ -18,7 +18,7 @@ Cdk2NativePlatformModuleInit (
     return EFI_INVALID_PARAMETER;
   }
 
-  // Late platform policy runs once at the image-load service boundary. Keep
+  // Late platform policy runs once at the transfer boundary. Keep
   // this module as a registration and context-validation point only.
   return EFI_SUCCESS;
 }

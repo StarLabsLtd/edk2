@@ -405,9 +405,6 @@ Cdk2NativeLoadImage (
       return EFI_UNSUPPORTED;
     }
 
-    // Apply the weak platform hook at the service boundary immediately before
-    // the DXE image is loaded, matching the legacy entry ordering.
-    Cdk2PlatformLateInit ();
     Status = Context->Backend.LoadDxeCore (
                  Context,
                  &Context->ImageEntryPoint,
@@ -517,6 +514,9 @@ Cdk2NativeTransfer (
     return Status;
   }
 
+  // Run the platform hook after handoff validation and immediately before
+  // transferring control to DXE.
+  Cdk2PlatformLateInit ();
   return Context->Backend.Transfer (Context);
 }
 
