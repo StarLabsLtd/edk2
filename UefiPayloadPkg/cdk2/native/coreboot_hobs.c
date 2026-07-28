@@ -57,6 +57,10 @@ Cdk2CorebootAppendHob (
   }
 
   AlignedLength = Cdk2CorebootAlignUp8 (Length);
+  if (AlignedLength > MAX_UINT16) {
+    return NULL;
+  }
+
   if (*Cursor > Limit || AlignedLength > Limit - *Cursor) {
     return NULL;
   }
@@ -67,7 +71,7 @@ Cdk2CorebootAppendHob (
   }
 
   Hob->HobType   = Type;
-  Hob->HobLength = (UINT16)Length;
+  Hob->HobLength = (UINT16)AlignedLength;
   *Cursor       += AlignedLength;
   return Hob;
 }

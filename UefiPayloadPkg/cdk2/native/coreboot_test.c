@@ -10,6 +10,7 @@
 #include "coreboot_hobs.h"
 
 #include <Guid/MemoryAllocationHob.h>
+#include <Library/HobLib.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -166,12 +167,15 @@ main (
   CDK2_COREBOOT_HANDOFF       Handoff;
   EFI_HOB_HANDOFF_INFO_TABLE *HobInfo;
   EFI_HOB_GENERIC_HEADER     *Hob;
+  EFI_PEI_HOB_POINTERS        HobWalker;
   UINTN                       HobCursor;
   UINTN                       ResourceCount;
   UINTN                       AllocationCount;
   UINTN                       StackCount;
   UINTN                       CpuCount;
   UINTN                       GuidCount;
+  UINTN                       ApiGuidCount;
+  UINTN                       WalkerCount;
   UINTN                       CodeAllocationCount;
   UINTN                       ModuleCount;
   UINTN                       TableSize;
@@ -452,6 +456,34 @@ main (
     HobCursor += (Hob->HobLength + 7U) & ~(UINTN)7U;
   }
   Failures += Expect (GuidCount == 1, "GUID HOB data is wrong");
+
+  ApiGuidCount = 0;
+  WalkerCount  = 0;
+  HobWalker.Raw = (UINT8 *)(VOID *)HobInfo;
+  while (!END_OF_HOB_LIST (HobWalker) && WalkerCount < 64) {
+    if (GET_HOB_LENGTH (HobWalker) < sizeof (EFI_HOB_GENERIC_HEADER)) {
+      Failures += Expect (0, "EDK2 HOB traversal saw an invalid length");
+      break;
+    }
+
+    Failures += Expect (
+                  (GET_HOB_LENGTH (HobWalker) & 7U) == 0,
+                  "HOB length is not EDK2 traversal aligned"
+                  );
+    if (GET_HOB_TYPE (HobWalker) == EFI_HOB_TYPE_GUID_EXTENSION) {
+      if (memcmp (&HobWalker.Guid->Name, &TestGuid, sizeof (TestGuid)) == 0 &&
+          memcmp (GET_GUID_HOB_DATA (HobWalker), TestData, sizeof (TestData)) == 0)
+      {
+        ApiGuidCount++;
+      }
+    }
+
+    HobWalker.Raw = (UINT8 *)(VOID *)GET_NEXT_HOB (HobWalker);
+    WalkerCount++;
+  }
+
+  Failures += Expect (END_OF_HOB_LIST (HobWalker), "EDK2 HOB traversal missed the end marker");
+  Failures += Expect (ApiGuidCount == 1, "EDK2 HOB traversal missed the GUID HOB");
 
   Status = Cdk2CorebootBuildHobs (
              &Handoff,
