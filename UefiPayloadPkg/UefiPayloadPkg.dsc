@@ -173,6 +173,17 @@
 
   DEFINE SERIAL_DRIVER_ENABLE = TRUE
   DEFINE CDK2_FLAT_DXE_FV     = FALSE
+  DEFINE CDK2_LATE_LINK       = FALSE
+  DEFINE ESRT_SUPPORT         = FALSE
+  DEFINE EMU_VARIABLE_ENABLE  = FALSE
+  DEFINE PCI_ENABLE           = TRUE
+  DEFINE STORAGE_ENABLE       = TRUE
+  DEFINE USB_ENABLE           = TRUE
+  DEFINE GRAPHICS_ENABLE      = TRUE
+  DEFINE CONSOLE_ENABLE       = TRUE
+  DEFINE SETUP_UI_ENABLE      = TRUE
+  DEFINE SECURE_BOOT_CONFIG_ENABLE = TRUE
+  DEFINE TPM_CONFIG_ENABLE    = TRUE
   DEFINE PERFORMANCE_MEASUREMENT_ENABLE  = FALSE
 
   # For recent X86 CPU, 0x15 CPUID instruction will return Time Stamp Counter Frequence.
@@ -224,6 +235,7 @@
   GCC:*_GCC_*_CC_FLAGS         = -mcmodel=tiny
   GCC:*_CLANGDWARF_*_CC_FLAGS  = -mcmodel=tiny
 
+!if $(CDK2_LATE_LINK) == TRUE
 [BuildOptions.common.EDKII.DXE_RUNTIME_DRIVER]
   GCC:*_*_*_DLINK_FLAGS      = -z common-page-size=0x1000
   XCODE:*_*_*_DLINK_FLAGS    = -seg1addr 0x1000 -segalign 0x1000
@@ -245,6 +257,7 @@
 
 [BuildOptions.AARCH64.EDKII.DXE_RUNTIME_DRIVER]
   GCC:*_*_*_DLINK_FLAGS      = -z common-page-size=0x10000
+!endif
 
 ################################################################################
 #
@@ -1181,7 +1194,9 @@
 !endif
 
 !if $(SECURE_BOOT_ENABLE) == TRUE
+!if $(CDK2_FLAT_DXE_FV) == FALSE || $(SECURE_BOOT_CONFIG_ENABLE) == TRUE
   SecurityPkg/VariableAuthenticated/SecureBootConfigDxe/SecureBootConfigDxe.inf
+!endif
   UefiPayloadPkg/EnrollDefaultKeys/EnrollDefaultKeys.inf
 !endif
 
@@ -1189,6 +1204,7 @@
 !if $(BOOTSPLASH_IMAGE)
   MdeModulePkg/Logo/LogoDxe.inf
 !endif
+!if $(CDK2_FLAT_DXE_FV) == FALSE || $(SETUP_UI_ENABLE) == TRUE
   UefiPayloadPkg/CfrSetupMenuDxe/CfrSetupMenuDxe.inf
   MdeModulePkg/Application/UiApp/UiApp.inf {
     <LibraryClasses>
@@ -1197,6 +1213,7 @@
       NULL|MdeModulePkg/Library/DeviceManagerUiLib/DeviceManagerUiLib.inf
   }
   MdeModulePkg/Application/BootManagerMenuApp/BootManagerMenuApp.inf
+!endif
 !if $(CAPSULE_SUPPORT) == TRUE
 !if "$(CAPSULE_MAIN_FW_GUID)" == ""
   !error "CAPSULE_MAIN_FW_GUID must be set when CAPSULE_SUPPORT is TRUE"
@@ -1252,7 +1269,9 @@
 
   MdeModulePkg/Universal/ReportStatusCodeRouter/RuntimeDxe/ReportStatusCodeRouterRuntimeDxe.inf
   MdeModulePkg/Universal/StatusCodeHandler/RuntimeDxe/StatusCodeHandlerRuntimeDxe.inf
+!if $(CDK2_FLAT_DXE_FV) == FALSE || $(PCI_ENABLE) == TRUE
   UefiCpuPkg/CpuIo2Dxe/CpuIo2Dxe.inf
+!endif
   MdeModulePkg/Universal/DevicePathDxe/DevicePathDxe.inf
 !if $(MEMORY_TEST) == "GENERIC"
   MdeModulePkg/Universal/MemoryTest/GenericMemoryTestDxe/GenericMemoryTestDxe.inf
@@ -1260,9 +1279,11 @@
   MdeModulePkg/Universal/MemoryTest/NullMemoryTestDxe/NullMemoryTestDxe.inf
 !endif
   MdeModulePkg/Universal/HiiDatabaseDxe/HiiDatabaseDxe.inf
+!if $(CDK2_FLAT_DXE_FV) == FALSE || $(SETUP_UI_ENABLE) == TRUE
   MdeModulePkg/Universal/SetupBrowserDxe/SetupBrowserDxe.inf
   MdeModulePkg/Universal/DisplayEngineDxe/DisplayEngineDxe.inf
   UefiPayloadPkg/UserAuthPkg/UserAuthenticationDxe/UserAuthenticationDxe.inf
+!endif
   MdeModulePkg/Universal/PlatformDriOverrideDxe/PlatformDriOverrideDxe.inf
   MdeModulePkg/Universal/EbcDxe/EbcDxe.inf
 
@@ -1286,15 +1307,18 @@
   #
   # PCI Support
   #
+!if $(CDK2_FLAT_DXE_FV) == FALSE || $(PCI_ENABLE) == TRUE
   MdeModulePkg/Bus/Pci/PciBusDxe/PciBusDxe.inf
   MdeModulePkg/Bus/Pci/PciHostBridgeDxe/PciHostBridgeDxe.inf {
     <LibraryClasses>
       PciHostBridgeLib|UefiPayloadPkg/Library/PciHostBridgeLib/PciHostBridgeLib.inf
   }
+!endif
 
   #
   # SCSI/ATA/IDE/DISK Support
   #
+!if $(CDK2_FLAT_DXE_FV) == FALSE || $(STORAGE_ENABLE) == TRUE
   MdeModulePkg/Universal/Disk/DiskIoDxe/DiskIoDxe.inf
   MdeModulePkg/Universal/Disk/PartitionDxe/PartitionDxe.inf
   MdeModulePkg/Universal/Disk/UnicodeCollation/EnglishDxe/EnglishDxe.inf
@@ -1302,10 +1326,10 @@
 !if $(ATA_ENABLE) == TRUE
   MdeModulePkg/Bus/Pci/SataControllerDxe/SataControllerDxe.inf
   MdeModulePkg/Bus/Ata/AtaBusDxe/AtaBusDxe.inf
-!endif
   MdeModulePkg/Bus/Ata/AtaAtapiPassThru/AtaAtapiPassThru.inf
   MdeModulePkg/Bus/Scsi/ScsiBusDxe/ScsiBusDxe.inf
   MdeModulePkg/Bus/Scsi/ScsiDiskDxe/ScsiDiskDxe.inf
+!endif
 !if $(NVME_ENABLE) == TRUE
   MdeModulePkg/Bus/Pci/NvmExpressDxe/NvmExpressDxe.inf
 !endif
@@ -1321,6 +1345,7 @@
   MdeModulePkg/Bus/Sd/EmmcDxe/EmmcDxe.inf
   MdeModulePkg/Bus/Sd/SdDxe/SdDxe.inf
 !endif
+!endif
 
   #
   # Support for loading Option ROMs from PCI-Express devices
@@ -1332,6 +1357,7 @@
   #
   # Usb Support
   #
+!if $(CDK2_FLAT_DXE_FV) == FALSE || $(USB_ENABLE) == TRUE
   MdeModulePkg/Bus/Pci/UhciDxe/UhciDxe.inf
   MdeModulePkg/Bus/Pci/EhciDxe/EhciDxe.inf
   MdeModulePkg/Bus/Pci/XhciDxe/XhciDxe.inf
@@ -1339,6 +1365,7 @@
   MdeModulePkg/Bus/Usb/UsbKbDxe/UsbKbDxe.inf
   MdeModulePkg/Bus/Usb/UsbMassStorageDxe/UsbMassStorageDxe.inf
   MdeModulePkg/Bus/Usb/UsbMouseDxe/UsbMouseDxe.inf
+!endif
 
   #
   # ISA Support
@@ -1359,13 +1386,19 @@
   #
   # Console Support
   #
+!if $(CDK2_FLAT_DXE_FV) == FALSE || $(CONSOLE_ENABLE) == TRUE
   MdeModulePkg/Universal/Console/ConPlatformDxe/ConPlatformDxe.inf
   MdeModulePkg/Universal/Console/ConSplitterDxe/ConSplitterDxe.inf
+!if $(CDK2_FLAT_DXE_FV) == FALSE || $(GRAPHICS_ENABLE) == TRUE
   MdeModulePkg/Universal/Console/GraphicsConsoleDxe/GraphicsConsoleDxe.inf
+!endif
 !if $(DISABLE_SERIAL_TERMINAL) == FALSE
   MdeModulePkg/Universal/Console/TerminalDxe/TerminalDxe.inf
 !endif
+!if $(CDK2_FLAT_DXE_FV) == FALSE || $(GRAPHICS_ENABLE) == TRUE
   UefiPayloadPkg/GraphicsOutputDxe/GraphicsOutputDxe.inf
+!endif
+!endif
 !if $(PERFORMANCE_MEASUREMENT_ENABLE)
   MdeModulePkg/Universal/Acpi/FirmwarePerformanceDataTableDxe/FirmwarePerformanceDxe.inf
 !endif
@@ -1436,11 +1469,13 @@
       NULL|SecurityPkg/Library/HashInstanceLibSm3/HashInstanceLibSm3.inf
   }
   UefiPayloadPkg/Tpm2AcpiTableDxe/Tpm2AcpiTableDxe.inf
+!if $(CDK2_FLAT_DXE_FV) == FALSE || $(TPM_CONFIG_ENABLE) == TRUE
   SecurityPkg/Tcg/Tcg2Config/Tcg2ConfigDxe.inf {
     <LibraryClasses>
 #    Tpm2DeviceLib|SecurityPkg/Library/Tpm2DeviceLibRouter/Tpm2DeviceLibRouterDxe.inf //Modif H.E Avoid Hang Tcg2config
     Tpm2DeviceLib|SecurityPkg/Library/Tpm2DeviceLibTcg2/Tpm2DeviceLibTcg2.inf
   }
+!endif
 !endif
 
 !if $(TPM1_ENABLE) == TRUE
@@ -1448,10 +1483,12 @@
     <LibraryClasses>
       Tpm12DeviceLib|SecurityPkg/Library/Tpm12DeviceLibDTpm/Tpm12DeviceLibDTpm.inf
   }
+!if $(CDK2_FLAT_DXE_FV) == FALSE || $(TPM_CONFIG_ENABLE) == TRUE
    SecurityPkg/Tcg/TcgConfigDxe/TcgConfigDxe.inf {
     <LibraryClasses>
     Tpm12DeviceLib|SecurityPkg/Library/Tpm12DeviceLibTcg/Tpm12DeviceLibTcg.inf
   }
+!endif
 
 !endif
 
