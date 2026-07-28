@@ -297,27 +297,32 @@ RvaToFileOffset (
 }
 
 static void
-RelocatePe32 (
+RelocatePe (
   BLOB     *Image,
-  uint32_t  TargetBase
+  uint64_t  TargetBase
   )
 {
   uint32_t       PeOffset;
-  uint32_t       OriginalBase;
+  uint64_t       OriginalBase;
+  uint64_t       Delta;
   uint32_t       RelocRva;
   uint32_t       RelocSize;
-  uint32_t       Delta;
   size_t         OptionalOffset;
   size_t         RelocOffset;
   size_t         RelocEnd;
   size_t         BlockOffset;
+  size_t         DataDirectoryOffset;
+  size_t         ImageBaseOffset;
+  size_t         FixupSize;
   uint32_t       PageRva;
   uint32_t       BlockSize;
   uint16_t       Entry;
   uint16_t       Type;
+  uint16_t       RelocType;
   uint16_t       Offset;
+  uint16_t       OptionalMagic;
   size_t         FixupOffset;
-  uint32_t       Value;
+  uint64_t       Value;
 
   if ((Image->Size < 0x40) || (Get16 (Image->Data) != 0x5A4D)) {
     Fail ("payload entry is not a PE image");
@@ -330,15 +335,41 @@ RelocatePe32 (
   }
 
   OptionalOffset = (size_t)PeOffset + 4 + 20;
-  if ((OptionalOffset > Image->Size) || (Image->Size - OptionalOffset < 96) ||
-      (Get16 (Image->Data + OptionalOffset) != 0x010BU)) {
-    Fail ("payload entry is not PE32");
+  if ((OptionalOffset > Image->Size) || (Image->Size - OptionalOffset < 2)) {
+    Fail ("payload entry optional header is outside the image");
   }
 
-  OriginalBase = Get32 (Image->Data + OptionalOffset + 28);
-  RelocRva = Get32 (Image->Data + OptionalOffset + 96 + (5 * 8));
-  RelocSize = Get32 (Image->Data + OptionalOffset + 96 + (5 * 8) + 4);
+  OptionalMagic = Get16 (Image->Data + OptionalOffset);
+  if (OptionalMagic == 0x010BU) {
+    DataDirectoryOffset = 96;
+    ImageBaseOffset     = 28;
+    FixupSize           = sizeof (uint32_t);
+    RelocType           = 3;
+  } else if (OptionalMagic == 0x020BU) {
+    DataDirectoryOffset = 112;
+    ImageBaseOffset     = 24;
+    FixupSize           = sizeof (uint64_t);
+    RelocType           = 10;
+  } else {
+    Fail ("payload entry has an unsupported PE optional header");
+  }
+
+  if (Image->Size - OptionalOffset < DataDirectoryOffset + (6 * 8)) {
+    Fail ("payload entry data directories are outside the image");
+  }
+
+  OriginalBase = (OptionalMagic == 0x020BU) ?
+                 Get64 (Image->Data + OptionalOffset + ImageBaseOffset) :
+                 Get32 (Image->Data + OptionalOffset + ImageBaseOffset);
+  RelocRva  = Get32 (Image->Data + OptionalOffset + DataDirectoryOffset + (5 * 8));
+  RelocSize = Get32 (Image->Data + OptionalOffset + DataDirectoryOffset + (5 * 8) + 4);
   if ((RelocRva == 0) || (RelocSize == 0)) {
+    // EDK2's X64 PIE entry uses RIP-relative references and advertises an
+    // image base of zero, so it does not need a relocation directory.
+    if (OriginalBase == 0) {
+      return;
+    }
+
     Fail ("payload entry has no base relocation directory");
   }
 
@@ -374,27 +405,44 @@ RelocatePe32 (
         continue;
       }
 
-      if (Type != 3) {
+      if (Type != RelocType) {
         Fail ("unsupported payload relocation type");
       }
 
       FixupOffset = RvaToFileOffset (Image->Data, Image->Size, PeOffset, PageRva + Offset);
-      if (FixupOffset > Image->Size || Image->Size - FixupOffset < 4) {
+      if (FixupOffset > Image->Size || Image->Size - FixupOffset < FixupSize) {
         Fail ("payload relocation fixup is outside the entry image");
       }
 
-      Value = Get32 (Image->Data + FixupOffset);
-      if (Value > UINT32_MAX - Delta) {
-        Fail ("payload relocation fixup overflows");
-      }
+      if (FixupSize == sizeof (uint64_t)) {
+        Value = Get64 (Image->Data + FixupOffset);
+        if (Value > UINT64_MAX - Delta) {
+          Fail ("payload relocation fixup overflows");
+        }
 
-      Put32 (Image->Data + FixupOffset, Value + Delta);
+        Put64 (Image->Data + FixupOffset, Value + Delta);
+      } else {
+        Value = Get32 (Image->Data + FixupOffset);
+        if (Value > UINT32_MAX - (uint32_t)Delta) {
+          Fail ("payload relocation fixup overflows");
+        }
+
+        Put32 (Image->Data + FixupOffset, (uint32_t)Value + (uint32_t)Delta);
+      }
     }
 
     BlockOffset += BlockSize;
   }
 
-  Put32 (Image->Data + OptionalOffset + 28, TargetBase);
+  if (OptionalMagic == 0x020BU) {
+    Put64 (Image->Data + OptionalOffset + ImageBaseOffset, TargetBase);
+  } else {
+    if (TargetBase > UINT32_MAX) {
+      Fail ("PE32 relocation base overflows");
+    }
+
+    Put32 (Image->Data + OptionalOffset + ImageBaseOffset, (uint32_t)TargetBase);
+  }
 }
 
 static BLOB
@@ -978,9 +1026,9 @@ PackPayload (
 
   EntryOffset = AlignUp (CurrentOffset + FFS_HEADER_SIZE, 128) - FFS_HEADER_SIZE;
   EntryPrefixSize = MakeSectionPrefix (EntryOffset, 32);
-  RelocatePe32 (
+  RelocatePe (
     PayloadEntry,
-    FV_BASE_ADDRESS + (uint32_t)(EntryOffset + FFS_HEADER_SIZE + EntryPrefixSize + 4)
+    FV_BASE_ADDRESS + (uint64_t)(EntryOffset + FFS_HEADER_SIZE + EntryPrefixSize + 4)
     );
 
   EntryFile = MakeSectionFile (
