@@ -13,7 +13,12 @@
 
 typedef struct _CDK2_NATIVE_CONTEXT  CDK2_NATIVE_CONTEXT;
 
-/** Initialize the backend used by the freestanding native stage. */
+/**
+  Register the backend used by an initialized freestanding native stage.
+
+  Implementations must not clear or reinitialize the common native service
+  table owned by Cdk2NativeStageEntry().
+**/
 EFI_STATUS
 EFIAPI
 Cdk2PlatformInitializeNativeContext (

@@ -733,22 +733,22 @@ Cdk2PlatformInitializeNativeContext (
   IN     UINTN                 BootloaderParameter
   )
 {
-  EFI_STATUS  Status;
+  CDK2_COREBOOT_HANDOFF  Handoff;
+  EFI_STATUS             Status;
 
-  if (Context == NULL || &__cdk2_image_end[0] <= &__cdk2_image_start[0]) {
+  if (Context == NULL || Context->BootloaderParameter != BootloaderParameter ||
+      Context->Services.Handoff == NULL ||
+      &__cdk2_image_end[0] <= &__cdk2_image_start[0])
+  {
     return EFI_INVALID_PARAMETER;
   }
 
-  Status = Cdk2NativeInitializeStageContext (Context, BootloaderParameter);
+  Status = Cdk2CorebootParse (BootloaderParameter, &Handoff);
   if (EFI_ERROR (Status)) {
     return Status;
   }
 
-  Status = Cdk2CorebootParse (BootloaderParameter, &mCorebootHandoff);
-  if (EFI_ERROR (Status)) {
-    return Status;
-  }
-
+  mCorebootHandoff       = Handoff;
   Context->PayloadBase   = (EFI_PHYSICAL_ADDRESS)(UINTN)__cdk2_image_start;
   Context->PayloadSize   = (UINTN)(__cdk2_image_end - __cdk2_image_start);
   Context->HobRegionSize = CDK2_COREBOOT_HOB_REGION_SIZE;
