@@ -631,7 +631,7 @@ Cdk2CorebootLoadDxeCore (
            (EFI_HOB_HANDOFF_INFO_TABLE *)Context->HobList,
            &DxeCore.DxeCoreFile->Name,
            *ImageBase,
-           *ImageSize,
+           EFI_SIZE_TO_PAGES (*ImageSize) * EFI_PAGE_SIZE,
            *EntryPoint
            );
 }
