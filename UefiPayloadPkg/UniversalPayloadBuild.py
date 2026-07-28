@@ -143,8 +143,8 @@ def BuildUniversalPayload(Args):
     else:
         print("Incorrect arch option provided")
 
-    EntryOutputDir = os.path.join(BuildDir, "{}_{}".format (BuildTarget, PayloadEntryToolChain), os.path.normpath("{}/UefiPayloadPkg/cdk2/backend/edk2/entry/{}/DEBUG/{}.dll".format (Args.Arch, UpldEntryFile, UpldEntryFile)))
-    EntryModuleInf = os.path.normpath("UefiPayloadPkg/cdk2/backend/edk2/entry/{}.inf".format (UpldEntryFile))
+    EntryOutputDir = os.path.join(BuildDir, "{}_{}".format (BuildTarget, PayloadEntryToolChain), os.path.normpath("{}/UefiPayloadPkg/UefiPayloadEntry/{}/DEBUG/{}.dll".format (Args.Arch, UpldEntryFile, UpldEntryFile)))
+    EntryModuleInf = os.path.normpath("UefiPayloadPkg/UefiPayloadEntry/{}.inf".format (UpldEntryFile))
     DxeFvOutputDir = os.path.join(BuildDir, "{}_{}".format (BuildTarget, ToolChain), os.path.normpath("FV/DXEFV.Fv"))
     BdsFvOutputDir = os.path.join(BuildDir, "{}_{}".format (BuildTarget, ToolChain), os.path.normpath("FV/BDSFV.Fv"))
     SecFvOutputDir = os.path.join(BuildDir, "{}_{}".format (BuildTarget, ToolChain), os.path.normpath("FV/SECFV.Fv"))
