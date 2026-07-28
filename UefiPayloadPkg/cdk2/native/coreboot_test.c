@@ -495,6 +495,16 @@ main (
              );
   Failures += Expect (Status == EFI_OUT_OF_RESOURCES, "HOB exhaustion was not rejected");
 
+  Status = Cdk2CorebootBuildHobs (
+             &Handoff,
+             (VOID *)(UINTN)0x1000,
+             (VOID *)(UINTN)MAX_UINTN,
+             (VOID *)(UINTN)(MAX_UINTN - 3U),
+             (VOID *)(UINTN)MAX_UINTN,
+             &HobInfo
+             );
+  Failures += Expect (Status == EFI_INVALID_PARAMETER, "wrapped HOB free bottom accepted");
+
   if (Failures != 0) {
     return 1;
   }

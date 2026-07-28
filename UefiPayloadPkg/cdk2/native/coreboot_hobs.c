@@ -20,12 +20,18 @@
    EFI_RESOURCE_ATTRIBUTE_WRITE_BACK_CACHEABLE)
 
 STATIC
-UINTN
+BOOLEAN
 Cdk2CorebootAlignUp8 (
-  IN UINTN  Value
+  IN  UINTN  Value,
+  OUT UINTN  *AlignedValue
   )
 {
-  return (Value + 7U) & ~(UINTN)7U;
+  if (AlignedValue == NULL || Value > MAX_UINTN - 7U) {
+    return FALSE;
+  }
+
+  *AlignedValue = (Value + 7U) & ~(UINTN)7U;
+  return TRUE;
 }
 
 STATIC
@@ -56,7 +62,10 @@ Cdk2CorebootAppendHob (
     return NULL;
   }
 
-  AlignedLength = Cdk2CorebootAlignUp8 (Length);
+  if (!Cdk2CorebootAlignUp8 (Length, &AlignedLength)) {
+    return NULL;
+  }
+
   if (AlignedLength > MAX_UINT16) {
     return NULL;
   }
@@ -172,8 +181,12 @@ Cdk2CorebootAppendBeforeEnd (
     return EFI_COMPROMISED_DATA;
   }
 
-  FirstLength = Cdk2CorebootAlignUp8 (Length);
-  EndLength   = Cdk2CorebootAlignUp8 (sizeof (*End));
+  if (!Cdk2CorebootAlignUp8 (Length, &FirstLength) ||
+      !Cdk2CorebootAlignUp8 (sizeof (*End), &EndLength))
+  {
+    return EFI_OUT_OF_RESOURCES;
+  }
+
   if (FirstLength > Limit - Cursor || EndLength > Limit - Cursor - FirstLength) {
     return EFI_OUT_OF_RESOURCES;
   }
@@ -497,7 +510,10 @@ Cdk2CorebootBuildHobs (
     return EFI_INVALID_PARAMETER;
   }
 
-  Cursor = Cdk2CorebootAlignUp8 (FreeMemoryBottom);
+  if (!Cdk2CorebootAlignUp8 (FreeMemoryBottom, &Cursor)) {
+    return EFI_INVALID_PARAMETER;
+  }
+
   if (Cursor > FreeMemoryTop) {
     return EFI_OUT_OF_RESOURCES;
   }
