@@ -13,7 +13,33 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define TEST_FV_SIZE  0x200U
+#define TEST_FV_SIZE        0x200U
+#define CDK2_FV_BLOCK_SIZE  0x1000U
+
+static UINT32
+Get24 (
+  const UINT8  *Value
+  )
+{
+  return (UINT32)Value[0] | ((UINT32)Value[1] << 8) | ((UINT32)Value[2] << 16);
+}
+
+static int
+IsErased (
+  const UINT8  *Data,
+  UINTN         Size
+  )
+{
+  UINTN  Index;
+
+  for (Index = 0; Index < Size; Index++) {
+    if (Data[Index] != 0xFF) {
+      return 0;
+    }
+  }
+
+  return 1;
+}
 
 static UINT16
 Checksum16 (
@@ -90,11 +116,22 @@ ValidateFile (
   const char  *Path
   )
 {
-  FILE                 *File;
-  long                  Length;
-  UINT8                *Storage;
-  CDK2_NATIVE_DXE_CORE  DxeCore;
-  EFI_STATUS             Status;
+  FILE                              *File;
+  long                              Length;
+  UINT8                             *Storage;
+  const EFI_FIRMWARE_VOLUME_HEADER  *Volume;
+  const EFI_FFS_FILE_HEADER         *FfsFile;
+  CDK2_NATIVE_DXE_CORE              DxeCore;
+  EFI_STATUS                        Status;
+  UINTN                             FileOffset;
+  UINTN                             FileSize;
+  UINTN                             FileHeaderSize;
+  UINTN                             OccupiedFileSize;
+  UINTN                             Remaining;
+  int                               Failures;
+  int                               FoundPayloadEntry;
+  int                               FoundDxeCore;
+  int                               FoundNonPadFile;
 
   File = fopen (Path, "rb");
   if (File == NULL || fseek (File, 0, SEEK_END) != 0) {
@@ -122,10 +159,97 @@ ValidateFile (
   }
 
   fclose (File);
+
+  Failures = 0;
+  if ((UINTN)Length < sizeof (EFI_FIRMWARE_VOLUME_HEADER)) {
+    free (Storage);
+    fprintf (stderr, "cdk2 FV test: %s is smaller than an FV header\n", Path);
+    return 1;
+  }
+
+  Volume = (const EFI_FIRMWARE_VOLUME_HEADER *)(const void *)Storage;
+  Failures += Expect (
+                Volume->Signature == EFI_FVH_SIGNATURE,
+                "native FV has an invalid signature"
+                );
+  Failures += Expect (
+                (UINT64)(UINTN)Length == Volume->FvLength,
+                "native FV file is not compact"
+                );
+  Failures += Expect (
+                (((UINTN)Length & (CDK2_FV_BLOCK_SIZE - 1U)) == 0),
+                "native FV file is not block aligned"
+                );
+
+  if (Volume->HeaderLength < sizeof (EFI_FIRMWARE_VOLUME_HEADER) ||
+      Volume->HeaderLength > (UINTN)Length)
+  {
+    Failures += Expect (0, "native FV has invalid header bounds");
+    FileOffset = (UINTN)Length;
+  } else {
+    FileOffset = (Volume->HeaderLength + 7U) & ~(UINTN)7U;
+  }
+
+  Remaining  = ((UINTN)Length > FileOffset) ? (UINTN)Length - FileOffset : 0;
+  FoundPayloadEntry = 0;
+  FoundDxeCore      = 0;
+  FoundNonPadFile   = 0;
+  while (Remaining >= sizeof (EFI_FFS_FILE_HEADER)) {
+    FfsFile = (const EFI_FFS_FILE_HEADER *)(const void *)(Storage + FileOffset);
+    if (IsErased ((const UINT8 *)FfsFile, sizeof (*FfsFile))) {
+      break;
+    }
+
+    FileHeaderSize = sizeof (EFI_FFS_FILE_HEADER);
+    FileSize       = Get24 (FfsFile->Size);
+    if ((FfsFile->Attributes & FFS_ATTRIB_LARGE_FILE) != 0) {
+      FileHeaderSize = sizeof (EFI_FFS_FILE_HEADER2);
+      if (Remaining >= FileHeaderSize) {
+        FileSize = (UINTN)((const EFI_FFS_FILE_HEADER2 *)FfsFile)->ExtendedSize;
+      }
+    }
+
+    if (FileSize < FileHeaderSize || FileSize > Remaining) {
+      Failures += Expect (0, "native FV contains an invalid FFS file");
+      break;
+    }
+
+    if (FfsFile->Type == EFI_FV_FILETYPE_FIRMWARE_VOLUME_IMAGE) {
+      Failures += Expect (0, "native FV still contains a nested FV image file");
+    } else if (FfsFile->Type != EFI_FV_FILETYPE_FFS_PAD) {
+      if (!FoundNonPadFile) {
+        Failures += Expect (
+                      FfsFile->Type == EFI_FV_FILETYPE_SECURITY_CORE,
+                      "native FV first payload file is not the entry image"
+                      );
+        FoundPayloadEntry = (FfsFile->Type == EFI_FV_FILETYPE_SECURITY_CORE);
+      }
+
+      FoundNonPadFile = 1;
+      FoundDxeCore |= (FfsFile->Type == EFI_FV_FILETYPE_DXE_CORE);
+    }
+
+    OccupiedFileSize = (FileSize + 7U) & ~(UINTN)7U;
+    if (OccupiedFileSize > Remaining) {
+      Failures += Expect (0, "native FV FFS file alignment overflows");
+      break;
+    }
+
+    FileOffset += OccupiedFileSize;
+    Remaining  -= OccupiedFileSize;
+  }
+
+  Failures += Expect (FoundPayloadEntry, "native FV has no payload entry file");
+  Failures += Expect (FoundDxeCore, "native FV has no flat DXE core file");
+
   Status = Cdk2NativeFindDxeCore (Storage, (UINTN)Length, &DxeCore);
   free (Storage);
   if (Status != EFI_SUCCESS || DxeCore.Pe32Image == NULL || DxeCore.Pe32Size == 0) {
     fprintf (stderr, "cdk2 FV test: no valid DXE core in %s\n", Path);
+    return 1;
+  }
+
+  if (Failures != 0) {
     return 1;
   }
 

@@ -46,7 +46,9 @@ program-header permissions, weak-to-strong board override resolution, and the
 linker-collected native module table. The native ELF contract keeps the image
 fixed at 1 MiB with separate RX text, read-only metadata/FV, and RW state
 segments; the final coreboot image check also requires the embedded FV section
-and its `__cdk2_fv_*` symbols to agree. Registered modules receive a shared
+and its `__cdk2_fv_*` symbols to agree. The final FV file check rejects
+legacy nested-FV output and requires the compact flat DXE-core layout before
+embedding. Registered modules receive a shared
 context with explicit HOB construction, image loading, and DXE handoff service
 slots, and return an
 `EFI_STATUS` so the stage can stop on a failed module. Those service
