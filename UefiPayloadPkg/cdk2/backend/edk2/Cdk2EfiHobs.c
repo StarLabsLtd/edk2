@@ -49,7 +49,10 @@ Cdk2EfiMemInfoCallbackMmio (
   //
   // Skip types already handled in Cdk2EfiMemInfoCallback
   //
-  if ((MemoryMapEntry->Type == E820_RAM) || (MemoryMapEntry->Type == E820_ACPI)) {
+  if ((MemoryMapEntry->Type == E820_RAM) ||
+      (MemoryMapEntry->Type == E820_ACPI) ||
+      (MemoryMapEntry->Type == E820_NVS))
+  {
     return EFI_SUCCESS;
   }
 
