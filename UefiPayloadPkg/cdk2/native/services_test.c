@@ -295,6 +295,7 @@ main (void)
   CDK2_NATIVE_CONTEXT    Incomplete = { 0 };
   CDK2_NATIVE_CONTEXT    Failed = { 0 };
   CDK2_NATIVE_CONTEXT    Allocator = { 0 };
+  EFI_HOB_HANDOFF_INFO_TABLE  *AllocatorHob;
   EFI_PHYSICAL_ADDRESS   EntryPoint;
   EFI_PHYSICAL_ADDRESS   AllocationBase;
   UINTN                  HobMemBase;
@@ -414,6 +415,21 @@ main (void)
                 Cdk2NativeAllocatePages (&Allocator, 1, &AllocationBase) == EFI_OUT_OF_RESOURCES,
                 "allocator exhaustion rejection"
                 );
+  AllocatorHob = (EFI_HOB_HANDOFF_INFO_TABLE *)(VOID *)mTestHobStorage;
+  *AllocatorHob = (EFI_HOB_HANDOFF_INFO_TABLE){ 0 };
+  AllocatorHob->Header.HobType   = EFI_HOB_TYPE_HANDOFF;
+  AllocatorHob->Header.HobLength = sizeof (*AllocatorHob);
+  AllocatorHob->EfiFreeMemoryTop = 0x00210000;
+  Allocator = (CDK2_NATIVE_CONTEXT){ 0 };
+  Allocator.HobList          = AllocatorHob;
+  Allocator.AllocationBottom = 0x00200000;
+  Allocator.AllocationTop    = 0x00210000;
+  Failures += Expect (
+                Cdk2NativeAllocatePages (&Allocator, 1, &AllocationBase) == EFI_SUCCESS,
+                "HOB-backed page allocation"
+                );
+  Failures += Expect (Allocator.AllocationTop == AllocationBase, "HOB-backed allocator top update");
+  Failures += Expect (AllocatorHob->EfiFreeMemoryTop == AllocationBase, "PHIT free memory top update");
   Allocator.AllocationBottom = 0x00300000;
   Allocator.AllocationTop    = 0x00200000;
   Failures += Expect (

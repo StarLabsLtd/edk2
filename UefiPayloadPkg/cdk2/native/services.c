@@ -452,6 +452,7 @@ Cdk2NativeAllocatePages (
   OUT    EFI_PHYSICAL_ADDRESS *Base
   )
 {
+  EFI_HOB_HANDOFF_INFO_TABLE  *Handoff;
   EFI_PHYSICAL_ADDRESS  Top;
   UINTN                  Size;
 
@@ -468,6 +469,17 @@ Cdk2NativeAllocatePages (
   }
 
   Top -= Size;
+  if (Context->HobList != NULL) {
+    Handoff = (EFI_HOB_HANDOFF_INFO_TABLE *)Context->HobList;
+    if (Handoff->Header.HobType != EFI_HOB_TYPE_HANDOFF ||
+        Handoff->Header.HobLength != sizeof (*Handoff))
+    {
+      return EFI_COMPROMISED_DATA;
+    }
+
+    Handoff->EfiFreeMemoryTop = Top;
+  }
+
   Context->AllocationTop = Top;
   *Base = Top;
   return EFI_SUCCESS;
