@@ -508,6 +508,17 @@ GraphicsOutputReadyToBoot (
     // Switch back to a mode that provides a direct framebuffer before
     // launching the OS (e.g. for efifb or other direct-writes users).
     //
+    Private->TracePhysicalBlt = TRUE;
+    DEBUG ((
+      DEBUG_ERROR,
+      "[%a]: ReadyToBoot switching GOP from %ux%u to %ux%u\n",
+      gEfiCallerBaseName,
+      Private->LogicalModeInfo.HorizontalResolution,
+      Private->LogicalModeInfo.VerticalResolution,
+      Private->PhysicalModeInfo.HorizontalResolution,
+      Private->PhysicalModeInfo.VerticalResolution
+      ));
+
     Status = GraphicsOutputSetModeInternal (&Private->GraphicsOutput, GRAPHICS_OUTPUT_MODE_PHYSICAL, FALSE);
     if (EFI_ERROR (Status)) {
       DEBUG ((DEBUG_VERBOSE, "[%a]: physical GOP restore failed: %r\n", gEfiCallerBaseName, Status));
@@ -773,6 +784,35 @@ GraphicsOutputBlt (
   Scale   = Private->FrameBufferScale;
   if (Scale == 0) {
     Scale = 1;
+  }
+
+  if (Private->TracePhysicalBlt) {
+    DEBUG ((
+      DEBUG_ERROR,
+      "[%a]: post-ReadyToBoot BLT op=%u src=%ux%u dst=%ux%u size=%ux%u delta=%u mode=%u scale=%u\n",
+      gEfiCallerBaseName,
+      (UINT32)BltOperation,
+      (UINT32)SourceX,
+      (UINT32)SourceY,
+      (UINT32)DestinationX,
+      (UINT32)DestinationY,
+      (UINT32)Width,
+      (UINT32)Height,
+      (UINT32)Delta,
+      This->Mode->Mode,
+      Scale
+      ));
+    if ((BltOperation == EfiBltVideoFill) && (BltBuffer != NULL)) {
+      DEBUG ((
+        DEBUG_ERROR,
+        "[%a]: post-ReadyToBoot fill BGRA=%02x%02x%02x%02x\n",
+        gEfiCallerBaseName,
+        BltBuffer->Blue,
+        BltBuffer->Green,
+        BltBuffer->Red,
+        BltBuffer->Reserved
+        ));
+    }
   }
 
   if ((Scale != 1) && (Scale != 2)) {
@@ -1145,6 +1185,7 @@ CONST GRAPHICS_OUTPUT_PRIVATE_DATA  mGraphicsOutputInstanceTemplate = {
   0,                                               // ViewportWidth
   0,                                               // ViewportHeight
   FALSE,                                           // HasHiDpiMode
+  FALSE,                                           // TracePhysicalBlt
   NULL,                                            // ReadyToBootEvent
   0,                                               // PhysicalFrameBufferBase
   0,                                               // PhysicalFrameBufferSize

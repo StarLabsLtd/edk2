@@ -46,6 +46,7 @@ typedef struct {
   UINT32                                  ViewportWidth;
   UINT32                                  ViewportHeight;
   BOOLEAN                                 HasHiDpiMode;
+  BOOLEAN                                 TracePhysicalBlt;
   EFI_EVENT                               ReadyToBootEvent;
   UINT64                                  PhysicalFrameBufferBase;
   UINTN                                   PhysicalFrameBufferSize;
