@@ -49,6 +49,13 @@ Cdk2CorebootAppendMemoryAllocationHob (
   );
 
 EFI_STATUS
+Cdk2CorebootAppendStackHob (
+  IN OUT EFI_HOB_HANDOFF_INFO_TABLE  *Handoff,
+  IN     EFI_PHYSICAL_ADDRESS         BaseAddress,
+  IN     UINT64                       Length
+  );
+
+EFI_STATUS
 Cdk2CorebootAppendCpuHob (
   IN OUT EFI_HOB_HANDOFF_INFO_TABLE  *Handoff,
   IN     UINT8                        SizeOfMemorySpace,

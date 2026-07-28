@@ -9,6 +9,7 @@
 #include "coreboot.h"
 #include "coreboot_hobs.h"
 
+#include <Guid/MemoryAllocationHob.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -168,6 +169,7 @@ main (
   UINTN                       HobCursor;
   UINTN                       ResourceCount;
   UINTN                       AllocationCount;
+  UINTN                       StackCount;
   UINTN                       CpuCount;
   UINTN                       GuidCount;
   UINTN                       TableSize;
@@ -175,6 +177,8 @@ main (
   CONST struct cb_serial      *Serial;
   CONST struct cb_framebuffer *Framebuffer;
   EFI_GUID                    TestGuid;
+  EFI_GUID                    StackGuid;
+  EFI_GUID                    ZeroGuid;
   UINT8                       TestData[4];
   EFI_STATUS                  Status;
   int                         Failures;
@@ -320,23 +324,44 @@ main (
              EfiBootServicesData
              );
   Failures += Expect (Status == EFI_SUCCESS, "payload allocation HOB failed");
+  Status = Cdk2CorebootAppendStackHob (
+             HobInfo,
+             0x00200000,
+             EFI_PAGE_SIZE
+             );
+  Failures += Expect (Status == EFI_SUCCESS, "stack allocation HOB failed");
   Status = Cdk2CorebootAppendCpuHob (HobInfo, 36, 16);
   Failures += Expect (Status == EFI_SUCCESS, "CPU HOB failed");
 
   AllocationCount = 0;
+  StackCount      = 0;
   CpuCount        = 0;
+  StackGuid       = (EFI_GUID)EFI_HOB_MEMORY_ALLOC_STACK_GUID;
+  ZeroGuid        = (EFI_GUID){ 0 };
   HobCursor       = (UINTN)(VOID *)HobInfo;
   while (HobCursor < (UINTN)HobInfo->EfiEndOfHobList) {
     Hob = (EFI_HOB_GENERIC_HEADER *)(UINTN)HobCursor;
     if (Hob->HobType == EFI_HOB_TYPE_MEMORY_ALLOCATION) {
+      EFI_HOB_MEMORY_ALLOCATION  *Allocation;
+
+      Allocation = (EFI_HOB_MEMORY_ALLOCATION *)(VOID *)Hob;
       AllocationCount++;
+      if (memcmp (&Allocation->AllocDescriptor.Name, &StackGuid, sizeof (StackGuid)) == 0) {
+        StackCount++;
+      } else {
+        Failures += Expect (
+                      memcmp (&Allocation->AllocDescriptor.Name, &ZeroGuid, sizeof (ZeroGuid)) == 0,
+                      "generic allocation HOB has an owner GUID"
+                      );
+      }
     } else if (Hob->HobType == EFI_HOB_TYPE_CPU) {
       CpuCount++;
     }
 
     HobCursor += (Hob->HobLength + 7U) & ~(UINTN)7U;
   }
-  Failures += Expect (AllocationCount == 1, "allocation HOB count is wrong");
+  Failures += Expect (AllocationCount == 2, "allocation HOB count is wrong");
+  Failures += Expect (StackCount == 1, "stack HOB owner GUID is wrong");
   Failures += Expect (CpuCount == 1, "CPU HOB count is wrong");
 
   TestGuid = (EFI_GUID){ 0x12345678, 0x9abc, 0xdef0, { 1, 2, 3, 4, 5, 6, 7, 8 } };

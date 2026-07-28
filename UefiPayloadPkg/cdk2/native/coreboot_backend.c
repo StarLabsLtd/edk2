@@ -687,11 +687,10 @@ Cdk2CorebootTransfer (
     return Status;
   }
 
-  Status = Cdk2CorebootAppendMemoryAllocationHob (
+  Status = Cdk2CorebootAppendStackHob (
              (EFI_HOB_HANDOFF_INFO_TABLE *)Context->HobList,
              StackBase,
-             StackPages * EFI_PAGE_SIZE,
-             EfiBootServicesData
+             StackPages * EFI_PAGE_SIZE
              );
   if (EFI_ERROR (Status)) {
     return Status;

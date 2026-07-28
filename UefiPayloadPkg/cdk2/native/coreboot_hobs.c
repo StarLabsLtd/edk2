@@ -319,6 +319,42 @@ Cdk2CorebootAppendMemoryAllocationHob (
 }
 
 EFI_STATUS
+Cdk2CorebootAppendStackHob (
+  IN OUT EFI_HOB_HANDOFF_INFO_TABLE  *Handoff,
+  IN     EFI_PHYSICAL_ADDRESS         BaseAddress,
+  IN     UINT64                       Length
+  )
+{
+  EFI_HOB_MEMORY_ALLOCATION_STACK  *Stack;
+  EFI_GUID                         AllocationGuid;
+  EFI_STATUS                       Status;
+
+  if ((Length == 0) ||
+      ((BaseAddress & EFI_PAGE_MASK) != 0) ||
+      ((Length & EFI_PAGE_MASK) != 0))
+  {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  AllocationGuid = (EFI_GUID)EFI_HOB_MEMORY_ALLOC_STACK_GUID;
+  Status = Cdk2CorebootAppendBeforeEnd (
+             Handoff,
+             EFI_HOB_TYPE_MEMORY_ALLOCATION,
+             sizeof (*Stack),
+             (VOID **)&Stack
+             );
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  Stack->AllocDescriptor.Name              = AllocationGuid;
+  Stack->AllocDescriptor.MemoryBaseAddress = BaseAddress;
+  Stack->AllocDescriptor.MemoryLength      = Length;
+  Stack->AllocDescriptor.MemoryType        = EfiBootServicesData;
+  return EFI_SUCCESS;
+}
+
+EFI_STATUS
 Cdk2CorebootAppendCpuHob (
   IN OUT EFI_HOB_HANDOFF_INFO_TABLE  *Handoff,
   IN     UINT8                        SizeOfMemorySpace,
