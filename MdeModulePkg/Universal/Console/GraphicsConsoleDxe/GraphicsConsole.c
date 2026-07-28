@@ -1389,7 +1389,6 @@ GraphicsConsoleConOutClearScreen (
 {
   EFI_STATUS                     Status;
   GRAPHICS_CONSOLE_DEV           *Private;
-  GRAPHICS_CONSOLE_MODE_DATA     *ModeData;
   EFI_GRAPHICS_OUTPUT_PROTOCOL   *GraphicsOutput;
   EFI_GRAPHICS_OUTPUT_BLT_PIXEL  Foreground;
   EFI_GRAPHICS_OUTPUT_BLT_PIXEL  Background;
@@ -1406,7 +1405,6 @@ GraphicsConsoleConOutClearScreen (
 
   Private        = GRAPHICS_CONSOLE_CON_OUT_DEV_FROM_THIS (This);
   GraphicsOutput = Private->GraphicsOutput;
-  ModeData       = &(Private->ModeData[This->Mode->Mode]);
 
   GetTextColors (This, &Foreground, &Background);
   if (GraphicsOutput != NULL) {
@@ -1418,8 +1416,8 @@ GraphicsConsoleConOutClearScreen (
                                0,
                                0,
                                0,
-                               ModeData->GopWidth,
-                               ModeData->GopHeight,
+                               GraphicsOutput->Mode->Info->HorizontalResolution,
+                               GraphicsOutput->Mode->Info->VerticalResolution,
                                0
                                );
   } else {
