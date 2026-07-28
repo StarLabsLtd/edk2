@@ -194,7 +194,7 @@ Cdk2CorebootBuildPlatformHobs (
   Status = Cdk2CorebootFindRecord (
              &mCorebootHandoff,
              CB_TAG_SERIAL,
-             sizeof (struct cb_serial),
+             CDK2_COREBOOT_SERIAL_MIN_SIZE,
              &Record
              );
   if (!EFI_ERROR (Status)) {
@@ -222,7 +222,7 @@ Cdk2CorebootBuildPlatformHobs (
   Status = Cdk2CorebootFindRecord (
              &mCorebootHandoff,
              CB_TAG_FRAMEBUFFER,
-             sizeof (struct cb_framebuffer),
+             CDK2_COREBOOT_FRAMEBUFFER_MIN_SIZE,
              &Record
              );
   if (!EFI_ERROR (Status)) {
@@ -276,7 +276,7 @@ Cdk2CorebootBuildPlatformHobs (
   Status = Cdk2CorebootFindRecord (
              &mCorebootHandoff,
              CB_TAG_SMMSTOREV2,
-             sizeof (struct cb_smmstorev2),
+             CDK2_COREBOOT_SMMSTOREV2_MIN_SIZE,
              &Record
              );
   if (!EFI_ERROR (Status)) {
@@ -304,7 +304,7 @@ Cdk2CorebootBuildPlatformHobs (
   Status = Cdk2CorebootFindRecord (
              &mCorebootHandoff,
              CB_TAG_FW_INFO,
-             sizeof (struct lb_efi_fw_info),
+             CDK2_COREBOOT_FW_INFO_MIN_SIZE,
              &Record
              );
   if (!EFI_ERROR (Status)) {
@@ -374,7 +374,7 @@ Cdk2CorebootBuildPlatformHobs (
   Status = Cdk2CorebootFindRecord (
              &mCorebootHandoff,
              CB_TAG_TPM_PPI_HANDOFF,
-             sizeof (struct cb_tpm_physical_presence),
+             CDK2_COREBOOT_TPM_PPI_MIN_SIZE,
              &Record
              );
   if (!EFI_ERROR (Status)) {

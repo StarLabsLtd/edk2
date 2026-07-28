@@ -17,6 +17,20 @@
 #define CDK2_COREBOOT_MAX_MEMORY_RANGES  128U
 #define CDK2_COREBOOT_MAX_FORWARD_DEPTH  4U
 
+#define CDK2_COREBOOT_RECORD_FIELD_END(Type, Field) \
+  ((UINT32)(OFFSET_OF (Type, Field) + sizeof (((Type *)0)->Field)))
+
+#define CDK2_COREBOOT_SERIAL_MIN_SIZE \
+  CDK2_COREBOOT_RECORD_FIELD_END (struct cb_serial, regwidth)
+#define CDK2_COREBOOT_FRAMEBUFFER_MIN_SIZE \
+  CDK2_COREBOOT_RECORD_FIELD_END (struct cb_framebuffer, reserved_mask_size)
+#define CDK2_COREBOOT_SMMSTOREV2_MIN_SIZE \
+  CDK2_COREBOOT_RECORD_FIELD_END (struct cb_smmstorev2, apm_cmd)
+#define CDK2_COREBOOT_FW_INFO_MIN_SIZE \
+  CDK2_COREBOOT_RECORD_FIELD_END (struct lb_efi_fw_info, fw_size)
+#define CDK2_COREBOOT_TPM_PPI_MIN_SIZE \
+  CDK2_COREBOOT_RECORD_FIELD_END (struct cb_tpm_physical_presence, ppi_version)
+
 typedef struct {
   EFI_PHYSICAL_ADDRESS  Base;
   UINT64                Size;

@@ -29,18 +29,44 @@ Expect (
 }
 
 static UINTN
+FinalizeTable (
+  UINT8   *Storage,
+  UINTN    StorageSize,
+  UINTN    TableBytes,
+  UINT32   TableEntries
+  )
+{
+  struct cb_header  *Header;
+
+  if (Storage == NULL || StorageSize < sizeof (struct cb_header) ||
+      TableBytes > StorageSize - sizeof (struct cb_header) ||
+      TableBytes > MAX_UINT32)
+  {
+    return 0;
+  }
+
+  Header = (struct cb_header *)(VOID *)Storage;
+  Header->signature       = CB_HEADER_SIGNATURE;
+  Header->header_bytes    = sizeof (*Header);
+  Header->table_bytes     = (UINT32)TableBytes;
+  Header->table_entries   = TableEntries;
+  Header->table_checksum  = Cdk2CorebootChecksum16 (Storage + sizeof (*Header), TableBytes);
+  Header->header_checksum = 0;
+  Header->header_checksum = Cdk2CorebootChecksum16 (Header, sizeof (*Header));
+  return sizeof (*Header) + TableBytes;
+}
+
+static UINTN
 BuildMemoryTable (
   UINT8  *Storage,
   UINTN    StorageSize
   )
 {
-  struct cb_header        *Header;
   struct cb_memory        *Memory;
   struct cb_memory_range  *Range;
 
   memset (Storage, 0, StorageSize);
-  Header = (struct cb_header *)(VOID *)Storage;
-  Memory = (struct cb_memory *)(VOID *)(Storage + sizeof (*Header));
+  Memory = (struct cb_memory *)(VOID *)(Storage + sizeof (struct cb_header));
   Memory->tag  = CB_TAG_MEMORY;
   Memory->size = sizeof (*Memory) + 2 * sizeof (struct cb_memory_range);
 
@@ -58,13 +84,7 @@ BuildMemoryTable (
   Range->size.hi  = 0;
   Range->type     = CB_MEM_RESERVED;
 
-  Header->signature       = CB_HEADER_SIGNATURE;
-  Header->header_bytes    = sizeof (*Header);
-  Header->table_bytes     = Memory->size;
-  Header->table_entries   = 1;
-  Header->table_checksum  = Cdk2CorebootChecksum16 (Memory, Memory->size);
-  Header->header_checksum = Cdk2CorebootChecksum16 (Header, sizeof (*Header));
-  return sizeof (*Header) + Memory->size;
+  return FinalizeTable (Storage, StorageSize, Memory->size, 1);
 }
 
 static UINTN
@@ -74,23 +94,62 @@ BuildForwardTable (
   CONST VOID    *Target
   )
 {
-  struct cb_header   *Header;
   struct cb_forward *Forward;
 
   memset (Storage, 0, StorageSize);
-  Header  = (struct cb_header *)(VOID *)Storage;
-  Forward = (struct cb_forward *)(VOID *)(Storage + sizeof (*Header));
+  Forward = (struct cb_forward *)(VOID *)(Storage + sizeof (struct cb_header));
   Forward->tag     = CB_TAG_FORWARD;
   Forward->size    = sizeof (*Forward);
   Forward->forward = (UINT64)(UINTN)Target;
 
-  Header->signature       = CB_HEADER_SIGNATURE;
-  Header->header_bytes    = sizeof (*Header);
-  Header->table_bytes     = Forward->size;
-  Header->table_entries   = 1;
-  Header->table_checksum  = Cdk2CorebootChecksum16 (Forward, Forward->size);
-  Header->header_checksum = Cdk2CorebootChecksum16 (Header, sizeof (*Header));
-  return sizeof (*Header) + Forward->size;
+  return FinalizeTable (Storage, StorageSize, Forward->size, 1);
+}
+
+static UINTN
+BuildLegacySerialTable (
+  UINT8  *Storage,
+  UINTN    StorageSize
+  )
+{
+  struct cb_serial  *Serial;
+
+  memset (Storage, 0, StorageSize);
+  Serial = (struct cb_serial *)(VOID *)(Storage + sizeof (struct cb_header));
+  Serial->tag      = CB_TAG_SERIAL;
+  Serial->size     = CDK2_COREBOOT_SERIAL_MIN_SIZE;
+  Serial->type     = CB_SERIAL_TYPE_IO_MAPPED;
+  Serial->baseaddr = 0x3f8;
+  Serial->baud     = 115200;
+  Serial->regwidth = 1;
+  return FinalizeTable (Storage, StorageSize, Serial->size, 1);
+}
+
+static UINTN
+BuildLegacyFramebufferTable (
+  UINT8  *Storage,
+  UINTN    StorageSize
+  )
+{
+  struct cb_framebuffer  *Framebuffer;
+
+  memset (Storage, 0, StorageSize);
+  Framebuffer = (struct cb_framebuffer *)(VOID *)(Storage + sizeof (struct cb_header));
+  Framebuffer->tag                = CB_TAG_FRAMEBUFFER;
+  Framebuffer->size               = CDK2_COREBOOT_FRAMEBUFFER_MIN_SIZE;
+  Framebuffer->physical_address   = 0xfd000000ULL;
+  Framebuffer->x_resolution       = 1024;
+  Framebuffer->y_resolution       = 768;
+  Framebuffer->bytes_per_line     = 4096;
+  Framebuffer->bits_per_pixel     = 32;
+  Framebuffer->red_mask_pos       = 16;
+  Framebuffer->red_mask_size      = 8;
+  Framebuffer->green_mask_pos     = 8;
+  Framebuffer->green_mask_size    = 8;
+  Framebuffer->blue_mask_pos      = 0;
+  Framebuffer->blue_mask_size     = 8;
+  Framebuffer->reserved_mask_pos  = 24;
+  Framebuffer->reserved_mask_size = 8;
+  return FinalizeTable (Storage, StorageSize, Framebuffer->size, 1);
 }
 
 int
@@ -113,6 +172,8 @@ main (
   UINTN                       GuidCount;
   UINTN                       TableSize;
   CONST VOID                 *Record;
+  CONST struct cb_serial      *Serial;
+  CONST struct cb_framebuffer *Framebuffer;
   EFI_GUID                    TestGuid;
   UINT8                       TestData[4];
   EFI_STATUS                  Status;
@@ -142,6 +203,55 @@ main (
              &Record
              );
   Failures += Expect (Status == EFI_COMPROMISED_DATA, "short record was accepted");
+
+  TableSize = BuildLegacySerialTable (Storage, sizeof (Storage));
+  Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);
+  Failures += Expect (Status == EFI_SUCCESS, "legacy serial table rejected");
+  Status = Cdk2CorebootFindRecord (
+             &Handoff,
+             CB_TAG_SERIAL,
+             CDK2_COREBOOT_SERIAL_MIN_SIZE,
+             &Record
+             );
+  Failures += Expect (Status == EFI_SUCCESS && Record != NULL, "legacy serial lookup failed");
+  Serial = (CONST struct cb_serial *)Record;
+  Failures += Expect (Serial->type == CB_SERIAL_TYPE_IO_MAPPED, "legacy serial type is wrong");
+  Failures += Expect (Serial->baseaddr == 0x3f8, "legacy serial base is wrong");
+  Failures += Expect (Serial->baud == 115200, "legacy serial baud is wrong");
+  Failures += Expect (Serial->regwidth == 1, "legacy serial regwidth is wrong");
+  Status = Cdk2CorebootFindRecord (
+             &Handoff,
+             CB_TAG_SERIAL,
+             CDK2_COREBOOT_RECORD_FIELD_END (struct cb_serial, input_hertz),
+             &Record
+             );
+  Failures += Expect (Status == EFI_COMPROMISED_DATA, "legacy serial exposed input_hertz");
+
+  TableSize = BuildLegacyFramebufferTable (Storage, sizeof (Storage));
+  Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);
+  Failures += Expect (Status == EFI_SUCCESS, "legacy framebuffer table rejected");
+  Status = Cdk2CorebootFindRecord (
+             &Handoff,
+             CB_TAG_FRAMEBUFFER,
+             CDK2_COREBOOT_FRAMEBUFFER_MIN_SIZE,
+             &Record
+             );
+  Failures += Expect (Status == EFI_SUCCESS && Record != NULL, "legacy framebuffer lookup failed");
+  Framebuffer = (CONST struct cb_framebuffer *)Record;
+  Failures += Expect (Framebuffer->physical_address == 0xfd000000ULL, "legacy framebuffer base is wrong");
+  Failures += Expect (Framebuffer->x_resolution == 1024, "legacy framebuffer width is wrong");
+  Failures += Expect (Framebuffer->y_resolution == 768, "legacy framebuffer height is wrong");
+  Failures += Expect (Framebuffer->bytes_per_line == 4096, "legacy framebuffer stride is wrong");
+  Failures += Expect (Framebuffer->bits_per_pixel == 32, "legacy framebuffer bpp is wrong");
+  Failures += Expect (Framebuffer->red_mask_pos == 16, "legacy framebuffer red mask is wrong");
+  Failures += Expect (Framebuffer->blue_mask_pos == 0, "legacy framebuffer blue mask is wrong");
+  Status = Cdk2CorebootFindRecord (
+             &Handoff,
+             CB_TAG_FRAMEBUFFER,
+             CDK2_COREBOOT_FRAMEBUFFER_MIN_SIZE + 1,
+             &Record
+             );
+  Failures += Expect (Status == EFI_COMPROMISED_DATA, "legacy framebuffer exposed trailing bytes");
 
   Status = Cdk2CorebootParseTable (Storage, TableSize - 1, &Handoff);
   Failures += Expect (Status == EFI_COMPROMISED_DATA, "truncated table accepted");
