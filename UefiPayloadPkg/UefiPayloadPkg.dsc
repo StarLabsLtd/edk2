@@ -1326,6 +1326,8 @@
 !if $(ATA_ENABLE) == TRUE
   MdeModulePkg/Bus/Pci/SataControllerDxe/SataControllerDxe.inf
   MdeModulePkg/Bus/Ata/AtaBusDxe/AtaBusDxe.inf
+!endif
+!if $(CDK2_FLAT_DXE_FV) == FALSE || $(ATA_ENABLE) == TRUE
   MdeModulePkg/Bus/Ata/AtaAtapiPassThru/AtaAtapiPassThru.inf
   MdeModulePkg/Bus/Scsi/ScsiBusDxe/ScsiBusDxe.inf
   MdeModulePkg/Bus/Scsi/ScsiDiskDxe/ScsiDiskDxe.inf
