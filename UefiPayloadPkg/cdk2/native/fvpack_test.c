@@ -22,9 +22,11 @@
 
 #define TEST_ENTRY_SIZE    0x400U
 #define TEST_DXE_FV_SIZE   0x100U
+#define TEST_FFS_SIZE      0x20U
 #define TEST_PATH_SIZE     4096U
 #define FV_BASE_ADDRESS    0x00800000ULL
 #define FFS_HEADER_SIZE    0x18U
+#define FFS_STATE_VALID    0xF8U
 
 static UINT16
 Get16 (
@@ -83,6 +85,17 @@ Put32 (
   Buffer[1] = (UINT8)(Value >> 8);
   Buffer[2] = (UINT8)(Value >> 16);
   Buffer[3] = (UINT8)(Value >> 24);
+}
+
+static void
+Put24 (
+  UINT8  *Buffer,
+  UINTN  Value
+  )
+{
+  Buffer[0] = (UINT8)Value;
+  Buffer[1] = (UINT8)(Value >> 8);
+  Buffer[2] = (UINT8)(Value >> 16);
 }
 
 static void
@@ -209,6 +222,47 @@ BuildDxeVolume (
   return TEST_DXE_FV_SIZE;
 }
 
+static UINTN
+BuildFfs (
+  UINT8        *Storage,
+  UINTN        StorageSize,
+  const UINT8  *Guid,
+  UINT8        Type
+  )
+{
+  if (StorageSize < TEST_FFS_SIZE) {
+    return 0;
+  }
+
+  memset (Storage, 0, TEST_FFS_SIZE);
+  memcpy (Storage, Guid, 16);
+  Storage[17] = FFS_FIXED_CHECKSUM;
+  Storage[18] = Type;
+  Put24 (Storage + 20, TEST_FFS_SIZE);
+  Storage[23] = FFS_STATE_VALID;
+  memset (Storage + FFS_HEADER_SIZE, Type, TEST_FFS_SIZE - FFS_HEADER_SIZE);
+  return TEST_FFS_SIZE;
+}
+
+static UINTN
+BuildDxeVolumeWithFfs (
+  UINT8        *Storage,
+  UINTN        StorageSize,
+  const UINT8  *Ffs,
+  UINTN        FfsSize
+  )
+{
+  UINTN  VolumeSize;
+
+  VolumeSize = BuildDxeVolume (Storage, StorageSize);
+  if ((VolumeSize == 0) || (FfsSize > VolumeSize - 0x48U)) {
+    return 0;
+  }
+
+  memcpy (Storage + 0x48U, Ffs, FfsSize);
+  return VolumeSize;
+}
+
 static int
 WriteBinaryFile (
   const char   *Path,
@@ -237,6 +291,61 @@ WriteBinaryFile (
   }
 
   return Result;
+}
+
+static int
+WriteTextFile (
+  const char  *Path,
+  const char  *Text
+  )
+{
+  FILE  *File;
+  int   Result;
+  size_t Length;
+
+  File = fopen (Path, "w");
+  if (File == NULL) {
+    fprintf (stderr, "cdk2 fvpack test: cannot create %s: %s\n", Path, strerror (errno));
+    return 1;
+  }
+
+  Length = strlen (Text);
+  Result = 0;
+  if (fwrite (Text, 1, Length, File) != Length) {
+    fprintf (stderr, "cdk2 fvpack test: cannot write %s\n", Path);
+    Result = 1;
+  }
+
+  if (fclose (File) != 0) {
+    fprintf (stderr, "cdk2 fvpack test: cannot close %s\n", Path);
+    Result = 1;
+  }
+
+  return Result;
+}
+
+static int
+WriteFfsList (
+  const char  *Path,
+  const char  *FirstPath,
+  const char  *SecondPath
+  )
+{
+  char  Text[(TEST_PATH_SIZE * 2) + 4];
+  int   Count;
+
+  if (SecondPath == NULL) {
+    Count = snprintf (Text, sizeof (Text), "%s\n", FirstPath);
+  } else {
+    Count = snprintf (Text, sizeof (Text), "%s\n%s\n", FirstPath, SecondPath);
+  }
+
+  if ((Count < 0) || ((size_t)Count >= sizeof (Text))) {
+    fprintf (stderr, "cdk2 fvpack test: FFS list path is too long\n");
+    return 1;
+  }
+
+  return WriteTextFile (Path, Text);
 }
 
 static UINT8 *
@@ -326,6 +435,64 @@ RunPacker (
 
   if (!WIFEXITED (Status) || (WEXITSTATUS (Status) != 0)) {
     fprintf (stderr, "cdk2 fvpack test: packer failed\n");
+    return 1;
+  }
+
+  return 0;
+}
+
+static int
+RunFlatPacker (
+  const char  *Packer,
+  const char  *OutputPath,
+  const char  *EntryPath,
+  const char  *DxePath,
+  const char  *FfsListPath,
+  int         ExpectSuccess
+  )
+{
+  pid_t  Child;
+  int    Status;
+  int    Succeeded;
+
+  Child = fork ();
+  if (Child == 0) {
+    execl (
+      Packer,
+      Packer,
+      "--output",
+      OutputPath,
+      "--entry-efi",
+      EntryPath,
+      "--dxe-fv",
+      DxePath,
+      "--dxe-ffs-list",
+      FfsListPath,
+      "--flatten-dxe",
+      "--size",
+      "0x2000",
+      (char *)NULL
+      );
+    _exit (127);
+  }
+
+  if (Child < 0) {
+    fprintf (stderr, "cdk2 fvpack test: cannot fork: %s\n", strerror (errno));
+    return 1;
+  }
+
+  if (waitpid (Child, &Status, 0) < 0) {
+    fprintf (stderr, "cdk2 fvpack test: cannot wait for packer: %s\n", strerror (errno));
+    return 1;
+  }
+
+  Succeeded = WIFEXITED (Status) && (WEXITSTATUS (Status) == 0);
+  if (Succeeded != ExpectSuccess) {
+    fprintf (
+      stderr,
+      "cdk2 fvpack test: flat packer %s unexpectedly\n",
+      Succeeded ? "succeeded" : "failed"
+      );
     return 1;
   }
 
@@ -431,11 +598,18 @@ main (
 {
   UINT8   Entry[TEST_ENTRY_SIZE];
   UINT8   Dxe[TEST_DXE_FV_SIZE];
+  UINT8   SelectedFfs[TEST_FFS_SIZE];
+  UINT8   StaleFfs[TEST_FFS_SIZE];
   char    EntryPath[TEST_PATH_SIZE];
   char    DxePath[TEST_PATH_SIZE];
   char    OutputPath[TEST_PATH_SIZE];
+  char    SelectedFfsPath[TEST_PATH_SIZE];
+  char    StaleFfsPath[TEST_PATH_SIZE];
+  char    FfsListPath[TEST_PATH_SIZE];
   UINTN   EntrySize;
   UINTN   DxeSize;
+  UINTN   SelectedFfsSize;
+  UINTN   StaleFfsSize;
   UINT8   *Packed;
   size_t  PackedSize;
   UINT64  ImageBase;
@@ -450,6 +624,9 @@ main (
   EntryPath[0] = '\0';
   DxePath[0] = '\0';
   OutputPath[0] = '\0';
+  SelectedFfsPath[0] = '\0';
+  StaleFfsPath[0] = '\0';
+  FfsListPath[0] = '\0';
   Packed = NULL;
   PackedSize = 0;
   ImageBase = 0;
@@ -459,6 +636,9 @@ main (
   Failures += BuildPath (EntryPath, sizeof (EntryPath), Arguments[2], "entry.efi");
   Failures += BuildPath (DxePath, sizeof (DxePath), Arguments[2], "dxe.fv");
   Failures += BuildPath (OutputPath, sizeof (OutputPath), Arguments[2], "packed.fv");
+  Failures += BuildPath (SelectedFfsPath, sizeof (SelectedFfsPath), Arguments[2], "selected.ffs");
+  Failures += BuildPath (StaleFfsPath, sizeof (StaleFfsPath), Arguments[2], "stale.ffs");
+  Failures += BuildPath (FfsListPath, sizeof (FfsListPath), Arguments[2], "ffs-list.txt");
 
   EntrySize = BuildNoRelocPe32Plus (Entry, sizeof (Entry));
   DxeSize = BuildDxeVolume (Dxe, sizeof (Dxe));
@@ -495,6 +675,64 @@ main (
     }
   }
 
+  if (Failures == 0) {
+    static const UINT8  DxeCoreGuid[16] = {
+      0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
+      0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x10
+    };
+    static const UINT8  StaleGuid[16] = {
+      0x21, 0x32, 0x43, 0x54, 0x65, 0x76, 0x87, 0x98,
+      0xa9, 0xba, 0xcb, 0xdc, 0xed, 0xfe, 0x0f, 0x20
+    };
+
+    SelectedFfsSize = BuildFfs (
+                        SelectedFfs,
+                        sizeof (SelectedFfs),
+                        DxeCoreGuid,
+                        EFI_FV_FILETYPE_DXE_CORE
+                        );
+    StaleFfsSize = BuildFfs (
+                     StaleFfs,
+                     sizeof (StaleFfs),
+                     StaleGuid,
+                     EFI_FV_FILETYPE_DRIVER
+                     );
+    DxeSize = BuildDxeVolumeWithFfs (Dxe, sizeof (Dxe), SelectedFfs, SelectedFfsSize);
+    Failures += Expect (SelectedFfsSize != 0, "cannot build selected test FFS");
+    Failures += Expect (StaleFfsSize != 0, "cannot build stale test FFS");
+    Failures += Expect (DxeSize != 0, "cannot build flat test DXE FV");
+  }
+
+  if (Failures == 0) {
+    Failures += WriteBinaryFile (SelectedFfsPath, SelectedFfs, SelectedFfsSize);
+    Failures += WriteBinaryFile (StaleFfsPath, StaleFfs, StaleFfsSize);
+    Failures += WriteBinaryFile (DxePath, Dxe, DxeSize);
+  }
+
+  if (Failures == 0) {
+    Failures += WriteFfsList (FfsListPath, SelectedFfsPath, NULL);
+    Failures += RunFlatPacker (
+                  Arguments[1],
+                  OutputPath,
+                  EntryPath,
+                  DxePath,
+                  FfsListPath,
+                  1
+                  );
+  }
+
+  if (Failures == 0) {
+    Failures += WriteFfsList (FfsListPath, SelectedFfsPath, StaleFfsPath);
+    Failures += RunFlatPacker (
+                  Arguments[1],
+                  OutputPath,
+                  EntryPath,
+                  DxePath,
+                  FfsListPath,
+                  0
+                  );
+  }
+
   free (Packed);
   if (EntryPath[0] != '\0') {
     remove (EntryPath);
@@ -506,6 +744,18 @@ main (
 
   if (OutputPath[0] != '\0') {
     remove (OutputPath);
+  }
+
+  if (SelectedFfsPath[0] != '\0') {
+    remove (SelectedFfsPath);
+  }
+
+  if (StaleFfsPath[0] != '\0') {
+    remove (StaleFfsPath);
+  }
+
+  if (FfsListPath[0] != '\0') {
+    remove (FfsListPath);
   }
 
   if (Failures != 0) {

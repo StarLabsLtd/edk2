@@ -45,6 +45,7 @@ typedef struct {
 typedef struct {
   char  *Path;
   BLOB  File;
+  bool  Used;
 } FFS_INPUT;
 
 typedef struct {
@@ -538,6 +539,7 @@ ReadFfsList (
     Item = &Inputs->Items[Inputs->Count++];
     Item->Path = DuplicateString (Line);
     Item->File = ReadFile (Line);
+    Item->Used = false;
     if (Item->File.Size < FFS_HEADER_SIZE) {
       Fail ("FFS input is smaller than its header");
     }
@@ -594,6 +596,27 @@ FreeFfsInputs (
   free (Inputs->Items);
   Inputs->Items = NULL;
   Inputs->Count = 0;
+}
+
+static void
+VerifyAllFfsInputsUsed (
+  const FFS_INPUTS  *Inputs
+  )
+{
+  size_t  Index;
+
+  for (Index = 0; Index < Inputs->Count; Index++) {
+    if (!Inputs->Items[Index].Used) {
+      fprintf (
+        stderr,
+        "cdk2-fvpack: unused DXE FV FFS input: %s guid=",
+        Inputs->Items[Index].Path
+        );
+      PrintGuid (Inputs->Items[Index].File.Data);
+      fputc ('\n', stderr);
+      Fail ("FFS input list contains a file that is not in the DXE FV reference");
+    }
+  }
 }
 
 static void
@@ -898,6 +921,7 @@ PackDxeVolume (
     }
 
     // GenFfs leaves the state byte in the build-time state; GenFv commits it.
+    Input->Used = true;
     Input->File.Data[23] = FFS_STATE_VALID;
     CurrentOffset = PlaceFfs (Result.Data, Result.Size, CurrentOffset, &Input->File);
   }
@@ -1093,6 +1117,7 @@ PackPayload (
         Fail ("flat DXE FV input does not match the reference");
       }
 
+      Input->Used = true;
       Input->File.Data[23] = FFS_STATE_VALID;
       CurrentOffset = PlaceFfs (Result.Data, Result.Size, CurrentOffset, &Input->File);
       FoundDxeCore = FoundDxeCore || (FileType == FFS_TYPE_DXE_CORE);
@@ -1206,6 +1231,7 @@ main (
       BLOB  NativeDxe;
 
       NativeDxe = PackDxeVolume (&Dxe, &DxeInputs);
+      VerifyAllFfsInputsUsed (&DxeInputs);
       free (Dxe.Data);
       Dxe = NativeDxe;
     }
