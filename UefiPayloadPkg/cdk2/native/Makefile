@@ -11,7 +11,8 @@ CDK2_NATIVE_COREBOOT_MAP ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-coreboot-stage.map
 CDK2_NATIVE_COREBOOT_IMAGE ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-coreboot-image.elf
 CDK2_NATIVE_COREBOOT_IMAGE_MAP ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-coreboot-image.map
 CDK2_NATIVE_FV_BLOB_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-fv.o
-CDK2_NATIVE_FV_BLOB_SYMBOL_PREFIX := _binary_$(subst .,_,$(notdir $(CDK2_OUTPUT)))_
+CDK2_NATIVE_FV_BLOB_SYMBOL_BASENAME := $(subst -,_,$(subst .,_,$(notdir $(CDK2_OUTPUT))))
+CDK2_NATIVE_FV_BLOB_SYMBOL_PREFIX := _binary_$(CDK2_NATIVE_FV_BLOB_SYMBOL_BASENAME)_
 CDK2_NATIVE_OVERRIDE_ELF ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-stage-override.elf
 CDK2_NATIVE_OVERRIDE_MAP ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-stage-override.map
 CDK2_NATIVE_PACKER ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-fvpack
@@ -58,7 +59,7 @@ CDK2_NATIVE_OVERRIDE_LINK_INPUTS := $(foreach obj,$(CDK2_NATIVE_OVERRIDE_OBJS),"
 CDK2_NATIVE_LINK_FLAGS := -static -no-pie -nostdlib -nostartfiles -nodefaultlibs -Wl,-z,max-page-size=0x1000 -Wl,-z,common-page-size=0x1000 -Wl,-T,"$(CDK2_NATIVE_DIR)/cdk2.ld"
 CDK2_NATIVE_LINK_POST_MAP_FLAGS := -Wl,--gc-sections -Wl,--build-id=none
 
-.PHONY: native-stage native-coreboot-stage native-coreboot-image native-check native-pack native-service-test native-coreboot-test native-fv-test native-pe-test
+.PHONY: native-stage native-coreboot-stage native-coreboot-image native-check native-pack native-service-test native-coreboot-test native-fv-test native-pe-test FORCE
 
 ifeq ($(CONFIG_CDK2_NATIVE_STAGE),y)
 native-stage: $(CDK2_NATIVE_ELF)
@@ -155,7 +156,9 @@ $(CDK2_NATIVE_OVERRIDE_ELF): $(CDK2_NATIVE_OVERRIDE_OBJS) $(CDK2_NATIVE_DIR)/cdk
 $(CDK2_NATIVE_COREBOOT_ELF): $(CDK2_NATIVE_COREBOOT_OBJS) $(CDK2_NATIVE_DIR)/cdk2.ld
 	@$(CDK2_NATIVE_CC) $(CDK2_NATIVE_LINK_FLAGS) -Wl,-Map,"$(CDK2_NATIVE_COREBOOT_MAP)" $(CDK2_NATIVE_LINK_POST_MAP_FLAGS) -Wl,-e,Cdk2CorebootEntry32 -o "$@" $(CDK2_NATIVE_COREBOOT_LINK_INPUTS)
 
-$(CDK2_NATIVE_FV_BLOB_OBJ): $(CDK2_OUTPUT) | $(CDK2_NATIVE_BUILD_DIR)
+FORCE:
+
+$(CDK2_NATIVE_FV_BLOB_OBJ): $(CDK2_OUTPUT) FORCE | $(CDK2_NATIVE_BUILD_DIR)
 	@cd "$(dir $<)" && $(CDK2_NATIVE_OBJCOPY) -I binary -O elf64-x86-64 -B i386:x86-64 --rename-section .data=.cdk2.fv,alloc,load,readonly,data,contents "$(notdir $<)" "$(abspath $@)"
 	@$(CDK2_NATIVE_OBJCOPY) --redefine-sym "$(CDK2_NATIVE_FV_BLOB_SYMBOL_PREFIX)start=__cdk2_fv_start" --redefine-sym "$(CDK2_NATIVE_FV_BLOB_SYMBOL_PREFIX)end=__cdk2_fv_end" "$@"
 
