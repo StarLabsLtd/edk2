@@ -105,11 +105,16 @@ CDK2_DEFINES += $(CDK2_EXTRA_DEFINES)
 CDK2_BACKEND_DESCRIPTOR := $(CDK2_ROOT)/UefiPayloadPkg/UefiPayloadPkg.dsc
 CDK2_BACKEND_BUILD_DIR := $(CDK2_ROOT)/$(CDK2_BACKEND_OUTPUT_DIRECTORY)/$(CDK2_TARGET)_$(CDK2_BACKEND_TOOLCHAIN)
 CDK2_BACKEND_REPORT := $(CDK2_BUILD_DIR)/UefiPayloadPkg.txt
+CDK2_BACKEND_ENTRY_MODULE := UefiPayloadPkg/cdk2/backend/edk2/entry/UefiPayloadEntry.inf
 CDK2_BACKEND_ENTRY_IMAGE := $(CDK2_BACKEND_BUILD_DIR)/$(CDK2_BACKEND_ENTRY_ARCH)/UefiPayloadPkg/cdk2/backend/edk2/entry/UefiPayloadEntry/OUTPUT/PayloadEntry.efi
 CDK2_BACKEND_DXE_FV := $(CDK2_BACKEND_BUILD_DIR)/FV/DXEFV.Fv
+CDK2_BACKEND_DXE_FV_TEXT := $(CDK2_BACKEND_DXE_FV).txt
 CDK2_BACKEND_FFS_LIST := $(CDK2_BUILD_DIR)/cdk2-dxe-ffs.txt
 CDK2_BACKEND_REPORT_MODULES := $(CDK2_BUILD_DIR)/cdk2-report-modules.txt
 CDK2_BACKEND_SELECTED_MODULES := $(CDK2_BUILD_DIR)/cdk2-selected-modules.txt
+CDK2_BACKEND_REPORT_GUIDS := $(CDK2_BUILD_DIR)/cdk2-report-guids.txt
+CDK2_BACKEND_DXE_FV_GUIDS := $(CDK2_BUILD_DIR)/cdk2-dxe-fv-guids.txt
+CDK2_BACKEND_SELECTED_DXE_GUIDS := $(CDK2_BUILD_DIR)/cdk2-selected-dxe-guids.txt
 
 define CDK2_BACKEND_BUILD
 cd "$(CDK2_ROOT)" && \
@@ -127,6 +132,20 @@ awk -F ':' '/^Module INF Path:/ { sub(/^[[:space:]]+/, "", $$2); print $$2 }' \
 printf '%s\n' $(CDK2_SELECTED_MODULES) | sort -u > "$(CDK2_BACKEND_SELECTED_MODULES)" && \
 diff -u "$(CDK2_BACKEND_SELECTED_MODULES)" "$(CDK2_BACKEND_REPORT_MODULES)" || { \
   echo "cdk2 Kconfig/EDK2 module closure mismatch" >&2; exit 1; \
+} && \
+test -s "$(CDK2_BACKEND_DXE_FV_TEXT)" && \
+awk -F ': *' '/^Module INF Path:/ { module = $$2; next } /^File GUID:/ { print toupper($$2), module }' \
+  "$(CDK2_BACKEND_REPORT)" | sort -k2,2 > "$(CDK2_BACKEND_REPORT_GUIDS)" && \
+awk '/^0x[[:xdigit:]]+[[:space:]]+[[:xdigit:]-]+$$/ { print toupper($$2) }' \
+  "$(CDK2_BACKEND_DXE_FV_TEXT)" | sort -u > "$(CDK2_BACKEND_DXE_FV_GUIDS)" && \
+awk 'NR == FNR { selected[$$0] = 1; next } \
+  ($$2 in selected) && ($$2 != "$(CDK2_BACKEND_ENTRY_MODULE)") { print $$1, $$2 }' \
+  "$(CDK2_BACKEND_SELECTED_MODULES)" "$(CDK2_BACKEND_REPORT_GUIDS)" | sort -k2,2 > "$(CDK2_BACKEND_SELECTED_DXE_GUIDS)" && \
+awk 'NR == FNR { fv[$$1] = 1; next } \
+  !($$1 in fv) { print "selected backend module missing from DXE FV: " $$2; missing = 1 } \
+  END { exit missing ? 1 : 0 }' \
+  "$(CDK2_BACKEND_DXE_FV_GUIDS)" "$(CDK2_BACKEND_SELECTED_DXE_GUIDS)" || { \
+  echo "cdk2 EDK2 DXE FV placement mismatch" >&2; exit 1; \
 } && \
 find "$(CDK2_BACKEND_BUILD_DIR)/FV/Ffs" -type f -iname '*.ffs' -print | sort > "$(CDK2_BACKEND_FFS_LIST)"
 endef
