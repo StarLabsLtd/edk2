@@ -46,6 +46,10 @@
 #define CDK2_LINK_BASE          0x00100000ULL
 #define CDK2_MODULE_ENTRY_SIZE  16ULL
 #define CDK2_FV_ALIGNMENT       128ULL
+#define CDK2_ENTRY32_PAGE_SIZE  0x1000ULL
+#define CDK2_ENTRY32_ONE_GIB    0x40000000ULL
+#define CDK2_ENTRY32_MAP_TOP    0x2000000000ULL
+#define CDK2_STARBOOK_RAM_END   0x1080000000ULL
 
 typedef struct {
   unsigned char  e_ident[EI_NIDENT];
@@ -479,6 +483,92 @@ RequireSymbol (
 }
 
 static void
+CheckEntry32PagingObject (
+  const ELF_IMAGE  *Image,
+  const ELF64_SHDR *Bss,
+  const ELF_SYMBOL *Symbol,
+  const char       *Name,
+  uint64_t         Size
+  )
+{
+  uint16_t  BssIndex;
+
+  BssIndex = (uint16_t)(Bss - Image->SectionHeaders);
+  if (Symbol->SectionIndex != BssIndex) {
+    Fail ("%s is not in .bss", Name);
+  }
+
+  if (Symbol->Size != Size) {
+    Fail ("%s has unexpected size", Name);
+  }
+
+  if ((Symbol->Value & (CDK2_ENTRY32_PAGE_SIZE - 1U)) != 0) {
+    Fail ("%s is not page-aligned", Name);
+  }
+
+  if (Symbol->Value < Bss->sh_addr ||
+      Size > Bss->sh_size ||
+      Symbol->Value - Bss->sh_addr > Bss->sh_size - Size)
+  {
+    Fail ("%s is outside .bss bounds", Name);
+  }
+}
+
+static void
+CheckCorebootEntry32PagingContract (
+  const ELF_IMAGE  *Image
+  )
+{
+  const ELF64_SHDR  *Bss;
+  ELF_SYMBOL        Pml4;
+  ELF_SYMBOL        Pdpt;
+  ELF_SYMBOL        Pd;
+  ELF_SYMBOL        MapTop;
+  ELF_SYMBOL        PageDirectoryCount;
+  uint64_t          ExpectedPageDirectoryCount;
+  uint64_t          ExpectedPageDirectoryBytes;
+  uint64_t          TableEnd;
+
+  Bss                = RequireSection (Image, ".bss");
+  Pml4               = RequireSymbol (Image, "cdk2_pml4");
+  Pdpt               = RequireSymbol (Image, "cdk2_pdpt");
+  Pd                 = RequireSymbol (Image, "cdk2_pd");
+  MapTop             = RequireSymbol (Image, "cdk2_entry32_identity_map_top");
+  PageDirectoryCount = RequireSymbol (Image, "cdk2_entry32_page_directory_count");
+
+  if (MapTop.Value != CDK2_ENTRY32_MAP_TOP ||
+      MapTop.Value < CDK2_STARBOOK_RAM_END ||
+      (MapTop.Value % CDK2_ENTRY32_ONE_GIB) != 0)
+  {
+    Fail ("entry32 identity-map top does not cover the high-memory contract");
+  }
+
+  ExpectedPageDirectoryCount = MapTop.Value / CDK2_ENTRY32_ONE_GIB;
+  if (PageDirectoryCount.Value != ExpectedPageDirectoryCount ||
+      PageDirectoryCount.Value == 0 ||
+      PageDirectoryCount.Value > UINT64_MAX / CDK2_ENTRY32_PAGE_SIZE)
+  {
+    Fail ("entry32 page-directory count does not match the map top");
+  }
+
+  ExpectedPageDirectoryBytes = PageDirectoryCount.Value * CDK2_ENTRY32_PAGE_SIZE;
+  CheckEntry32PagingObject (Image, Bss, &Pml4, "cdk2_pml4", CDK2_ENTRY32_PAGE_SIZE);
+  CheckEntry32PagingObject (Image, Bss, &Pdpt, "cdk2_pdpt", CDK2_ENTRY32_PAGE_SIZE);
+  CheckEntry32PagingObject (Image, Bss, &Pd, "cdk2_pd", ExpectedPageDirectoryBytes);
+
+  if (Pdpt.Value != Pml4.Value + CDK2_ENTRY32_PAGE_SIZE ||
+      Pd.Value != Pdpt.Value + CDK2_ENTRY32_PAGE_SIZE)
+  {
+    Fail ("entry32 page-table storage is not contiguous");
+  }
+
+  TableEnd = Pd.Value + Pd.Size;
+  if (TableEnd < Pd.Value || TableEnd > 0x100000000ULL) {
+    Fail ("entry32 page-table storage is not 32-bit addressable");
+  }
+}
+
+static void
 CheckLoadSegments (
   const ELF_IMAGE  *Image
   )
@@ -586,6 +676,10 @@ CheckImageContract (
   CheckSectionPlacement (Image, Bss, ".bss", false, true);
   if (Fv != NULL) {
     CheckSectionPlacement (Image, Fv, ".cdk2.fv", false, false);
+  }
+
+  if (strcmp (EntrySymbolName, "Cdk2CorebootEntry32") == 0) {
+    CheckCorebootEntry32PagingContract (Image);
   }
 
   EntrySymbol  = RequireSymbol (Image, EntrySymbolName);

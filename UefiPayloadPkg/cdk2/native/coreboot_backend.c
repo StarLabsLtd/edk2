@@ -19,6 +19,7 @@
 
 #define CDK2_COREBOOT_HOB_REGION_SIZE  (0x04000000U)
 #define CDK2_COREBOOT_DXE_MAX_PAGES    (0x2000U)
+#define CDK2_COREBOOT_TEMP_MAP_LIMIT   (0x2000000000ULL)
 #define CDK2_COREBOOT_ALIGN_1MB(Value)  (((Value) + 0xfffffU) & ~(UINTN)0xfffffU)
 
 #if defined (__GNUC__)
@@ -487,6 +488,15 @@ Cdk2CorebootFindHobMemory (
       continue;
     }
 
+    // entry32.S maps 0..128 GiB while this stage builds HOBs and loads DXE.
+    if (Base >= CDK2_COREBOOT_TEMP_MAP_LIMIT) {
+      continue;
+    }
+
+    if (End > CDK2_COREBOOT_TEMP_MAP_LIMIT) {
+      End = CDK2_COREBOOT_TEMP_MAP_LIMIT;
+    }
+
     if ((Base < ImageEnd) && (ImageBase < End)) {
       Base = CDK2_COREBOOT_ALIGN_1MB (ImageEnd);
     }
@@ -499,7 +509,7 @@ Cdk2CorebootFindHobMemory (
     }
   }
 
-  return EFI_NOT_FOUND;
+  return EFI_OUT_OF_RESOURCES;
 }
 
 STATIC

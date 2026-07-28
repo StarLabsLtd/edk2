@@ -7,6 +7,21 @@
  */
 
 .section .text.entry, "ax", @progbits
+.set CDK2_ENTRY32_IDENTITY_MAP_GIB, 128
+.set CDK2_ENTRY32_PAGE_SIZE, 4096
+.set CDK2_ENTRY32_PAGE_DIRECTORY_ENTRIES, 512
+.set CDK2_ENTRY32_PAGE_DIRECTORY_COUNT, CDK2_ENTRY32_IDENTITY_MAP_GIB
+.set CDK2_ENTRY32_PAGE_ENTRY_COUNT, CDK2_ENTRY32_PAGE_DIRECTORY_COUNT * CDK2_ENTRY32_PAGE_DIRECTORY_ENTRIES
+.set CDK2_ENTRY32_PAGE_DIRECTORY_BYTES, CDK2_ENTRY32_PAGE_DIRECTORY_COUNT * CDK2_ENTRY32_PAGE_SIZE
+.set CDK2_ENTRY32_PAGE_TABLE_BYTES, (2 * CDK2_ENTRY32_PAGE_SIZE) + CDK2_ENTRY32_PAGE_DIRECTORY_BYTES
+.set CDK2_ENTRY32_PAGE_TABLE_DWORDS, CDK2_ENTRY32_PAGE_TABLE_BYTES / 4
+.set CDK2_ENTRY32_IDENTITY_MAP_TOP, CDK2_ENTRY32_IDENTITY_MAP_GIB << 30
+
+.globl cdk2_entry32_identity_map_top
+.set cdk2_entry32_identity_map_top, CDK2_ENTRY32_IDENTITY_MAP_TOP
+.globl cdk2_entry32_page_directory_count
+.set cdk2_entry32_page_directory_count, CDK2_ENTRY32_PAGE_DIRECTORY_COUNT
+
 .code32
 .globl Cdk2CorebootEntry32
 .type Cdk2CorebootEntry32, @function
@@ -18,10 +33,10 @@ Cdk2CorebootEntry32:
         movl    4(%esp), %eax
         movl    %eax, cdk2_bootloader_parameter
 
-        /* Clear the PML4, PDPT, and four page directories. */
+        /* Clear the PML4, PDPT, and temporary page directories. */
         movl    $cdk2_pml4, %edi
         xorl    %eax, %eax
-        movl    $6144, %ecx
+        movl    $CDK2_ENTRY32_PAGE_TABLE_DWORDS, %ecx
         rep stosl
 
         /* PML4[0] -> PDPT. */
@@ -29,10 +44,10 @@ Cdk2CorebootEntry32:
         orl     $0x3, %eax
         movl    %eax, cdk2_pml4
 
-        /* PDPT[0..3] -> four page directories. */
+        /* PDPT[0..127] -> page directories covering the first 128 GiB. */
         movl    $cdk2_pd, %edi
         movl    $cdk2_pdpt, %esi
-        movl    $4, %ecx
+        movl    $CDK2_ENTRY32_PAGE_DIRECTORY_COUNT, %ecx
 1:
         movl    %edi, %eax
         orl     $0x3, %eax
@@ -41,16 +56,22 @@ Cdk2CorebootEntry32:
         addl    $0x1000, %edi
         loop    1b
 
-        /* Map 0..4 GiB with writable 2 MiB pages. */
+        /*
+         * Map 0..128 GiB with writable 2 MiB pages.  StarBook reports its
+         * coreboot HOB RAM as 0x100000000..0x1080000000, so this bounded
+         * map covers the high arena used before DXE owns paging.
+         */
         movl    $cdk2_pd, %edi
         xorl    %edx, %edx
-        movl    $2048, %ecx
+        movl    $CDK2_ENTRY32_PAGE_ENTRY_COUNT, %ecx
 2:
         movl    %edx, %eax
         shll    $21, %eax
         orl     $0x83, %eax       /* present, writable, large page */
         movl    %eax, (%edi)
-        movl    $0, 4(%edi)
+        movl    %edx, %eax
+        shrl    $11, %eax         /* high 32 bits of edx << 21 */
+        movl    %eax, 4(%edi)
         addl    $8, %edi
         incl    %edx
         loop    2b
@@ -110,12 +131,18 @@ Cdk2NativeExceptionDeadLoop:
 
 .section .bss, "aw", @nobits
 .align 4096
+.type cdk2_pml4, @object
 cdk2_pml4:
-        .skip   4096
+        .skip   CDK2_ENTRY32_PAGE_SIZE
+.size cdk2_pml4, .-cdk2_pml4
+.type cdk2_pdpt, @object
 cdk2_pdpt:
-        .skip   4096
+        .skip   CDK2_ENTRY32_PAGE_SIZE
+.size cdk2_pdpt, .-cdk2_pdpt
+.type cdk2_pd, @object
 cdk2_pd:
-        .skip   16384
+        .skip   CDK2_ENTRY32_PAGE_DIRECTORY_BYTES
+.size cdk2_pd, .-cdk2_pd
 
 .align 16
 cdk2_boot_stack:
