@@ -1,0 +1,178 @@
+## SPDX-License-Identifier: BSD-2-Clause-Patent
+
+menu "cdk2 payload"
+
+config CDK2_PAYLOAD
+    bool "Build the cdk2 coreboot payload"
+    default y
+    help
+      Select the payload composition used by the private cdk2 fork.
+      Coreboot remains the owner of platform policy; this option only
+      describes the payload build consumed by coreboot.
+
+config CDK2_PCI
+    bool "Include PCI support"
+    default y
+    depends on CDK2_PAYLOAD
+
+config CDK2_STORAGE
+    bool "Include storage support"
+    default y
+    depends on CDK2_PCI
+
+config CDK2_CONSOLE
+    bool "Include console support"
+    default y
+    depends on CDK2_PAYLOAD
+
+config CDK2_GRAPHICS
+    bool "Include graphics support"
+    default y
+    depends on CDK2_CONSOLE
+
+config CDK2_SETUP_UI
+    bool "Include the firmware setup UI"
+    default y
+    depends on CDK2_CONSOLE
+    help
+      Include the CFR, UiApp, setup browser, and boot-manager UI modules.
+      Disable this only for payloads that provide their own setup surface.
+
+config CDK2_CONNECT_ALL_DEVICES
+    bool "Connect every device before boot"
+    default n
+    depends on CDK2_PAYLOAD
+    help
+      Connect all boot-service devices before selecting a boot option. The
+      default selective policy connects the chosen internal path and falls
+      back to removable media discovery only when needed.
+
+config CDK2_ESRT
+    bool "Include ESRT support"
+    default y
+    depends on CDK2_PAYLOAD
+
+config CDK2_LATE_LINK
+    bool "Use cdk2 late-link policy"
+    default y
+    depends on CDK2_PAYLOAD
+    help
+      Apply cdk2's final PE/COFF linker alignment policy to every payload
+      image. This is intentionally selected by the payload build rather than
+      inherited from a platform default.
+
+config CDK2_NATIVE_STAGE
+    bool "Build the native cdk2 stage"
+    default y
+    depends on CDK2_PAYLOAD
+    help
+      Build the freestanding C/linker stage that is replacing the current
+      BaseTools image backend. The stage is checked on every cdk2 build, but
+      remains a separate artifact until its UEFI service boundary is complete.
+
+config CDK2_BUILD_DEBUG
+    bool "Build a debug payload"
+    default n
+    depends on CDK2_PAYLOAD
+    help
+      Enable serial/debug output. Release builds are the default for
+      production payloads and for comparable QEMU runs.
+
+config CDK2_SMMSTORE
+    bool "Use coreboot SMMSTORE variables"
+    default y
+    depends on CDK2_SMM
+    help
+      Use the coreboot SMMSTORE backend. The payload must not provide a
+      second variable-store implementation.
+
+config CDK2_CAPSULE
+    bool "Include capsule update support"
+    default n
+    depends on CDK2_SMM && CDK2_ESRT
+
+config CDK2_SECURE_BOOT
+    bool "Enable secure boot support"
+    default n
+    depends on CDK2_PAYLOAD
+    select CDK2_ESRT
+
+config CDK2_SECURE_BOOT_CONFIG
+    bool "Include secure boot configuration UI"
+    default y
+    depends on CDK2_SECURE_BOOT
+
+config CDK2_SMM
+    bool "Include SMM payload modules"
+    default y
+    depends on CDK2_PAYLOAD
+
+config CDK2_SHELL
+    bool "Include the UEFI shell"
+    default y
+    depends on CDK2_PAYLOAD
+
+config CDK2_NVME
+    bool "Include NVMe support"
+    default y
+    depends on CDK2_PCI && CDK2_STORAGE
+
+config CDK2_USB
+    bool "Include USB support"
+    default y
+    depends on CDK2_PCI
+
+config CDK2_ATA
+    bool "Include ATA support"
+    default y
+    depends on CDK2_PCI && CDK2_STORAGE
+
+config CDK2_SD
+    bool "Include SD support"
+    default y
+    depends on CDK2_PCI && CDK2_STORAGE
+
+config CDK2_PS2_MOUSE
+    bool "Include PS/2 mouse support"
+    default y
+    depends on CDK2_CONSOLE
+
+config CDK2_SERIAL
+    bool "Enable the serial driver"
+    default n
+    depends on CDK2_CONSOLE
+
+config CDK2_CBMEM_CONSOLE
+    bool "Use the coreboot cbmem console"
+    default n
+    depends on CDK2_SERIAL
+
+config CDK2_BOOT_TIMEOUT
+    int "Default boot menu timeout in seconds"
+    range 0 60
+    default 0
+    depends on CDK2_PAYLOAD
+
+config CDK2_TPM12
+    bool "Include TPM 1.2 support"
+    default y
+    depends on CDK2_PAYLOAD
+
+config CDK2_TPM2
+    bool "Include TPM 2 support"
+    default y
+    depends on CDK2_PAYLOAD
+
+config CDK2_TPM_CONFIG
+    bool "Include TPM configuration UI"
+    default y
+    depends on CDK2_TPM12 || CDK2_TPM2
+
+config CDK2_CPU_TIMER
+    bool "Use CPUID leaf 0x15 for the CPU timer"
+    default n
+    depends on CDK2_PAYLOAD
+    help
+      QEMU does not provide the timer contract required by this library.
+
+endmenu
