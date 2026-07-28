@@ -7,6 +7,7 @@ ENTRY(Cdk2NativeStageEntry)
 PHDRS
 {
   text PT_LOAD FLAGS(5);
+  rodata PT_LOAD FLAGS(4);
   data PT_LOAD FLAGS(6);
 }
 
@@ -25,17 +26,17 @@ SECTIONS
     *(.text .text.*)
   } :text
 
-  .cdk2.modules ALIGN(16) :
+  .cdk2.modules ALIGN(CONSTANT (MAXPAGESIZE)) :
   {
     __cdk2_modules_start = .;
     KEEP(*(.cdk2.modules))
     __cdk2_modules_end = .;
-  } :text
+  } :rodata
 
-  .rodata ALIGN(CONSTANT (MAXPAGESIZE)) :
+  .rodata ALIGN(16) :
   {
     *(.rodata .rodata.*)
-  } :text
+  } :rodata
 
   /* Match the 128-byte alignment declared by the firmware-volume header. */
   .cdk2.fv ALIGN(128) :
@@ -43,7 +44,7 @@ SECTIONS
     __cdk2_fv_start = .;
     KEEP(*(.cdk2.fv))
     __cdk2_fv_end = .;
-  } :text
+  } :rodata
 
   .data ALIGN(CONSTANT (MAXPAGESIZE)) :
   {

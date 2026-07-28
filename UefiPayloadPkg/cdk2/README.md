@@ -42,9 +42,13 @@ board-specific payload policy can override the common entry path without
 editing shared entry code. The native stage compiles that same weak library
 implementation with the generated config header and links it with
 `native/cdk2.ld`; `native-check` verifies static ELF output, section layout,
-weak-to-strong board override resolution, and the linker-collected native
-module table. Registered modules receive a shared context with explicit HOB
-construction, image loading, and DXE handoff service slots, and return an
+program-header permissions, weak-to-strong board override resolution, and the
+linker-collected native module table. The native ELF contract keeps the image
+fixed at 1 MiB with separate RX text, read-only metadata/FV, and RW state
+segments; the final coreboot image check also requires the embedded FV section
+and its `__cdk2_fv_*` symbols to agree. Registered modules receive a shared
+context with explicit HOB construction, image loading, and DXE handoff service
+slots, and return an
 `EFI_STATUS` so the stage can stop on a failed module. Those service
 implementations now provide a bounded PHIT/end-HOB builder, payload-range
 image validation, and a no-jump handoff validator. The real UEFI entry installs
