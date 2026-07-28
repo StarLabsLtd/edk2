@@ -1124,10 +1124,9 @@
     !endif
   !else
     !if $(CDK2_FLAT_DXE_FV) == TRUE
-      UefiPayloadPkg/cdk2/backend/edk2/entry/UefiPayloadEntry.inf
-    !else
-      UefiPayloadPkg/UefiPayloadEntry/UefiPayloadEntry.inf
+      !error "CDK2_FLAT_DXE_FV is only supported for X64 and AARCH64 payload entries"
     !endif
+    UefiPayloadPkg/UefiPayloadEntry/UefiPayloadEntry.inf
   !endif
 !else
   [Components.X64, Components.AARCH64]
