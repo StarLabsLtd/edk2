@@ -91,6 +91,14 @@ config CDK2_CAPSULE
     default n
     depends on CDK2_SMM && CDK2_ESRT && CDK2_GRAPHICS
 
+config CDK2_CAPSULE_MAIN_FW_GUID
+    string "Capsule system firmware FMP GUID"
+    default ""
+    depends on CDK2_CAPSULE
+    help
+      GUID assigned to the FmpDxe instance used for system firmware capsules.
+      Required when capsule update support is enabled.
+
 config CDK2_SECURE_BOOT
     bool "Enable secure boot support"
     default n

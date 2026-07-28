@@ -64,6 +64,8 @@ exports that directory as a cdk2-owned include root instead of placing the
 headers in the package-wide `UefiPayloadPkg/Include` tree.
 When `CDK2_NATIVE_STAGE=n`, the native ELF and linker checks are omitted while
 the host service test and FV packer remain part of the EDK II backend build.
+When `CDK2_CAPSULE=y`, `CDK2_CAPSULE_MAIN_FW_GUID` must name the system
+firmware FMP GUID forwarded to `CAPSULE_MAIN_FW_GUID`.
 
 Useful targets:
 

@@ -33,6 +33,8 @@ CDK2_DEFAULT_DEFINES := \
   -D SIO_BUS_ENABLE=FALSE
 
 CDK2_DEFINES := $(CDK2_DEFAULT_DEFINES)
+CDK2_CAPSULE_MAIN_FW_GUID := $(patsubst "%",%,$(strip $(CONFIG_CDK2_CAPSULE_MAIN_FW_GUID)))
+CDK2_CAPSULE_MAIN_FW_GUID_OVERRIDE := $(findstring CAPSULE_MAIN_FW_GUID,$(CDK2_EXTRA_DEFINES))
 
 # cdk2 owns the final outer volume and exposes the retained DXE files directly
 # so the entry path does not have to discover and unwrap a nested FV image.
@@ -82,6 +84,12 @@ ifeq ($(CONFIG_CDK2_SMMSTORE),y)
 CDK2_DEFINES += -D VARIABLE_SUPPORT=SMMSTORE
 else
 CDK2_DEFINES += -D VARIABLE_SUPPORT=EMU
+endif
+
+ifeq ($(CONFIG_CDK2_CAPSULE),y)
+ifneq ($(strip $(CDK2_CAPSULE_MAIN_FW_GUID)),)
+CDK2_DEFINES += -D CAPSULE_MAIN_FW_GUID=$(CDK2_CAPSULE_MAIN_FW_GUID)
+endif
 endif
 
 ifneq ($(filter y,$(CONFIG_CDK2_TPM12) $(CONFIG_CDK2_TPM2)),)
@@ -168,6 +176,9 @@ $(CDK2_BACKEND_WRITE_LINK_MANIFEST)
 endef
 
 define CDK2_BACKEND_CHECK
+if test "$(CONFIG_CDK2_CAPSULE)" = "y" && test -z "$(strip $(CDK2_CAPSULE_MAIN_FW_GUID)$(CDK2_CAPSULE_MAIN_FW_GUID_OVERRIDE))"; then \
+  echo "CONFIG_CDK2_CAPSULE requires CONFIG_CDK2_CAPSULE_MAIN_FW_GUID or a CAPSULE_MAIN_FW_GUID override" >&2; exit 1; \
+fi
 for module in $(CDK2_RETAINED_MODULES) $(CDK2_PAYLOAD_LIBRARIES); do \
   test -f "$(CDK2_ROOT)/$$module" || { echo "missing backend module: $$module" >&2; exit 1; }; \
 done
