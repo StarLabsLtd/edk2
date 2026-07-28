@@ -100,7 +100,7 @@ config CDK2_SECURE_BOOT
 config CDK2_SECURE_BOOT_CONFIG
     bool "Include secure boot configuration UI"
     default y
-    depends on CDK2_SECURE_BOOT
+    depends on CDK2_SECURE_BOOT && CDK2_SETUP_UI
 
 config CDK2_SMM
     bool "Include SMM payload modules"
@@ -166,7 +166,7 @@ config CDK2_TPM2
 config CDK2_TPM_CONFIG
     bool "Include TPM configuration UI"
     default y
-    depends on CDK2_TPM12 || CDK2_TPM2
+    depends on (CDK2_TPM12 || CDK2_TPM2) && CDK2_SETUP_UI
 
 config CDK2_CPU_TIMER
     bool "Use CPUID leaf 0x15 for the CPU timer"
