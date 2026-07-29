@@ -1105,11 +1105,14 @@ Cdk2PlatformInitializeNativeContext (
   CDK2_COREBOOT_HANDOFF  Handoff;
   EFI_STATUS             Status;
 
-  if (Context == NULL || Context->BootloaderParameter != BootloaderParameter ||
-      Context->Services.Handoff == NULL ||
-      &__cdk2_image_end[0] <= &__cdk2_image_start[0])
+  if (Context == NULL || &__cdk2_image_end[0] <= &__cdk2_image_start[0])
   {
     return EFI_INVALID_PARAMETER;
+  }
+
+  Status = Cdk2NativeInitializeStageContext (Context, BootloaderParameter);
+  if (EFI_ERROR (Status)) {
+    return Status;
   }
 
   Status = Cdk2CorebootParse (BootloaderParameter, &Handoff);
