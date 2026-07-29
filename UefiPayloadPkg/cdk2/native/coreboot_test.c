@@ -505,6 +505,24 @@ main (
              );
   Failures += Expect (Status == EFI_INVALID_PARAMETER, "wrapped HOB free bottom accepted");
 
+  Handoff = (CDK2_COREBOOT_HANDOFF){ 0 };
+  Handoff.MemoryRangeCount        = 2;
+  Handoff.MemoryRanges[0].Base    = 0x00200000;
+  Handoff.MemoryRanges[0].Size    = 0x00400000;
+  Handoff.MemoryRanges[0].Type    = CB_MEM_RAM;
+  Handoff.MemoryRanges[1].Base    = 0x00300000;
+  Handoff.MemoryRanges[1].Size    = 0x00100000;
+  Handoff.MemoryRanges[1].Type    = CB_MEM_RESERVED;
+  Status = Cdk2CorebootBuildHobs (
+             &Handoff,
+             HobStorage,
+             HobStorage + sizeof (HobStorage),
+             HobStorage,
+             HobStorage + sizeof (HobStorage),
+             &HobInfo
+             );
+  Failures += Expect (Status == EFI_COMPROMISED_DATA, "overlapping memory ranges accepted");
+
   if (Failures != 0) {
     return 1;
   }

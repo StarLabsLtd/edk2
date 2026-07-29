@@ -45,6 +45,59 @@ Cdk2CorebootRangeValid (
 }
 
 STATIC
+BOOLEAN
+Cdk2CorebootMemoryRangeEnd (
+  IN  CONST CDK2_COREBOOT_MEMORY_RANGE  *Range,
+  OUT UINT64                            *End
+  )
+{
+  if (Range == NULL || End == NULL || Range->Size == 0 ||
+      Range->Base > MAX_UINT64 - Range->Size)
+  {
+    return FALSE;
+  }
+
+  *End = Range->Base + Range->Size;
+  return TRUE;
+}
+
+STATIC
+EFI_STATUS
+Cdk2CorebootValidateMemoryRanges (
+  IN CONST CDK2_COREBOOT_HANDOFF  *Coreboot
+  )
+{
+  UINTN   Index;
+  UINTN   OtherIndex;
+  UINT64  End;
+  UINT64  OtherEnd;
+
+  if (Coreboot->MemoryRangeCount > ARRAY_SIZE (Coreboot->MemoryRanges)) {
+    return EFI_COMPROMISED_DATA;
+  }
+
+  for (Index = 0; Index < Coreboot->MemoryRangeCount; Index++) {
+    if (!Cdk2CorebootMemoryRangeEnd (&Coreboot->MemoryRanges[Index], &End)) {
+      return EFI_COMPROMISED_DATA;
+    }
+
+    for (OtherIndex = Index + 1; OtherIndex < Coreboot->MemoryRangeCount; OtherIndex++) {
+      if (!Cdk2CorebootMemoryRangeEnd (&Coreboot->MemoryRanges[OtherIndex], &OtherEnd)) {
+        return EFI_COMPROMISED_DATA;
+      }
+
+      if ((Coreboot->MemoryRanges[Index].Base < OtherEnd) &&
+          (Coreboot->MemoryRanges[OtherIndex].Base < End))
+      {
+        return EFI_COMPROMISED_DATA;
+      }
+    }
+  }
+
+  return EFI_SUCCESS;
+}
+
+STATIC
 VOID *
 Cdk2CorebootAppendHob (
   IN OUT UINTN                 *Cursor,
@@ -104,7 +157,10 @@ Cdk2CorebootFindTolud (
       continue;
     }
 
-    End = Coreboot->MemoryRanges[Index].Base + Coreboot->MemoryRanges[Index].Size;
+    if (!Cdk2CorebootMemoryRangeEnd (&Coreboot->MemoryRanges[Index], &End)) {
+      continue;
+    }
+
     if (End <= 0x100000000ULL && End > Tolud) {
       Tolud = (UINT32)End;
     }
@@ -516,6 +572,11 @@ Cdk2CorebootBuildHobs (
 
   if (Cursor > FreeMemoryTop) {
     return EFI_OUT_OF_RESOURCES;
+  }
+
+  Status = Cdk2CorebootValidateMemoryRanges (Coreboot);
+  if (EFI_ERROR (Status)) {
+    return Status;
   }
 
   HobInfo = (EFI_HOB_HANDOFF_INFO_TABLE *)Cdk2CorebootAppendHob (
