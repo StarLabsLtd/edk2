@@ -297,6 +297,10 @@ Cdk2NativePrepareEntry (
 {
   EFI_STATUS                  Status;
   EFI_PHYSICAL_ADDRESS        DxeCoreEntryPoint;
+  EFI_PHYSICAL_ADDRESS        HobMemTop;
+  EFI_PHYSICAL_ADDRESS        MemoryBottom;
+  EFI_PHYSICAL_ADDRESS        MemoryTop;
+  EFI_PHYSICAL_ADDRESS        PayloadEnd;
   UINTN                       HobMemBase;
 
   if (Context == NULL || Context->PayloadBase == 0 || Context->PayloadSize == 0 ||
@@ -304,6 +308,8 @@ Cdk2NativePrepareEntry (
       Context->HobRegionSize == 0) {
     return EFI_INVALID_PARAMETER;
   }
+
+  PayloadEnd = Context->PayloadBase + Context->PayloadSize;
 
   Status = Cdk2NativeSetBootloaderParameter (Context);
   if (EFI_ERROR (Status)) {
@@ -332,10 +338,21 @@ Cdk2NativePrepareEntry (
     return EFI_INVALID_PARAMETER;
   }
 
-  Context->HobMemoryBottom     = (VOID *)(UINTN)Context->PayloadBase;
-  Context->HobMemoryTop        = (VOID *)(UINTN)(HobMemBase + Context->HobRegionSize);
+  HobMemTop    = HobMemBase + Context->HobRegionSize;
+  MemoryBottom = Context->PayloadBase;
+  MemoryTop    = PayloadEnd;
+  if (HobMemBase < MemoryBottom) {
+    MemoryBottom = HobMemBase;
+  }
+
+  if (HobMemTop > MemoryTop) {
+    MemoryTop = HobMemTop;
+  }
+
+  Context->HobMemoryBottom     = (VOID *)(UINTN)MemoryBottom;
+  Context->HobMemoryTop        = (VOID *)(UINTN)MemoryTop;
   Context->HobFreeMemoryBottom = (VOID *)(UINTN)HobMemBase;
-  Context->HobFreeMemoryTop    = Context->HobMemoryTop;
+  Context->HobFreeMemoryTop    = (VOID *)(UINTN)HobMemTop;
   Status = Cdk2NativeBuildHobs (Context);
   if (EFI_ERROR (Status)) {
     return Status;

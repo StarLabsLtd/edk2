@@ -116,6 +116,22 @@ TestFindHobMemory (
 
 static EFI_STATUS
 EFIAPI
+TestFindBelowPayloadHobMemory (
+  IN OUT CDK2_NATIVE_CONTEXT  *Context,
+  OUT UINTN                  *HobMemBase
+  )
+{
+  if (Context == NULL || HobMemBase == NULL) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  *HobMemBase = 0x00200000;
+  mFindHobMemoryCalls++;
+  return EFI_SUCCESS;
+}
+
+static EFI_STATUS
+EFIAPI
 TestInitializeFloatingPoint (
   IN OUT CDK2_NATIVE_CONTEXT  *Context
   )
@@ -292,10 +308,12 @@ main (void)
   CDK2_NATIVE_CONTEXT    Context = { 0 };
   CDK2_NATIVE_CONTEXT    Stage = { 0 };
   CDK2_NATIVE_CONTEXT    Prepared = { 0 };
+  CDK2_NATIVE_CONTEXT    BelowPayload = { 0 };
   CDK2_NATIVE_CONTEXT    Incomplete = { 0 };
   CDK2_NATIVE_CONTEXT    Failed = { 0 };
   CDK2_NATIVE_CONTEXT    Allocator = { 0 };
   EFI_HOB_HANDOFF_INFO_TABLE  *AllocatorHob;
+  EFI_HOB_HANDOFF_INFO_TABLE  *BelowPayloadHob;
   EFI_PHYSICAL_ADDRESS   EntryPoint;
   EFI_PHYSICAL_ADDRESS   AllocationBase;
   UINTN                  HobMemBase;
@@ -477,6 +495,33 @@ main (void)
   mFailFindHobMemory = TRUE;
   Failures += Expect (Cdk2NativePrepareEntry (&Failed) == EFI_DEVICE_ERROR, "HOB memory discovery failure");
   mFailFindHobMemory = FALSE;
+
+  BelowPayload = Prepared;
+  BelowPayload.PayloadBase  = 0x00400000;
+  BelowPayload.PayloadSize  = 0x00200000;
+  BelowPayload.Backend.FindHobMemory = TestFindBelowPayloadHobMemory;
+  Failures += Expect (
+                Cdk2NativePrepareEntry (&BelowPayload) == EFI_SUCCESS,
+                "below-payload HOB prepare entry"
+                );
+  BelowPayloadHob = (EFI_HOB_HANDOFF_INFO_TABLE *)BelowPayload.HobList;
+  Failures += Expect (BelowPayloadHob != NULL, "below-payload prepared HOB list");
+  Failures += Expect (
+                BelowPayloadHob != NULL && BelowPayloadHob->EfiMemoryBottom == 0x00200000,
+                "below-payload PHIT memory bottom"
+                );
+  Failures += Expect (
+                BelowPayloadHob != NULL && BelowPayloadHob->EfiMemoryTop == 0x00600000,
+                "below-payload PHIT memory top"
+                );
+  Failures += Expect (
+                BelowPayloadHob != NULL && BelowPayloadHob->EfiFreeMemoryBottom == 0x00200000,
+                "below-payload PHIT free bottom"
+                );
+  Failures += Expect (
+                BelowPayloadHob != NULL && BelowPayloadHob->EfiFreeMemoryTop == 0x00300000,
+                "below-payload PHIT free top"
+                );
 
   Failures += Expect (Cdk2NativePrepareEntry (&Prepared) == EFI_SUCCESS, "prepare entry");
   Failures += Expect (Prepared.HobList != NULL, "prepared HOB list");
