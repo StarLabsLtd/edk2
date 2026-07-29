@@ -132,46 +132,6 @@ LoadDxeCore (
   );
 
 /**
-  Find DXE core from FV and build DXE core HOBs.
-
-  @param[in]   DxeFv                 The FV where to find the DXE core.
-  @param[out]  DxeCoreEntryPoint     DXE core entry point
-
-  @retval EFI_SUCCESS        If it completed successfully.
-  @retval EFI_NOT_FOUND      If it failed to load DXE FV.
-**/
-EFI_STATUS
-UniversalLoadDxeCore (
-  IN  EFI_FIRMWARE_VOLUME_HEADER  *DxeFv,
-  OUT PHYSICAL_ADDRESS            *DxeCoreEntryPoint
-  );
-
-/**
-  It will Parse FDT -node based on information.
-  @param[in]  FdtBase   The starting memory address of FdtBase
-  @retval HobList   The base address of Hoblist.
-
-**/
-UINT64
-EFIAPI
-FdtNodeParser (
-  IN VOID  *FdtBase
-  );
-
-/**
-  It will Parse FDT -custom node based on information.
-  @param[in]  FdtBase The starting memory address of FdtBase
-  @param[in]  HostList The starting memory address of New Hob list.
-
-**/
-UINTN
-EFIAPI
-CustomFdtNodeParser (
-  IN VOID  *FdtBase,
-  IN VOID  *HostList
-  );
-
-/**
    Transfers control to DxeCore.
 
    This function performs a CPU architecture specific operations to execute
@@ -184,11 +144,6 @@ VOID
 HandOffToDxeCore (
   IN EFI_PHYSICAL_ADDRESS  DxeCoreEntryPoint,
   IN EFI_PEI_HOB_POINTERS  HobList
-  );
-
-EFI_STATUS
-FixUpPcdDatabase (
-  IN  EFI_FIRMWARE_VOLUME_HEADER  *DxeFv
   );
 
 VOID
@@ -268,28 +223,6 @@ EFIAPI
 PayloadAllocatePages (
   IN UINTN            Pages,
   IN EFI_MEMORY_TYPE  MemoryType
-  );
-
-/**
-  Entry point to the C language phase of UEFI payload.
-  @param[in]   FdtPrt  The starting address of FDT .
-  @retval      It will not return if SUCCESS, and return error when passing bootloader parameter.
-**/
-EFI_STATUS
-EFIAPI
-FitUplEntryPoint (
-  IN UINTN  BootloaderParameter
-  );
-
-/**
-  Entry point to the C language phase of UEFI payload.
-  @param[in]   BootloaderParameter    The starting address of bootloader parameter block.
-  @retval      It will not return if SUCCESS, and return error when passing bootloader parameter.
-**/
-EFI_STATUS
-EFIAPI
-UplEntryPoint (
-  IN UINTN  BootloaderParameter
   );
 
 VOID
