@@ -206,7 +206,6 @@ $(CDK2_NATIVE_PACKER) --output "$(CDK2_OUTPUT)" \
   --dxe-ffs-list "$(CDK2_BACKEND_FFS_LIST)" \
   --flatten-dxe \
   --size 0xa00000
-$(CDK2_BACKEND_WRITE_LINK_MANIFEST)
 endef
 
 define CDK2_BACKEND_CHECK
@@ -241,7 +240,13 @@ printf '%s\n' $(CDK2_SELECTED_MODULES)
 endef
 
 define CDK2_BACKEND_WRITE_LINK_MANIFEST
-find "$(CDK2_BACKEND_BUILD_DIR)" -type f -name '*.map' -printf '%p\n' | sort > "$(CDK2_LINK_MANIFEST)"
+{ \
+  find "$(CDK2_BACKEND_BUILD_DIR)" -type f -name '*.map' -printf '%p\n'; \
+  for map in $(CDK2_NATIVE_DIRECT_LINK_MAPS); do \
+    test ! -s "$$map" || printf '%s\n' "$$map"; \
+  done; \
+} | sort > "$(CDK2_LINK_MANIFEST)"
+printf '%s\n' "cdk2 link manifest: $(CDK2_LINK_MANIFEST)"
 endef
 
 define CDK2_BACKEND_CLEAN

@@ -104,7 +104,13 @@ ifneq ($(CDK2_BACKEND_INTERFACE_VERSION),$(CDK2_BACKEND_SUPPORTED_INTERFACE_VERS
 $(error cdk2 backend interface mismatch: requested $(CDK2_BACKEND_INTERFACE_VERSION), backend supports $(CDK2_BACKEND_SUPPORTED_INTERFACE_VERSION))
 endif
 
-$(foreach required,BUILD ASSEMBLE CHECK CLEAN WRITE_MANIFEST PRINT_MODULES,$(if $(strip $(CDK2_BACKEND_$(required))),,$(error cdk2 backend '$(CDK2_BACKEND_NAME)' does not implement CDK2_BACKEND_$(required))))
+ifeq ($(CONFIG_CDK2_NATIVE_STAGE),y)
+CDK2_DIRECT_OUTPUT ?= $(CDK2_NATIVE_COREBOOT_IMAGE)
+else
+CDK2_DIRECT_OUTPUT ?= $(CDK2_OUTPUT)
+endif
+
+$(foreach required,BUILD ASSEMBLE CHECK CLEAN WRITE_MANIFEST WRITE_LINK_MANIFEST PRINT_MODULES,$(if $(strip $(CDK2_BACKEND_$(required))),,$(error cdk2 backend '$(CDK2_BACKEND_NAME)' does not implement CDK2_BACKEND_$(required))))
 
 build: build-image
 
@@ -114,8 +120,10 @@ build-image: manifest native-stage native-check
 	@printf '%s\n' "cdk2 $(CDK2_BACKEND_NAME) module closure: $(words $(CDK2_SELECTED_MODULES)) selected modules"
 	$(CDK2_BACKEND_ASSEMBLE)
 	$(MAKE) --no-print-directory -f "$(CDK2_DIR)/Makefile" CDK2_CONFIG_READY=1 native-coreboot-image
+	$(CDK2_BACKEND_WRITE_LINK_MANIFEST)
 	@test -s "$(CDK2_OUTPUT)"
-	@sha256sum "$(CDK2_OUTPUT)"
+	@test -s "$(CDK2_DIRECT_OUTPUT)"
+	@sha256sum "$(CDK2_OUTPUT)" "$(CDK2_DIRECT_OUTPUT)"
 
 check: $(CDK2_CONFIG_HEADER)
 	$(CDK2_BACKEND_CHECK)
@@ -136,7 +144,8 @@ print:
 	@printf 'config-header=%s\n' '$(CDK2_CONFIG_HEADER)'
 	@printf 'entry-image=%s\n' '$(CDK2_BACKEND_ENTRY_IMAGE)'
 	@printf 'dxe-fv=%s\n' '$(CDK2_BACKEND_DXE_FV)'
-	@printf 'output=%s\n' '$(CDK2_OUTPUT)'
+	@printf 'fv-output=%s\n' '$(CDK2_OUTPUT)'
+	@printf 'direct-output=%s\n' '$(CDK2_DIRECT_OUTPUT)'
 	@printf 'descriptor=%s\n' '$(CDK2_BACKEND_DESCRIPTOR)'
 	@printf 'modules=%s\n' '$(CDK2_MANIFEST)'
 	@printf 'link-manifest=%s\n' '$(CDK2_LINK_MANIFEST)'

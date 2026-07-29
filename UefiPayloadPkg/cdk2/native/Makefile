@@ -10,6 +10,7 @@ CDK2_NATIVE_COREBOOT_ELF ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-coreboot-stage.elf
 CDK2_NATIVE_COREBOOT_MAP ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-coreboot-stage.map
 CDK2_NATIVE_COREBOOT_IMAGE ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-coreboot-image.elf
 CDK2_NATIVE_COREBOOT_IMAGE_MAP ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-coreboot-image.map
+CDK2_NATIVE_DIRECT_LINK_MAPS := $(CDK2_NATIVE_MAP) $(CDK2_NATIVE_COREBOOT_MAP) $(CDK2_NATIVE_COREBOOT_IMAGE_MAP)
 CDK2_NATIVE_FV_BLOB_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-fv.o
 CDK2_NATIVE_FV_BLOB_SYMBOL_BASENAME := $(subst -,_,$(subst .,_,$(notdir $(CDK2_OUTPUT))))
 CDK2_NATIVE_FV_BLOB_SYMBOL_PREFIX := _binary_$(CDK2_NATIVE_FV_BLOB_SYMBOL_BASENAME)_
@@ -70,15 +71,21 @@ native-coreboot-stage: $(CDK2_NATIVE_COREBOOT_ELF)
 native-coreboot-image: $(CDK2_NATIVE_COREBOOT_IMAGE) $(CDK2_NATIVE_FV_TEST) $(CDK2_NATIVE_ELF_CHECK)
 	@"$(CDK2_NATIVE_FV_TEST)" "$(CDK2_OUTPUT)"
 	@"$(CDK2_NATIVE_ELF_CHECK)" --entry Cdk2CorebootEntry32 --require-fv "$(CDK2_NATIVE_COREBOOT_IMAGE)"
+	@nm "$(CDK2_NATIVE_COREBOOT_IMAGE)" | grep -Eq '[[:space:]]T[[:space:]]Cdk2PlatformInitializeNativeContext$$'
+	@nm "$(CDK2_NATIVE_COREBOOT_IMAGE)" | grep -Eq '[[:space:]]W[[:space:]]Cdk2PlatformLateInit$$'
 native-check: $(CDK2_CONFIG_HEADER) $(CDK2_NATIVE_ELF) $(CDK2_NATIVE_OVERRIDE_ELF) $(CDK2_NATIVE_COREBOOT_ELF) $(CDK2_NATIVE_COREBOOT_ENTRY) $(CDK2_NATIVE_PACKER) $(CDK2_NATIVE_SERVICE_TEST) $(CDK2_NATIVE_COREBOOT_TEST) $(CDK2_NATIVE_FV_TEST) $(CDK2_NATIVE_FVPACK_TEST) $(CDK2_NATIVE_PE_TEST) $(CDK2_NATIVE_MODULE_TEST) $(CDK2_NATIVE_ELF_CHECK) $(CDK2_NATIVE_ELF_CHECK_TEST)
 	@nm "$(CDK2_NATIVE_ELF)" | grep -Eq '[[:space:]]W[[:space:]]Cdk2PlatformInitializeNativeContext$$'
 	@nm "$(CDK2_NATIVE_ELF)" | grep -Eq '[[:space:]]W[[:space:]]Cdk2PlatformLateInit$$'
 	@nm "$(CDK2_NATIVE_OVERRIDE_ELF)" | grep -Eq '[[:space:]]T[[:space:]]Cdk2PlatformInitializeNativeContext$$'
 	@nm "$(CDK2_NATIVE_OVERRIDE_ELF)" | grep -Eq '[[:space:]]T[[:space:]]Cdk2PlatformLateInit$$'
 	@nm "$(CDK2_NATIVE_COREBOOT_ELF)" | grep -Eq '[[:space:]]T[[:space:]]Cdk2PlatformInitializeNativeContext$$'
+	@nm "$(CDK2_NATIVE_COREBOOT_ELF)" | grep -Eq '[[:space:]]W[[:space:]]Cdk2PlatformLateInit$$'
 	@nm "$(CDK2_NATIVE_COREBOOT_ELF)" | grep -Eq '[[:space:]]T[[:space:]]Cdk2CorebootEntry32$$'
 	@"$(CDK2_NATIVE_ELF_CHECK)" --entry Cdk2NativeStageEntry "$(CDK2_NATIVE_ELF)"
 	@"$(CDK2_NATIVE_ELF_CHECK)" --entry Cdk2CorebootEntry32 "$(CDK2_NATIVE_COREBOOT_ELF)"
+	@test -s "$(CDK2_NATIVE_MAP)"
+	@test -s "$(CDK2_NATIVE_COREBOOT_MAP)"
+	@test -s "$(CDK2_NATIVE_OVERRIDE_MAP)"
 	@test -x "$(CDK2_NATIVE_PACKER)"
 	@"$(CDK2_NATIVE_SERVICE_TEST)"
 	@"$(CDK2_NATIVE_COREBOOT_TEST)"

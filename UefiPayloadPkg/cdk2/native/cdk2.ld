@@ -58,6 +58,12 @@ SECTIONS
 
   __cdk2_image_end = .;
 
+  ASSERT(__cdk2_image_end > __cdk2_image_start, "cdk2 native image is empty")
+  ASSERT((__cdk2_modules_end - __cdk2_modules_start) != 0, "cdk2 native module table is empty")
+  ASSERT(((__cdk2_modules_end - __cdk2_modules_start) % 16) == 0, "cdk2 native module table has invalid size")
+  ASSERT((__cdk2_fv_start % 128) == 0, "cdk2 FV section is not 128-byte aligned")
+  ASSERT(__cdk2_fv_end >= __cdk2_fv_start, "cdk2 FV section wraps")
+
   /DISCARD/ :
   {
     *(.comment)
