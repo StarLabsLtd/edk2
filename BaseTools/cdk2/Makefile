@@ -20,16 +20,22 @@ CDK2_PYTHON_WRAPPER_ROOT := $(CDK2_PYTHON_STAGE_ROOT)/BinWrappers/PosixLike
 # BaseTools commands are not silently pulled into cdk2 builds.
 CDK2_PYTHON_PACKAGES := \
 	AutoGen \
+	Capsule \
 	Common \
+	Common/Edk2 \
+	Common/Edk2/Capsule \
 	CommonDataClass \
 	GenFds \
 	GenPatchPcdTable \
 	PatchPcdValue \
 	Trim \
+	Common/Uefi \
+	Common/Uefi/Capsule \
 	Workspace \
 	build
 CDK2_PYTHON_WRAPPERS := \
 	build \
+	GenerateCapsule \
 	GenDepex \
 	GenFds \
 	GenPatchPcdTable \
