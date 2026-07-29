@@ -988,7 +988,6 @@
   gEfiMdeModulePkgTokenSpaceGuid.PcdPciSerialParameters|$(PCI_SERIAL_PARAMETERS)
 
   gUefiCpuPkgTokenSpaceGuid.PcdCpuMaxLogicalProcessorNumber|$(MAX_LOGICAL_PROCESSORS)
-  gUefiCpuPkgTokenSpaceGuid.PcdCpuNumberOfReservedVariableMtrrs|0
   gUefiPayloadPkgTokenSpaceGuid.PcdBootloaderParameter|0
 
 [PcdsPatchableInModule.AARCH64]
