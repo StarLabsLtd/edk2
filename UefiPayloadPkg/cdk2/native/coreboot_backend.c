@@ -24,6 +24,29 @@
 #define CDK2_COREBOOT_DXE_MAX_PAGES    (0x2000U)
 #define CDK2_COREBOOT_TEMP_MAP_LIMIT   (0x2000000000ULL)
 
+#define CDK2_COREBOOT_8259_COMMAND_REGISTER_MASTER  0x20U
+#define CDK2_COREBOOT_8259_MASK_REGISTER_MASTER     0x21U
+#define CDK2_COREBOOT_8259_COMMAND_REGISTER_SLAVE   0xA0U
+#define CDK2_COREBOOT_8259_MASK_REGISTER_SLAVE      0xA1U
+#define CDK2_COREBOOT_8259_EOI                      0x20U
+#define CDK2_COREBOOT_IOAPIC_BASE_ADDRESS           0xFEC00000U
+#define CDK2_COREBOOT_IOAPIC_VERSION_REGISTER       0x01U
+#define CDK2_COREBOOT_IOAPIC_REDIR_TABLE_BASE       0x10U
+#define CDK2_COREBOOT_IOAPIC_REDIR_LOW(Index)       \
+  (CDK2_COREBOOT_IOAPIC_REDIR_TABLE_BASE + ((Index) * 2U))
+#define CDK2_COREBOOT_IOAPIC_REDIR_MASK             BIT16
+#define CDK2_COREBOOT_HPET_BASE_ADDRESS             0xFED00000U
+#define CDK2_COREBOOT_HPET_CAPABILITIES_OFFSET      0x000U
+#define CDK2_COREBOOT_HPET_CONFIGURATION_OFFSET     0x010U
+#define CDK2_COREBOOT_HPET_INTERRUPT_STATUS_OFFSET  0x020U
+#define CDK2_COREBOOT_HPET_TIMER_BASE_OFFSET        0x100U
+#define CDK2_COREBOOT_HPET_TIMER_STRIDE             0x020U
+#define CDK2_COREBOOT_HPET_TIMER_CONFIGURATION      0x000U
+#define CDK2_COREBOOT_HPET_MAIN_COUNTER_ENABLE      BIT0
+#define CDK2_COREBOOT_HPET_LEGACY_ROUTE_ENABLE      BIT1
+#define CDK2_COREBOOT_HPET_TIMER_INTERRUPT_ENABLE   BIT2
+#define CDK2_COREBOOT_HPET_TIMER_MSI_ENABLE         BIT14
+
 #if defined (__GNUC__)
 #define CDK2_COREBOOT_NORETURN  __attribute__ ((noreturn))
 #else
@@ -402,14 +425,16 @@ typedef struct __attribute__ ((packed)) {
   UINTN   Base;
 } CDK2_NATIVE_IDTR;
 
-#if defined (__GNUC__)
+#if defined (__x86_64__) && !defined (CDK2_COREBOOT_BACKEND_TEST)
+  #if defined (__GNUC__)
 STATIC CDK2_NATIVE_IDT_GATE  mCdk2NativeIdt[256]
   __attribute__ ((aligned (16)));
-#else
+  #else
 STATIC CDK2_NATIVE_IDT_GATE  mCdk2NativeIdt[256];
-#endif
+  #endif
 
 extern VOID  Cdk2NativeExceptionDeadLoop (VOID);
+#endif
 
 extern UINT8  __cdk2_image_start[];
 extern UINT8  __cdk2_image_end[];
@@ -421,6 +446,170 @@ extern CONST UINT8  __cdk2_fv_end[]   __attribute__ ((weak));
 extern CONST UINT8  __cdk2_fv_start[];
 extern CONST UINT8  __cdk2_fv_end[];
 #endif
+
+STATIC
+VOID
+Cdk2CorebootIoWrite8 (
+  IN UINT16  Port,
+  IN UINT8   Value
+  )
+{
+#if defined (__x86_64__) && !defined (CDK2_COREBOOT_BACKEND_TEST)
+  __asm__ volatile ("outb %0, %w1" : : "a" (Value), "Nd" (Port));
+#else
+  (void)Port;
+  (void)Value;
+#endif
+}
+
+STATIC
+UINT32
+Cdk2CorebootIoApicRead (
+  IN UINT32  Register
+  )
+{
+#if defined (__x86_64__) && !defined (CDK2_COREBOOT_BACKEND_TEST)
+  volatile UINT32  *Index;
+  volatile UINT32  *Data;
+
+  Index = (volatile UINT32 *)(UINTN)(CDK2_COREBOOT_IOAPIC_BASE_ADDRESS + 0x00U);
+  Data  = (volatile UINT32 *)(UINTN)(CDK2_COREBOOT_IOAPIC_BASE_ADDRESS + 0x10U);
+  *Index = Register;
+  return *Data;
+#else
+  (void)Register;
+  return 0;
+#endif
+}
+
+STATIC
+VOID
+Cdk2CorebootIoApicWrite (
+  IN UINT32  Register,
+  IN UINT32  Value
+  )
+{
+#if defined (__x86_64__) && !defined (CDK2_COREBOOT_BACKEND_TEST)
+  volatile UINT32  *Index;
+  volatile UINT32  *Data;
+
+  Index = (volatile UINT32 *)(UINTN)(CDK2_COREBOOT_IOAPIC_BASE_ADDRESS + 0x00U);
+  Data  = (volatile UINT32 *)(UINTN)(CDK2_COREBOOT_IOAPIC_BASE_ADDRESS + 0x10U);
+  *Index = Register;
+  *Data  = Value;
+#else
+  (void)Register;
+  (void)Value;
+#endif
+}
+
+STATIC
+UINT64
+Cdk2CorebootMmioRead64 (
+  IN UINTN  Address
+  )
+{
+#if defined (__x86_64__) && !defined (CDK2_COREBOOT_BACKEND_TEST)
+  return *(volatile UINT64 *)(UINTN)Address;
+#else
+  (void)Address;
+  return 0;
+#endif
+}
+
+STATIC
+VOID
+Cdk2CorebootMmioWrite64 (
+  IN UINTN   Address,
+  IN UINT64  Value
+  )
+{
+#if defined (__x86_64__) && !defined (CDK2_COREBOOT_BACKEND_TEST)
+  *(volatile UINT64 *)(UINTN)Address = Value;
+#else
+  (void)Address;
+  (void)Value;
+#endif
+}
+
+STATIC
+VOID
+Cdk2CorebootDisableHpetInterrupts (
+  VOID
+  )
+{
+  UINT64  Capabilities;
+  UINT64  Configuration;
+  UINT64  TimerConfiguration;
+  UINTN   TimerCount;
+  UINTN   TimerIndex;
+  UINTN   TimerAddress;
+
+  Capabilities = Cdk2CorebootMmioRead64 (
+                   CDK2_COREBOOT_HPET_BASE_ADDRESS + CDK2_COREBOOT_HPET_CAPABILITIES_OFFSET
+                   );
+  if ((Capabilities & 0xffU) == 0 || Capabilities == MAX_UINT64) {
+    return;
+  }
+
+  Configuration = Cdk2CorebootMmioRead64 (
+                    CDK2_COREBOOT_HPET_BASE_ADDRESS + CDK2_COREBOOT_HPET_CONFIGURATION_OFFSET
+                    );
+  Configuration &= ~(CDK2_COREBOOT_HPET_MAIN_COUNTER_ENABLE |
+                     CDK2_COREBOOT_HPET_LEGACY_ROUTE_ENABLE);
+  Cdk2CorebootMmioWrite64 (
+    CDK2_COREBOOT_HPET_BASE_ADDRESS + CDK2_COREBOOT_HPET_CONFIGURATION_OFFSET,
+    Configuration
+    );
+
+  // HPET interrupt status is write-one-to-clear.
+  Cdk2CorebootMmioWrite64 (
+    CDK2_COREBOOT_HPET_BASE_ADDRESS + CDK2_COREBOOT_HPET_INTERRUPT_STATUS_OFFSET,
+    MAX_UINT64
+    );
+
+  TimerCount = ((Capabilities >> 8) & 0x1fU) + 1U;
+  for (TimerIndex = 0; TimerIndex < TimerCount; TimerIndex++) {
+    TimerAddress = CDK2_COREBOOT_HPET_BASE_ADDRESS +
+                   CDK2_COREBOOT_HPET_TIMER_BASE_OFFSET +
+                   TimerIndex * CDK2_COREBOOT_HPET_TIMER_STRIDE +
+                   CDK2_COREBOOT_HPET_TIMER_CONFIGURATION;
+    TimerConfiguration = Cdk2CorebootMmioRead64 (TimerAddress);
+    TimerConfiguration &= ~(CDK2_COREBOOT_HPET_TIMER_INTERRUPT_ENABLE |
+                            CDK2_COREBOOT_HPET_TIMER_MSI_ENABLE);
+    Cdk2CorebootMmioWrite64 (TimerAddress, TimerConfiguration);
+  }
+}
+
+STATIC
+VOID
+Cdk2CorebootMaskIoApicInterrupts (
+  VOID
+  )
+{
+  UINT32  IoApicVersion;
+  UINT32  RedirectionCount;
+  UINT32  Index;
+  UINT32  RedirectionLow;
+
+  IoApicVersion = Cdk2CorebootIoApicRead (CDK2_COREBOOT_IOAPIC_VERSION_REGISTER);
+  if (IoApicVersion == 0 || IoApicVersion == MAX_UINT32) {
+    return;
+  }
+
+  RedirectionCount = ((IoApicVersion >> 16) & 0xffU) + 1U;
+  if (RedirectionCount > 0x100U) {
+    RedirectionCount = 0x100U;
+  }
+
+  for (Index = 0; Index < RedirectionCount; Index++) {
+    RedirectionLow = Cdk2CorebootIoApicRead (CDK2_COREBOOT_IOAPIC_REDIR_LOW (Index));
+    Cdk2CorebootIoApicWrite (
+      CDK2_COREBOOT_IOAPIC_REDIR_LOW (Index),
+      RedirectionLow | CDK2_COREBOOT_IOAPIC_REDIR_MASK
+      );
+  }
+}
 
 STATIC
 EFI_STATUS
@@ -751,16 +940,18 @@ Cdk2CorebootInitializeFloatingPoint (
   IN OUT CDK2_NATIVE_CONTEXT  *Context
   )
 {
+#if defined (__x86_64__) && !defined (CDK2_COREBOOT_BACKEND_TEST)
   UINTN  Cr4;
   UINTN  Handler;
   UINTN  Index;
   CDK2_NATIVE_IDTR  Idtr;
+#endif
 
   if (Context == NULL) {
     return EFI_INVALID_PARAMETER;
   }
 
-#if defined (__x86_64__)
+#if defined (__x86_64__) && !defined (CDK2_COREBOOT_BACKEND_TEST)
   __asm__ volatile ("fninit");
   __asm__ volatile ("mov %%cr4, %0" : "=r" (Cr4));
   Cr4 |= BIT9;
@@ -781,6 +972,26 @@ Cdk2CorebootInitializeFloatingPoint (
   Idtr.Base  = (UINTN)mCdk2NativeIdt;
   __asm__ volatile ("lidt %0" : : "m" (Idtr));
 #endif
+  return EFI_SUCCESS;
+}
+
+STATIC
+EFI_STATUS
+EFIAPI
+Cdk2CorebootMaskLegacyInterrupts (
+  IN OUT CDK2_NATIVE_CONTEXT  *Context
+  )
+{
+  if (Context == NULL) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  Cdk2CorebootDisableHpetInterrupts ();
+  Cdk2CorebootMaskIoApicInterrupts ();
+  Cdk2CorebootIoWrite8 (CDK2_COREBOOT_8259_MASK_REGISTER_MASTER, 0xFF);
+  Cdk2CorebootIoWrite8 (CDK2_COREBOOT_8259_MASK_REGISTER_SLAVE, 0xFF);
+  Cdk2CorebootIoWrite8 (CDK2_COREBOOT_8259_COMMAND_REGISTER_SLAVE, CDK2_COREBOOT_8259_EOI);
+  Cdk2CorebootIoWrite8 (CDK2_COREBOOT_8259_COMMAND_REGISTER_MASTER, CDK2_COREBOOT_8259_EOI);
   return EFI_SUCCESS;
 }
 
@@ -1127,6 +1338,7 @@ Cdk2PlatformInitializeNativeContext (
   Context->Backend.BuildPlatformHobs       = Cdk2CorebootBuildPlatformHobs;
   Context->Backend.FindHobMemory             = Cdk2CorebootFindHobMemory;
   Context->Backend.InitializeFloatingPoint  = Cdk2CorebootInitializeFloatingPoint;
+  Context->Backend.MaskLegacyInterrupts     = Cdk2CorebootMaskLegacyInterrupts;
   Context->Backend.LoadDxeCore               = Cdk2CorebootLoadDxeCore;
   Context->Backend.Transfer                  = Cdk2CorebootTransfer;
   return EFI_SUCCESS;
