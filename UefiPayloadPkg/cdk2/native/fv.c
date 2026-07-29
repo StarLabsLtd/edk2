@@ -60,6 +60,10 @@ Cdk2NativeFindPe32Section (
 
   HeaderSize = sizeof (EFI_FFS_FILE_HEADER);
   if ((((CONST EFI_FFS_FILE_HEADER *)File)->Attributes & FFS_ATTRIB_LARGE_FILE) != 0) {
+    if (Cdk2NativeGet24 (((CONST EFI_FFS_FILE_HEADER *)File)->Size) != 0) {
+      return EFI_COMPROMISED_DATA;
+    }
+
     HeaderSize = sizeof (EFI_FFS_FILE_HEADER2);
     if (FileSize < HeaderSize) {
       return EFI_COMPROMISED_DATA;
@@ -167,6 +171,10 @@ Cdk2NativeFindDxeCore (
     FileHeaderSize = sizeof (EFI_FFS_FILE_HEADER);
     FileSize       = Cdk2NativeGet24 (File->Size);
     if ((File->Attributes & FFS_ATTRIB_LARGE_FILE) != 0) {
+      if (FileSize != 0) {
+        return EFI_COMPROMISED_DATA;
+      }
+
       FileHeaderSize = sizeof (EFI_FFS_FILE_HEADER2);
       if (Remaining < FileHeaderSize) {
         return EFI_COMPROMISED_DATA;

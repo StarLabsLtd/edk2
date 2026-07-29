@@ -111,6 +111,48 @@ BuildVolume (
   return (UINTN)Volume->FvLength;
 }
 
+static UINTN
+BuildLargeFileVolume (
+  UINT8  *Storage,
+  UINTN    StorageSize,
+  UINTN    EncodedFileSize
+  )
+{
+  EFI_FIRMWARE_VOLUME_HEADER  *Volume;
+  EFI_FFS_FILE_HEADER2         *File;
+  EFI_COMMON_SECTION_HEADER    *Section;
+  UINTN                         FileOffset;
+  UINTN                         FileSize;
+
+  memset (Storage, 0xff, StorageSize);
+  Volume = (EFI_FIRMWARE_VOLUME_HEADER *)(VOID *)Storage;
+  Volume->FvLength    = 0x180;
+  Volume->Signature   = EFI_FVH_SIGNATURE;
+  Volume->HeaderLength = sizeof (*Volume);
+  Volume->Revision    = 2;
+  FileOffset = (sizeof (*Volume) + 7U) & ~(UINTN)7U;
+  File       = (EFI_FFS_FILE_HEADER2 *)(VOID *)(Storage + FileOffset);
+  memset (File, 0, sizeof (*File));
+  File->Type       = EFI_FV_FILETYPE_DXE_CORE;
+  File->Attributes = FFS_ATTRIB_LARGE_FILE;
+  File->State      = 0xf8;
+  FileSize         = sizeof (*File) + sizeof (*Section) + 8;
+  File->Size[0]    = (UINT8)EncodedFileSize;
+  File->Size[1]    = (UINT8)(EncodedFileSize >> 8);
+  File->Size[2]    = (UINT8)(EncodedFileSize >> 16);
+  File->ExtendedSize = FileSize;
+  Section = (EFI_COMMON_SECTION_HEADER *)(VOID *)((UINT8 *)File + sizeof (*File));
+  Section->Size[0] = (UINT8)(sizeof (*Section) + 8);
+  Section->Size[1] = (UINT8)((sizeof (*Section) + 8) >> 8);
+  Section->Size[2] = 0;
+  Section->Type    = EFI_SECTION_PE32;
+  memcpy ((UINT8 *)Section + sizeof (*Section), "MZCDK2!!", 8);
+
+  Volume->Checksum = 0;
+  Volume->Checksum = Checksum16 (Storage, Volume->HeaderLength);
+  return (UINTN)Volume->FvLength;
+}
+
 static int
 ValidateFile (
   const char  *Path
@@ -297,6 +339,14 @@ main (
   Section->Size[0] = 3;
   Status = Cdk2NativeFindDxeCore (Storage, VolumeSize, &DxeCore);
   Failures += Expect (Status == EFI_COMPROMISED_DATA, "short section accepted");
+
+  VolumeSize = BuildLargeFileVolume (Storage, sizeof (Storage), 0);
+  Status = Cdk2NativeFindDxeCore (Storage, VolumeSize, &DxeCore);
+  Failures += Expect (Status == EFI_SUCCESS, "valid large FFS header rejected");
+
+  VolumeSize = BuildLargeFileVolume (Storage, sizeof (Storage), sizeof (EFI_FFS_FILE_HEADER2));
+  Status = Cdk2NativeFindDxeCore (Storage, VolumeSize, &DxeCore);
+  Failures += Expect (Status == EFI_COMPROMISED_DATA, "large FFS header with nonzero size accepted");
 
   if (Failures != 0) {
     return 1;
