@@ -15,6 +15,8 @@
 #include <string.h>
 
 #define TEST_TABLE_SIZE  4096U
+#define TEST_HOB_REGION_SIZE  0x04000000U
+#define TEST_TEMP_MAP_LIMIT   0x2000000000ULL
 
 static int
 Expect (
@@ -179,6 +181,7 @@ main (
   UINTN                       CodeAllocationCount;
   UINTN                       ModuleCount;
   UINTN                       TableSize;
+  UINTN                       HobMemBase;
   CONST VOID                 *Record;
   CONST struct cb_serial      *Serial;
   CONST struct cb_framebuffer *Framebuffer;
@@ -504,6 +507,53 @@ main (
              &HobInfo
              );
   Failures += Expect (Status == EFI_INVALID_PARAMETER, "wrapped HOB free bottom accepted");
+
+  Handoff = (CDK2_COREBOOT_HANDOFF){ 0 };
+  Handoff.MemoryRangeCount     = 1;
+  Handoff.MemoryRanges[0].Base = TEST_TEMP_MAP_LIMIT - TEST_HOB_REGION_SIZE;
+  Handoff.MemoryRanges[0].Size = TEST_HOB_REGION_SIZE;
+  Handoff.MemoryRanges[0].Type = CB_MEM_RAM;
+  HobMemBase = 0;
+  Status = Cdk2CorebootFindHobMemoryBase (
+             &Handoff,
+             0x00100000,
+             0x00100000,
+             TEST_HOB_REGION_SIZE,
+             TEST_TEMP_MAP_LIMIT,
+             &HobMemBase
+             );
+  Failures += Expect (Status == EFI_SUCCESS, "temp-map edge HOB memory rejected");
+  Failures += Expect (
+                HobMemBase == (UINTN)(TEST_TEMP_MAP_LIMIT - TEST_HOB_REGION_SIZE),
+                "temp-map edge HOB memory base is wrong"
+                );
+
+  Handoff = (CDK2_COREBOOT_HANDOFF){ 0 };
+  Handoff.MemoryRangeCount     = 1;
+  Handoff.MemoryRanges[0].Base = MAX_UINT64 - 0xfffULL;
+  Handoff.MemoryRanges[0].Size = 0x800;
+  Handoff.MemoryRanges[0].Type = CB_MEM_RAM;
+  Status = Cdk2CorebootFindHobMemoryBase (
+             &Handoff,
+             0x00100000,
+             0x00100000,
+             TEST_HOB_REGION_SIZE,
+             TEST_TEMP_MAP_LIMIT,
+             &HobMemBase
+             );
+  Failures += Expect (Status == EFI_OUT_OF_RESOURCES, "high aligned RAM range selected HOB memory");
+
+  Handoff.MemoryRanges[0].Base = MAX_UINT64 - 0x7ffULL;
+  Handoff.MemoryRanges[0].Size = 0x1000;
+  Status = Cdk2CorebootFindHobMemoryBase (
+             &Handoff,
+             0x00100000,
+             0x00100000,
+             TEST_HOB_REGION_SIZE,
+             TEST_TEMP_MAP_LIMIT,
+             &HobMemBase
+             );
+  Failures += Expect (Status == EFI_COMPROMISED_DATA, "wrapping RAM range accepted for HOB memory");
 
   Handoff = (CDK2_COREBOOT_HANDOFF){ 0 };
   Handoff.MemoryRangeCount        = 2;

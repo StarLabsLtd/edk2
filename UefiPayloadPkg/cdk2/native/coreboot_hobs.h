@@ -26,6 +26,16 @@ Cdk2CorebootBuildHobs (
   );
 
 EFI_STATUS
+Cdk2CorebootFindHobMemoryBase (
+  IN  CONST CDK2_COREBOOT_HANDOFF  *Coreboot,
+  IN  EFI_PHYSICAL_ADDRESS          PayloadBase,
+  IN  UINTN                         PayloadSize,
+  IN  UINTN                         HobRegionSize,
+  IN  UINT64                        TemporaryMapLimit,
+  OUT UINTN                        *HobMemBase
+  );
+
+EFI_STATUS
 Cdk2CorebootAppendFvHob (
   IN OUT EFI_HOB_HANDOFF_INFO_TABLE  *Handoff,
   IN     EFI_PHYSICAL_ADDRESS         BaseAddress,

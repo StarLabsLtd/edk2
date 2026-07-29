@@ -20,7 +20,6 @@
 #define CDK2_COREBOOT_HOB_REGION_SIZE  (0x04000000U)
 #define CDK2_COREBOOT_DXE_MAX_PAGES    (0x2000U)
 #define CDK2_COREBOOT_TEMP_MAP_LIMIT   (0x2000000000ULL)
-#define CDK2_COREBOOT_ALIGN_1MB(Value)  (((Value) + 0xfffffU) & ~(UINTN)0xfffffU)
 
 #if defined (__GNUC__)
 #define CDK2_COREBOOT_NORETURN  __attribute__ ((noreturn))
@@ -465,51 +464,19 @@ Cdk2CorebootFindHobMemory (
   OUT    UINTN                *HobMemBase
   )
 {
-  UINT64  ImageBase;
-  UINT64  ImageEnd;
-  UINT64  Base;
-  UINT64  End;
-  UINTN   Index;
-
   if (Context == NULL || HobMemBase == NULL) {
     return EFI_INVALID_PARAMETER;
   }
 
-  ImageBase = Context->PayloadBase;
-  ImageEnd  = ImageBase + Context->PayloadSize;
-  for (Index = 0; Index < mCorebootHandoff.MemoryRangeCount; Index++) {
-    if (mCorebootHandoff.MemoryRanges[Index].Type != CB_MEM_RAM) {
-      continue;
-    }
-
-    Base = CDK2_COREBOOT_ALIGN_1MB (mCorebootHandoff.MemoryRanges[Index].Base);
-    End  = mCorebootHandoff.MemoryRanges[Index].Base + mCorebootHandoff.MemoryRanges[Index].Size;
-    if (End < Base) {
-      continue;
-    }
-
-    // entry32.S maps 0..128 GiB while this stage builds HOBs and loads DXE.
-    if (Base >= CDK2_COREBOOT_TEMP_MAP_LIMIT) {
-      continue;
-    }
-
-    if (End > CDK2_COREBOOT_TEMP_MAP_LIMIT) {
-      End = CDK2_COREBOOT_TEMP_MAP_LIMIT;
-    }
-
-    if ((Base < ImageEnd) && (ImageBase < End)) {
-      Base = CDK2_COREBOOT_ALIGN_1MB (ImageEnd);
-    }
-
-    if ((End > Base) && (End - Base >= Context->HobRegionSize) &&
-        (Base <= MAX_UINTN))
-    {
-      *HobMemBase = (UINTN)Base;
-      return EFI_SUCCESS;
-    }
-  }
-
-  return EFI_OUT_OF_RESOURCES;
+  // entry32.S maps 0..128 GiB while this stage builds HOBs and loads DXE.
+  return Cdk2CorebootFindHobMemoryBase (
+           &mCorebootHandoff,
+           Context->PayloadBase,
+           Context->PayloadSize,
+           Context->HobRegionSize,
+           CDK2_COREBOOT_TEMP_MAP_LIMIT,
+           HobMemBase
+           );
 }
 
 STATIC

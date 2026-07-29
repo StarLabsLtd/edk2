@@ -19,6 +19,8 @@
    EFI_RESOURCE_ATTRIBUTE_WRITE_THROUGH_CACHEABLE | \
    EFI_RESOURCE_ATTRIBUTE_WRITE_BACK_CACHEABLE)
 
+#define CDK2_COREBOOT_1MB_MASK  0xfffffULL
+
 STATIC
 BOOLEAN
 Cdk2CorebootAlignUp8 (
@@ -31,6 +33,21 @@ Cdk2CorebootAlignUp8 (
   }
 
   *AlignedValue = (Value + 7U) & ~(UINTN)7U;
+  return TRUE;
+}
+
+STATIC
+BOOLEAN
+Cdk2CorebootAlignUp1Mb (
+  IN  UINT64  Value,
+  OUT UINT64  *AlignedValue
+  )
+{
+  if (AlignedValue == NULL || Value > MAX_UINT64 - CDK2_COREBOOT_1MB_MASK) {
+    return FALSE;
+  }
+
+  *AlignedValue = (Value + CDK2_COREBOOT_1MB_MASK) & ~CDK2_COREBOOT_1MB_MASK;
   return TRUE;
 }
 
@@ -59,6 +76,91 @@ Cdk2CorebootMemoryRangeEnd (
 
   *End = Range->Base + Range->Size;
   return TRUE;
+}
+
+STATIC
+BOOLEAN
+Cdk2CorebootUintnRangeFits (
+  IN UINT64  Base,
+  IN UINT64  Length
+  )
+{
+  if (Base > MAX_UINTN) {
+    return FALSE;
+  }
+
+  return Length <= (UINT64)(MAX_UINTN - (UINTN)Base);
+}
+
+EFI_STATUS
+Cdk2CorebootFindHobMemoryBase (
+  IN  CONST CDK2_COREBOOT_HANDOFF  *Coreboot,
+  IN  EFI_PHYSICAL_ADDRESS          PayloadBase,
+  IN  UINTN                         PayloadSize,
+  IN  UINTN                         HobRegionSize,
+  IN  UINT64                        TemporaryMapLimit,
+  OUT UINTN                        *HobMemBase
+  )
+{
+  CONST CDK2_COREBOOT_MEMORY_RANGE  *Range;
+  UINT64                             PayloadEnd;
+  UINT64                             Base;
+  UINT64                             End;
+  UINTN                              Index;
+
+  if (Coreboot == NULL || HobMemBase == NULL ||
+      PayloadSize == 0 || HobRegionSize == 0 || TemporaryMapLimit == 0 ||
+      PayloadBase > MAX_UINT64 - PayloadSize)
+  {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  if (Coreboot->MemoryRangeCount > ARRAY_SIZE (Coreboot->MemoryRanges)) {
+    return EFI_COMPROMISED_DATA;
+  }
+
+  PayloadEnd = PayloadBase + PayloadSize;
+  for (Index = 0; Index < Coreboot->MemoryRangeCount; Index++) {
+    Range = &Coreboot->MemoryRanges[Index];
+    if (Range->Type != CB_MEM_RAM) {
+      continue;
+    }
+
+    if (!Cdk2CorebootMemoryRangeEnd (Range, &End)) {
+      return EFI_COMPROMISED_DATA;
+    }
+
+    if (Range->Base >= TemporaryMapLimit) {
+      continue;
+    }
+
+    if (!Cdk2CorebootAlignUp1Mb (Range->Base, &Base)) {
+      continue;
+    }
+
+    if (Base >= TemporaryMapLimit) {
+      continue;
+    }
+
+    if (End > TemporaryMapLimit) {
+      End = TemporaryMapLimit;
+    }
+
+    if ((Base < PayloadEnd) && (PayloadBase < End)) {
+      if (!Cdk2CorebootAlignUp1Mb (PayloadEnd, &Base)) {
+        continue;
+      }
+    }
+
+    if ((End > Base) && (End - Base >= HobRegionSize) &&
+        Cdk2CorebootUintnRangeFits (Base, HobRegionSize))
+    {
+      *HobMemBase = (UINTN)Base;
+      return EFI_SUCCESS;
+    }
+  }
+
+  return EFI_OUT_OF_RESOURCES;
 }
 
 STATIC
