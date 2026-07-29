@@ -6,9 +6,12 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 import json
+import re
 import sys
 from pathlib import Path
+from typing import TypeVar
 
 
 ARCHES = {
@@ -40,9 +43,21 @@ DEFINE_KEYS = (
     "UNLOAD_IMAGE",
 )
 
+GUID_PATTERN = re.compile(
+    r"^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-"
+    r"[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$"
+)
+T = TypeVar("T")
+
 
 class MetadataError(RuntimeError):
     pass
+
+
+@dataclass(frozen=True)
+class ModuleSelection:
+    path: str
+    file_guid: str | None = None
 
 
 def _strip_comment(line: str) -> tuple[str, str]:
@@ -100,17 +115,47 @@ def _parse_define(line: str) -> tuple[str, str] | None:
     return key.strip().upper(), value.strip()
 
 
-def read_path_list(path: Path) -> list[str]:
-    paths: list[str] = []
-    for raw in path.read_text(encoding="utf-8").splitlines():
-        line = raw.strip()
+def _normalize_guid(value: str, source: str) -> str:
+    guid = value.strip().strip('"')
+    if not GUID_PATTERN.fullmatch(guid):
+        raise MetadataError(f"{source}: invalid GUID: {value}")
+    return guid.upper()
+
+
+def _parse_module_selection(line: str, source: str) -> ModuleSelection:
+    tokens = line.split()
+    relpath = tokens[0]
+    file_guid: str | None = None
+
+    for attribute in tokens[1:]:
+        key, separator, value = attribute.partition("=")
+        if separator != "=" or not key:
+            raise MetadataError(f"{source}: invalid module attribute: {attribute}")
+        if key.upper() != "FILE_GUID":
+            raise MetadataError(f"{source}: unsupported module attribute: {key}")
+        if file_guid is not None:
+            raise MetadataError(f"{source}: duplicate FILE_GUID attribute")
+        file_guid = _normalize_guid(value, f"{source}: FILE_GUID")
+
+    return ModuleSelection(relpath, file_guid)
+
+
+def read_path_list(path: Path) -> list[ModuleSelection]:
+    paths: list[ModuleSelection] = []
+    for lineno, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        line = raw.split("#", 1)[0].strip()
         if not line or line.startswith("#"):
             continue
-        paths.append(line)
+        paths.append(_parse_module_selection(line, f"{path}:{lineno}"))
     return paths
 
 
-def parse_inf(workspace: Path, relpath: str, arch: str) -> dict[str, object]:
+def parse_inf(
+    workspace: Path,
+    relpath: str,
+    arch: str,
+    file_guid_override: str | None = None,
+) -> dict[str, object]:
     inf = workspace / relpath
     if not inf.is_file():
         raise MetadataError(f"missing INF: {relpath}")
@@ -172,10 +217,16 @@ def parse_inf(workspace: Path, relpath: str, arch: str) -> dict[str, object]:
         if key in defines and key not in ("BASE_NAME", "FILE_GUID", "MODULE_TYPE")
     }
 
+    file_guid = (
+        _normalize_guid(file_guid_override, f"{relpath}: FILE_GUID override")
+        if file_guid_override is not None
+        else _normalize_guid(defines["FILE_GUID"], f"{relpath}: FILE_GUID")
+    )
+
     return {
         "path": relpath,
         "base_name": defines["BASE_NAME"],
-        "file_guid": defines["FILE_GUID"].upper(),
+        "file_guid": file_guid,
         "module_type": defines["MODULE_TYPE"],
         "defines": selected_defines,
         "packages": _uniq_sorted([package for package in packages if package]),
@@ -186,9 +237,9 @@ def parse_inf(workspace: Path, relpath: str, arch: str) -> dict[str, object]:
     }
 
 
-def unique_preserve(values: list[str]) -> list[str]:
-    seen: set[str] = set()
-    result: list[str] = []
+def unique_preserve(values: list[T]) -> list[T]:
+    seen: set[T] = set()
+    result: list[T] = []
     for value in values:
         if value in seen:
             continue
@@ -197,16 +248,27 @@ def unique_preserve(values: list[str]) -> list[str]:
     return result
 
 
+def _module_selection(value: str | ModuleSelection) -> ModuleSelection:
+    if isinstance(value, ModuleSelection):
+        return value
+    return ModuleSelection(value)
+
+
 def build_metadata(
     workspace: Path,
     arch: str,
-    modules: list[str],
+    modules: list[str | ModuleSelection],
     libraries: list[str],
 ) -> dict[str, object]:
-    modules = unique_preserve(modules)
+    module_selections = unique_preserve(
+        [_module_selection(module) for module in modules]
+    )
     libraries = unique_preserve(libraries)
 
-    module_records = [parse_inf(workspace, path, arch) for path in modules]
+    module_records = [
+        parse_inf(workspace, module.path, arch, module.file_guid)
+        for module in module_selections
+    ]
     library_records = [parse_inf(workspace, path, arch) for path in libraries]
     module_guids = [module["file_guid"] for module in module_records]
 
@@ -259,11 +321,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 def main(argv: list[str]) -> int:
     args = parse_args(argv)
-    modules = list(args.module)
-    for module_list in args.module_list:
-        modules.extend(read_path_list(module_list))
 
     try:
+        modules = list(args.module)
+        for module_list in args.module_list:
+            modules.extend(read_path_list(module_list))
         metadata = build_metadata(
             args.workspace.resolve(),
             args.arch,

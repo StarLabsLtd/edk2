@@ -49,8 +49,16 @@ CDK2_DEFAULT_DEFINES := \
   -D SIO_BUS_ENABLE=FALSE
 
 CDK2_DEFINES := $(CDK2_DEFAULT_DEFINES)
+CDK2_CAPSULE_FMP_DXE_MODULE := FmpDevicePkg/FmpDxe/FmpDxe.inf
 CDK2_CAPSULE_MAIN_FW_GUID := $(patsubst "%",%,$(strip $(CONFIG_CDK2_CAPSULE_MAIN_FW_GUID)))
-CDK2_CAPSULE_MAIN_FW_GUID_OVERRIDE := $(findstring CAPSULE_MAIN_FW_GUID,$(CDK2_EXTRA_DEFINES))
+CDK2_EXTRA_DEFINES_NORMALIZED := $(subst ",,$(CDK2_EXTRA_DEFINES))
+CDK2_CAPSULE_MAIN_FW_GUID_FROM_EXTRA := $(filter CAPSULE_MAIN_FW_GUID=% -DCAPSULE_MAIN_FW_GUID=% --define=CAPSULE_MAIN_FW_GUID=%,$(CDK2_EXTRA_DEFINES_NORMALIZED))
+CDK2_CAPSULE_MAIN_FW_GUID_FROM_EXTRA := $(patsubst --define=CAPSULE_MAIN_FW_GUID=%,%,$(CDK2_CAPSULE_MAIN_FW_GUID_FROM_EXTRA))
+CDK2_CAPSULE_MAIN_FW_GUID_FROM_EXTRA := $(patsubst -DCAPSULE_MAIN_FW_GUID=%,%,$(CDK2_CAPSULE_MAIN_FW_GUID_FROM_EXTRA))
+CDK2_CAPSULE_MAIN_FW_GUID_FROM_EXTRA := $(patsubst CAPSULE_MAIN_FW_GUID=%,%,$(CDK2_CAPSULE_MAIN_FW_GUID_FROM_EXTRA))
+CDK2_CAPSULE_MAIN_FW_GUID_FROM_EXTRA := $(strip $(lastword $(CDK2_CAPSULE_MAIN_FW_GUID_FROM_EXTRA)))
+CDK2_CAPSULE_MAIN_FW_GUID_OVERRIDE := $(CDK2_CAPSULE_MAIN_FW_GUID_FROM_EXTRA)
+CDK2_EFFECTIVE_CAPSULE_MAIN_FW_GUID := $(strip $(if $(CDK2_CAPSULE_MAIN_FW_GUID_OVERRIDE),$(CDK2_CAPSULE_MAIN_FW_GUID_OVERRIDE),$(CDK2_CAPSULE_MAIN_FW_GUID)))
 
 # cdk2 owns the final outer volume and exposes the retained DXE files directly
 # so the entry path does not have to discover and unwrap a nested FV image.
@@ -139,6 +147,7 @@ CDK2_BACKEND_DXE_FV_TEXT := $(CDK2_BACKEND_DXE_FV).txt
 CDK2_BACKEND_METADATA_TOOL := $(CDK2_DIR)/module_metadata.py
 CDK2_BACKEND_METADATA := $(CDK2_BUILD_DIR)/cdk2-module-metadata.json
 CDK2_BACKEND_MODULE_GUIDS := $(CDK2_BUILD_DIR)/cdk2-module-guids.txt
+CDK2_BACKEND_MANIFEST_STATE := $(CDK2_BUILD_DIR)/cdk2-edk2-manifest-state.txt
 CDK2_BACKEND_FFS_LIST := $(CDK2_BUILD_DIR)/cdk2-dxe-ffs.txt
 CDK2_BACKEND_METADATA_MODULES := $(CDK2_BUILD_DIR)/cdk2-metadata-modules.txt
 CDK2_BACKEND_SELECTED_MODULES := $(CDK2_BUILD_DIR)/cdk2-selected-modules.txt
@@ -146,6 +155,7 @@ CDK2_BACKEND_DXE_FV_GUIDS := $(CDK2_BUILD_DIR)/cdk2-dxe-fv-guids.txt
 CDK2_BACKEND_SELECTED_DXE_GUIDS := $(CDK2_BUILD_DIR)/cdk2-selected-dxe-guids.txt
 CDK2_BACKEND_SELECTED_MODULE_FILES := $(addprefix $(CDK2_ROOT)/,$(CDK2_SELECTED_MODULES))
 CDK2_BACKEND_PAYLOAD_LIBRARY_FILES := $(addprefix $(CDK2_ROOT)/,$(CDK2_PAYLOAD_LIBRARIES))
+CDK2_BACKEND_INPUTS += $(CDK2_BACKEND_MANIFEST_STATE)
 # FDF-owned DXE files without INF metadata must be explicit cdk2 selections.
 CDK2_BACKEND_DXE_APRIORI_GUID := FC510EE7-FFDC-11D4-BD41-0080C73C8881
 CDK2_BACKEND_DXE_FFS_PAD_GUID := FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF
@@ -165,6 +175,18 @@ $(CDK2_BACKEND_METADATA): $(CDK2_MANIFEST) \
 
 $(CDK2_BACKEND_MODULE_GUIDS): $(CDK2_BACKEND_METADATA)
 	@test -s "$@"
+
+.PHONY: cdk2-edk2-manifest-state-force
+cdk2-edk2-manifest-state-force:
+
+$(CDK2_BACKEND_MANIFEST_STATE): cdk2-edk2-manifest-state-force
+	@mkdir -p "$(dir $@)"
+	@set -e; tmp="$@.tmp"; { \
+	  printf 'CONFIG_CDK2_CAPSULE=%s\n' "$(CONFIG_CDK2_CAPSULE)"; \
+	  printf 'CAPSULE_MAIN_FW_GUID=%s\n' "$(CDK2_EFFECTIVE_CAPSULE_MAIN_FW_GUID)"; \
+	  printf 'CDK2_SELECTED_MODULES=%s\n' "$(CDK2_SELECTED_MODULES)"; \
+	} > "$$tmp"; \
+	if test -e "$@" && cmp -s "$$tmp" "$@"; then rm "$$tmp"; else mv "$$tmp" "$@"; fi
 
 define CDK2_BACKEND_BUILD
 rm -rf "$(CDK2_BACKEND_BUILD_DIR)"
@@ -261,7 +283,7 @@ $(CDK2_NATIVE_PACKER) --output "$(CDK2_OUTPUT)" \
 endef
 
 define CDK2_BACKEND_CHECK
-if test "$(CONFIG_CDK2_CAPSULE)" = "y" && test -z "$(strip $(CDK2_CAPSULE_MAIN_FW_GUID)$(CDK2_CAPSULE_MAIN_FW_GUID_OVERRIDE))"; then \
+if test "$(CONFIG_CDK2_CAPSULE)" = "y" && test -z "$(strip $(CDK2_EFFECTIVE_CAPSULE_MAIN_FW_GUID))"; then \
   echo "CONFIG_CDK2_CAPSULE requires CONFIG_CDK2_CAPSULE_MAIN_FW_GUID or a CAPSULE_MAIN_FW_GUID override" >&2; exit 1; \
 fi
 for module in $(CDK2_RETAINED_MODULES) $(CDK2_PAYLOAD_LIBRARIES); do \
@@ -282,7 +304,13 @@ mkdir -p "$(dir $(CDK2_MANIFEST))"
 set -e; tmp="$(CDK2_MANIFEST).tmp"; { \
   printf '%s\n' '# Resolved cdk2 backend module set'; \
   printf '%s\n' '# Generated from Kconfig; do not edit.'; \
-  printf '%s\n' $(CDK2_SELECTED_MODULES); \
+  for module in $(CDK2_SELECTED_MODULES); do \
+    if test "$$module" = "$(CDK2_CAPSULE_FMP_DXE_MODULE)" && test "$(CONFIG_CDK2_CAPSULE)" = "y"; then \
+      printf '%s FILE_GUID=%s\n' "$$module" "$(CDK2_EFFECTIVE_CAPSULE_MAIN_FW_GUID)"; \
+    else \
+      printf '%s\n' "$$module"; \
+    fi; \
+  done; \
 } > "$$tmp"; mv "$$tmp" "$(CDK2_MANIFEST)"
 printf '%s\n' "cdk2 backend module manifest: $(CDK2_MANIFEST)"
 endef

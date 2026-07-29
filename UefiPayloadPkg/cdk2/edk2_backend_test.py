@@ -20,6 +20,9 @@ PAD_GUID = "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF"
 LOW_BATTERY_LOGO_GUID = "BE6E1243-682C-4186-8151-448D48AFE341"
 UNEXPECTED_GUID = "99999999-8888-7777-6666-555555555555"
 GOOD_MODULE = "Pkg/GoodDxe.inf"
+FMP_DXE_MODULE = "FmpDevicePkg/FmpDxe/FmpDxe.inf"
+CAPSULE_GUID = "22222222-3333-4444-5555-666666666666"
+OVERRIDE_CAPSULE_GUID = "33333333-4444-5555-6666-777777777777"
 
 
 class Edk2BackendDiscoverTests(unittest.TestCase):
@@ -101,6 +104,54 @@ class Edk2BackendDiscoverTests(unittest.TestCase):
             text=True,
         )
 
+    def _run_manifest(
+        self,
+        *,
+        capsule: bool,
+        capsule_guid: str = CAPSULE_GUID,
+        extra_defines: str = "",
+    ) -> subprocess.CompletedProcess[str]:
+        root = self.workspace / "root"
+        build = self.workspace / "build"
+        config = build / ".config"
+
+        self._write(
+            str(config.relative_to(self.workspace)),
+            "CONFIG_CDK2_PAYLOAD=y\n",
+        )
+        makefile = self._write(
+            "Makefile",
+            textwrap.dedent(
+                f"""\
+                SHELL := /bin/bash
+                CONFIG_CDK2_CAPSULE := {"y" if capsule else "n"}
+                CONFIG_CDK2_CAPSULE_MAIN_FW_GUID := "{capsule_guid}"
+                CDK2_ROOT := {root}
+                CDK2_DIR := {CDK2_DIR}
+                CDK2_BUILD_DIR := {build}
+                CDK2_CONFIG := {config}
+                CDK2_MANIFEST := $(CDK2_BUILD_DIR)/cdk2-modules.txt
+                CDK2_EXTRA_DEFINES := {extra_defines}
+                include $(CDK2_DIR)/edk2-backend.mk
+                CDK2_SELECTED_MODULES := {GOOD_MODULE} {FMP_DXE_MODULE}
+
+                $(CDK2_MANIFEST): $(CDK2_BACKEND_INPUTS)
+                \t$(CDK2_BACKEND_WRITE_MANIFEST)
+
+                .PHONY: manifest
+                manifest: $(CDK2_MANIFEST)
+                """
+            ),
+        )
+
+        return subprocess.run(
+            ["make", "--no-print-directory", "-f", str(makefile), "manifest"],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
     def test_discover_accepts_cdk2_owned_non_module_dxe_guids(self) -> None:
         result = self._run_discover(
             [APRIORI_GUID, ENTRY_GUID, GOOD_GUID, LOW_BATTERY_LOGO_GUID, PAD_GUID]
@@ -128,6 +179,105 @@ class Edk2BackendDiscoverTests(unittest.TestCase):
             "cdk2 EDK2 DXE FV contains GUIDs outside the cdk2 selected map",
             output,
         )
+
+    def test_manifest_records_capsule_fmp_guid_override(self) -> None:
+        result = self._run_manifest(capsule=True)
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        manifest = (self.workspace / "build/cdk2-modules.txt").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(f"{FMP_DXE_MODULE} FILE_GUID={CAPSULE_GUID}\n", manifest)
+
+    def test_manifest_keeps_normal_fmp_module_unannotated(self) -> None:
+        result = self._run_manifest(capsule=False)
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        manifest_lines = (
+            self.workspace / "build/cdk2-modules.txt"
+        ).read_text(encoding="utf-8").splitlines()
+        self.assertIn(FMP_DXE_MODULE, manifest_lines)
+        self.assertNotIn(f"{FMP_DXE_MODULE} FILE_GUID={CAPSULE_GUID}", manifest_lines)
+
+    def test_manifest_uses_capsule_extra_define_override(self) -> None:
+        result = self._run_manifest(
+            capsule=True,
+            extra_defines=f"-D CAPSULE_MAIN_FW_GUID={OVERRIDE_CAPSULE_GUID}",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        manifest = (self.workspace / "build/cdk2-modules.txt").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            f"{FMP_DXE_MODULE} FILE_GUID={OVERRIDE_CAPSULE_GUID}\n",
+            manifest,
+        )
+        self.assertNotIn(f"{FMP_DXE_MODULE} FILE_GUID={CAPSULE_GUID}\n", manifest)
+
+    def test_manifest_uses_capsule_define_equals_override(self) -> None:
+        result = self._run_manifest(
+            capsule=True,
+            extra_defines=f"--define=CAPSULE_MAIN_FW_GUID={OVERRIDE_CAPSULE_GUID}",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        manifest = (self.workspace / "build/cdk2-modules.txt").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            f"{FMP_DXE_MODULE} FILE_GUID={OVERRIDE_CAPSULE_GUID}\n",
+            manifest,
+        )
+        self.assertNotIn(f"{FMP_DXE_MODULE} FILE_GUID={CAPSULE_GUID}\n", manifest)
+
+    def test_manifest_uses_quoted_capsule_define_override(self) -> None:
+        result = self._run_manifest(
+            capsule=True,
+            extra_defines=f'-D "CAPSULE_MAIN_FW_GUID={OVERRIDE_CAPSULE_GUID}"',
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        manifest = (self.workspace / "build/cdk2-modules.txt").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            f"{FMP_DXE_MODULE} FILE_GUID={OVERRIDE_CAPSULE_GUID}\n",
+            manifest,
+        )
+        self.assertNotIn(f"{FMP_DXE_MODULE} FILE_GUID={CAPSULE_GUID}\n", manifest)
+
+    def test_manifest_rebuilds_when_capsule_extra_define_changes(self) -> None:
+        first_guid = "44444444-5555-6666-7777-888888888888"
+        second_guid = "55555555-6666-7777-8888-999999999999"
+        result = self._run_manifest(
+            capsule=True,
+            extra_defines=f"-D CAPSULE_MAIN_FW_GUID={first_guid}",
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+        makefile = self.workspace / "Makefile"
+        result = subprocess.run(
+            [
+                "make",
+                "--no-print-directory",
+                "-f",
+                str(makefile),
+                "manifest",
+                f"CDK2_EXTRA_DEFINES=-D CAPSULE_MAIN_FW_GUID={second_guid}",
+            ],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        manifest = (self.workspace / "build/cdk2-modules.txt").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(f"{FMP_DXE_MODULE} FILE_GUID={second_guid}\n", manifest)
+        self.assertNotIn(f"{FMP_DXE_MODULE} FILE_GUID={first_guid}\n", manifest)
 
 
 if __name__ == "__main__":
