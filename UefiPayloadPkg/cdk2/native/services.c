@@ -103,19 +103,19 @@ Cdk2NativeValidateBackend (
     return EFI_INVALID_PARAMETER;
   }
 
+  if ((Context->Backend.BuildPlatformHobs == NULL) &&
+      (Context->Backend.ConstructHobs == NULL))
+  {
+    return EFI_UNSUPPORTED;
+  }
+
 #define CDK2_REQUIRE_BACKEND_CALLBACK(Member) \
   if (Context->Backend.Member == NULL) { \
     return EFI_UNSUPPORTED; \
   }
 
-  CDK2_REQUIRE_BACKEND_CALLBACK (PopulateHobs);
-  CDK2_REQUIRE_BACKEND_CALLBACK (BuildSerialHob);
-  CDK2_REQUIRE_BACKEND_CALLBACK (ApplyBootMode);
-  CDK2_REQUIRE_BACKEND_CALLBACK (InitializeLibraries);
-  CDK2_REQUIRE_BACKEND_CALLBACK (SetBootloaderParameter);
   CDK2_REQUIRE_BACKEND_CALLBACK (FindHobMemory);
   CDK2_REQUIRE_BACKEND_CALLBACK (InitializeFloatingPoint);
-  CDK2_REQUIRE_BACKEND_CALLBACK (MaskLegacyInterrupts);
   CDK2_REQUIRE_BACKEND_CALLBACK (LoadDxeCore);
   CDK2_REQUIRE_BACKEND_CALLBACK (Transfer);
 
@@ -193,7 +193,15 @@ Cdk2NativePopulateHobs (
 {
   EFI_STATUS  Status;
 
-  if (Context == NULL || Context->Backend.PopulateHobs == NULL || Context->HobList == NULL) {
+  if (Context == NULL) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  if (Context->Backend.PopulateHobs == NULL) {
+    return EFI_SUCCESS;
+  }
+
+  if (Context->HobList == NULL) {
     return EFI_INVALID_PARAMETER;
   }
 
@@ -214,7 +222,15 @@ Cdk2NativeBuildSerialHob (
   IN OUT CDK2_NATIVE_CONTEXT  *Context
   )
 {
-  if (Context == NULL || Context->Backend.BuildSerialHob == NULL || Context->HobList == NULL) {
+  if (Context == NULL) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  if (Context->Backend.BuildSerialHob == NULL) {
+    return EFI_SUCCESS;
+  }
+
+  if (Context->HobList == NULL) {
     return EFI_INVALID_PARAMETER;
   }
 
@@ -227,7 +243,15 @@ Cdk2NativeApplyBootMode (
   IN OUT CDK2_NATIVE_CONTEXT  *Context
   )
 {
-  if (Context == NULL || Context->Backend.ApplyBootMode == NULL || Context->HobList == NULL) {
+  if (Context == NULL) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  if (Context->Backend.ApplyBootMode == NULL) {
+    return EFI_SUCCESS;
+  }
+
+  if (Context->HobList == NULL) {
     return EFI_INVALID_PARAMETER;
   }
 
@@ -240,8 +264,12 @@ Cdk2NativeInitializeLibraries (
   IN OUT CDK2_NATIVE_CONTEXT  *Context
   )
 {
-  if (Context == NULL || Context->Backend.InitializeLibraries == NULL) {
+  if (Context == NULL) {
     return EFI_INVALID_PARAMETER;
+  }
+
+  if (Context->Backend.InitializeLibraries == NULL) {
+    return EFI_SUCCESS;
   }
 
   return Context->Backend.InitializeLibraries (Context);
@@ -253,8 +281,12 @@ Cdk2NativeSetBootloaderParameter (
   IN OUT CDK2_NATIVE_CONTEXT  *Context
   )
 {
-  if (Context == NULL || Context->Backend.SetBootloaderParameter == NULL) {
+  if (Context == NULL) {
     return EFI_INVALID_PARAMETER;
+  }
+
+  if (Context->Backend.SetBootloaderParameter == NULL) {
+    return EFI_SUCCESS;
   }
 
   return Context->Backend.SetBootloaderParameter (Context);
@@ -293,8 +325,12 @@ Cdk2NativeMaskLegacyInterrupts (
   IN OUT CDK2_NATIVE_CONTEXT  *Context
   )
 {
-  if (Context == NULL || Context->Backend.MaskLegacyInterrupts == NULL) {
+  if (Context == NULL) {
     return EFI_INVALID_PARAMETER;
+  }
+
+  if (Context->Backend.MaskLegacyInterrupts == NULL) {
+    return EFI_SUCCESS;
   }
 
   return Context->Backend.MaskLegacyInterrupts (Context);

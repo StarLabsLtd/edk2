@@ -724,56 +724,6 @@ Cdk2CorebootBuildPlatformHobs (
 STATIC
 EFI_STATUS
 EFIAPI
-Cdk2CorebootPopulateHobs (
-  IN OUT CDK2_NATIVE_CONTEXT  *Context
-  )
-{
-  return (Context == NULL || Context->HobList == NULL) ? EFI_INVALID_PARAMETER : EFI_SUCCESS;
-}
-
-STATIC
-EFI_STATUS
-EFIAPI
-Cdk2CorebootBuildSerialHob (
-  IN OUT CDK2_NATIVE_CONTEXT  *Context
-  )
-{
-  return (Context == NULL || Context->HobList == NULL) ? EFI_INVALID_PARAMETER : EFI_SUCCESS;
-}
-
-STATIC
-EFI_STATUS
-EFIAPI
-Cdk2CorebootApplyBootMode (
-  IN OUT CDK2_NATIVE_CONTEXT  *Context
-  )
-{
-  return (Context == NULL || Context->HobList == NULL) ? EFI_INVALID_PARAMETER : EFI_SUCCESS;
-}
-
-STATIC
-EFI_STATUS
-EFIAPI
-Cdk2CorebootInitializeLibraries (
-  IN OUT CDK2_NATIVE_CONTEXT  *Context
-  )
-{
-  return (Context == NULL) ? EFI_INVALID_PARAMETER : EFI_SUCCESS;
-}
-
-STATIC
-EFI_STATUS
-EFIAPI
-Cdk2CorebootSetBootloaderParameter (
-  IN OUT CDK2_NATIVE_CONTEXT  *Context
-  )
-{
-  return (Context == NULL) ? EFI_INVALID_PARAMETER : EFI_SUCCESS;
-}
-
-STATIC
-EFI_STATUS
-EFIAPI
 Cdk2CorebootFindHobMemory (
   IN OUT CDK2_NATIVE_CONTEXT  *Context,
   OUT    UINTN                *HobMemBase
@@ -830,24 +780,6 @@ Cdk2CorebootInitializeFloatingPoint (
   Idtr.Limit = sizeof (mCdk2NativeIdt) - 1;
   Idtr.Base  = (UINTN)mCdk2NativeIdt;
   __asm__ volatile ("lidt %0" : : "m" (Idtr));
-#endif
-  return EFI_SUCCESS;
-}
-
-STATIC
-EFI_STATUS
-EFIAPI
-Cdk2CorebootMaskLegacyInterrupts (
-  IN OUT CDK2_NATIVE_CONTEXT  *Context
-  )
-{
-  if (Context == NULL) {
-    return EFI_INVALID_PARAMETER;
-  }
-
-#if defined (__x86_64__)
-  __asm__ volatile ("outb %b0, %w1" : : "a" ((UINT8)0xff), "Nd" ((UINT16)0x21));
-  __asm__ volatile ("outb %b0, %w1" : : "a" ((UINT8)0xff), "Nd" ((UINT16)0xa1));
 #endif
   return EFI_SUCCESS;
 }
@@ -1185,14 +1117,8 @@ Cdk2PlatformInitializeNativeContext (
   Context->PayloadSize   = (UINTN)(__cdk2_image_end - __cdk2_image_start);
   Context->HobRegionSize = CDK2_COREBOOT_HOB_REGION_SIZE;
   Context->Backend.BuildPlatformHobs       = Cdk2CorebootBuildPlatformHobs;
-  Context->Backend.PopulateHobs             = Cdk2CorebootPopulateHobs;
-  Context->Backend.BuildSerialHob           = Cdk2CorebootBuildSerialHob;
-  Context->Backend.ApplyBootMode            = Cdk2CorebootApplyBootMode;
-  Context->Backend.InitializeLibraries      = Cdk2CorebootInitializeLibraries;
-  Context->Backend.SetBootloaderParameter   = Cdk2CorebootSetBootloaderParameter;
   Context->Backend.FindHobMemory             = Cdk2CorebootFindHobMemory;
   Context->Backend.InitializeFloatingPoint  = Cdk2CorebootInitializeFloatingPoint;
-  Context->Backend.MaskLegacyInterrupts     = Cdk2CorebootMaskLegacyInterrupts;
   Context->Backend.LoadDxeCore               = Cdk2CorebootLoadDxeCore;
   Context->Backend.Transfer                  = Cdk2CorebootTransfer;
   return EFI_SUCCESS;

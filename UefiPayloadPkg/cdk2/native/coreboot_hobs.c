@@ -723,6 +723,44 @@ Cdk2CorebootAppendAllocation (
   return EFI_SUCCESS;
 }
 
+STATIC
+EFI_STATUS
+Cdk2CorebootResolveBootMode (
+  IN  CONST CDK2_COREBOOT_HANDOFF  *Coreboot,
+  OUT EFI_BOOT_MODE                *BootMode
+  )
+{
+  EFI_STATUS                 Status;
+  CONST VOID                 *Record;
+  CONST struct lb_boot_mode  *CorebootBootMode;
+
+  if (Coreboot == NULL || BootMode == NULL) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  *BootMode = BOOT_WITH_FULL_CONFIGURATION;
+  Status = Cdk2CorebootFindRecord (
+             Coreboot,
+             CB_TAG_BOOT_MODE,
+             sizeof (*CorebootBootMode),
+             &Record
+             );
+  if (Status == EFI_NOT_FOUND) {
+    return EFI_SUCCESS;
+  }
+
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  CorebootBootMode = (CONST struct lb_boot_mode *)Record;
+  if (CorebootBootMode->boot_mode == LB_BOOT_MODE_FLASH_UPDATE) {
+    *BootMode = BOOT_ON_FLASH_UPDATE;
+  }
+
+  return EFI_SUCCESS;
+}
+
 EFI_STATUS
 Cdk2CorebootBuildHobs (
   IN  CONST CDK2_COREBOOT_HANDOFF  *Coreboot,
@@ -742,6 +780,7 @@ Cdk2CorebootBuildHobs (
   UINTN                        Cursor;
   UINT32                       Tolud;
   UINTN                        Index;
+  EFI_BOOT_MODE                BootMode;
   EFI_STATUS                   Status;
 
   if (Coreboot == NULL || Handoff == NULL ||
@@ -775,6 +814,11 @@ Cdk2CorebootBuildHobs (
     return Status;
   }
 
+  Status = Cdk2CorebootResolveBootMode (Coreboot, &BootMode);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
   HobInfo = (EFI_HOB_HANDOFF_INFO_TABLE *)Cdk2CorebootAppendHob (
                                                      &Cursor,
                                                      FreeMemoryTop,
@@ -786,7 +830,7 @@ Cdk2CorebootBuildHobs (
   }
 
   HobInfo->Version              = EFI_HOB_HANDOFF_TABLE_VERSION;
-  HobInfo->BootMode             = BOOT_WITH_FULL_CONFIGURATION;
+  HobInfo->BootMode             = BootMode;
   HobInfo->EfiMemoryBottom      = MemoryBottom;
   HobInfo->EfiMemoryTop         = MemoryTop;
   HobInfo->EfiFreeMemoryTop     = FreeMemoryTop;

@@ -102,6 +102,7 @@ BuildMemoryTable (
 {
   struct cb_memory        *Memory;
   struct cb_memory_range  *Range;
+  struct lb_boot_mode     *BootMode;
 
   memset (Storage, 0, StorageSize);
   Memory = (struct cb_memory *)(VOID *)(Storage + sizeof (struct cb_header));
@@ -129,7 +130,12 @@ BuildMemoryTable (
   Range->size.hi  = 0;
   Range->type     = CB_MEM_TABLE;
 
-  return FinalizeTable (Storage, StorageSize, Memory->size, 1);
+  BootMode = (struct lb_boot_mode *)(VOID *)((UINT8 *)Memory + Memory->size);
+  BootMode->tag       = CB_TAG_BOOT_MODE;
+  BootMode->size      = sizeof (*BootMode);
+  BootMode->boot_mode = LB_BOOT_MODE_FLASH_UPDATE;
+
+  return FinalizeTable (Storage, StorageSize, Memory->size + BootMode->size, 2);
 }
 
 static UINTN
@@ -257,7 +263,7 @@ main (
   TableSize = BuildMemoryTable (Storage, sizeof (Storage));
   Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);
   Failures += Expect (Status == EFI_SUCCESS, "valid table rejected");
-  Failures += Expect (Handoff.RecordCount == 1, "record count is wrong");
+  Failures += Expect (Handoff.RecordCount == 2, "record count is wrong");
   Failures += Expect (Handoff.MemoryRangeCount == 3, "memory range count is wrong");
   Failures += Expect (Handoff.UsableRamCount == 1, "usable RAM count is wrong");
   Failures += Expect (Handoff.LargestUsableRamBase == 0x00100000, "usable RAM base is wrong");
@@ -370,6 +376,7 @@ main (
              );
   Failures += Expect (Status == EFI_SUCCESS, "HOB construction failed");
   Failures += Expect (HobInfo != NULL && HobInfo->Header.HobType == EFI_HOB_TYPE_HANDOFF, "PHIT is missing");
+  Failures += Expect (HobInfo->BootMode == BOOT_ON_FLASH_UPDATE, "coreboot boot mode not applied");
   ResourceCount = 0;
   Resource      = NULL;
   HobCursor = (UINTN)(VOID *)HobInfo;

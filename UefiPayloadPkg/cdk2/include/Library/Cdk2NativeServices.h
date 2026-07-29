@@ -177,9 +177,11 @@ Cdk2NativeInitializeStageContext (
   Verify that the backend provides every callback required by a real payload
   entry and transfer.
 
-  The generic HOB constructor remains optional because the native service
-  layer can create a minimal handoff table itself. All other callbacks are
-  required by the current entry sequence.
+  The direct coreboot backend builds its complete payload handoff in one
+  platform-HOB callback, while the EDK II adapter keeps separate callbacks for
+  serial HOBs, boot-mode policy, library constructors, and bootloader PCDs.
+  Only the common entry requirements are mandatory here; adapter-only callbacks
+  are skipped when they are not registered.
 
   @param[in] Context  Context whose backend is being checked.
 
