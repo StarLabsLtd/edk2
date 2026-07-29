@@ -269,7 +269,7 @@ awk -v entry_guid="$$entry_guid" -v pad_guid="$(CDK2_BACKEND_DXE_FFS_PAD_GUID)" 
   printf '%s\n' '# cdk2 native fvpack manifest'; \
   printf '%s\n' '# Format: FILE <reference-dxe-fv-offset> <file-guid> <ffs-path>'; \
   printf '%s\n' 'VERSION 1'; \
-  awk 'NR == FNR { \
+  awk -v entry_guid="$$entry_guid" -v pad_guid="$(CDK2_BACKEND_DXE_FFS_PAD_GUID)" 'NR == FNR { \
     file = $$0; base = file; sub(/^.*\//, "", base); \
     guid = toupper(substr(base, 1, 36)); \
     if (guid in path) { \
@@ -280,6 +280,7 @@ awk -v entry_guid="$$entry_guid" -v pad_guid="$(CDK2_BACKEND_DXE_FFS_PAD_GUID)" 
   } \
   /^0x[[:xdigit:]]+[[:space:]]+[[:xdigit:]-]+$$/ { \
     guid = toupper($$2); \
+    if ((guid == entry_guid) || (guid == pad_guid)) { next } \
     if (!(guid in path)) { \
       print "ordered DXE FV GUID missing FFS path: " guid > "/dev/stderr"; \
       failed = 1; next; \
