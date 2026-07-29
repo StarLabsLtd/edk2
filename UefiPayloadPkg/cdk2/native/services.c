@@ -418,51 +418,71 @@ Cdk2NativeLoadImage (
   OUT EFI_PHYSICAL_ADDRESS     *EntryPoint
   )
 {
-  EFI_STATUS  Status;
+  EFI_PHYSICAL_ADDRESS  ImageBase;
+  EFI_PHYSICAL_ADDRESS  ImageEntryPoint;
+  UINTN                 ImageSize;
+  EFI_STATUS            Status;
 
   if (Context == NULL || EntryPoint == NULL || Image >= Cdk2NativeImageMax) {
     return EFI_INVALID_PARAMETER;
   }
 
+  ImageBase       = 0;
+  ImageSize       = 0;
+  ImageEntryPoint = 0;
   if (Image == Cdk2NativeImageDxeCore) {
     if (Context->Backend.LoadDxeCore == NULL) {
-      return EFI_UNSUPPORTED;
+      Status = EFI_UNSUPPORTED;
+      goto Failed;
     }
 
     Status = Context->Backend.LoadDxeCore (
                  Context,
-                 &Context->ImageEntryPoint,
-                 &Context->ImageBase,
-                 &Context->ImageSize
+                 &ImageEntryPoint,
+                 &ImageBase,
+                 &ImageSize
                  );
     if (EFI_ERROR (Status)) {
-      return Status;
+      goto Failed;
     }
   } else if (Image == Cdk2NativeImagePayloadEntry) {
     if (Context->PayloadBase == 0 || Context->PayloadSize == 0 ||
         Context->PayloadBase > MAX_UINT64 - Context->PayloadSize) {
-      return EFI_INVALID_PARAMETER;
+      Status = EFI_INVALID_PARAMETER;
+      goto Failed;
     }
 
-    Context->ImageBase = Context->PayloadBase;
-    Context->ImageSize = Context->PayloadSize;
-    if (Context->ImageEntryPoint == 0) {
-      Context->ImageEntryPoint = Context->ImageBase;
+    ImageBase       = Context->PayloadBase;
+    ImageSize       = Context->PayloadSize;
+    ImageEntryPoint = Context->ImageEntryPoint;
+    if (ImageEntryPoint == 0) {
+      ImageEntryPoint = ImageBase;
     }
   } else {
     return EFI_INVALID_PARAMETER;
   }
 
   if (!Cdk2NativeRangeContains (
-        Context->ImageBase,
-        Context->ImageSize,
-        Context->ImageEntryPoint
+        ImageBase,
+        ImageSize,
+        ImageEntryPoint
         )) {
-    return EFI_SECURITY_VIOLATION;
+    Status = EFI_SECURITY_VIOLATION;
+    goto Failed;
   }
 
-  *EntryPoint = Context->ImageEntryPoint;
+  Context->ImageBase       = ImageBase;
+  Context->ImageSize       = ImageSize;
+  Context->ImageEntryPoint = ImageEntryPoint;
+  *EntryPoint = ImageEntryPoint;
   return EFI_SUCCESS;
+
+Failed:
+  Context->ImageBase       = 0;
+  Context->ImageSize       = 0;
+  Context->ImageEntryPoint = 0;
+  *EntryPoint = 0;
+  return Status;
 }
 
 EFI_STATUS

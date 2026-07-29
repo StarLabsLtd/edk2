@@ -276,6 +276,25 @@ TestLoadDxeCore (
 
 static EFI_STATUS
 EFIAPI
+TestLoadDxeCoreFailsAfterOutput (
+  IN OUT CDK2_NATIVE_CONTEXT  *Context,
+  OUT EFI_PHYSICAL_ADDRESS  *EntryPoint,
+  OUT EFI_PHYSICAL_ADDRESS  *ImageBase,
+  OUT UINTN                  *ImageSize
+  )
+{
+  if (Context == NULL || EntryPoint == NULL || ImageBase == NULL || ImageSize == NULL) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  *ImageBase  = 0x00400000;
+  *ImageSize  = 0x00020000;
+  *EntryPoint = 0x00401000;
+  return EFI_DEVICE_ERROR;
+}
+
+static EFI_STATUS
+EFIAPI
 TestTransfer (
   IN CDK2_NATIVE_CONTEXT  *Context
   )
@@ -336,6 +355,8 @@ main (void)
   EFI_PHYSICAL_ADDRESS   EntryPoint;
   EFI_PHYSICAL_ADDRESS   AllocationBase;
   UINTN                  HobMemBase;
+  UINTN                  LateInitBefore;
+  UINTN                  TransferBefore;
   int                    Failures;
 
   Context.PayloadBase      = 0x00100000;
@@ -417,6 +438,20 @@ main (void)
   Failures += Expect (Cdk2NativeTransfer (&Context) == EFI_SUCCESS, "transfer service");
   Failures += Expect (mLateInitCalls == 1, "late-init hook");
   Failures += Expect (mTransferCalls == 1, "transfer callback");
+  Context.Backend.LoadDxeCore = TestLoadDxeCoreFailsAfterOutput;
+  LateInitBefore = mLateInitCalls;
+  TransferBefore = mTransferCalls;
+  Failures += Expect (
+                Cdk2NativeLoadImage (&Context, Cdk2NativeImageDxeCore, &EntryPoint) == EFI_DEVICE_ERROR,
+                "failed DXE core load status"
+                );
+  Failures += Expect (Context.ImageBase == 0, "failed DXE core load clears image base");
+  Failures += Expect (Context.ImageSize == 0, "failed DXE core load clears image size");
+  Failures += Expect (Context.ImageEntryPoint == 0, "failed DXE core load clears entry point");
+  Failures += Expect (EntryPoint == 0, "failed DXE core load clears returned entry point");
+  Failures += Expect (Cdk2NativeTransfer (&Context) == EFI_NOT_READY, "failed DXE core load blocks transfer");
+  Failures += Expect (mLateInitCalls == LateInitBefore, "late-init skipped after failed DXE core load");
+  Failures += Expect (mTransferCalls == TransferBefore, "transfer skipped after failed DXE core load");
   Context.Backend.LoadDxeCore = NULL;
   Failures += Expect (Cdk2NativeLoadImage (&Context, Cdk2NativeImageDxeCore, &EntryPoint) == EFI_UNSUPPORTED, "DXE core callback required");
 
