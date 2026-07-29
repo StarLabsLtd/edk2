@@ -16,11 +16,14 @@
 .set CDK2_ENTRY32_PAGE_TABLE_BYTES, (2 * CDK2_ENTRY32_PAGE_SIZE) + CDK2_ENTRY32_PAGE_DIRECTORY_BYTES
 .set CDK2_ENTRY32_PAGE_TABLE_DWORDS, CDK2_ENTRY32_PAGE_TABLE_BYTES / 4
 .set CDK2_ENTRY32_IDENTITY_MAP_TOP, CDK2_ENTRY32_IDENTITY_MAP_GIB << 30
+.set CDK2_ENTRY32_BOOT_STACK_SIZE, 0x8000
 
 .globl cdk2_entry32_identity_map_top
 .set cdk2_entry32_identity_map_top, CDK2_ENTRY32_IDENTITY_MAP_TOP
 .globl cdk2_entry32_page_directory_count
 .set cdk2_entry32_page_directory_count, CDK2_ENTRY32_PAGE_DIRECTORY_COUNT
+.globl cdk2_entry32_boot_stack_size
+.set cdk2_entry32_boot_stack_size, CDK2_ENTRY32_BOOT_STACK_SIZE
 
 .code32
 .globl Cdk2CorebootEntry32
@@ -145,10 +148,14 @@ cdk2_pd:
 .size cdk2_pd, .-cdk2_pd
 
 .align 16
+.type cdk2_boot_stack, @object
 cdk2_boot_stack:
-        .skip   0x8000
+        .skip   CDK2_ENTRY32_BOOT_STACK_SIZE
+.size cdk2_boot_stack, .-cdk2_boot_stack
 cdk2_boot_stack_top:
 
 .align 4
+.type cdk2_bootloader_parameter, @object
 cdk2_bootloader_parameter:
         .long   0
+.size cdk2_bootloader_parameter, .-cdk2_bootloader_parameter

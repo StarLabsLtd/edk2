@@ -49,6 +49,8 @@
 #define CDK2_ENTRY32_PAGE_SIZE  0x1000ULL
 #define CDK2_ENTRY32_ONE_GIB    0x40000000ULL
 #define CDK2_ENTRY32_MAP_TOP    0x2000000000ULL
+#define CDK2_ENTRY32_BOOT_STACK_SIZE       0x8000ULL
+#define CDK2_ENTRY32_BOOT_STACK_ALIGNMENT  16ULL
 #define CDK2_STARBOOK_RAM_END   0x1080000000ULL
 
 typedef struct {
@@ -514,12 +516,13 @@ RequireSymbol (
 }
 
 static void
-CheckEntry32PagingObject (
+CheckEntry32BssObject (
   const ELF_IMAGE  *Image,
   const ELF64_SHDR *Bss,
   const ELF_SYMBOL *Symbol,
   const char       *Name,
-  uint64_t         Size
+  uint64_t         Size,
+  uint64_t         Alignment
   )
 {
   uint16_t  BssIndex;
@@ -533,8 +536,8 @@ CheckEntry32PagingObject (
     Fail ("%s has unexpected size", Name);
   }
 
-  if ((Symbol->Value & (CDK2_ENTRY32_PAGE_SIZE - 1U)) != 0) {
-    Fail ("%s is not page-aligned", Name);
+  if ((Symbol->Value & (Alignment - 1U)) != 0) {
+    Fail ("%s does not meet the required alignment", Name);
   }
 
   if (Symbol->Value < Bss->sh_addr ||
@@ -554,6 +557,9 @@ CheckCorebootEntry32PagingContract (
   ELF_SYMBOL        Pml4;
   ELF_SYMBOL        Pdpt;
   ELF_SYMBOL        Pd;
+  ELF_SYMBOL        BootStack;
+  ELF_SYMBOL        BootStackTop;
+  ELF_SYMBOL        BootStackSize;
   ELF_SYMBOL        MapTop;
   ELF_SYMBOL        PageDirectoryCount;
   uint64_t          ExpectedPageDirectoryCount;
@@ -564,6 +570,9 @@ CheckCorebootEntry32PagingContract (
   Pml4               = RequireSymbol (Image, "cdk2_pml4");
   Pdpt               = RequireSymbol (Image, "cdk2_pdpt");
   Pd                 = RequireSymbol (Image, "cdk2_pd");
+  BootStack          = RequireSymbol (Image, "cdk2_boot_stack");
+  BootStackTop       = RequireSymbol (Image, "cdk2_boot_stack_top");
+  BootStackSize      = RequireSymbol (Image, "cdk2_entry32_boot_stack_size");
   MapTop             = RequireSymbol (Image, "cdk2_entry32_identity_map_top");
   PageDirectoryCount = RequireSymbol (Image, "cdk2_entry32_page_directory_count");
 
@@ -583,9 +592,43 @@ CheckCorebootEntry32PagingContract (
   }
 
   ExpectedPageDirectoryBytes = PageDirectoryCount.Value * CDK2_ENTRY32_PAGE_SIZE;
-  CheckEntry32PagingObject (Image, Bss, &Pml4, "cdk2_pml4", CDK2_ENTRY32_PAGE_SIZE);
-  CheckEntry32PagingObject (Image, Bss, &Pdpt, "cdk2_pdpt", CDK2_ENTRY32_PAGE_SIZE);
-  CheckEntry32PagingObject (Image, Bss, &Pd, "cdk2_pd", ExpectedPageDirectoryBytes);
+  CheckEntry32BssObject (
+    Image,
+    Bss,
+    &Pml4,
+    "cdk2_pml4",
+    CDK2_ENTRY32_PAGE_SIZE,
+    CDK2_ENTRY32_PAGE_SIZE
+    );
+  CheckEntry32BssObject (
+    Image,
+    Bss,
+    &Pdpt,
+    "cdk2_pdpt",
+    CDK2_ENTRY32_PAGE_SIZE,
+    CDK2_ENTRY32_PAGE_SIZE
+    );
+  CheckEntry32BssObject (
+    Image,
+    Bss,
+    &Pd,
+    "cdk2_pd",
+    ExpectedPageDirectoryBytes,
+    CDK2_ENTRY32_PAGE_SIZE
+    );
+
+  if (BootStackSize.Value != CDK2_ENTRY32_BOOT_STACK_SIZE) {
+    Fail ("entry32 boot stack size does not match the handoff contract");
+  }
+
+  CheckEntry32BssObject (
+    Image,
+    Bss,
+    &BootStack,
+    "cdk2_boot_stack",
+    BootStackSize.Value,
+    CDK2_ENTRY32_BOOT_STACK_ALIGNMENT
+    );
 
   if (Pdpt.Value != Pml4.Value + CDK2_ENTRY32_PAGE_SIZE ||
       Pd.Value != Pdpt.Value + CDK2_ENTRY32_PAGE_SIZE)
@@ -596,6 +639,17 @@ CheckCorebootEntry32PagingContract (
   TableEnd = Pd.Value + Pd.Size;
   if (TableEnd < Pd.Value || TableEnd > 0x100000000ULL) {
     Fail ("entry32 page-table storage is not 32-bit addressable");
+  }
+
+  if (BootStack.Value < TableEnd) {
+    Fail ("entry32 boot stack overlaps page-table storage");
+  }
+
+  if (BootStackTop.SectionIndex != (uint16_t)(Bss - Image->SectionHeaders) ||
+      (BootStackTop.Value & (CDK2_ENTRY32_BOOT_STACK_ALIGNMENT - 1U)) != 0 ||
+      BootStackTop.Value != BootStack.Value + BootStackSize.Value)
+  {
+    Fail ("entry32 boot stack top does not match the handoff contract");
   }
 }
 

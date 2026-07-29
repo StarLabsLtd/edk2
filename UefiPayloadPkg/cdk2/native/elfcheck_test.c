@@ -46,23 +46,38 @@
 #define SHF_WRITE      0x1U
 #define SHF_ALLOC      0x2U
 #define SHF_EXECINSTR  0x4U
+#define SHN_ABS        0xfff1U
 
 #define CDK2_LINK_BASE          0x00100000ULL
 #define CDK2_MODULE_ENTRY_SIZE  16ULL
 #define CDK2_FV_ALIGNMENT       128ULL
+#define CDK2_ENTRY32_PAGE_SIZE  0x1000ULL
+#define CDK2_ENTRY32_ONE_GIB    0x40000000ULL
+#define CDK2_ENTRY32_MAP_TOP    0x2000000000ULL
+#define CDK2_ENTRY32_PAGE_DIRECTORY_COUNT  (CDK2_ENTRY32_MAP_TOP / CDK2_ENTRY32_ONE_GIB)
+#define CDK2_ENTRY32_PAGE_DIRECTORY_BYTES  (CDK2_ENTRY32_PAGE_DIRECTORY_COUNT * CDK2_ENTRY32_PAGE_SIZE)
+#define CDK2_ENTRY32_BOOT_STACK_SIZE       0x8000ULL
 
 #define TEST_FILE_SIZE        0x2010U
 #define TEST_PATH_SIZE        4096U
 #define TEST_SYMTAB_OFFSET    0x0100U
-#define TEST_STRTAB_OFFSET    0x0200U
-#define TEST_SHSTRTAB_OFFSET  0x0300U
-#define TEST_SECTION_OFFSET   0x0400U
+#define TEST_STRTAB_OFFSET    0x0400U
+#define TEST_SHSTRTAB_OFFSET  0x0800U
+#define TEST_SECTION_OFFSET   0x0900U
 #define TEST_TEXT_OFFSET      0x1000U
 #define TEST_MODULES_OFFSET   0x2000U
 #define TEST_TEXT_ADDRESS     CDK2_LINK_BASE
 #define TEST_MODULES_ADDRESS  0x00101000ULL
 #define TEST_BSS_ADDRESS      0x00102000ULL
-#define TEST_BSS_SIZE         0x1000ULL
+#define TEST_PML4_ADDRESS     TEST_BSS_ADDRESS
+#define TEST_PDPT_ADDRESS     (TEST_PML4_ADDRESS + CDK2_ENTRY32_PAGE_SIZE)
+#define TEST_PD_ADDRESS       (TEST_PDPT_ADDRESS + CDK2_ENTRY32_PAGE_SIZE)
+#define TEST_BOOT_STACK_ADDRESS \
+  (TEST_PD_ADDRESS + CDK2_ENTRY32_PAGE_DIRECTORY_BYTES)
+#define TEST_BOOT_STACK_TOP \
+  (TEST_BOOT_STACK_ADDRESS + CDK2_ENTRY32_BOOT_STACK_SIZE)
+#define TEST_BSS_SIZE \
+  ((TEST_BOOT_STACK_TOP - TEST_BSS_ADDRESS) + CDK2_ENTRY32_PAGE_SIZE)
 
 typedef struct {
   unsigned char  e_ident[EI_NIDENT];
@@ -119,7 +134,10 @@ typedef enum {
   ElfFixtureBadLoadFileRange,
   ElfFixtureOverlappingLoad,
   ElfFixtureWrappingLoad,
-  ElfFixtureBssOutsideImage
+  ElfFixtureBssOutsideImage,
+  ElfFixtureCorebootValid,
+  ElfFixtureCorebootBadMapTop,
+  ElfFixtureCorebootBadStackTop
 } ELF_FIXTURE_KIND;
 
 enum {
@@ -150,6 +168,15 @@ enum {
   SymbolModulesEnd,
   SymbolFvStart,
   SymbolFvEnd,
+  SymbolCorebootEntry,
+  SymbolEntry32MapTop,
+  SymbolEntry32PageDirectoryCount,
+  SymbolEntry32BootStackSize,
+  SymbolPml4,
+  SymbolPdpt,
+  SymbolPd,
+  SymbolBootStack,
+  SymbolBootStackTop,
   SymbolCount
 };
 
@@ -169,7 +196,19 @@ enum {
   SymbolNameModulesStart = SymbolNameImageEnd + sizeof ("__cdk2_image_end"),
   SymbolNameModulesEnd   = SymbolNameModulesStart + sizeof ("__cdk2_modules_start"),
   SymbolNameFvStart      = SymbolNameModulesEnd + sizeof ("__cdk2_modules_end"),
-  SymbolNameFvEnd        = SymbolNameFvStart + sizeof ("__cdk2_fv_start")
+  SymbolNameFvEnd        = SymbolNameFvStart + sizeof ("__cdk2_fv_start"),
+  SymbolNameCorebootEntry = SymbolNameFvEnd + sizeof ("__cdk2_fv_end"),
+  SymbolNameEntry32MapTop = SymbolNameCorebootEntry + sizeof ("Cdk2CorebootEntry32"),
+  SymbolNameEntry32PageDirectoryCount =
+    SymbolNameEntry32MapTop + sizeof ("cdk2_entry32_identity_map_top"),
+  SymbolNameEntry32BootStackSize =
+    SymbolNameEntry32PageDirectoryCount + sizeof ("cdk2_entry32_page_directory_count"),
+  SymbolNamePml4 =
+    SymbolNameEntry32BootStackSize + sizeof ("cdk2_entry32_boot_stack_size"),
+  SymbolNamePdpt = SymbolNamePml4 + sizeof ("cdk2_pml4"),
+  SymbolNamePd = SymbolNamePdpt + sizeof ("cdk2_pdpt"),
+  SymbolNameBootStack = SymbolNamePd + sizeof ("cdk2_pd"),
+  SymbolNameBootStackTop = SymbolNameBootStack + sizeof ("cdk2_boot_stack")
 };
 
 static const char  mSectionStrings[] =
@@ -177,7 +216,9 @@ static const char  mSectionStrings[] =
 static const char  mSymbolStrings[] =
   "\0Cdk2NativeStageEntry\0__cdk2_image_start\0__cdk2_image_end\0"
   "__cdk2_modules_start\0__cdk2_modules_end\0__cdk2_fv_start\0"
-  "__cdk2_fv_end\0";
+  "__cdk2_fv_end\0Cdk2CorebootEntry32\0cdk2_entry32_identity_map_top\0"
+  "cdk2_entry32_page_directory_count\0cdk2_entry32_boot_stack_size\0"
+  "cdk2_pml4\0cdk2_pdpt\0cdk2_pd\0cdk2_boot_stack\0cdk2_boot_stack_top\0";
 
 static int
 Expect (
@@ -265,6 +306,8 @@ BuildElf (
   ELF64_PHDR  *Programs;
   ELF64_SHDR  *Sections;
   ELF64_SYM   *Symbols;
+  uint64_t     Entry32MapTop;
+  uint64_t     BootStackTop;
 
   if (StorageSize < TEST_FILE_SIZE) {
     return 0;
@@ -367,6 +410,13 @@ BuildElf (
 
   Symbols = (ELF64_SYM *)(void *)(Storage + TEST_SYMTAB_OFFSET);
   FillSymbol (&Symbols[SymbolEntry], SymbolNameEntry, SectionTextEntry, TEST_TEXT_ADDRESS, 1);
+  FillSymbol (
+    &Symbols[SymbolCorebootEntry],
+    SymbolNameCorebootEntry,
+    SectionTextEntry,
+    TEST_TEXT_ADDRESS,
+    1
+    );
   FillSymbol (&Symbols[SymbolImageStart], SymbolNameImageStart, SectionTextEntry, TEST_TEXT_ADDRESS, 0);
   FillSymbol (
     &Symbols[SymbolImageEnd],
@@ -403,6 +453,50 @@ BuildElf (
     SymbolNameFvEnd,
     SectionModules,
     TEST_MODULES_ADDRESS + CDK2_FV_ALIGNMENT,
+    0
+    );
+  Entry32MapTop = (Kind == ElfFixtureCorebootBadMapTop) ?
+                  CDK2_ENTRY32_MAP_TOP - CDK2_ENTRY32_ONE_GIB :
+                  CDK2_ENTRY32_MAP_TOP;
+  BootStackTop = (Kind == ElfFixtureCorebootBadStackTop) ?
+                 TEST_BOOT_STACK_TOP - 16 :
+                 TEST_BOOT_STACK_TOP;
+  FillSymbol (&Symbols[SymbolEntry32MapTop], SymbolNameEntry32MapTop, SHN_ABS, Entry32MapTop, 0);
+  FillSymbol (
+    &Symbols[SymbolEntry32PageDirectoryCount],
+    SymbolNameEntry32PageDirectoryCount,
+    SHN_ABS,
+    CDK2_ENTRY32_PAGE_DIRECTORY_COUNT,
+    0
+    );
+  FillSymbol (
+    &Symbols[SymbolEntry32BootStackSize],
+    SymbolNameEntry32BootStackSize,
+    SHN_ABS,
+    CDK2_ENTRY32_BOOT_STACK_SIZE,
+    0
+    );
+  FillSymbol (&Symbols[SymbolPml4], SymbolNamePml4, SectionBss, TEST_PML4_ADDRESS, CDK2_ENTRY32_PAGE_SIZE);
+  FillSymbol (&Symbols[SymbolPdpt], SymbolNamePdpt, SectionBss, TEST_PDPT_ADDRESS, CDK2_ENTRY32_PAGE_SIZE);
+  FillSymbol (
+    &Symbols[SymbolPd],
+    SymbolNamePd,
+    SectionBss,
+    TEST_PD_ADDRESS,
+    CDK2_ENTRY32_PAGE_DIRECTORY_BYTES
+    );
+  FillSymbol (
+    &Symbols[SymbolBootStack],
+    SymbolNameBootStack,
+    SectionBss,
+    TEST_BOOT_STACK_ADDRESS,
+    CDK2_ENTRY32_BOOT_STACK_SIZE
+    );
+  FillSymbol (
+    &Symbols[SymbolBootStackTop],
+    SymbolNameBootStackTop,
+    SectionBss,
+    BootStackTop,
     0
     );
 
@@ -466,6 +560,7 @@ static int
 RunChecker (
   const char  *Checker,
   const char  *Path,
+  const char  *Entry,
   int         ExpectSuccess
   )
 {
@@ -480,7 +575,7 @@ RunChecker (
       Checker,
       Checker,
       "--entry",
-      "Cdk2NativeStageEntry",
+      Entry,
       Path,
       (char *)NULL
       );
@@ -522,6 +617,7 @@ RunFixture (
   const char        *Directory,
   const char        *Suffix,
   ELF_FIXTURE_KIND  Kind,
+  const char        *Entry,
   int               ExpectSuccess
   )
 {
@@ -541,7 +637,7 @@ RunFixture (
 
   Result = WriteBinaryFile (Path, Storage, Size);
   if (Result == 0) {
-    Result = RunChecker (Checker, Path, ExpectSuccess);
+    Result = RunChecker (Checker, Path, Entry, ExpectSuccess);
   }
 
   if (unlink (Path) != 0 && Result == 0) {
@@ -566,12 +662,20 @@ main (
   }
 
   Failures = 0;
-  Failures += RunFixture (Arguments[1], Arguments[2], "valid", ElfFixtureValid, 1);
+  Failures += RunFixture (
+                Arguments[1],
+                Arguments[2],
+                "valid",
+                ElfFixtureValid,
+                "Cdk2NativeStageEntry",
+                1
+                );
   Failures += RunFixture (
                 Arguments[1],
                 Arguments[2],
                 "bad-load-file-range",
                 ElfFixtureBadLoadFileRange,
+                "Cdk2NativeStageEntry",
                 0
                 );
   Failures += RunFixture (
@@ -579,6 +683,7 @@ main (
                 Arguments[2],
                 "overlapping-load",
                 ElfFixtureOverlappingLoad,
+                "Cdk2NativeStageEntry",
                 0
                 );
   Failures += RunFixture (
@@ -586,6 +691,7 @@ main (
                 Arguments[2],
                 "wrapping-load",
                 ElfFixtureWrappingLoad,
+                "Cdk2NativeStageEntry",
                 0
                 );
   Failures += RunFixture (
@@ -593,6 +699,31 @@ main (
                 Arguments[2],
                 "bss-outside-image",
                 ElfFixtureBssOutsideImage,
+                "Cdk2NativeStageEntry",
+                0
+                );
+  Failures += RunFixture (
+                Arguments[1],
+                Arguments[2],
+                "coreboot-valid",
+                ElfFixtureCorebootValid,
+                "Cdk2CorebootEntry32",
+                1
+                );
+  Failures += RunFixture (
+                Arguments[1],
+                Arguments[2],
+                "coreboot-bad-map-top",
+                ElfFixtureCorebootBadMapTop,
+                "Cdk2CorebootEntry32",
+                0
+                );
+  Failures += RunFixture (
+                Arguments[1],
+                Arguments[2],
+                "coreboot-bad-stack-top",
+                ElfFixtureCorebootBadStackTop,
+                "Cdk2CorebootEntry32",
                 0
                 );
 
