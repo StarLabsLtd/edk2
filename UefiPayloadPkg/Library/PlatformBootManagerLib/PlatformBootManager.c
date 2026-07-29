@@ -1282,8 +1282,13 @@ PlatformHasUsableStorageBootPath (
     if (!EFI_ERROR (Status)) {
       if (PlatformBootOptionUsesStorage (&BootNextOption)) {
         UsableStorageBootPath = PlatformBootOptionHasLoadableStoragePath (&BootNextOption);
-        EfiBootManagerFreeLoadOption (&BootNextOption);
-        return UsableStorageBootPath;
+        if (UsableStorageBootPath) {
+          EfiBootManagerFreeLoadOption (&BootNextOption);
+          return TRUE;
+        }
+
+        DEBUG ((DEBUG_INFO, "BootNext storage path is unavailable; checking BootOrder\n"));
+        // Fall through to BootOrder when BootNext is stale.
       }
 
       EfiBootManagerFreeLoadOption (&BootNextOption);
