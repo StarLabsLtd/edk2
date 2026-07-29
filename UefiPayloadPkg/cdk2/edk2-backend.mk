@@ -146,6 +146,10 @@ CDK2_BACKEND_DXE_FV_GUIDS := $(CDK2_BUILD_DIR)/cdk2-dxe-fv-guids.txt
 CDK2_BACKEND_SELECTED_DXE_GUIDS := $(CDK2_BUILD_DIR)/cdk2-selected-dxe-guids.txt
 CDK2_BACKEND_SELECTED_MODULE_FILES := $(addprefix $(CDK2_ROOT)/,$(CDK2_SELECTED_MODULES))
 CDK2_BACKEND_PAYLOAD_LIBRARY_FILES := $(addprefix $(CDK2_ROOT)/,$(CDK2_PAYLOAD_LIBRARIES))
+# FDF-owned DXE files without INF metadata must be explicit cdk2 selections.
+CDK2_BACKEND_DXE_APRIORI_GUID := FC510EE7-FFDC-11D4-BD41-0080C73C8881
+CDK2_BACKEND_DXE_FFS_PAD_GUID := FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF
+CDK2_BACKEND_LOW_BATTERY_LOGO_GUID := BE6E1243-682C-4186-8151-448D48AFE341
 
 $(CDK2_BACKEND_METADATA): $(CDK2_MANIFEST) \
 		$(CDK2_BACKEND_METADATA_TOOL) $(CDK2_BACKEND_SELECTED_MODULE_FILES) \
@@ -190,17 +194,33 @@ diff -u "$(CDK2_BACKEND_SELECTED_MODULES)" "$(CDK2_BACKEND_METADATA_MODULES)" ||
 test -s "$(CDK2_BACKEND_DXE_FV_TEXT)" && \
 awk '/^0x[[:xdigit:]]+[[:space:]]+[[:xdigit:]-]+$$/ { print toupper($$2) }' \
   "$(CDK2_BACKEND_DXE_FV_TEXT)" | sort -u > "$(CDK2_BACKEND_DXE_FV_GUIDS)" && \
-awk 'NR == FNR { selected[$$0] = 1; next } \
-  ($$2 in selected) && ($$2 != "$(CDK2_BACKEND_ENTRY_MODULE)") { print $$1, $$2 }' \
-  "$(CDK2_BACKEND_SELECTED_MODULES)" "$(CDK2_BACKEND_MODULE_GUIDS)" | sort -k2,2 > "$(CDK2_BACKEND_SELECTED_DXE_GUIDS)" && \
+{ \
+  awk 'NR == FNR { selected[$$0] = 1; next } \
+    ($$2 in selected) && ($$2 != "$(CDK2_BACKEND_ENTRY_MODULE)") { print $$1, $$2 }' \
+    "$(CDK2_BACKEND_SELECTED_MODULES)" "$(CDK2_BACKEND_MODULE_GUIDS)"; \
+  printf '%s\n' \
+    "$(CDK2_BACKEND_DXE_APRIORI_GUID) UefiPayloadPkg/UefiPayloadPkg.fdf:APRIORI_DXE" \
+    "$(CDK2_BACKEND_LOW_BATTERY_LOGO_GUID) UefiPayloadPkg/Library/PlatformBootManagerLib/LowBatteryLogo.bmp"; \
+} | sort -k2,2 > "$(CDK2_BACKEND_SELECTED_DXE_GUIDS)" && \
 awk 'NR == FNR { fv[$$1] = 1; next } \
-  !($$1 in fv) { print "selected backend module missing from DXE FV: " $$2; missing = 1 } \
+  !($$1 in fv) { print "selected cdk2 DXE GUID missing from EDK2 DXE FV: " $$1 " " $$2 > "/dev/stderr"; missing = 1 } \
   END { exit missing ? 1 : 0 }' \
   "$(CDK2_BACKEND_DXE_FV_GUIDS)" "$(CDK2_BACKEND_SELECTED_DXE_GUIDS)" || { \
   echo "cdk2 EDK2 DXE FV placement mismatch" >&2; exit 1; \
 } && \
+entry_guid=$$(awk -v entry="$(CDK2_BACKEND_ENTRY_MODULE)" '$$2 == entry { print toupper($$1); exit }' "$(CDK2_BACKEND_MODULE_GUIDS)") && \
+awk -v entry_guid="$$entry_guid" -v pad_guid="$(CDK2_BACKEND_DXE_FFS_PAD_GUID)" 'NR == FNR { selected[$$1] = $$2; next } \
+  ($$1 == entry_guid) || ($$1 == pad_guid) { next } \
+  !($$1 in selected) { print "unexpected DXE FV GUID selected for cdk2 packing: " $$1 > "/dev/stderr"; unexpected = 1 } \
+  END { exit unexpected ? 1 : 0 }' \
+  "$(CDK2_BACKEND_SELECTED_DXE_GUIDS)" "$(CDK2_BACKEND_DXE_FV_GUIDS)" || { \
+  echo "cdk2 EDK2 DXE FV contains GUIDs outside the cdk2 selected map" >&2; exit 1; \
+} && \
 find "$(CDK2_BACKEND_BUILD_DIR)/FV/Ffs" -type f -iname '*.ffs' -print | sort | \
-awk 'NR == FNR { dxe[$$1] = 1; next } \
+awk -v entry_guid="$$entry_guid" -v pad_guid="$(CDK2_BACKEND_DXE_FFS_PAD_GUID)" 'NR == FNR { \
+    if (($$1 != entry_guid) && ($$1 != pad_guid)) { dxe[$$1] = 1 } \
+    next \
+  } \
   { \
     file = $$NF; \
     sub(/^.*\//, "", file); \

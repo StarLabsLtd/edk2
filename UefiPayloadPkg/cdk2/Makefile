@@ -168,6 +168,7 @@ metadata: $(CDK2_BACKEND_METADATA) $(CDK2_BACKEND_MODULE_GUIDS)
 
 metadata-test:
 	@$(PYTHON) "$(CDK2_DIR)/module_metadata_test.py"
+	@$(PYTHON) "$(CDK2_DIR)/edk2_backend_test.py"
 
 $(CDK2_MANIFEST): $(CDK2_CONFIG_HEADER) $(CDK2_BACKEND_FILE) $(CDK2_DIR)/modules.mk $(CDK2_BACKEND_INPUTS) $(CDK2_BACKEND_CHECK_DEPS)
 	$(CDK2_BACKEND_CHECK)
