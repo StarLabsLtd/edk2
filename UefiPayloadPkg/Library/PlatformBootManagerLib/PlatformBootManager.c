@@ -21,6 +21,8 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Protocol/PciIo.h>
 
 #define PLATFORM_USB_MASS_STORAGE_CLASS  0x08
+#define PLATFORM_REMOVABLE_REFRESH_RETRIES   10
+#define PLATFORM_REMOVABLE_REFRESH_STALL_US  100000
 
 typedef struct {
   USB_CLASS_DEVICE_PATH       UsbClass;
@@ -984,6 +986,48 @@ PlatformBootOptionUsesInternalDisk (
 
 STATIC
 BOOLEAN
+PlatformBootOptionUsesStorage (
+  IN CONST EFI_BOOT_MANAGER_LOAD_OPTION  *BootOption
+  )
+{
+  EFI_DEVICE_PATH_PROTOCOL  *Node;
+
+  if ((BootOption == NULL) || (BootOption->FilePath == NULL)) {
+    return FALSE;
+  }
+
+  for (Node = BootOption->FilePath; !IsDevicePathEnd (Node); Node = NextDevicePathNode (Node)) {
+    if (DevicePathType (Node) == MESSAGING_DEVICE_PATH) {
+      switch (DevicePathSubType (Node)) {
+        case MSG_ATAPI_DP:
+        case MSG_SCSI_DP:
+        case MSG_USB_DP:
+        case MSG_USB_CLASS_DP:
+        case MSG_USB_WWID_DP:
+        case MSG_SATA_DP:
+        case MSG_NVME_NAMESPACE_DP:
+        case MSG_UFS_DP:
+        case MSG_SD_DP:
+        case MSG_EMMC_DP:
+          return TRUE;
+        default:
+          break;
+      }
+    }
+
+    if ((DevicePathType (Node) == MEDIA_DEVICE_PATH) &&
+        ((DevicePathSubType (Node) == MEDIA_HARDDRIVE_DP) ||
+         (DevicePathSubType (Node) == MEDIA_CDROM_DP)))
+    {
+      return TRUE;
+    }
+  }
+
+  return FALSE;
+}
+
+STATIC
+BOOLEAN
 PlatformBootImageIsValid (
   IN CONST VOID  *FileBuffer,
   IN UINTN       FileSize
@@ -1026,8 +1070,9 @@ PlatformBootImageIsValid (
 
 STATIC
 BOOLEAN
-PlatformBootOptionHasLoadableInternalDiskPath (
-  IN CONST EFI_BOOT_MANAGER_LOAD_OPTION  *BootOption
+PlatformBootOptionHasLoadablePath (
+  IN CONST EFI_BOOT_MANAGER_LOAD_OPTION  *BootOption,
+  IN CONST CHAR8                         *LogPrefix
   )
 {
   EFI_STATUS                Status;
@@ -1039,7 +1084,7 @@ PlatformBootOptionHasLoadableInternalDiskPath (
   UINT32                    AuthenticationStatus;
   BOOLEAN                   Found;
 
-  if (!PlatformBootOptionUsesInternalDisk (BootOption)) {
+  if ((BootOption == NULL) || (BootOption->FilePath == NULL)) {
     return FALSE;
   }
 
@@ -1089,12 +1134,26 @@ PlatformBootOptionHasLoadableInternalDiskPath (
 
   DEBUG ((
     DEBUG_INFO,
-    "Internal boot path validation for %s: %a\n",
+    "%a boot path validation for %s: %a\n",
+    (LogPrefix != NULL) ? LogPrefix : "Boot",
     (BootOption->Description != NULL) ? BootOption->Description : L"<unknown>",
     Found ? "found" : "not found"
     ));
 
   return Found;
+}
+
+STATIC
+BOOLEAN
+PlatformBootOptionHasLoadableInternalDiskPath (
+  IN CONST EFI_BOOT_MANAGER_LOAD_OPTION  *BootOption
+  )
+{
+  if (!PlatformBootOptionUsesInternalDisk (BootOption)) {
+    return FALSE;
+  }
+
+  return PlatformBootOptionHasLoadablePath (BootOption, "Internal");
 }
 
 STATIC
@@ -1177,7 +1236,110 @@ PlatformHasUsableInternalBootPath (
 }
 
 STATIC
-VOID
+BOOLEAN
+PlatformBootOptionHasLoadableStoragePath (
+  IN CONST EFI_BOOT_MANAGER_LOAD_OPTION  *BootOption
+  )
+{
+  if (!PlatformBootOptionUsesStorage (BootOption)) {
+    return FALSE;
+  }
+
+  return PlatformBootOptionHasLoadablePath (BootOption, "Storage");
+}
+
+STATIC
+BOOLEAN
+PlatformHasUsableStorageBootPath (
+  VOID
+  )
+{
+  EFI_STATUS                    Status;
+  UINT16                        BootNext;
+  UINTN                         DataSize;
+  CHAR16                        BootOptionName[16];
+  EFI_BOOT_MANAGER_LOAD_OPTION  BootNextOption;
+  EFI_BOOT_MANAGER_LOAD_OPTION  *BootOptions;
+  UINTN                         BootOptionCount;
+  UINTN                         Index;
+  BOOLEAN                       UsableStorageBootPath;
+
+  BootOptions           = NULL;
+  UsableStorageBootPath = FALSE;
+  ZeroMem (&BootNextOption, sizeof (BootNextOption));
+
+  DataSize = sizeof (BootNext);
+  Status   = gRT->GetVariable (
+                    EFI_BOOT_NEXT_VARIABLE_NAME,
+                    &gEfiGlobalVariableGuid,
+                    NULL,
+                    &DataSize,
+                    &BootNext
+                    );
+  if (!EFI_ERROR (Status) && (DataSize == sizeof (BootNext))) {
+    UnicodeSPrint (BootOptionName, sizeof (BootOptionName), L"Boot%04x", BootNext);
+    Status = EfiBootManagerVariableToLoadOption (BootOptionName, &BootNextOption);
+    if (!EFI_ERROR (Status)) {
+      if (PlatformBootOptionUsesStorage (&BootNextOption)) {
+        UsableStorageBootPath = PlatformBootOptionHasLoadableStoragePath (&BootNextOption);
+        EfiBootManagerFreeLoadOption (&BootNextOption);
+        return UsableStorageBootPath;
+      }
+
+      EfiBootManagerFreeLoadOption (&BootNextOption);
+    } else {
+      DEBUG ((DEBUG_INFO, "BootNext option %04x is unavailable: %r\n", BootNext, Status));
+    }
+  }
+
+  BootOptions = EfiBootManagerGetLoadOptions (&BootOptionCount, LoadOptionTypeBoot);
+
+  for (Index = 0; Index < BootOptionCount; Index++) {
+    if ((BootOptions[Index].Attributes & LOAD_OPTION_ACTIVE) == 0) {
+      continue;
+    }
+
+    if ((BootOptions[Index].Attributes & LOAD_OPTION_CATEGORY) != LOAD_OPTION_CATEGORY_BOOT) {
+      continue;
+    }
+
+    if (PlatformBootOptionHasLoadableStoragePath (&BootOptions[Index])) {
+      UsableStorageBootPath = TRUE;
+      break;
+    }
+  }
+
+  if (!UsableStorageBootPath) {
+    DEBUG ((DEBUG_INFO, "No usable storage boot path found\n"));
+  }
+
+  EfiBootManagerFreeLoadOptions (BootOptions, BootOptionCount);
+  return UsableStorageBootPath;
+}
+
+STATIC
+BOOLEAN
+PlatformPciControllerIsUsb (
+  IN CONST UINT8  ClassCode[3]
+  )
+{
+  return (ClassCode[2] == PCI_CLASS_SERIAL) &&
+         (ClassCode[1] == PCI_CLASS_SERIAL_USB);
+}
+
+STATIC
+BOOLEAN
+PlatformPciControllerIsSdMmc (
+  IN CONST UINT8  ClassCode[3]
+  )
+{
+  return (ClassCode[2] == PCI_CLASS_SYSTEM_PERIPHERAL) &&
+         (ClassCode[1] == PCI_SUBCLASS_SD_HOST_CONTROLLER) &&
+         ((ClassCode[0] == 0x00) || (ClassCode[0] == 0x01));
+}
+
+STATIC
+BOOLEAN
 PlatformConnectRemovableMedia (
   VOID
   )
@@ -1187,6 +1349,7 @@ PlatformConnectRemovableMedia (
   EFI_PCI_IO_PROTOCOL  *PciIo;
   UINTN                HandleCount;
   UINTN                Index;
+  UINTN                Retry;
   UINT8                ClassCode[3];
 
   Status = gBS->LocateHandleBuffer (
@@ -1198,7 +1361,8 @@ PlatformConnectRemovableMedia (
                   );
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_INFO, "No PCI handles available for removable-media discovery\n"));
-    return;
+    EfiBootManagerRefreshAllBootOption ();
+    return PlatformHasUsableStorageBootPath ();
   }
 
   for (Index = 0; Index < HandleCount; Index++) {
@@ -1208,24 +1372,46 @@ PlatformConnectRemovableMedia (
     }
 
     Status = PciIo->Pci.Read (PciIo, EfiPciIoWidthUint8, 0x09, sizeof (ClassCode), ClassCode);
-    if (EFI_ERROR (Status) ||
-        (ClassCode[2] != PCI_CLASS_SERIAL) ||
-        (ClassCode[1] != PCI_CLASS_SERIAL_USB))
-    {
+    if (EFI_ERROR (Status)) {
       continue;
     }
 
-    DEBUG ((DEBUG_INFO, "Connecting USB mass-storage paths on PCI controller\n"));
-    gBS->ConnectController (
+    if (PlatformPciControllerIsUsb (ClassCode)) {
+      DEBUG ((DEBUG_INFO, "Connecting USB mass-storage paths on PCI controller\n"));
+      gBS->ConnectController (
              Handles[Index],
              NULL,
              (EFI_DEVICE_PATH_PROTOCOL *)&mUsbMassStorageDevicePath,
              TRUE
              );
+      continue;
+    }
+
+    if (PlatformPciControllerIsSdMmc (ClassCode)) {
+      DEBUG ((DEBUG_INFO, "Connecting SD/MMC paths on PCI controller\n"));
+      gBS->ConnectController (
+             Handles[Index],
+             NULL,
+             NULL,
+             TRUE
+             );
+    }
   }
 
   FreePool (Handles);
-  EfiBootManagerRefreshAllBootOption ();
+
+  for (Retry = 0; Retry <= PLATFORM_REMOVABLE_REFRESH_RETRIES; Retry++) {
+    EfiBootManagerRefreshAllBootOption ();
+    if (PlatformHasUsableStorageBootPath ()) {
+      return TRUE;
+    }
+
+    if (Retry < PLATFORM_REMOVABLE_REFRESH_RETRIES) {
+      gBS->Stall (PLATFORM_REMOVABLE_REFRESH_STALL_US);
+    }
+  }
+
+  return FALSE;
 }
 
 /**
@@ -1357,7 +1543,14 @@ PlatformBootManagerAfterConsole (
         DEBUG_INFO,
         "No usable internal boot path; discovering removable media\n"
         ));
-      PlatformConnectRemovableMedia ();
+      if (!PlatformConnectRemovableMedia ()) {
+        DEBUG ((
+          DEBUG_INFO,
+          "Targeted removable-media discovery produced no usable storage boot path; connecting all devices\n"
+          ));
+        EfiBootManagerConnectAll ();
+        EfiBootManagerRefreshAllBootOption ();
+      }
     } else {
       DEBUG ((
         DEBUG_INFO,
