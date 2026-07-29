@@ -204,7 +204,8 @@ Cdk2NativeLoadPe32Plus (
       Optional->SizeOfHeaders > Optional->SizeOfImage ||
       Optional->SizeOfHeaders > ImageSize ||
       Optional->AddressOfEntryPoint >= Optional->SizeOfImage ||
-      Optional->SizeOfImage > DestinationSize)
+      Optional->SizeOfImage > DestinationSize ||
+      !Cdk2NativeRangeValid (Destination, Optional->SizeOfImage, MAX_UINTN))
   {
     return EFI_COMPROMISED_DATA;
   }

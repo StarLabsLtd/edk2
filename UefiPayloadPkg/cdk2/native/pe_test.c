@@ -123,6 +123,17 @@ main (
              );
   Failures += Expect (Status == EFI_COMPROMISED_DATA, "destination exhaustion accepted");
 
+  Status = Cdk2NativeLoadPe32Plus (
+             Image,
+             sizeof (Image),
+             (EFI_PHYSICAL_ADDRESS)(MAX_UINT64 - 0x1000U),
+             sizeof (Loaded),
+             &LoadedBase,
+             &LoadedSize,
+             &EntryPoint
+             );
+  Failures += Expect (Status == EFI_COMPROMISED_DATA, "wrapping destination range accepted");
+
   ((EFI_IMAGE_SECTION_HEADER *)(VOID *)(Image + 0x80 + sizeof (EFI_IMAGE_NT_HEADERS64)))[1].VirtualAddress = 0x1000;
   Status = Cdk2NativeLoadPe32Plus (
              Image,
