@@ -42,6 +42,17 @@ Cdk2NativeRangeContains (
   return Address >= Base && Address < End;
 }
 
+STATIC
+VOID
+Cdk2NativeClearImageState (
+  IN OUT CDK2_NATIVE_CONTEXT  *Context
+  )
+{
+  Context->ImageBase       = 0;
+  Context->ImageSize       = 0;
+  Context->ImageEntryPoint = 0;
+}
+
 EFI_STATUS
 EFIAPI
 Cdk2NativeInitializeServices (
@@ -478,9 +489,7 @@ Cdk2NativeLoadImage (
   return EFI_SUCCESS;
 
 Failed:
-  Context->ImageBase       = 0;
-  Context->ImageSize       = 0;
-  Context->ImageEntryPoint = 0;
+  Cdk2NativeClearImageState (Context);
   *EntryPoint = 0;
   return Status;
 }
@@ -661,10 +670,7 @@ Cdk2NativeValidateEntry (
     return EFI_INVALID_PARAMETER;
   }
 
-  Context->ImageBase       = ImageBase;
-  Context->ImageSize       = ImageSize;
-  Context->ImageEntryPoint = ImageEntryPoint;
-
+  Cdk2NativeClearImageState (Context);
   Status = Cdk2NativeAdoptHobList (Context, Handoff);
   if (EFI_ERROR (Status)) {
     return Status;
@@ -674,5 +680,13 @@ Cdk2NativeValidateEntry (
     return EFI_NOT_READY;
   }
 
-  return Context->Services.Handoff (Context);
+  Context->ImageBase       = ImageBase;
+  Context->ImageSize       = ImageSize;
+  Context->ImageEntryPoint = ImageEntryPoint;
+  Status = Context->Services.Handoff (Context);
+  if (EFI_ERROR (Status)) {
+    Cdk2NativeClearImageState (Context);
+  }
+
+  return Status;
 }

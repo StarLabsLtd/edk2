@@ -350,8 +350,10 @@ main (void)
   CDK2_NATIVE_CONTEXT    Allocator = { 0 };
   EFI_HOB_HANDOFF_INFO_TABLE  *AllocatorHob;
   EFI_HOB_HANDOFF_INFO_TABLE  *BelowPayloadHob;
+  EFI_HOB_HANDOFF_INFO_TABLE  RejectedHob;
   EFI_HOB_GENERIC_HEADER      *End;
   EFI_HOB_GENERIC_HEADER      *MalformedHob;
+  EFI_HOB_GENERIC_HEADER      RejectedEnd;
   EFI_PHYSICAL_ADDRESS   EntryPoint;
   EFI_PHYSICAL_ADDRESS   AllocationBase;
   UINTN                  HobMemBase;
@@ -471,6 +473,33 @@ main (void)
                        Context.ImageSize,
                        Context.ImageEntryPoint
                        ) == EFI_SUCCESS, "existing HOB handoff validation");
+
+  RejectedHob = (EFI_HOB_HANDOFF_INFO_TABLE){ 0 };
+  RejectedEnd = (EFI_HOB_GENERIC_HEADER){ 0 };
+  RejectedHob.Header.HobType   = EFI_HOB_TYPE_HANDOFF;
+  RejectedHob.Header.HobLength = sizeof (RejectedHob);
+  RejectedHob.EfiMemoryBottom  = 0x00100000;
+  RejectedHob.EfiMemoryTop     = 0x00400000;
+  RejectedHob.EfiFreeMemoryBottom = 0x00300000;
+  RejectedHob.EfiFreeMemoryTop    = 0x00200000;
+  RejectedHob.EfiEndOfHobList  = (EFI_PHYSICAL_ADDRESS)(UINTN)&RejectedEnd;
+  RejectedEnd.HobType          = EFI_HOB_TYPE_END_OF_HOB_LIST;
+  RejectedEnd.HobLength        = sizeof (RejectedEnd);
+  LateInitBefore = mLateInitCalls;
+  TransferBefore = mTransferCalls;
+  Failures += Expect (Cdk2NativeValidateEntry (
+                       &Context,
+                       &RejectedHob,
+                       0x00500000,
+                       0x00010000,
+                       0x00501000
+                       ) == EFI_COMPROMISED_DATA, "rejected HOB validation status");
+  Failures += Expect (Context.ImageBase == 0, "rejected HOB validation clears image base");
+  Failures += Expect (Context.ImageSize == 0, "rejected HOB validation clears image size");
+  Failures += Expect (Context.ImageEntryPoint == 0, "rejected HOB validation clears entry point");
+  Failures += Expect (Cdk2NativeTransfer (&Context) == EFI_NOT_READY, "rejected HOB validation blocks transfer");
+  Failures += Expect (mLateInitCalls == LateInitBefore, "late-init skipped after rejected HOB validation");
+  Failures += Expect (mTransferCalls == TransferBefore, "transfer skipped after rejected HOB validation");
 
   Failures += Expect (Cdk2NativeAdoptHobList (&Context, NULL) == EFI_INVALID_PARAMETER, "null HOB rejection");
   AllocatorHob = TestConstructHobs (
