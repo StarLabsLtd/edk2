@@ -204,6 +204,35 @@ BuildNoRelocPe32Plus (
 }
 
 static UINTN
+BuildWrappedRelocPe32Plus (
+  UINT8  *Storage,
+  UINTN   StorageSize
+  )
+{
+  EFI_IMAGE_NT_HEADERS64    *Nt;
+  EFI_IMAGE_BASE_RELOCATION *Reloc;
+  UINT16                    *RelocEntry;
+
+  if (BuildNoRelocPe32Plus (Storage, StorageSize) == 0) {
+    return 0;
+  }
+
+  Nt = (EFI_IMAGE_NT_HEADERS64 *)(VOID *)(Storage + 0x80);
+  Nt->OptionalHeader.ImageBase = 0x00400000;
+  Nt->OptionalHeader.DataDirectory[EFI_IMAGE_DIRECTORY_ENTRY_BASERELOC].VirtualAddress = 0x1100;
+  Nt->OptionalHeader.DataDirectory[EFI_IMAGE_DIRECTORY_ENTRY_BASERELOC].Size = 12;
+  *(UINT64 *)(VOID *)(Storage + 0x200) = 0x00400123;
+
+  Reloc = (EFI_IMAGE_BASE_RELOCATION *)(VOID *)(Storage + 0x300);
+  Reloc->VirtualAddress = MAX_UINT32 - 0x0fffU + 1U;
+  Reloc->SizeOfBlock    = 12;
+  RelocEntry = (UINT16 *)(VOID *)(Reloc + 1);
+  RelocEntry[0] = (UINT16)((EFI_IMAGE_REL_BASED_DIR64 << 12) | 0x0fffU);
+  RelocEntry[1] = 0;
+  return TEST_ENTRY_SIZE;
+}
+
+static UINTN
 BuildDxeVolume (
   UINT8  *Storage,
   UINTN  StorageSize
@@ -399,11 +428,13 @@ RunPacker (
   const char  *Packer,
   const char  *OutputPath,
   const char  *EntryPath,
-  const char  *DxePath
+  const char  *DxePath,
+  int          ExpectSuccess
   )
 {
   pid_t  Child;
   int    Status;
+  int    Succeeded;
 
   Child = fork ();
   if (Child == 0) {
@@ -433,8 +464,13 @@ RunPacker (
     return 1;
   }
 
-  if (!WIFEXITED (Status) || (WEXITSTATUS (Status) != 0)) {
-    fprintf (stderr, "cdk2 fvpack test: packer failed\n");
+  Succeeded = WIFEXITED (Status) && (WEXITSTATUS (Status) == 0);
+  if (ExpectSuccess ? !Succeeded : (!WIFEXITED (Status) || Succeeded)) {
+    fprintf (
+      stderr,
+      "cdk2 fvpack test: packer %s unexpectedly\n",
+      Succeeded ? "succeeded" : "did not exit successfully"
+      );
     return 1;
   }
 
@@ -487,11 +523,11 @@ RunFlatPacker (
   }
 
   Succeeded = WIFEXITED (Status) && (WEXITSTATUS (Status) == 0);
-  if (Succeeded != ExpectSuccess) {
+  if (ExpectSuccess ? !Succeeded : (!WIFEXITED (Status) || Succeeded)) {
     fprintf (
       stderr,
       "cdk2 fvpack test: flat packer %s unexpectedly\n",
-      Succeeded ? "succeeded" : "failed"
+      Succeeded ? "succeeded" : "did not exit successfully"
       );
     return 1;
   }
@@ -651,7 +687,7 @@ main (
   }
 
   if (Failures == 0) {
-    Failures += RunPacker (Arguments[1], OutputPath, EntryPath, DxePath);
+    Failures += RunPacker (Arguments[1], OutputPath, EntryPath, DxePath, 1);
   }
 
   if (Failures == 0) {
@@ -672,6 +708,25 @@ main (
         (unsigned long long)ExpectedBase
         );
       Failures++;
+    }
+  }
+
+  if (Failures == 0) {
+    EntrySize = BuildWrappedRelocPe32Plus (Entry, sizeof (Entry));
+    Failures += Expect (EntrySize != 0, "cannot build wrapped-relocation PE32+ entry");
+    if (Failures == 0) {
+      Failures += WriteBinaryFile (EntryPath, Entry, EntrySize);
+    }
+    if (Failures == 0) {
+      Failures += RunPacker (Arguments[1], OutputPath, EntryPath, DxePath, 0);
+    }
+  }
+
+  if (Failures == 0) {
+    EntrySize = BuildNoRelocPe32Plus (Entry, sizeof (Entry));
+    Failures += Expect (EntrySize != 0, "cannot rebuild test PE32+ entry");
+    if (Failures == 0) {
+      Failures += WriteBinaryFile (EntryPath, Entry, EntrySize);
     }
   }
 

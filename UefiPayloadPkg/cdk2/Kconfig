@@ -155,6 +155,14 @@ config CDK2_CBMEM_CONSOLE
     default n
     depends on CDK2_SERIAL
 
+config CDK2_CBMEM_TIMESTAMPS
+    bool "Publish payload timestamps through CBMEM"
+    default n
+    depends on CDK2_PAYLOAD
+    help
+      Record cdk2 entry, HOB, DXE load, and handoff timestamps in the
+      coreboot CBMEM timestamp table.
+
 config CDK2_BOOT_TIMEOUT
     int "Default boot menu timeout in seconds"
     range 0 60

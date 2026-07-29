@@ -62,6 +62,7 @@
   StackCheckLib
   UefiCpuBaseArchSupportLib
   MemoryAllocationLib
+  CbMemLib
   Cdk2PlatformLib
 
 [Guids]

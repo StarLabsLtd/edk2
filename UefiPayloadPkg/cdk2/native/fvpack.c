@@ -323,6 +323,7 @@ RelocatePe (
   uint16_t       Offset;
   uint16_t       OptionalMagic;
   size_t         FixupOffset;
+  uint64_t       FixupRva;
   uint64_t       Value;
 
   if ((Image->Size < 0x40) || (Get16 (Image->Data) != 0x5A4D)) {
@@ -414,7 +415,17 @@ RelocatePe (
         Fail ("unsupported payload relocation type");
       }
 
-      FixupOffset = RvaToFileOffset (Image->Data, Image->Size, PeOffset, PageRva + Offset);
+      FixupRva = (uint64_t)PageRva + Offset;
+      if (FixupRva > UINT32_MAX) {
+        Fail ("payload relocation fixup RVA overflows");
+      }
+
+      FixupOffset = RvaToFileOffset (
+                      Image->Data,
+                      Image->Size,
+                      PeOffset,
+                      (uint32_t)FixupRva
+                      );
       if (FixupOffset > Image->Size || Image->Size - FixupOffset < FixupSize) {
         Fail ("payload relocation fixup is outside the entry image");
       }

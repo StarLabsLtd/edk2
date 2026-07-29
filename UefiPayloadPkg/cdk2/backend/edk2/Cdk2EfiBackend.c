@@ -7,6 +7,7 @@
 **/
 
 #include <Library/Cdk2NativeServices.h>
+#include <Library/CbMemLib.h>
 
 #include "Cdk2EfiBackend.h"
 #include "entry/Cdk2EfiEntry.h"
@@ -21,8 +22,16 @@ Cdk2EfiLoadDxeCore (
   OUT UINTN                   *ImageSize
   )
 {
+  EFI_STATUS  Status;
+
   (VOID)Context;
-  return LoadDxeCore (EntryPoint, ImageBase, ImageSize);
+  CbMemTimestampAdd (CBMEM_TS_UPL_DXE_LOAD_START);
+  Status = LoadDxeCore (EntryPoint, ImageBase, ImageSize);
+  if (!EFI_ERROR (Status)) {
+    CbMemTimestampAdd (CBMEM_TS_UPL_DXE_LOAD_END);
+  }
+
+  return Status;
 }
 
 EFI_STATUS
@@ -74,6 +83,7 @@ Cdk2EfiTransferToDxeCore (
   }
 
   Hob.Raw = Context->HobList;
+  CbMemTimestampAdd (CBMEM_TS_UPL_DXE_HANDOFF);
   HandOffToDxeCore (Context->ImageEntryPoint, Hob);
   return EFI_DEVICE_ERROR;
 }

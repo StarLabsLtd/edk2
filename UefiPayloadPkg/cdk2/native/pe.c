@@ -68,7 +68,7 @@ Cdk2NativeApplyRelocations (
   UINT32                          Offset;
   UINT32                          BlockSize;
   UINT32                          BlockEnd;
-  UINT32                          FixupRva;
+  UINT64                          FixupRva;
   UINTN                           EntryCount;
   UINTN                           EntryIndex;
   UINT16                          Entry;
@@ -121,12 +121,14 @@ Cdk2NativeApplyRelocations (
         return EFI_UNSUPPORTED;
       }
 
-      FixupRva = Block->VirtualAddress + (Entry & 0x0fffU);
-      if (!Cdk2NativeRangeValid (FixupRva, sizeof (UINT64), ImageSize)) {
+      FixupRva = (UINT64)Block->VirtualAddress + (Entry & 0x0fffU);
+      if ((FixupRva > MAX_UINT32) ||
+          !Cdk2NativeRangeValid (FixupRva, sizeof (UINT64), ImageSize))
+      {
         return EFI_COMPROMISED_DATA;
       }
 
-      Fixup  = (UINT64 *)(VOID *)(LoadedImage + FixupRva);
+      Fixup  = (UINT64 *)(VOID *)(LoadedImage + (UINT32)FixupRva);
       *Fixup = *Fixup + Adjust;
     }
 

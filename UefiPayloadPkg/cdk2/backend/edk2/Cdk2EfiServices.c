@@ -7,6 +7,7 @@
 **/
 
 #include <Library/Cdk2NativeServices.h>
+#include <Library/CbMemLib.h>
 
 #include "Cdk2EfiBackend.h"
 #include "Cdk2EfiHobs.h"
@@ -39,6 +40,12 @@ Cdk2EfiPopulateHobs (
     DEBUG ((DEBUG_ERROR, "Cdk2EfiBuildHobFromBl Status = %r\n", Status));
     return Status;
   }
+
+  Status = CbMemPublishTableHob ();
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_WARN, "CBMEM: failed to publish table HOB: %r\n", Status));
+  }
+  CbMemTimestampAdd (CBMEM_TS_UPL_HOB_READY);
 
   Cdk2EfiBuildGenericHob ();
 
@@ -138,11 +145,20 @@ Cdk2EfiSetBootloaderParameter (
   IN OUT CDK2_NATIVE_CONTEXT  *Context
   )
 {
+  EFI_STATUS  Status;
+
   if (Context == NULL) {
     return EFI_INVALID_PARAMETER;
   }
 
-  return PcdSet64S (PcdBootloaderParameter, Context->BootloaderParameter);
+  Status = PcdSet64S (PcdBootloaderParameter, Context->BootloaderParameter);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  CbMemTimestampAdd (CBMEM_TS_UPL_ENTRY);
+  CbMemLogSummary ();
+  return EFI_SUCCESS;
 }
 
 EFI_STATUS

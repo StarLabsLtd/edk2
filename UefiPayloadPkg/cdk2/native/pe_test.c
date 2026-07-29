@@ -131,9 +131,31 @@ main (
              &LoadedBase,
              &LoadedSize,
              &EntryPoint
-             );
+  );
   Failures += Expect (Status == EFI_COMPROMISED_DATA, "wrapping destination range accepted");
 
+  BuildImage (Image, sizeof (Image));
+  {
+    EFI_IMAGE_BASE_RELOCATION  *Reloc;
+    UINT16                     *RelocEntry;
+
+    Reloc = (EFI_IMAGE_BASE_RELOCATION *)(VOID *)(Image + 0x400);
+    Reloc->VirtualAddress = MAX_UINT32;
+    RelocEntry = (UINT16 *)(VOID *)(Reloc + 1);
+    RelocEntry[0] = (UINT16)((EFI_IMAGE_REL_BASED_DIR64 << 12) | 1);
+    Status = Cdk2NativeLoadPe32Plus (
+               Image,
+               sizeof (Image),
+               (EFI_PHYSICAL_ADDRESS)(UINTN)Loaded,
+               sizeof (Loaded),
+               &LoadedBase,
+               &LoadedSize,
+               &EntryPoint
+               );
+    Failures += Expect (Status == EFI_COMPROMISED_DATA, "relocation RVA wraparound accepted");
+  }
+
+  BuildImage (Image, sizeof (Image));
   ((EFI_IMAGE_SECTION_HEADER *)(VOID *)(Image + 0x80 + sizeof (EFI_IMAGE_NT_HEADERS64)))[1].VirtualAddress = 0x1000;
   Status = Cdk2NativeLoadPe32Plus (
              Image,
