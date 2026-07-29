@@ -92,6 +92,16 @@ Cdk2CorebootUintnRangeFits (
   return Length <= (UINT64)(MAX_UINTN - (UINTN)Base);
 }
 
+STATIC
+BOOLEAN
+Cdk2CorebootDescriptorRangeValid (
+  IN EFI_PHYSICAL_ADDRESS  BaseAddress,
+  IN UINT64                Length
+  )
+{
+  return (Length != 0) && (BaseAddress <= MAX_UINT64 - Length);
+}
+
 EFI_STATUS
 Cdk2CorebootFindHobMemoryBase (
   IN  CONST CDK2_COREBOOT_HANDOFF  *Coreboot,
@@ -407,6 +417,10 @@ Cdk2CorebootAppendFvHob (
   EFI_HOB_FIRMWARE_VOLUME  *Fv;
   EFI_STATUS                 Status;
 
+  if (!Cdk2CorebootDescriptorRangeValid (BaseAddress, Length)) {
+    return EFI_INVALID_PARAMETER;
+  }
+
   Status = Cdk2CorebootAppendBeforeEnd (
              Handoff,
              EFI_HOB_TYPE_FV,
@@ -473,7 +487,7 @@ Cdk2CorebootAppendMemoryAllocationHob (
   EFI_HOB_MEMORY_ALLOCATION  *Allocation;
   EFI_STATUS                  Status;
 
-  if (Length == 0) {
+  if (!Cdk2CorebootDescriptorRangeValid (BaseAddress, Length)) {
     return EFI_INVALID_PARAMETER;
   }
 
@@ -504,7 +518,7 @@ Cdk2CorebootAppendStackHob (
   EFI_GUID                         AllocationGuid;
   EFI_STATUS                       Status;
 
-  if ((Length == 0) ||
+  if (!Cdk2CorebootDescriptorRangeValid (BaseAddress, Length) ||
       ((BaseAddress & EFI_PAGE_MASK) != 0) ||
       ((Length & EFI_PAGE_MASK) != 0))
   {
@@ -570,7 +584,9 @@ Cdk2CorebootAppendModuleHob (
   CONST UINT8                         *Source;
   UINTN                                Index;
 
-  if (ModuleName == NULL) {
+  if (ModuleName == NULL ||
+      !Cdk2CorebootDescriptorRangeValid (BaseAddress, Length))
+  {
     return EFI_INVALID_PARAMETER;
   }
 

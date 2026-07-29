@@ -180,6 +180,8 @@ main (
   UINTN                       WalkerCount;
   UINTN                       CodeAllocationCount;
   UINTN                       ModuleCount;
+  EFI_PHYSICAL_ADDRESS        PreviousEndOfHobList;
+  EFI_PHYSICAL_ADDRESS        PreviousFreeMemoryBottom;
   UINTN                       TableSize;
   UINTN                       HobMemBase;
   CONST VOID                 *Record;
@@ -487,6 +489,44 @@ main (
 
   Failures += Expect (END_OF_HOB_LIST (HobWalker), "EDK2 HOB traversal missed the end marker");
   Failures += Expect (ApiGuidCount == 1, "EDK2 HOB traversal missed the GUID HOB");
+
+  PreviousEndOfHobList    = HobInfo->EfiEndOfHobList;
+  PreviousFreeMemoryBottom = HobInfo->EfiFreeMemoryBottom;
+  Status = Cdk2CorebootAppendMemoryAllocationHob (
+             HobInfo,
+             MAX_UINT64 - EFI_PAGE_SIZE + 1,
+             EFI_PAGE_SIZE,
+             EfiBootServicesData
+             );
+  Failures += Expect (Status == EFI_INVALID_PARAMETER, "wrapping allocation HOB accepted");
+  Status = Cdk2CorebootAppendStackHob (
+             HobInfo,
+             MAX_UINT64 - EFI_PAGE_SIZE + 1,
+             EFI_PAGE_SIZE
+             );
+  Failures += Expect (Status == EFI_INVALID_PARAMETER, "wrapping stack HOB accepted");
+  Status = Cdk2CorebootAppendModuleHob (
+             HobInfo,
+             &DxeCoreGuid,
+             MAX_UINT64 - EFI_PAGE_SIZE + 1,
+             EFI_PAGE_SIZE,
+             MAX_UINT64
+             );
+  Failures += Expect (Status == EFI_INVALID_PARAMETER, "wrapping module HOB accepted");
+  Status = Cdk2CorebootAppendFvHob (
+             HobInfo,
+             MAX_UINT64 - EFI_PAGE_SIZE + 1,
+             EFI_PAGE_SIZE
+             );
+  Failures += Expect (Status == EFI_INVALID_PARAMETER, "wrapping FV HOB accepted");
+  Failures += Expect (
+                HobInfo->EfiEndOfHobList == PreviousEndOfHobList,
+                "rejected descriptor append moved the end marker"
+                );
+  Failures += Expect (
+                HobInfo->EfiFreeMemoryBottom == PreviousFreeMemoryBottom,
+                "rejected descriptor append moved free bottom"
+                );
 
   Status = Cdk2CorebootBuildHobs (
              &Handoff,
