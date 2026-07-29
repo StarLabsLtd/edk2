@@ -132,17 +132,35 @@ CDK2_BACKEND_DESCRIPTOR := $(CDK2_ROOT)/UefiPayloadPkg/UefiPayloadPkg.dsc
 CDK2_BACKEND_BUILD_DIR := $(CDK2_ROOT)/$(CDK2_BACKEND_OUTPUT_DIRECTORY)/$(CDK2_TARGET)_$(CDK2_BACKEND_TOOLCHAIN)
 CDK2_PYTHON_STAGE_ROOT := $(CDK2_BASETOOLS_BUILD_DIR)/Python
 CDK2_PYTHON_WRAPPER_ROOT := $(CDK2_PYTHON_STAGE_ROOT)/BinWrappers/PosixLike
-CDK2_BACKEND_REPORT := $(CDK2_BUILD_DIR)/UefiPayloadPkg.txt
 CDK2_BACKEND_ENTRY_MODULE := UefiPayloadPkg/cdk2/backend/edk2/entry/UefiPayloadEntry.inf
 CDK2_BACKEND_ENTRY_IMAGE := $(CDK2_BACKEND_BUILD_DIR)/$(CDK2_BACKEND_ENTRY_ARCH)/UefiPayloadPkg/cdk2/backend/edk2/entry/UefiPayloadEntry/OUTPUT/PayloadEntry.efi
 CDK2_BACKEND_DXE_FV := $(CDK2_BACKEND_BUILD_DIR)/FV/DXEFV.Fv
 CDK2_BACKEND_DXE_FV_TEXT := $(CDK2_BACKEND_DXE_FV).txt
+CDK2_BACKEND_METADATA_TOOL := $(CDK2_DIR)/module_metadata.py
+CDK2_BACKEND_METADATA := $(CDK2_BUILD_DIR)/cdk2-module-metadata.json
+CDK2_BACKEND_MODULE_GUIDS := $(CDK2_BUILD_DIR)/cdk2-module-guids.txt
 CDK2_BACKEND_FFS_LIST := $(CDK2_BUILD_DIR)/cdk2-dxe-ffs.txt
-CDK2_BACKEND_REPORT_MODULES := $(CDK2_BUILD_DIR)/cdk2-report-modules.txt
+CDK2_BACKEND_METADATA_MODULES := $(CDK2_BUILD_DIR)/cdk2-metadata-modules.txt
 CDK2_BACKEND_SELECTED_MODULES := $(CDK2_BUILD_DIR)/cdk2-selected-modules.txt
-CDK2_BACKEND_REPORT_GUIDS := $(CDK2_BUILD_DIR)/cdk2-report-guids.txt
 CDK2_BACKEND_DXE_FV_GUIDS := $(CDK2_BUILD_DIR)/cdk2-dxe-fv-guids.txt
 CDK2_BACKEND_SELECTED_DXE_GUIDS := $(CDK2_BUILD_DIR)/cdk2-selected-dxe-guids.txt
+CDK2_BACKEND_SELECTED_MODULE_FILES := $(addprefix $(CDK2_ROOT)/,$(CDK2_SELECTED_MODULES))
+CDK2_BACKEND_PAYLOAD_LIBRARY_FILES := $(addprefix $(CDK2_ROOT)/,$(CDK2_PAYLOAD_LIBRARIES))
+
+$(CDK2_BACKEND_METADATA): $(CDK2_MANIFEST) \
+		$(CDK2_BACKEND_METADATA_TOOL) $(CDK2_BACKEND_SELECTED_MODULE_FILES) \
+		$(CDK2_BACKEND_PAYLOAD_LIBRARY_FILES)
+	@mkdir -p "$(dir $(CDK2_BACKEND_METADATA))"
+	@$(PYTHON) "$(CDK2_BACKEND_METADATA_TOOL)" \
+	  --workspace "$(CDK2_ROOT)" \
+	  --arch "$(CDK2_BACKEND_BUILD_ARCH)" \
+	  --module-list "$(CDK2_MANIFEST)" \
+	  $(foreach library,$(CDK2_PAYLOAD_LIBRARIES),--library "$(library)") \
+	  --output "$(CDK2_BACKEND_METADATA)" \
+	  --guid-map "$(CDK2_BACKEND_MODULE_GUIDS)"
+
+$(CDK2_BACKEND_MODULE_GUIDS): $(CDK2_BACKEND_METADATA)
+	@test -s "$@"
 
 define CDK2_BACKEND_BUILD
 rm -rf "$(CDK2_BACKEND_BUILD_DIR)"
@@ -160,25 +178,21 @@ PATH="$(CDK2_BASETOOLS_BIN):$(CDK2_PYTHON_WRAPPER_ROOT):$$PATH" \
 $(CDK2_BACKEND_BUILD_COMMAND) $(foreach arch,$(CDK2_BACKEND_ARCHES),-a $(arch)) -b $(CDK2_TARGET) -t $(CDK2_BACKEND_TOOLCHAIN) \
   -p "$(CDK2_BACKEND_DESCRIPTOR)" $(CDK2_DEFINES) \
   -D BUILD_ARCH=$(CDK2_BACKEND_BUILD_ARCH) \
-  -D CDK2_OUTPUT_DIRECTORY=$(CDK2_BACKEND_OUTPUT_DIRECTORY) \
-  -y "$(CDK2_BACKEND_REPORT)"
+  -D CDK2_OUTPUT_DIRECTORY=$(CDK2_BACKEND_OUTPUT_DIRECTORY)
 endef
 
 define CDK2_BACKEND_DISCOVER
-awk -F ':' '/^Module INF Path:/ { sub(/^[[:space:]]+/, "", $$2); print $$2 }' \
-  "$(CDK2_BACKEND_REPORT)" | sort -u > "$(CDK2_BACKEND_REPORT_MODULES)" && \
+awk '{ print $$2 }' "$(CDK2_BACKEND_MODULE_GUIDS)" | sort -u > "$(CDK2_BACKEND_METADATA_MODULES)" && \
 printf '%s\n' $(CDK2_SELECTED_MODULES) | sort -u > "$(CDK2_BACKEND_SELECTED_MODULES)" && \
-diff -u "$(CDK2_BACKEND_SELECTED_MODULES)" "$(CDK2_BACKEND_REPORT_MODULES)" || { \
-  echo "cdk2 Kconfig/EDK2 module closure mismatch" >&2; exit 1; \
+diff -u "$(CDK2_BACKEND_SELECTED_MODULES)" "$(CDK2_BACKEND_METADATA_MODULES)" || { \
+  echo "cdk2 Kconfig/native metadata module closure mismatch" >&2; exit 1; \
 } && \
 test -s "$(CDK2_BACKEND_DXE_FV_TEXT)" && \
-awk -F ': *' '/^Module INF Path:/ { module = $$2; next } /^File GUID:/ { print toupper($$2), module }' \
-  "$(CDK2_BACKEND_REPORT)" | sort -k2,2 > "$(CDK2_BACKEND_REPORT_GUIDS)" && \
 awk '/^0x[[:xdigit:]]+[[:space:]]+[[:xdigit:]-]+$$/ { print toupper($$2) }' \
   "$(CDK2_BACKEND_DXE_FV_TEXT)" | sort -u > "$(CDK2_BACKEND_DXE_FV_GUIDS)" && \
 awk 'NR == FNR { selected[$$0] = 1; next } \
   ($$2 in selected) && ($$2 != "$(CDK2_BACKEND_ENTRY_MODULE)") { print $$1, $$2 }' \
-  "$(CDK2_BACKEND_SELECTED_MODULES)" "$(CDK2_BACKEND_REPORT_GUIDS)" | sort -k2,2 > "$(CDK2_BACKEND_SELECTED_DXE_GUIDS)" && \
+  "$(CDK2_BACKEND_SELECTED_MODULES)" "$(CDK2_BACKEND_MODULE_GUIDS)" | sort -k2,2 > "$(CDK2_BACKEND_SELECTED_DXE_GUIDS)" && \
 awk 'NR == FNR { fv[$$1] = 1; next } \
   !($$1 in fv) { print "selected backend module missing from DXE FV: " $$2; missing = 1 } \
   END { exit missing ? 1 : 0 }' \

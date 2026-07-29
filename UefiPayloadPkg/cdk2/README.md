@@ -18,7 +18,10 @@ under `Build/cdk2/edk2/`, keeping cdk2 builds separate from the ordinary
 `Build/UefiPayloadPkgX64` output. `modules.mk` is the reviewable inventory of C-backed
 EDK II modules that the payload keeps; the build checks that every retained
 module exists, that every selected module is referenced by the backend, and
-writes a selected manifest beside the payload. The default build also emits a
+writes a selected manifest beside the payload. The backend also emits
+`cdk2-module-metadata.json` and `cdk2-module-guids.txt` from the selected INF
+set, making the module/library/source/PCD/DEPEX inventory cdk2-owned instead
+of deriving it from an EDK II build report. The default build also emits a
 freestanding native stage and its linker map under `Build/cdk2/native/`.
 The x86 backend builds X64 only. The native `entry32.S` file is the small
 coreboot-to-long-mode bootstrap and is not an IA32 payload build. The flat cdk2
@@ -34,8 +37,8 @@ entry path correspondingly loads DXE core from the outer FV without a nested
 FV-image wrapper. EDK II remains the source of PE/COFF and FFS content; the
 native packer owns volume layout and the cdk2 flat-FV contract. The generic
 makefile asks the selected backend for a completed payload; the EDK II backend
-keeps its descriptor report, FFS discovery, and flat-FV assembly behind that
-contract. The EDK II
+keeps EDK II source compilation, generated PCD/DEPEX content, FFS discovery,
+and flat-FV assembly behind that contract. The EDK II
 entry implementation is split into the entry flow, HOB construction and
 service adapters (`cdk2/backend/edk2/Cdk2EfiHobs.c` and
 `cdk2/backend/edk2/Cdk2EfiServices.c`) behind explicit backend headers.
@@ -80,6 +83,7 @@ Useful targets:
 make -f UefiPayloadPkg/cdk2/Makefile olddefconfig
 make -f UefiPayloadPkg/cdk2/Makefile menuconfig
 make -f UefiPayloadPkg/cdk2/Makefile check
+make -f UefiPayloadPkg/cdk2/Makefile metadata
 make -f UefiPayloadPkg/cdk2/Makefile native-check
 make -f UefiPayloadPkg/cdk2/Makefile build
 

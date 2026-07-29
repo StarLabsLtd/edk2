@@ -6,6 +6,7 @@
 
 SHELL := /bin/bash
 
+PYTHON ?= python3
 CDK2_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 CDK2_ROOT := $(abspath $(CDK2_DIR)/../..)
 CDK2_BUILD_DIR ?= $(CDK2_ROOT)/Build/cdk2
@@ -33,7 +34,7 @@ CDK2_KCONFIG_ENV = KCONFIG_CONFIG="$(abspath $(CDK2_CONFIG))"
 CDK2_SOURCE_DATE_EPOCH ?= $(shell epoch=$$(git -C "$(CDK2_ROOT)" log -1 --format=%ct -- UefiPayloadPkg/cdk2 UefiPayloadPkg/UefiPayloadPkg.dsc UefiPayloadPkg/UefiPayloadPkg.fdf 2>/dev/null); test -n "$$epoch" || epoch=0; printf '%s' "$$epoch")
 SOURCE_DATE_EPOCH ?= $(CDK2_SOURCE_DATE_EPOCH)
 export SOURCE_DATE_EPOCH
-CDK2_CONFIG_TARGETS := build build-image check manifest modules native-stage \
+CDK2_CONFIG_TARGETS := build build-image check manifest metadata metadata-test modules native-stage \
 	native-coreboot-stage native-coreboot-image native-check native-pack \
 	native-service-test native-coreboot-test native-fv-test native-fvpack-test native-pe-test \
 	native-module-test native-elfcheck-test print
@@ -53,7 +54,7 @@ CDK2_RECURSIVE_ARGS := \
 	CDK2_BACKEND_OUTPUT_DIRECTORY="$(CDK2_BACKEND_OUTPUT_DIRECTORY)"
 
 .PHONY: all build build-image config defconfig olddefconfig menuconfig prepare-kconfig check \
-	manifest modules native-stage native-coreboot-stage native-coreboot-image native-check \
+	manifest metadata metadata-test modules native-stage native-coreboot-stage native-coreboot-image native-check \
 	native-pack native-service-test native-coreboot-test native-fv-test native-fvpack-test \
 	native-pe-test native-module-test native-elfcheck-test print clean
 .DELETE_ON_ERROR: $(CDK2_CONFIG) $(CDK2_CONFIG_HEADER) $(CDK2_MANIFEST) $(CDK2_OUTPUT) $(CDK2_LINK_MANIFEST)
@@ -149,6 +150,7 @@ build-image: $(CDK2_OUTPUT) native-coreboot-image
 	$(CDK2_BACKEND_WRITE_LINK_MANIFEST)
 
 $(CDK2_OUTPUT): $(CDK2_MANIFEST) $(CDK2_CONFIG_HEADER) $(CDK2_BACKEND_FILE) \
+		$(CDK2_BACKEND_METADATA) $(CDK2_BACKEND_MODULE_GUIDS) \
 		$(CDK2_DIR)/modules.mk $(CDK2_BACKEND_DESCRIPTOR) $(CDK2_BACKEND_INPUTS) \
 		$(CDK2_ROOT)/UefiPayloadPkg/UefiPayloadPkg.fdf native-stage native-check
 	@mkdir -p "$(dir $(CDK2_OUTPUT))"
@@ -156,10 +158,16 @@ $(CDK2_OUTPUT): $(CDK2_MANIFEST) $(CDK2_CONFIG_HEADER) $(CDK2_BACKEND_FILE) \
 	@printf '%s\n' "cdk2 $(CDK2_BACKEND_NAME) module closure: $(words $(CDK2_SELECTED_MODULES)) selected modules"
 	$(CDK2_BACKEND_ASSEMBLE)
 
-check: $(CDK2_CONFIG_HEADER) $(CDK2_BACKEND_CHECK_DEPS)
+check: $(CDK2_CONFIG_HEADER) metadata-test $(CDK2_BACKEND_CHECK_DEPS)
 	$(CDK2_BACKEND_CHECK)
 
 manifest: $(CDK2_MANIFEST)
+
+metadata: $(CDK2_BACKEND_METADATA) $(CDK2_BACKEND_MODULE_GUIDS)
+	@printf '%s\n' "cdk2 module metadata: $(CDK2_BACKEND_METADATA)"
+
+metadata-test:
+	@$(PYTHON) "$(CDK2_DIR)/module_metadata_test.py"
 
 $(CDK2_MANIFEST): $(CDK2_CONFIG_HEADER) $(CDK2_BACKEND_FILE) $(CDK2_DIR)/modules.mk $(CDK2_BACKEND_INPUTS) $(CDK2_BACKEND_CHECK_DEPS)
 	$(CDK2_BACKEND_CHECK)
@@ -182,6 +190,7 @@ print:
 	@printf 'direct-output=%s\n' '$(CDK2_DIRECT_OUTPUT)'
 	@printf 'descriptor=%s\n' '$(CDK2_BACKEND_DESCRIPTOR)'
 	@printf 'modules=%s\n' '$(CDK2_MANIFEST)'
+	@printf 'metadata=%s\n' '$(CDK2_BACKEND_METADATA)'
 	@printf 'link-manifest=%s\n' '$(CDK2_LINK_MANIFEST)'
 	@printf 'backend-ffs-list=%s\n' '$(CDK2_BACKEND_FFS_LIST)'
 	@printf 'source-date-epoch=%s\n' '$(SOURCE_DATE_EPOCH)'
