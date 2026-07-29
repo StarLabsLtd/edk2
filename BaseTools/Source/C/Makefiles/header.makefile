@@ -16,6 +16,9 @@ else
 endif
 
 EDK2_PATH ?= $(MAKEROOT)/../../..
+CDK2_OUTPUT_ROOT ?= $(MAKEROOT)
+CDK2_BIN_DIR ?= $(CDK2_OUTPUT_ROOT)/bin
+CDK2_LIB_DIR ?= $(CDK2_OUTPUT_ROOT)/libs
 ifndef PYTHON_COMMAND
   ifeq (Windows, $(findstring Windows,$(OS)))
     #

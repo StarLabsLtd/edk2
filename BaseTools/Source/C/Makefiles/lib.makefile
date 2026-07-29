@@ -7,8 +7,8 @@
 
 include $(MAKEROOT)/Makefiles/header.makefile
 
-LIBRARY = $(MAKEROOT)/libs/lib$(LIBNAME).a
+LIBRARY = $(CDK2_LIB_DIR)/lib$(LIBNAME).a
 
-all: $(MAKEROOT)/libs $(LIBRARY)
+all: $(CDK2_LIB_DIR) $(LIBRARY)
 
 include $(MAKEROOT)/Makefiles/footer.makefile

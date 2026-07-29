@@ -36,16 +36,16 @@ MAKEROOT ?= ../..
 
 include $(MAKEROOT)/Makefiles/header.makefile
 
-APPLICATION = $(MAKEROOT)/bin/$(APPNAME)
+APPLICATION = $(CDK2_BIN_DIR)/$(APPNAME)
 
 BIN_DIR=.
 export BIN_DIR
 
 .PHONY:all
-all: $(MAKEROOT)/bin $(APPLICATION)
+all: $(CDK2_BIN_DIR) $(APPLICATION)
 
 $(APPLICATION): $(OBJECTS)
-	$(LINKER) -o $(APPLICATION) $(VFR_LFLAGS) $(OBJECTS) -L$(MAKEROOT)/libs $(LIBS)
+	$(LINKER) -o $(APPLICATION) $(VFR_LFLAGS) $(OBJECTS) -L$(CDK2_LIB_DIR) $(LIBS)
 ifeq (Windows, $(findstring Windows,$(OS)))
 	$(CP) $(APPLICATION).exe $(BIN_PATH)
 endif

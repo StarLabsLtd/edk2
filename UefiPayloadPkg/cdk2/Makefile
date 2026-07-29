@@ -9,6 +9,7 @@ SHELL := /bin/bash
 CDK2_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 CDK2_ROOT := $(abspath $(CDK2_DIR)/../..)
 CDK2_BUILD_DIR ?= $(CDK2_ROOT)/Build/cdk2
+override CDK2_BUILD_DIR := $(abspath $(CDK2_BUILD_DIR))
 CDK2_CONFIG ?= $(CDK2_BUILD_DIR)/.config
 CDK2_DEFCONFIG ?= $(CDK2_DIR)/defconfig
 CDK2_KCONFIG ?= $(CDK2_DIR)/Kconfig
@@ -24,6 +25,9 @@ CDK2_NATIVE_DIR := $(CDK2_DIR)/native
 CDK2_BACKEND ?= edk2
 CDK2_BACKEND_FILE ?= $(CDK2_DIR)$(CDK2_BACKEND)-backend.mk
 CDK2_BACKEND_INTERFACE_VERSION := 1
+CDK2_BASETOOLS_BUILD_DIR ?= $(abspath $(CDK2_BUILD_DIR)/basetools)
+CDK2_BASETOOLS_OUTPUT_ROOT ?= $(abspath $(CDK2_BASETOOLS_BUILD_DIR)/C)
+CDK2_BASETOOLS_BIN ?= $(CDK2_BASETOOLS_OUTPUT_ROOT)/bin
 CDK2_KCONFIG_ENV = KCONFIG_CONFIG="$(abspath $(CDK2_CONFIG))"
 CDK2_SOURCE_DATE_EPOCH ?= $(shell epoch=$$(git -C "$(CDK2_ROOT)" log -1 --format=%ct -- UefiPayloadPkg/cdk2 UefiPayloadPkg/UefiPayloadPkg.dsc UefiPayloadPkg/UefiPayloadPkg.fdf 2>/dev/null); test -n "$$epoch" || epoch=0; printf '%s' "$$epoch")
 SOURCE_DATE_EPOCH ?= $(CDK2_SOURCE_DATE_EPOCH)

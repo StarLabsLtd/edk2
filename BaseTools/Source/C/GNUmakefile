@@ -36,14 +36,21 @@ APPLICATIONS = \
   VolInfo \
   DevicePath
 
-SUBDIRS := $(LIBRARIES) $(APPLICATIONS)
+CDK2_APPLICATIONS ?= $(APPLICATIONS)
+ifneq ($(strip $(CDK2_TOOLS)),)
+  CDK2_APPLICATIONS := $(CDK2_TOOLS)
+endif
 
-$(LIBRARIES): $(MAKEROOT)/libs
-$(APPLICATIONS): $(LIBRARIES) $(MAKEROOT)/bin
+SUBDIRS := $(LIBRARIES) $(CDK2_APPLICATIONS)
+
+$(LIBRARIES): $(CDK2_LIB_DIR)
+$(CDK2_APPLICATIONS): $(LIBRARIES) $(CDK2_BIN_DIR)
 
 .PHONY: outputdirs
 makerootdir:
-	-$(MD) $(MAKEROOT)
+	-$(MD) $(CDK2_OUTPUT_ROOT)
+	-$(MD) $(CDK2_LIB_DIR)
+	-$(MD) $(CDK2_BIN_DIR)
 
 .PHONY: subdirs $(SUBDIRS)
 subdirs: $(SUBDIRS)
@@ -59,7 +66,7 @@ clean:  $(patsubst %,%-clean,$(sort $(SUBDIRS)))
 clean: localClean
 
 localClean:
-	$(RM) $(MAKEROOT)/bin/*
-	-$(RD) $(MAKEROOT)/libs $(MAKEROOT)/bin
+	$(RM) $(CDK2_BIN_DIR)/*
+	-$(RD) $(CDK2_LIB_DIR) $(CDK2_BIN_DIR)
 
 include Makefiles/footer.makefile

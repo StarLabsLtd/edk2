@@ -9,13 +9,13 @@ MAKEROOT ?= ../..
 
 include $(MAKEROOT)/Makefiles/header.makefile
 
-APPLICATION = $(MAKEROOT)/bin/$(APPNAME)
+APPLICATION = $(CDK2_BIN_DIR)/$(APPNAME)
 
 .PHONY:all
-all: $(MAKEROOT)/bin $(APPLICATION)
+all: $(CDK2_BIN_DIR) $(APPLICATION)
 
 $(APPLICATION): $(OBJECTS)
-	$(LINKER) -o $(APPLICATION) $(LDFLAGS) $(OBJECTS) -L$(MAKEROOT)/libs $(LIBS)
+	$(LINKER) -o $(APPLICATION) $(LDFLAGS) $(OBJECTS) -L$(CDK2_LIB_DIR) $(LIBS)
 ifeq (Windows, $(findstring Windows,$(OS)))
 	$(CP) $(APPLICATION).exe $(BIN_PATH)
 endif
