@@ -345,6 +345,7 @@ main (void)
   CDK2_NATIVE_CONTEXT    Prepared = { 0 };
   CDK2_NATIVE_CONTEXT    BelowPayload = { 0 };
   CDK2_NATIVE_CONTEXT    FallbackOverflow = { 0 };
+  CDK2_NATIVE_CONTEXT    Optional = { 0 };
   CDK2_NATIVE_CONTEXT    Incomplete = { 0 };
   CDK2_NATIVE_CONTEXT    Failed = { 0 };
   CDK2_NATIVE_CONTEXT    Allocator = { 0 };
@@ -359,6 +360,12 @@ main (void)
   UINTN                  HobMemBase;
   UINTN                  LateInitBefore;
   UINTN                  TransferBefore;
+  UINTN                  OptionalPopulateHobsCalls;
+  UINTN                  OptionalBuildSerialHobCalls;
+  UINTN                  OptionalApplyBootModeCalls;
+  UINTN                  OptionalInitializeLibrariesCalls;
+  UINTN                  OptionalSetBootloaderParameterCalls;
+  UINTN                  OptionalMaskLegacyInterruptsCalls;
   int                    Failures;
 
   Context.PayloadBase      = 0x00100000;
@@ -632,6 +639,29 @@ main (void)
   Prepared.Backend.MaskLegacyInterrupts     = TestMaskLegacyInterrupts;
   Prepared.Backend.LoadDxeCore               = TestLoadDxeCore;
   Failures += Expect (Cdk2NativeInitializeServices (&Prepared) == EFI_SUCCESS, "prepare service initialization");
+
+  Optional = Prepared;
+  Optional.Backend.PopulateHobs            = NULL;
+  Optional.Backend.BuildSerialHob          = NULL;
+  Optional.Backend.ApplyBootMode           = NULL;
+  Optional.Backend.InitializeLibraries     = NULL;
+  Optional.Backend.SetBootloaderParameter  = NULL;
+  Optional.Backend.MaskLegacyInterrupts    = NULL;
+  Optional.Backend.Transfer                = TestTransfer;
+  Failures += Expect (Cdk2NativeValidateBackend (&Optional) == EFI_SUCCESS, "optional callbacks omitted");
+  OptionalPopulateHobsCalls           = mPopulateHobsCalls;
+  OptionalBuildSerialHobCalls         = mBuildSerialHobCalls;
+  OptionalApplyBootModeCalls          = mApplyBootModeCalls;
+  OptionalInitializeLibrariesCalls    = mInitializeLibrariesCalls;
+  OptionalSetBootloaderParameterCalls = mSetBootloaderParameterCalls;
+  OptionalMaskLegacyInterruptsCalls   = mMaskLegacyInterruptsCalls;
+  Failures += Expect (Cdk2NativePrepareEntry (&Optional) == EFI_SUCCESS, "prepare entry with optional callbacks omitted");
+  Failures += Expect (mPopulateHobsCalls == OptionalPopulateHobsCalls, "optional HOB population skipped");
+  Failures += Expect (mBuildSerialHobCalls == OptionalBuildSerialHobCalls, "optional serial HOB skipped");
+  Failures += Expect (mApplyBootModeCalls == OptionalApplyBootModeCalls, "optional boot mode skipped");
+  Failures += Expect (mInitializeLibrariesCalls == OptionalInitializeLibrariesCalls, "optional library init skipped");
+  Failures += Expect (mSetBootloaderParameterCalls == OptionalSetBootloaderParameterCalls, "optional bootloader PCD skipped");
+  Failures += Expect (mMaskLegacyInterruptsCalls == OptionalMaskLegacyInterruptsCalls, "optional interrupt mask skipped");
 
   Failed = Prepared;
   mFailSetBootloaderParameter = TRUE;
