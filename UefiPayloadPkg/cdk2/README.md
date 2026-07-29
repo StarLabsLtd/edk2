@@ -17,8 +17,8 @@ module exists, that every selected module is referenced by the backend, and
 writes a selected manifest beside the payload. The default build also emits a
 freestanding native stage and its linker map under `Build/cdk2/native/`.
 The x86 backend builds X64 only. The native `entry32.S` file is the small
-coreboot-to-long-mode bootstrap and is not an IA32 payload build. AArch64
-support remains available for the future ARM path.
+coreboot-to-long-mode bootstrap and is not an IA32 payload build. The flat cdk2
+EDK II bridge rejects IA32 and AArch64 when `CDK2_FLAT_DXE_FV` is enabled.
 
 EDK II still compiles the PE/COFF modules and emits the FFS inputs used as the
 DXE firmware-volume reference. The native cdk2 host packer assembles the
@@ -66,6 +66,9 @@ When `CDK2_NATIVE_STAGE=n`, the native ELF and linker checks are omitted while
 the host service test and FV packer remain part of the EDK II backend build.
 When `CDK2_CAPSULE=y`, `CDK2_CAPSULE_MAIN_FW_GUID` must name the system
 firmware FMP GUID forwarded to `CAPSULE_MAIN_FW_GUID`.
+Unless the caller sets `SOURCE_DATE_EPOCH`, the cdk2 wrapper exports the most
+recent cdk2 bridge commit time so BaseTools does not stamp outputs with wall
+clock time.
 
 Useful targets:
 

@@ -213,6 +213,12 @@
   #
   HAND_OFF_FDT_ENABLE       = FALSE
 
+!if $(CDK2_FLAT_DXE_FV) == TRUE
+!if "IA32" in "$(ARCH)" || "AARCH64" in "$(ARCH)"
+  !error "CDK2_FLAT_DXE_FV is X64-only"
+!endif
+!endif
+
   # Security options:
   #
   DEFINE TPM_ENABLE                     = TRUE

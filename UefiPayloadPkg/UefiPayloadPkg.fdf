@@ -56,6 +56,9 @@ READ_LOCK_STATUS   = TRUE
 
 !if $(UNIVERSAL_PAYLOAD) == FALSE
 !if $(CDK2_FLAT_DXE_FV) == TRUE
+!if "IA32" IN "$(ARCH)" || "AARCH64" IN "$(ARCH)"
+!error "CDK2_FLAT_DXE_FV is X64-only"
+!endif
 INF UefiPayloadPkg/cdk2/backend/edk2/entry/UefiPayloadEntry.inf
 !else
 INF UefiPayloadPkg/UefiPayloadEntry/UefiPayloadEntry.inf
