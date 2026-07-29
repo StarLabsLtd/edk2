@@ -288,6 +288,10 @@ Cdk2CorebootResourceType (
   IN UINT32                              Tolud
   )
 {
+  if (Range->Type == CB_MEM_TABLE) {
+    return EFI_RESOURCE_MEMORY_RESERVED;
+  }
+
   if ((Range->Type == CB_MEM_RAM) ||
       (Range->Type == CB_MEM_ACPI) ||
       (Range->Type == CB_MEM_NVS))

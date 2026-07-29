@@ -106,7 +106,7 @@ BuildMemoryTable (
   memset (Storage, 0, StorageSize);
   Memory = (struct cb_memory *)(VOID *)(Storage + sizeof (struct cb_header));
   Memory->tag  = CB_TAG_MEMORY;
-  Memory->size = sizeof (*Memory) + 2 * sizeof (struct cb_memory_range);
+  Memory->size = sizeof (*Memory) + 3 * sizeof (struct cb_memory_range);
 
   Range = &Memory->map[0];
   Range->start.lo = 0x00100000;
@@ -121,6 +121,13 @@ BuildMemoryTable (
   Range->size.lo  = 0x01000000;
   Range->size.hi  = 0;
   Range->type     = CB_MEM_RESERVED;
+
+  Range = &Memory->map[2];
+  Range->start.lo = 0x00400000;
+  Range->start.hi = 0;
+  Range->size.lo  = 0x00001000;
+  Range->size.hi  = 0;
+  Range->type     = CB_MEM_TABLE;
 
   return FinalizeTable (Storage, StorageSize, Memory->size, 1);
 }
@@ -231,6 +238,7 @@ main (
   CONST VOID                 *Record;
   CONST struct cb_serial      *Serial;
   CONST struct cb_framebuffer *Framebuffer;
+  EFI_HOB_RESOURCE_DESCRIPTOR *Resource;
   EFI_GUID                    TestGuid;
   EFI_GUID                    StackGuid;
   EFI_GUID                    ModuleGuid;
@@ -250,7 +258,7 @@ main (
   Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);
   Failures += Expect (Status == EFI_SUCCESS, "valid table rejected");
   Failures += Expect (Handoff.RecordCount == 1, "record count is wrong");
-  Failures += Expect (Handoff.MemoryRangeCount == 2, "memory range count is wrong");
+  Failures += Expect (Handoff.MemoryRangeCount == 3, "memory range count is wrong");
   Failures += Expect (Handoff.UsableRamCount == 1, "usable RAM count is wrong");
   Failures += Expect (Handoff.LargestUsableRamBase == 0x00100000, "usable RAM base is wrong");
   Failures += Expect (Handoff.LargestUsableRamSize == 0x00300000, "usable RAM size is wrong");
@@ -265,7 +273,7 @@ main (
   Status = Cdk2CorebootFindRecord (
              &Handoff,
              CB_TAG_MEMORY,
-             sizeof (struct cb_memory) + 3 * sizeof (struct cb_memory_range),
+             sizeof (struct cb_memory) + 4 * sizeof (struct cb_memory_range),
              &Record
              );
   Failures += Expect (Status == EFI_COMPROMISED_DATA, "short record was accepted");
@@ -350,7 +358,7 @@ main (
   BuildForwardTable (ForwardStorage, sizeof (ForwardStorage), TargetStorage);
   Status = Cdk2CorebootParse ((UINTN)(VOID *)ForwardStorage, &Handoff);
   Failures += Expect (Status == EFI_SUCCESS, "forward table rejected");
-  Failures += Expect (Handoff.MemoryRangeCount == 2, "forward target was not parsed");
+  Failures += Expect (Handoff.MemoryRangeCount == 3, "forward target was not parsed");
 
   Status = Cdk2CorebootBuildHobs (
              &Handoff,
@@ -363,12 +371,30 @@ main (
   Failures += Expect (Status == EFI_SUCCESS, "HOB construction failed");
   Failures += Expect (HobInfo != NULL && HobInfo->Header.HobType == EFI_HOB_TYPE_HANDOFF, "PHIT is missing");
   ResourceCount = 0;
+  Resource      = NULL;
   HobCursor = (UINTN)(VOID *)HobInfo;
   while (HobCursor < (UINTN)HobInfo->EfiEndOfHobList) {
     Hob = (EFI_HOB_GENERIC_HEADER *)(UINTN)HobCursor;
     Failures += Expect (Hob->HobLength >= sizeof (*Hob), "HOB length is invalid");
     if (Hob->HobType == EFI_HOB_TYPE_RESOURCE_DESCRIPTOR) {
       ResourceCount++;
+      Resource = (EFI_HOB_RESOURCE_DESCRIPTOR *)(VOID *)Hob;
+      if (ResourceCount == 1) {
+        Failures += Expect (
+                      Resource->ResourceType == EFI_RESOURCE_SYSTEM_MEMORY,
+                      "RAM resource type is wrong"
+                      );
+      } else if (ResourceCount == 2) {
+        Failures += Expect (
+                      Resource->ResourceType == EFI_RESOURCE_MEMORY_RESERVED,
+                      "reserved resource type is wrong"
+                      );
+      } else if (ResourceCount == 3) {
+        Failures += Expect (
+                      Resource->ResourceType == EFI_RESOURCE_MEMORY_RESERVED,
+                      "coreboot table resource type is wrong"
+                      );
+      }
     }
 
     HobCursor += (Hob->HobLength + 7U) & ~(UINTN)7U;
@@ -376,7 +402,7 @@ main (
 
   Hob = (EFI_HOB_GENERIC_HEADER *)(UINTN)HobInfo->EfiEndOfHobList;
   Failures += Expect (Hob->HobType == EFI_HOB_TYPE_END_OF_HOB_LIST, "HOB list has no end marker");
-  Failures += Expect (ResourceCount == 2, "resource HOB count is wrong");
+  Failures += Expect (ResourceCount == 3, "resource HOB count is wrong");
   Failures += Expect (HobInfo->EfiFreeMemoryBottom > HobInfo->EfiEndOfHobList, "HOB allocator did not advance");
 
   Status = Cdk2CorebootAppendMemoryAllocationHob (
