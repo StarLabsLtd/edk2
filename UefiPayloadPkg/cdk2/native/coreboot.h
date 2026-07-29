@@ -30,6 +30,8 @@
   CDK2_COREBOOT_RECORD_FIELD_END (struct lb_efi_fw_info, fw_size)
 #define CDK2_COREBOOT_TPM_PPI_MIN_SIZE \
   CDK2_COREBOOT_RECORD_FIELD_END (struct cb_tpm_physical_presence, ppi_version)
+#define CDK2_COREBOOT_ACPI_RSDP_MIN_SIZE \
+  CDK2_COREBOOT_RECORD_FIELD_END (struct cb_acpi_rsdp, rsdp_pointer)
 
 typedef struct {
   EFI_PHYSICAL_ADDRESS  Base;

@@ -226,6 +226,13 @@ struct cb_framebuffer {
   UINT8     reserved_mask_size;
 };
 
+#define CB_TAG_ACPI_RSDP  0x0043
+struct cb_acpi_rsdp {
+  UINT32             tag;
+  UINT32             size;
+  struct cbuint64    rsdp_pointer;
+} __attribute__ ((packed));
+
 #define CB_TAG_VDAT  0x0015
 struct cb_vdat {
   UINT32    tag;

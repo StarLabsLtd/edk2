@@ -7,9 +7,12 @@
 **/
 
 #include <Library/Cdk2NativeServices.h>
+#include <Guid/AcpiBoardInfoGuid.h>
 #include <Guid/FirmwareInfoGuid.h>
 #include <Guid/GraphicsInfoHob.h>
 #include <Guid/SmmStoreInfoGuid.h>
+#include <IndustryStandard/Acpi.h>
+#include <IndustryStandard/MemoryMappedConfigurationSpaceAccessTable.h>
 #include <Guid/TcgPhysicalPresenceGuid.h>
 #include <UniversalPayload/SerialPortInfo.h>
 
@@ -37,8 +40,309 @@ STATIC CONST EFI_GUID  mCdk2FirmwareInfoHobGuid =
   { 0xe0653829, 0x274e, 0x4b1e, { 0x87, 0x2d, 0xa2, 0x20, 0xf5, 0xaf, 0x8f, 0x3d } };
 STATIC CONST EFI_GUID  mCdk2TcgPhysicalPresenceInfoHobGuid =
   { 0xf367be59, 0x5891, 0x40eb, { 0x21, 0x44, 0xed, 0x2e, 0xac, 0x57, 0xfd, 0x14 } };
+STATIC CONST EFI_GUID  mCdk2AcpiBoardInfoHobGuid =
+  { 0x0ad3d31b, 0xb3d8, 0x4506, { 0xae, 0x71, 0x2e, 0xf1, 0x10, 0x06, 0xd9, 0x0f } };
 STATIC CONST EFI_GUID  mCdk2SerialPortInfoGuid =
   { 0xaa7e190d, 0xbe21, 0x4409, { 0x8e, 0x67, 0xa2, 0xcd, 0x0f, 0x61, 0xe1, 0x70 } };
+
+#define CDK2_COREBOOT_MAX_ACPI_TABLE_SIZE  (1024U * 1024U)
+
+STATIC
+VOID
+Cdk2CorebootCopyBytes (
+  OUT VOID        *Destination,
+  IN  CONST VOID  *Source,
+  IN  UINTN        Length
+  );
+
+STATIC
+UINT32
+Cdk2CorebootAcpiRead32 (
+  IN CONST VOID  *Source
+  )
+{
+  UINT32  Value;
+
+  Cdk2CorebootCopyBytes (&Value, Source, sizeof (Value));
+  return Value;
+}
+
+STATIC
+UINT64
+Cdk2CorebootAcpiRead64 (
+  IN CONST VOID  *Source
+  )
+{
+  UINT64  Value;
+
+  Cdk2CorebootCopyBytes (&Value, Source, sizeof (Value));
+  return Value;
+}
+
+STATIC
+BOOLEAN
+Cdk2CorebootAcpiFieldPresent (
+  IN CONST EFI_ACPI_DESCRIPTION_HEADER  *Table,
+  IN UINTN                              Offset,
+  IN UINTN                              Size
+  )
+{
+  return Table != NULL && Table->Length >= Offset && Size <= Table->Length - Offset;
+}
+
+STATIC
+EFI_STATUS
+Cdk2CorebootAcpiInspectTable (
+  IN  EFI_PHYSICAL_ADDRESS                                     Address,
+  OUT EFI_ACPI_3_0_FIXED_ACPI_DESCRIPTION_TABLE              **Fadt,
+  OUT EFI_ACPI_MEMORY_MAPPED_CONFIGURATION_BASE_ADDRESS_TABLE_HEADER **Mcfg,
+  OUT BOOLEAN                                                  *Tpm2Present,
+  OUT BOOLEAN                                                  *TcpaPresent
+  )
+{
+  EFI_ACPI_DESCRIPTION_HEADER  *Header;
+
+  if (Address == 0 || Fadt == NULL || Mcfg == NULL || Tpm2Present == NULL || TcpaPresent == NULL) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  Header = (EFI_ACPI_DESCRIPTION_HEADER *)(UINTN)Address;
+  if (Header->Length < sizeof (*Header) || Header->Length > CDK2_COREBOOT_MAX_ACPI_TABLE_SIZE) {
+    return EFI_COMPROMISED_DATA;
+  }
+
+  switch (Header->Signature) {
+    case EFI_ACPI_3_0_FIXED_ACPI_DESCRIPTION_TABLE_SIGNATURE:
+      if (!Cdk2CorebootAcpiFieldPresent (
+             Header,
+             OFFSET_OF (EFI_ACPI_3_0_FIXED_ACPI_DESCRIPTION_TABLE, Gpe0BlkLen),
+             sizeof (((EFI_ACPI_3_0_FIXED_ACPI_DESCRIPTION_TABLE *)0)->Gpe0BlkLen)
+             ))
+      {
+        return EFI_COMPROMISED_DATA;
+      }
+
+      *Fadt = (EFI_ACPI_3_0_FIXED_ACPI_DESCRIPTION_TABLE *)Header;
+      break;
+
+    case EFI_ACPI_6_6_PCI_EXPRESS_MEMORY_MAPPED_CONFIGURATION_SPACE_BASE_ADDRESS_DESCRIPTION_TABLE_SIGNATURE:
+      if (Header->Length < sizeof (*Header) + sizeof (EFI_ACPI_MEMORY_MAPPED_ENHANCED_CONFIGURATION_SPACE_BASE_ADDRESS_ALLOCATION_STRUCTURE)) {
+        return EFI_COMPROMISED_DATA;
+      }
+
+      *Mcfg = (EFI_ACPI_MEMORY_MAPPED_CONFIGURATION_BASE_ADDRESS_TABLE_HEADER *)Header;
+      break;
+
+    case EFI_ACPI_5_0_TRUSTED_COMPUTING_PLATFORM_2_TABLE_SIGNATURE:
+      *Tpm2Present = TRUE;
+      break;
+
+    case EFI_ACPI_5_0_TRUSTED_COMPUTING_PLATFORM_ALLIANCE_CAPABILITIES_TABLE_SIGNATURE:
+      *TcpaPresent = TRUE;
+      break;
+
+    default:
+      break;
+  }
+
+  return EFI_SUCCESS;
+}
+
+STATIC
+EFI_STATUS
+Cdk2CorebootAcpiInspectRoot (
+  IN  EFI_PHYSICAL_ADDRESS                                     Address,
+  IN  BOOLEAN                                                  Extended,
+  OUT EFI_ACPI_3_0_FIXED_ACPI_DESCRIPTION_TABLE              **Fadt,
+  OUT EFI_ACPI_MEMORY_MAPPED_CONFIGURATION_BASE_ADDRESS_TABLE_HEADER **Mcfg,
+  OUT BOOLEAN                                                  *Tpm2Present,
+  OUT BOOLEAN                                                  *TcpaPresent
+  )
+{
+  EFI_ACPI_DESCRIPTION_HEADER  *Header;
+  UINTN                        EntryCount;
+  UINTN                        EntrySize;
+  UINTN                        Index;
+  UINT64                       TableAddress;
+  EFI_STATUS                   Status;
+
+  if (Address == 0 || Fadt == NULL || Mcfg == NULL || Tpm2Present == NULL || TcpaPresent == NULL) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  Header = (EFI_ACPI_DESCRIPTION_HEADER *)(UINTN)Address;
+  EntrySize = Extended ? sizeof (UINT64) : sizeof (UINT32);
+  if (Header->Length < sizeof (*Header) ||
+      Header->Length > CDK2_COREBOOT_MAX_ACPI_TABLE_SIZE ||
+      ((Header->Length - sizeof (*Header)) % EntrySize) != 0)
+  {
+    return EFI_COMPROMISED_DATA;
+  }
+
+  EntryCount = (Header->Length - sizeof (*Header)) / EntrySize;
+  for (Index = 0; Index < EntryCount; Index++) {
+    if (Extended) {
+      TableAddress = Cdk2CorebootAcpiRead64 ((UINT8 *)(Header + 1) + Index * EntrySize);
+    } else {
+      TableAddress = Cdk2CorebootAcpiRead32 ((UINT8 *)(Header + 1) + Index * EntrySize);
+    }
+
+    Status = Cdk2CorebootAcpiInspectTable (
+               TableAddress,
+               Fadt,
+               Mcfg,
+               Tpm2Present,
+               TcpaPresent
+               );
+    if (EFI_ERROR (Status)) {
+      return Status;
+    }
+  }
+
+  return EFI_SUCCESS;
+}
+
+STATIC
+EFI_STATUS
+Cdk2CorebootBuildAcpiBoardInfo (
+  IN  CONST struct cb_acpi_rsdp  *Record,
+  OUT ACPI_BOARD_INFO            *BoardInfo
+  )
+{
+  EFI_ACPI_3_0_ROOT_SYSTEM_DESCRIPTION_POINTER              *Rsdp;
+  EFI_ACPI_3_0_FIXED_ACPI_DESCRIPTION_TABLE                 *Fadt;
+  EFI_ACPI_MEMORY_MAPPED_CONFIGURATION_BASE_ADDRESS_TABLE_HEADER *Mcfg;
+  EFI_ACPI_MEMORY_MAPPED_ENHANCED_CONFIGURATION_SPACE_BASE_ADDRESS_ALLOCATION_STRUCTURE *McfgBase;
+  UINT64                                                     RsdpAddress;
+  UINTN                                                      AllocationCount;
+  BOOLEAN                                                    Tpm2Present;
+  BOOLEAN                                                    TcpaPresent;
+  EFI_STATUS                                                 Status;
+
+  if (Record == NULL || BoardInfo == NULL) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  RsdpAddress = (UINT64)Record->rsdp_pointer.lo | ((UINT64)Record->rsdp_pointer.hi << 32);
+  if (RsdpAddress == 0) {
+    return EFI_NOT_FOUND;
+  }
+
+  Rsdp = (EFI_ACPI_3_0_ROOT_SYSTEM_DESCRIPTION_POINTER *)(UINTN)RsdpAddress;
+  if (Rsdp->Signature != EFI_ACPI_3_0_ROOT_SYSTEM_DESCRIPTION_POINTER_SIGNATURE) {
+    return EFI_COMPROMISED_DATA;
+  }
+
+  Fadt        = NULL;
+  Mcfg        = NULL;
+  Tpm2Present = FALSE;
+  TcpaPresent = FALSE;
+
+  if (Rsdp->RsdtAddress != 0) {
+    Status = Cdk2CorebootAcpiInspectRoot (
+               Rsdp->RsdtAddress,
+               FALSE,
+               &Fadt,
+               &Mcfg,
+               &Tpm2Present,
+               &TcpaPresent
+               );
+    if (EFI_ERROR (Status)) {
+      return Status;
+    }
+  }
+
+  if (Rsdp->XsdtAddress != 0) {
+    Status = Cdk2CorebootAcpiInspectRoot (
+               Rsdp->XsdtAddress,
+               TRUE,
+               &Fadt,
+               &Mcfg,
+               &Tpm2Present,
+               &TcpaPresent
+               );
+    if (EFI_ERROR (Status)) {
+      return Status;
+    }
+  }
+
+  if (Fadt == NULL) {
+    return EFI_NOT_FOUND;
+  }
+
+  *BoardInfo = (ACPI_BOARD_INFO){ 0 };
+  BoardInfo->PmCtrlRegBase = Fadt->Pm1aCntBlk;
+  BoardInfo->PmTimerRegBase = Fadt->PmTmrBlk;
+  BoardInfo->PmEvtBase = Fadt->Pm1aEvtBlk;
+  BoardInfo->PmGpeEnBase = Fadt->Gpe0Blk + Fadt->Gpe0BlkLen / 2;
+  if (Cdk2CorebootAcpiFieldPresent (
+        &Fadt->Header,
+        OFFSET_OF (EFI_ACPI_3_0_FIXED_ACPI_DESCRIPTION_TABLE, ResetReg),
+        sizeof (Fadt->ResetReg)
+        ))
+  {
+    BoardInfo->ResetRegAddress = Fadt->ResetReg.Address;
+    BoardInfo->ResetValue      = Fadt->ResetValue;
+  }
+
+  BoardInfo->TPM20Present = Tpm2Present;
+  BoardInfo->TPM12Present = TcpaPresent;
+  if (Mcfg != NULL) {
+    AllocationCount = (Mcfg->Header.Length - sizeof (*Mcfg)) /
+                      sizeof (EFI_ACPI_MEMORY_MAPPED_ENHANCED_CONFIGURATION_SPACE_BASE_ADDRESS_ALLOCATION_STRUCTURE);
+    if (AllocationCount == 0) {
+      return EFI_COMPROMISED_DATA;
+    }
+
+    McfgBase = (EFI_ACPI_MEMORY_MAPPED_ENHANCED_CONFIGURATION_SPACE_BASE_ADDRESS_ALLOCATION_STRUCTURE *)(Mcfg + 1);
+    if (McfgBase->EndBusNumber < McfgBase->StartBusNumber) {
+      return EFI_COMPROMISED_DATA;
+    }
+
+    BoardInfo->PcieBaseAddress = McfgBase->BaseAddress;
+    BoardInfo->PcieBaseSize =
+      (UINT64)(McfgBase->EndBusNumber + 1 - McfgBase->StartBusNumber) * 4096 * 32 * 8;
+  }
+
+  return EFI_SUCCESS;
+}
+
+STATIC
+EFI_STATUS
+Cdk2CorebootAppendAcpiBoardInfoHob (
+  IN OUT EFI_HOB_HANDOFF_INFO_TABLE  *Handoff,
+  IN     CONST CDK2_COREBOOT_HANDOFF *Coreboot
+  )
+{
+  CONST VOID        *Record;
+  ACPI_BOARD_INFO   BoardInfo;
+  EFI_STATUS        Status;
+
+  Status = Cdk2CorebootFindRecord (
+             Coreboot,
+             CB_TAG_ACPI_RSDP,
+             CDK2_COREBOOT_ACPI_RSDP_MIN_SIZE,
+             &Record
+             );
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  Status = Cdk2CorebootBuildAcpiBoardInfo (
+             (CONST struct cb_acpi_rsdp *)Record,
+             &BoardInfo
+             );
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  return Cdk2CorebootAppendGuidHob (
+           Handoff,
+           &mCdk2AcpiBoardInfoHobGuid,
+           &BoardInfo,
+           sizeof (BoardInfo)
+           );
+}
 
 typedef struct {
   EFI_PHYSICAL_ADDRESS    EndOfHobList;
@@ -193,6 +497,11 @@ Cdk2CorebootBuildPlatformHobs (
 #endif
 
   Status = Cdk2CorebootAppendCpuHob (*Handoff, PhysicalAddressBits, 16);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  Status = Cdk2CorebootAppendAcpiBoardInfoHob (*Handoff, &mCorebootHandoff);
   if (EFI_ERROR (Status)) {
     return Status;
   }
