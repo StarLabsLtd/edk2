@@ -90,6 +90,11 @@ BuildBootloaderHobs (
     }
   }
 
+  Status = ParseMiscInfo ();
+  if (EFI_ERROR (Status) && (Status != RETURN_NOT_FOUND)) {
+    DEBUG ((DEBUG_WARN, "Failed to parse bootloader misc info: %r\n", Status));
+  }
+
   Status = ParseCapsules (BuildCvHob);
   if (EFI_ERROR (Status) && (Status != RETURN_NOT_FOUND)) {
     DEBUG ((DEBUG_WARN, "Failed to parse bootloader capsules: %r\n", Status));
