@@ -27,12 +27,12 @@ CDK2_BACKEND_INTERFACE_VERSION := 1
 CDK2_CONFIG_TARGETS := build build-image check manifest modules native-stage \
 	native-coreboot-stage native-coreboot-image native-check native-pack \
 	native-service-test native-coreboot-test native-fv-test native-fvpack-test native-pe-test \
-	native-module-test print
+	native-module-test native-elfcheck-test print
 
 .PHONY: all build build-image config defconfig olddefconfig menuconfig prepare-kconfig check \
 	manifest modules native-stage native-coreboot-stage native-coreboot-image native-check \
 	native-pack native-service-test native-coreboot-test native-fv-test native-fvpack-test \
-	native-pe-test native-module-test print clean
+	native-pe-test native-module-test native-elfcheck-test print clean
 
 all: build
 

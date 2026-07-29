@@ -144,6 +144,19 @@ RangeInFile (
          (Size <= (uint64_t)FileSize - Offset);
 }
 
+static bool
+RangeContains (
+  uint64_t  ContainerBase,
+  uint64_t  ContainerSize,
+  uint64_t  Address,
+  uint64_t  Size
+  )
+{
+  return (Address >= ContainerBase) &&
+         (Size <= ContainerSize) &&
+         (Address - ContainerBase <= ContainerSize - Size);
+}
+
 static uint64_t
 CheckedTableSize (
   uint64_t  Count,
@@ -163,6 +176,14 @@ IsPowerOfTwo (
   )
 {
   return (Value != 0) && ((Value & (Value - 1U)) == 0);
+}
+
+static uint64_t
+SectionSpan (
+  const ELF64_SHDR  *Section
+  )
+{
+  return (Section->sh_size == 0) ? 1 : Section->sh_size;
 }
 
 static const char *
@@ -353,10 +374,7 @@ FindLoadSegment (
       continue;
     }
 
-    if ((Address >= ProgramHeader->p_vaddr) &&
-        (Size <= ProgramHeader->p_memsz) &&
-        (Address - ProgramHeader->p_vaddr <= ProgramHeader->p_memsz - Size))
-    {
+    if (RangeContains (ProgramHeader->p_vaddr, ProgramHeader->p_memsz, Address, Size)) {
       return ProgramHeader;
     }
   }
@@ -388,7 +406,7 @@ CheckSectionPlacement (
     Fail ("%s has unexpected writable section flags", Name);
   }
 
-  Span = (Section->sh_size == 0) ? 1 : Section->sh_size;
+  Span = SectionSpan (Section);
   Load = FindLoadSegment (Image, Section->sh_addr, Span);
   if (Load == NULL) {
     Fail ("%s is not covered by a PT_LOAD segment", Name);
@@ -404,6 +422,19 @@ CheckSectionPlacement (
 
   if (ExpectWritable != ((Load->p_flags & PF_W) != 0)) {
     Fail ("%s has unexpected writable load flags", Name);
+  }
+}
+
+static void
+CheckSectionImageBounds (
+  const ELF64_SHDR *Section,
+  const char       *Name,
+  uint64_t         ImageStart,
+  uint64_t         ImageSize
+  )
+{
+  if (!RangeContains (ImageStart, ImageSize, Section->sh_addr, SectionSpan (Section))) {
+    Fail ("%s is outside native image bounds", Name);
   }
 }
 
@@ -574,7 +605,11 @@ CheckLoadSegments (
   )
 {
   uint16_t          Index;
+  uint16_t          PreviousIndex;
   const ELF64_PHDR  *ProgramHeader;
+  const ELF64_PHDR  *PreviousHeader;
+  uint64_t          SegmentEnd;
+  uint64_t          PreviousEnd;
   bool              HasExecutable;
   bool              HasReadOnly;
   bool              HasWritable;
@@ -599,6 +634,8 @@ CheckLoadSegments (
     }
 
     if (ProgramHeader->p_filesz > ProgramHeader->p_memsz ||
+        !RangeInFile (ProgramHeader->p_offset, ProgramHeader->p_filesz, Image->Size) ||
+        ProgramHeader->p_memsz > UINT64_MAX - ProgramHeader->p_vaddr ||
         ProgramHeader->p_vaddr != ProgramHeader->p_paddr ||
         ProgramHeader->p_align < 0x1000 ||
         !IsPowerOfTwo (ProgramHeader->p_align) ||
@@ -606,6 +643,24 @@ CheckLoadSegments (
          (ProgramHeader->p_align - 1U)) != 0)
     {
       Fail ("PT_LOAD segment has invalid bounds or alignment");
+    }
+
+    SegmentEnd = ProgramHeader->p_vaddr + ProgramHeader->p_memsz;
+    for (PreviousIndex = 0; PreviousIndex < Index; PreviousIndex++) {
+      PreviousHeader = &Image->ProgramHeaders[PreviousIndex];
+      if (PreviousHeader->p_type != PT_LOAD ||
+          ProgramHeader->p_memsz == 0 ||
+          PreviousHeader->p_memsz == 0)
+      {
+        continue;
+      }
+
+      PreviousEnd = PreviousHeader->p_vaddr + PreviousHeader->p_memsz;
+      if ((ProgramHeader->p_vaddr < PreviousEnd) &&
+          (PreviousHeader->p_vaddr < SegmentEnd))
+      {
+        Fail ("PT_LOAD segments overlap");
+      }
     }
 
     HasExecutable = HasExecutable || ((ProgramHeader->p_flags & PF_X) != 0);
@@ -661,6 +716,7 @@ CheckImageContract (
   const ELF64_SHDR  *Fv;
   const ELF64_SHDR  *Bss;
   uint64_t          ModuleTableSize;
+  uint64_t          ImageSize;
   uint64_t          FvSize;
 
   CheckLoadSegments (Image);
@@ -701,6 +757,14 @@ CheckImageContract (
     Fail ("native image start/end symbols do not match the link contract");
   }
 
+  ImageSize = ImageEnd.Value - ImageStart.Value;
+  CheckSectionImageBounds (TextEntry, ".text.entry", ImageStart.Value, ImageSize);
+  CheckSectionImageBounds (Modules, ".cdk2.modules", ImageStart.Value, ImageSize);
+  CheckSectionImageBounds (Bss, ".bss", ImageStart.Value, ImageSize);
+  if (Fv != NULL) {
+    CheckSectionImageBounds (Fv, ".cdk2.fv", ImageStart.Value, ImageSize);
+  }
+
   if (EntrySymbol.Value < TextEntry->sh_addr ||
       EntrySymbol.Value >= TextEntry->sh_addr + TextEntry->sh_size)
   {
@@ -722,6 +786,7 @@ CheckImageContract (
   }
 
   if (FvEnd.Value < FvStart.Value ||
+      FvStart.Value < ImageStart.Value ||
       (FvStart.Value & (CDK2_FV_ALIGNMENT - 1U)) != 0 ||
       FvEnd.Value > ImageEnd.Value)
   {
