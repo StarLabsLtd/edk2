@@ -227,11 +227,11 @@ endef
 
 define CDK2_BACKEND_WRITE_MANIFEST
 mkdir -p "$(dir $(CDK2_MANIFEST))"
-{ \
+set -e; tmp="$(CDK2_MANIFEST).tmp"; { \
   printf '%s\n' '# Resolved cdk2 backend module set'; \
   printf '%s\n' '# Generated from Kconfig; do not edit.'; \
   printf '%s\n' $(CDK2_SELECTED_MODULES); \
-} > "$(CDK2_MANIFEST)"
+} > "$$tmp"; mv "$$tmp" "$(CDK2_MANIFEST)"
 printf '%s\n' "cdk2 backend module manifest: $(CDK2_MANIFEST)"
 endef
 

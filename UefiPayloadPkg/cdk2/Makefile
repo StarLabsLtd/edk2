@@ -24,6 +24,10 @@ CDK2_NATIVE_DIR := $(CDK2_DIR)/native
 CDK2_BACKEND ?= edk2
 CDK2_BACKEND_FILE ?= $(CDK2_DIR)$(CDK2_BACKEND)-backend.mk
 CDK2_BACKEND_INTERFACE_VERSION := 1
+CDK2_KCONFIG_ENV = KCONFIG_CONFIG="$(abspath $(CDK2_CONFIG))"
+CDK2_SOURCE_DATE_EPOCH ?= $(shell epoch=$$(git -C "$(CDK2_ROOT)" log -1 --format=%ct -- UefiPayloadPkg/cdk2 UefiPayloadPkg/UefiPayloadPkg.dsc UefiPayloadPkg/UefiPayloadPkg.fdf 2>/dev/null); test -n "$$epoch" || epoch=0; printf '%s' "$$epoch")
+SOURCE_DATE_EPOCH ?= $(CDK2_SOURCE_DATE_EPOCH)
+export SOURCE_DATE_EPOCH
 CDK2_CONFIG_TARGETS := build build-image check manifest modules native-stage \
 	native-coreboot-stage native-coreboot-image native-check native-pack \
 	native-service-test native-coreboot-test native-fv-test native-fvpack-test native-pe-test \
@@ -33,6 +37,7 @@ CDK2_CONFIG_TARGETS := build build-image check manifest modules native-stage \
 	manifest modules native-stage native-coreboot-stage native-coreboot-image native-check \
 	native-pack native-service-test native-coreboot-test native-fv-test native-fvpack-test \
 	native-pe-test native-module-test native-elfcheck-test print clean
+.DELETE_ON_ERROR: $(CDK2_CONFIG) $(CDK2_CONFIG_HEADER) $(CDK2_MANIFEST) $(CDK2_OUTPUT) $(CDK2_LINK_MANIFEST)
 
 all: build
 
@@ -42,37 +47,41 @@ prepare-kconfig:
 	@tr -d '\r' < "$(CDK2_DEFCONFIG)" > "$(CDK2_DEFCONFIG_INPUT)"
 
 $(CDK2_CONFIG): $(CDK2_KCONFIG) $(CDK2_DEFCONFIG) | prepare-kconfig
-	@mkdir -p "$(CDK2_BUILD_DIR)"
+	@mkdir -p "$(CDK2_BUILD_DIR)" "$(dir $(CDK2_CONFIG))"
 	@cd "$(CDK2_BUILD_DIR)" && \
-		if test -s .config; then \
-			$(CDK2_KCONFIG_TOOL) --olddefconfig kconfig/Kconfig; \
+		if test -s "$(CDK2_CONFIG)"; then \
+			$(CDK2_KCONFIG_ENV) $(CDK2_KCONFIG_TOOL) --olddefconfig kconfig/Kconfig; \
 		else \
-			$(CDK2_KCONFIG_TOOL) --defconfig=kconfig/defconfig kconfig/Kconfig; \
+			$(CDK2_KCONFIG_ENV) $(CDK2_KCONFIG_TOOL) --defconfig=kconfig/defconfig kconfig/Kconfig; \
 		fi
 
 config: $(CDK2_CONFIG) $(CDK2_CONFIG_HEADER)
 
 defconfig: prepare-kconfig
-	@mkdir -p "$(CDK2_BUILD_DIR)"
+	@mkdir -p "$(CDK2_BUILD_DIR)" "$(dir $(CDK2_CONFIG))"
 	@cd "$(CDK2_BUILD_DIR)" && \
-		$(CDK2_KCONFIG_TOOL) --defconfig=kconfig/defconfig kconfig/Kconfig
+			$(CDK2_KCONFIG_ENV) $(CDK2_KCONFIG_TOOL) --defconfig=kconfig/defconfig kconfig/Kconfig
+	@$(MAKE) --no-print-directory -f "$(CDK2_DIR)/Makefile" "$(CDK2_CONFIG_HEADER)"
 
 olddefconfig: prepare-kconfig
-	@mkdir -p "$(CDK2_BUILD_DIR)"
+	@mkdir -p "$(CDK2_BUILD_DIR)" "$(dir $(CDK2_CONFIG))"
 	@cd "$(CDK2_BUILD_DIR)" && \
-		if test -s .config; then \
-			$(CDK2_KCONFIG_TOOL) --olddefconfig kconfig/Kconfig; \
-		else \
-			$(CDK2_KCONFIG_TOOL) --defconfig=kconfig/defconfig kconfig/Kconfig; \
-		fi
+			if test -s "$(CDK2_CONFIG)"; then \
+				$(CDK2_KCONFIG_ENV) $(CDK2_KCONFIG_TOOL) --olddefconfig kconfig/Kconfig; \
+			else \
+				$(CDK2_KCONFIG_ENV) $(CDK2_KCONFIG_TOOL) --defconfig=kconfig/defconfig kconfig/Kconfig; \
+			fi
+	@$(MAKE) --no-print-directory -f "$(CDK2_DIR)/Makefile" "$(CDK2_CONFIG_HEADER)"
 
 menuconfig: prepare-kconfig
 	@command -v kconfig-mconf >/dev/null || { echo 'kconfig-mconf is required for menuconfig' >&2; exit 1; }
-	@cd "$(CDK2_BUILD_DIR)" && kconfig-mconf kconfig/Kconfig
+	@mkdir -p "$(dir $(CDK2_CONFIG))"
+	@cd "$(CDK2_BUILD_DIR)" && $(CDK2_KCONFIG_ENV) kconfig-mconf kconfig/Kconfig
+	@$(MAKE) --no-print-directory -f "$(CDK2_DIR)/Makefile" "$(CDK2_CONFIG_HEADER)"
 
 $(CDK2_CONFIG_HEADER): $(CDK2_CONFIG)
 	@mkdir -p "$(dir $@)"
-	@{ \
+	@set -e; tmp="$@.tmp"; { \
 		printf '%s\n' '/* SPDX-License-Identifier: BSD-2-Clause-Patent */' '#ifndef CDK2_CONFIG_H' '#define CDK2_CONFIG_H'; \
 		awk ' \
 			/^CONFIG_[A-Za-z0-9_]+=y$$/ { print "#define " substr($$1, 1, length($$1) - 2) " 1"; next } \
@@ -81,7 +90,7 @@ $(CDK2_CONFIG_HEADER): $(CDK2_CONFIG)
 			/^CONFIG_[A-Za-z0-9_]+=/ { split($$1, value, "="); print "#define " value[1] " " value[2]; next } \
 		' "$(CDK2_CONFIG)"; \
 		printf '%s\n' '#endif'; \
-	} > "$@"
+	} > "$$tmp"; mv "$$tmp" "$@"
 
 ifeq ($(CDK2_CONFIG_READY),1)
 include $(CDK2_CONFIG)
@@ -114,21 +123,27 @@ $(foreach required,BUILD ASSEMBLE CHECK CLEAN WRITE_MANIFEST WRITE_LINK_MANIFEST
 
 build: build-image
 
-build-image: manifest native-stage native-check
-	@mkdir -p "$(dir $(CDK2_OUTPUT))"
-	$(CDK2_BACKEND_BUILD)
-	@printf '%s\n' "cdk2 $(CDK2_BACKEND_NAME) module closure: $(words $(CDK2_SELECTED_MODULES)) selected modules"
-	$(CDK2_BACKEND_ASSEMBLE)
-	$(MAKE) --no-print-directory -f "$(CDK2_DIR)/Makefile" CDK2_CONFIG_READY=1 native-coreboot-image
-	$(CDK2_BACKEND_WRITE_LINK_MANIFEST)
+build-image: $(CDK2_OUTPUT) native-coreboot-image
 	@test -s "$(CDK2_OUTPUT)"
 	@test -s "$(CDK2_DIRECT_OUTPUT)"
 	@sha256sum "$(CDK2_OUTPUT)" "$(CDK2_DIRECT_OUTPUT)"
 
+$(CDK2_OUTPUT): $(CDK2_MANIFEST) $(CDK2_CONFIG_HEADER) $(CDK2_BACKEND_FILE) \
+		$(CDK2_DIR)/modules.mk $(CDK2_BACKEND_DESCRIPTOR) \
+		$(CDK2_ROOT)/UefiPayloadPkg/UefiPayloadPkg.fdf native-stage native-check
+	@mkdir -p "$(dir $(CDK2_OUTPUT))"
+	$(CDK2_BACKEND_BUILD)
+	@printf '%s\n' "cdk2 $(CDK2_BACKEND_NAME) module closure: $(words $(CDK2_SELECTED_MODULES)) selected modules"
+	$(CDK2_BACKEND_ASSEMBLE)
+	$(CDK2_BACKEND_WRITE_LINK_MANIFEST)
+
 check: $(CDK2_CONFIG_HEADER)
 	$(CDK2_BACKEND_CHECK)
 
-manifest: check
+manifest: $(CDK2_MANIFEST)
+
+$(CDK2_MANIFEST): $(CDK2_CONFIG_HEADER) $(CDK2_BACKEND_FILE) $(CDK2_DIR)/modules.mk
+	$(CDK2_BACKEND_CHECK)
 	$(CDK2_BACKEND_WRITE_MANIFEST)
 
 modules:
@@ -150,6 +165,7 @@ print:
 	@printf 'modules=%s\n' '$(CDK2_MANIFEST)'
 	@printf 'link-manifest=%s\n' '$(CDK2_LINK_MANIFEST)'
 	@printf 'backend-ffs-list=%s\n' '$(CDK2_BACKEND_FFS_LIST)'
+	@printf 'source-date-epoch=%s\n' '$(SOURCE_DATE_EPOCH)'
 	@printf 'defines=%s\n' '$(CDK2_DEFINES)'
 
 clean:
