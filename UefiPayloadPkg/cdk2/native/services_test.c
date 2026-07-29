@@ -331,6 +331,8 @@ main (void)
   CDK2_NATIVE_CONTEXT    Allocator = { 0 };
   EFI_HOB_HANDOFF_INFO_TABLE  *AllocatorHob;
   EFI_HOB_HANDOFF_INFO_TABLE  *BelowPayloadHob;
+  EFI_HOB_GENERIC_HEADER      *End;
+  EFI_HOB_GENERIC_HEADER      *MalformedHob;
   EFI_PHYSICAL_ADDRESS   EntryPoint;
   EFI_PHYSICAL_ADDRESS   AllocationBase;
   UINTN                  HobMemBase;
@@ -448,6 +450,46 @@ main (void)
                 "out-of-range HOB free top rejection"
                 );
 
+  AllocatorHob = TestConstructHobs (
+                   (VOID *)(UINTN)0x00100000,
+                   (VOID *)(UINTN)0x00400000,
+                   (VOID *)(UINTN)0x00200000,
+                   (VOID *)(UINTN)0x00300000
+                   );
+  MalformedHob = (EFI_HOB_GENERIC_HEADER *)(VOID *)(mTestHobStorage + sizeof (*AllocatorHob));
+  End = (EFI_HOB_GENERIC_HEADER *)(VOID *)((UINT8 *)(VOID *)MalformedHob + 16);
+  MalformedHob->HobType   = EFI_HOB_TYPE_UNUSED;
+  MalformedHob->HobLength = sizeof (*MalformedHob) + 1;
+  MalformedHob->Reserved  = 0;
+  End->HobType   = EFI_HOB_TYPE_END_OF_HOB_LIST;
+  End->HobLength = sizeof (*End);
+  End->Reserved  = 0;
+  AllocatorHob->EfiEndOfHobList = (EFI_PHYSICAL_ADDRESS)(UINTN)End;
+  Failures += Expect (
+                Cdk2NativeAdoptHobList (&Context, AllocatorHob) == EFI_COMPROMISED_DATA,
+                "unaligned adopted HOB length rejection"
+                );
+
+  AllocatorHob = TestConstructHobs (
+                   (VOID *)(UINTN)0x00100000,
+                   (VOID *)(UINTN)0x00400000,
+                   (VOID *)(UINTN)0x00200000,
+                   (VOID *)(UINTN)0x00300000
+                   );
+  MalformedHob = (EFI_HOB_GENERIC_HEADER *)(VOID *)(mTestHobStorage + sizeof (*AllocatorHob));
+  End = (EFI_HOB_GENERIC_HEADER *)(VOID *)((UINT8 *)(VOID *)MalformedHob + sizeof (*MalformedHob));
+  MalformedHob->HobType   = EFI_HOB_TYPE_END_OF_HOB_LIST;
+  MalformedHob->HobLength = sizeof (*MalformedHob);
+  MalformedHob->Reserved  = 0;
+  End->HobType   = EFI_HOB_TYPE_END_OF_HOB_LIST;
+  End->HobLength = sizeof (*End);
+  End->Reserved  = 0;
+  AllocatorHob->EfiEndOfHobList = (EFI_PHYSICAL_ADDRESS)(UINTN)End;
+  Failures += Expect (
+                Cdk2NativeAdoptHobList (&Context, AllocatorHob) == EFI_COMPROMISED_DATA,
+                "early adopted HOB end marker rejection"
+                );
+
   Allocator.AllocationBottom = 0x00200000;
   Allocator.AllocationTop    = 0x00210000;
   Failures += Expect (
@@ -469,6 +511,9 @@ main (void)
   *AllocatorHob = (EFI_HOB_HANDOFF_INFO_TABLE){ 0 };
   AllocatorHob->Header.HobType   = EFI_HOB_TYPE_HANDOFF;
   AllocatorHob->Header.HobLength = sizeof (*AllocatorHob);
+  AllocatorHob->EfiMemoryBottom  = 0x00200000;
+  AllocatorHob->EfiMemoryTop     = 0x00210000;
+  AllocatorHob->EfiFreeMemoryBottom = 0x00200000;
   AllocatorHob->EfiFreeMemoryTop = 0x00210000;
   Allocator = (CDK2_NATIVE_CONTEXT){ 0 };
   Allocator.HobList          = AllocatorHob;
@@ -480,11 +525,32 @@ main (void)
                 );
   Failures += Expect (Allocator.AllocationTop == AllocationBase, "HOB-backed allocator top update");
   Failures += Expect (AllocatorHob->EfiFreeMemoryTop == AllocationBase, "PHIT free memory top update");
+  Allocator.HobList          = NULL;
   Allocator.AllocationBottom = 0x00300000;
   Allocator.AllocationTop    = 0x00200000;
   Failures += Expect (
                 Cdk2NativeAllocatePages (&Allocator, 1, &AllocationBase) == EFI_OUT_OF_RESOURCES,
                 "inverted allocator range rejection"
+                );
+  AllocatorHob = TestConstructHobs (
+                   (VOID *)(UINTN)0x00200000,
+                   (VOID *)(UINTN)0x00203000,
+                   (VOID *)(UINTN)0x00200000,
+                   (VOID *)(UINTN)0x00203000
+                   );
+  Allocator = (CDK2_NATIVE_CONTEXT){ 0 };
+  Failures += Expect (
+                Cdk2NativeAdoptHobList (&Allocator, AllocatorHob) == EFI_SUCCESS,
+                "allocator HOB adoption"
+                );
+  AllocatorHob->EfiFreeMemoryBottom = 0x00202000;
+  Failures += Expect (
+                Cdk2NativeAllocatePages (&Allocator, 2, &AllocationBase) == EFI_OUT_OF_RESOURCES,
+                "allocator stale PHIT free bottom rejection"
+                );
+  Failures += Expect (
+                AllocatorHob->EfiFreeMemoryTop == 0x00203000,
+                "failed allocator preserves PHIT free top"
                 );
 
   Prepared.BootloaderParameter   = 0x12345678;

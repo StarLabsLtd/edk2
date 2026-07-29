@@ -474,8 +474,9 @@ Cdk2NativeAllocatePages (
   )
 {
   EFI_HOB_HANDOFF_INFO_TABLE  *Handoff;
-  EFI_PHYSICAL_ADDRESS  Top;
-  UINTN                  Size;
+  EFI_PHYSICAL_ADDRESS         Bottom;
+  EFI_PHYSICAL_ADDRESS         Top;
+  UINTN                        Size;
 
   if (Context == NULL || Pages == 0 || Base == NULL ||
       Pages > MAX_UINTN / EFI_PAGE_SIZE)
@@ -483,13 +484,10 @@ Cdk2NativeAllocatePages (
     return EFI_INVALID_PARAMETER;
   }
 
+  Handoff = NULL;
   Size = Pages * EFI_PAGE_SIZE;
+  Bottom = Context->AllocationBottom;
   Top  = Context->AllocationTop & ~(EFI_PHYSICAL_ADDRESS)(EFI_PAGE_SIZE - 1);
-  if (Top < Context->AllocationBottom || Size > Top - Context->AllocationBottom) {
-    return EFI_OUT_OF_RESOURCES;
-  }
-
-  Top -= Size;
   if (Context->HobList != NULL) {
     Handoff = (EFI_HOB_HANDOFF_INFO_TABLE *)Context->HobList;
     if (Handoff->Header.HobType != EFI_HOB_TYPE_HANDOFF ||
@@ -498,9 +496,26 @@ Cdk2NativeAllocatePages (
       return EFI_COMPROMISED_DATA;
     }
 
+    if (Handoff->EfiFreeMemoryTop != Context->AllocationTop ||
+        Handoff->EfiFreeMemoryBottom < Context->AllocationBottom ||
+        Handoff->EfiFreeMemoryBottom > Handoff->EfiFreeMemoryTop)
+    {
+      return EFI_COMPROMISED_DATA;
+    }
+
+    Bottom = Handoff->EfiFreeMemoryBottom;
+  }
+
+  if (Top < Bottom || Size > Top - Bottom) {
+    return EFI_OUT_OF_RESOURCES;
+  }
+
+  Top -= Size;
+  if (Handoff != NULL) {
     Handoff->EfiFreeMemoryTop = Top;
   }
 
+  Context->AllocationBottom = Bottom;
   Context->AllocationTop = Top;
   *Base = Top;
   return EFI_SUCCESS;
@@ -586,11 +601,12 @@ Cdk2NativeAdoptHobList (
 
     HobLength = Hob->HobLength;
     if (HobLength < sizeof (*Hob) || HobLength > (UINTN)End - (UINTN)Hob ||
-        HobLength > MAX_UINTN - 7) {
+        (HobLength & 7U) != 0 ||
+        Hob->HobType == EFI_HOB_TYPE_END_OF_HOB_LIST) {
       return EFI_COMPROMISED_DATA;
     }
 
-    Hob = (EFI_HOB_GENERIC_HEADER *)(VOID *)((UINT8 *)Hob + ALIGN_VALUE (HobLength, 8));
+    Hob = (EFI_HOB_GENERIC_HEADER *)(VOID *)((UINT8 *)Hob + HobLength);
   }
 
   if (Hob != End || End->HobType != EFI_HOB_TYPE_END_OF_HOB_LIST ||
