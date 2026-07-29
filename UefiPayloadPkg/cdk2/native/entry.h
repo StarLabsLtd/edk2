@@ -21,6 +21,7 @@
 
   @retval EFI_SUCCESS            All registered modules completed.
   @retval EFI_INVALID_PARAMETER  Context is NULL.
+  @retval EFI_COMPROMISED_DATA   The linker-collected module table is invalid.
   @retval Other                  A module returned an error.
 **/
 EFI_STATUS

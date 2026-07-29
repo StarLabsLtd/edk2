@@ -35,19 +35,59 @@ Cdk2NativeRunModules (
   IN OUT CDK2_NATIVE_CONTEXT  *Context
   )
 {
-  const CDK2_NATIVE_MODULE  *Module;
-  EFI_STATUS                Status;
+  UINTN  ModuleTableStart;
+  UINTN  ModuleTableEnd;
+  UINTN  ModuleTableSize;
 
   if (Context == NULL) {
     return EFI_INVALID_PARAMETER;
   }
 
-  for (Module = __cdk2_modules_start; Module < __cdk2_modules_end; Module++) {
-    if (Module->Init != NULL) {
-      Status = Module->Init (Context);
-      if (EFI_ERROR (Status)) {
-        return Status;
-      }
+  ModuleTableStart = (UINTN)__cdk2_modules_start;
+  ModuleTableEnd   = (UINTN)__cdk2_modules_end;
+  if (ModuleTableEnd < ModuleTableStart) {
+    return EFI_COMPROMISED_DATA;
+  }
+
+  ModuleTableSize = ModuleTableEnd - ModuleTableStart;
+  if (ModuleTableSize == 0 ||
+      (ModuleTableStart % sizeof (*__cdk2_modules_start)) != 0 ||
+      (ModuleTableSize % sizeof (*__cdk2_modules_start)) != 0)
+  {
+    return EFI_COMPROMISED_DATA;
+  }
+
+  return Cdk2NativeRunModuleTable (
+           Context,
+           __cdk2_modules_start,
+           ModuleTableSize / sizeof (*__cdk2_modules_start)
+           );
+}
+
+EFI_STATUS
+Cdk2NativeRunModuleTable (
+  IN OUT CDK2_NATIVE_CONTEXT  *Context,
+  IN CONST CDK2_NATIVE_MODULE  *Modules,
+  IN UINTN                    ModuleCount
+  )
+{
+  const CDK2_NATIVE_MODULE  *Module;
+  EFI_STATUS                Status;
+  UINTN                     Index;
+
+  if (Context == NULL || (Modules == NULL && ModuleCount != 0)) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  for (Index = 0; Index < ModuleCount; Index++) {
+    Module = &Modules[Index];
+    if (Module->Init == NULL) {
+      return EFI_COMPROMISED_DATA;
+    }
+
+    Status = Module->Init (Context);
+    if (EFI_ERROR (Status)) {
+      return Status;
     }
   }
 

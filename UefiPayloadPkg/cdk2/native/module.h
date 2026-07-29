@@ -21,6 +21,13 @@ typedef struct {
   CDK2_NATIVE_MODULE_INIT     Init;
 } CDK2_NATIVE_MODULE;
 
+EFI_STATUS
+Cdk2NativeRunModuleTable (
+  IN OUT CDK2_NATIVE_CONTEXT  *Context,
+  IN CONST CDK2_NATIVE_MODULE  *Modules,
+  IN UINTN                    ModuleCount
+  );
+
 #if defined (__GNUC__)
 #define CDK2_NATIVE_REGISTER(Name, Function) \
   static const CDK2_NATIVE_MODULE  mCdk2Module_##Function \
