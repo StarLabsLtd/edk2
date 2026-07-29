@@ -80,12 +80,12 @@ class Edk2BackendDiscoverTests(unittest.TestCase):
             textwrap.dedent(
                 f"""\
                 SHELL := /bin/bash
-                CDK2_ROOT := {root}
-                CDK2_DIR := {CDK2_DIR}
-                CDK2_BUILD_DIR := {build}
-                CDK2_TARGET := RELEASE
-                CDK2_BACKEND_TOOLCHAIN := TEST
-                CDK2_BACKEND_OUTPUT_DIRECTORY := out
+                override CDK2_ROOT := {root}
+                override CDK2_DIR := {CDK2_DIR}
+                override CDK2_BUILD_DIR := {build}
+                override CDK2_TARGET := RELEASE
+                override CDK2_BACKEND_TOOLCHAIN := TEST
+                override CDK2_BACKEND_OUTPUT_DIRECTORY := out
                 include $(CDK2_DIR)/edk2-backend.mk
                 CDK2_SELECTED_MODULES := {GOOD_MODULE} $(CDK2_BACKEND_ENTRY_MODULE)
 
@@ -278,6 +278,92 @@ class Edk2BackendDiscoverTests(unittest.TestCase):
         )
         self.assertIn(f"{FMP_DXE_MODULE} FILE_GUID={second_guid}\n", manifest)
         self.assertNotIn(f"{FMP_DXE_MODULE} FILE_GUID={first_guid}\n", manifest)
+
+
+class Edk2BackendPs2KeyboardTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.workspace = Path(self.tmp.name)
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def _run_inspect(self, config: str) -> subprocess.CompletedProcess[str]:
+        makefile = self.workspace / "Makefile"
+        makefile.write_text(
+            "\n".join(
+                [
+                    "SHELL := /bin/bash",
+                    f"override CDK2_ROOT := {CDK2_DIR.parents[1]}",
+                    f"override CDK2_DIR := {CDK2_DIR}",
+                    f"override CDK2_BUILD_DIR := {self.workspace / 'build'}",
+                    "CONFIG_CDK2_PAYLOAD := y",
+                    "CONFIG_CDK2_CONSOLE := y",
+                    "CONFIG_CDK2_BOOT_TIMEOUT := 0",
+                    *config.splitlines(),
+                    "include $(CDK2_DIR)/edk2-backend.mk",
+                    "",
+                    ".PHONY: inspect",
+                    "inspect:",
+                    "\t@printf '%s\\n' 'MODULES'",
+                    "\t@printf '%s\\n' $(CDK2_SELECTED_MODULES)",
+                    "\t@printf '%s\\n' 'DEFINES'",
+                    "\t@printf '%s\\n' '$(CDK2_DEFINES)'",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        return subprocess.run(
+            ["make", "--no-print-directory", "-f", str(makefile), "inspect"],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+    def test_ps2_keyboard_disabled_keeps_keyboard_and_sio_bus_out(self) -> None:
+        result = self._run_inspect(
+            "\n".join(
+                [
+                    "CONFIG_CDK2_PCI := y",
+                    "CONFIG_CDK2_SIO_BUS := n",
+                    "CONFIG_CDK2_PS2_KEYBOARD := n",
+                    "CONFIG_CDK2_PS2_MOUSE := n",
+                ]
+            )
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("OvmfPkg/SioBusDxe/SioBusDxe.inf", result.stdout)
+        self.assertNotIn(
+            "MdeModulePkg/Bus/Isa/Ps2KeyboardDxe/Ps2KeyboardDxe.inf",
+            result.stdout,
+        )
+        self.assertIn("-D SIO_BUS_ENABLE=FALSE", result.stdout)
+        self.assertIn("-D PS2_KEYBOARD_ENABLE=FALSE", result.stdout)
+
+    def test_ps2_keyboard_enabled_implies_sio_bus_path(self) -> None:
+        result = self._run_inspect(
+            "\n".join(
+                [
+                    "CONFIG_CDK2_PCI := y",
+                    "CONFIG_CDK2_SIO_BUS := n",
+                    "CONFIG_CDK2_PS2_KEYBOARD := y",
+                    "CONFIG_CDK2_PS2_MOUSE := n",
+                ]
+            )
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("OvmfPkg/SioBusDxe/SioBusDxe.inf", result.stdout)
+        self.assertIn(
+            "MdeModulePkg/Bus/Isa/Ps2KeyboardDxe/Ps2KeyboardDxe.inf",
+            result.stdout,
+        )
+        self.assertIn("-D SIO_BUS_ENABLE=TRUE", result.stdout)
+        self.assertIn("-D PS2_KEYBOARD_ENABLE=TRUE", result.stdout)
 
 
 if __name__ == "__main__":

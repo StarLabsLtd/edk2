@@ -145,6 +145,16 @@ config CDK2_PS2_MOUSE
     default y
     depends on CDK2_CONSOLE
 
+config CDK2_SIO_BUS
+    bool
+    depends on CDK2_PCI
+
+config CDK2_PS2_KEYBOARD
+    bool "Include PS/2 keyboard support"
+    default n
+    depends on CDK2_CONSOLE && CDK2_PCI
+    select CDK2_SIO_BUS
+
 config CDK2_SERIAL
     bool "Enable the serial driver"
     default n
