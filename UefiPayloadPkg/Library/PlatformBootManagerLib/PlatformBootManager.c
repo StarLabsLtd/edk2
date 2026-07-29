@@ -984,7 +984,122 @@ PlatformBootOptionUsesInternalDisk (
 
 STATIC
 BOOLEAN
-PlatformSelectedBootOptionUsesInternalDisk (
+PlatformBootImageIsValid (
+  IN CONST VOID  *FileBuffer,
+  IN UINTN       FileSize
+  )
+{
+  CONST EFI_IMAGE_DOS_HEADER             *DosHeader;
+  CONST EFI_IMAGE_OPTIONAL_HEADER_UNION  *PeHeader;
+  UINT32                                 PeOffset;
+
+  if ((FileBuffer == NULL) || (FileSize < sizeof (EFI_IMAGE_DOS_HEADER))) {
+    return FALSE;
+  }
+
+  DosHeader = (CONST EFI_IMAGE_DOS_HEADER *)FileBuffer;
+  if ((DosHeader->e_magic != EFI_IMAGE_DOS_SIGNATURE) ||
+      (DosHeader->e_lfanew >= FileSize))
+  {
+    return FALSE;
+  }
+
+  PeOffset = DosHeader->e_lfanew;
+  if ((FileSize - PeOffset) < sizeof (EFI_IMAGE_OPTIONAL_HEADER_UNION)) {
+    return FALSE;
+  }
+
+  PeHeader = (CONST EFI_IMAGE_OPTIONAL_HEADER_UNION *)((CONST UINT8 *)FileBuffer + PeOffset);
+  if (PeHeader->Pe32.Signature != EFI_IMAGE_NT_SIGNATURE) {
+    return FALSE;
+  }
+
+  if ((PeHeader->Pe32.OptionalHeader.Magic != EFI_IMAGE_NT_OPTIONAL_HDR32_MAGIC) &&
+      (PeHeader->Pe32.OptionalHeader.Magic != EFI_IMAGE_NT_OPTIONAL_HDR64_MAGIC))
+  {
+    return FALSE;
+  }
+
+  return EFI_IMAGE_MACHINE_TYPE_SUPPORTED (PeHeader->Pe32.FileHeader.Machine) &&
+         (PeHeader->Pe32.OptionalHeader.Subsystem == EFI_IMAGE_SUBSYSTEM_EFI_APPLICATION);
+}
+
+STATIC
+BOOLEAN
+PlatformBootOptionHasLoadableInternalDiskPath (
+  IN CONST EFI_BOOT_MANAGER_LOAD_OPTION  *BootOption
+  )
+{
+  EFI_STATUS                Status;
+  EFI_HANDLE                DeviceHandle;
+  EFI_DEVICE_PATH_PROTOCOL  *CurFullPath;
+  EFI_DEVICE_PATH_PROTOCOL  *PreFullPath;
+  VOID                      *FileBuffer;
+  UINTN                     FileSize;
+  UINT32                    AuthenticationStatus;
+  BOOLEAN                   Found;
+
+  if (!PlatformBootOptionUsesInternalDisk (BootOption)) {
+    return FALSE;
+  }
+
+  DeviceHandle = NULL;
+  Status       = EfiBootManagerConnectDevicePath (BootOption->FilePath, &DeviceHandle);
+  if (!EFI_ERROR (Status) && (DeviceHandle != NULL)) {
+    gBS->ConnectController (DeviceHandle, NULL, NULL, TRUE);
+  }
+
+  Found       = FALSE;
+  CurFullPath = NULL;
+  do {
+    PreFullPath = CurFullPath;
+    CurFullPath = EfiBootManagerGetNextLoadOptionDevicePathNoConnectAll (
+                    BootOption->FilePath,
+                    CurFullPath
+                    );
+
+    if (PreFullPath != NULL) {
+      FreePool (PreFullPath);
+    }
+
+    if (CurFullPath == NULL) {
+      break;
+    }
+
+    FileSize             = 0;
+    AuthenticationStatus = 0;
+    FileBuffer           = GetFileBufferByFilePath (
+                             TRUE,
+                             CurFullPath,
+                             &FileSize,
+                             &AuthenticationStatus
+                             );
+    if (FileBuffer != NULL) {
+      Found = PlatformBootImageIsValid (FileBuffer, FileSize);
+      FreePool (FileBuffer);
+      if (Found) {
+        break;
+      }
+    }
+  } while (TRUE);
+
+  if (CurFullPath != NULL) {
+    FreePool (CurFullPath);
+  }
+
+  DEBUG ((
+    DEBUG_INFO,
+    "Internal boot path validation for %s: %a\n",
+    (BootOption->Description != NULL) ? BootOption->Description : L"<unknown>",
+    Found ? "found" : "not found"
+    ));
+
+  return Found;
+}
+
+STATIC
+BOOLEAN
+PlatformHasUsableInternalBootPath (
   VOID
   )
 {
@@ -994,19 +1109,19 @@ PlatformSelectedBootOptionUsesInternalDisk (
   CHAR16                        BootOptionName[16];
   EFI_BOOT_MANAGER_LOAD_OPTION  BootNextOption;
   EFI_BOOT_MANAGER_LOAD_OPTION  *BootOptions;
-  EFI_BOOT_MANAGER_LOAD_OPTION  *SelectedOption;
   UINTN                         BootOptionCount;
   UINTN                         Index;
-  BOOLEAN                       HaveBootNext;
-  BOOLEAN                       UsesInternalDisk;
+  BOOLEAN                       UsableInternalBootPath;
 
-  BootOptions      = NULL;
-  BootOptionCount  = 0;
-  SelectedOption   = NULL;
-  HaveBootNext     = FALSE;
-  UsesInternalDisk = FALSE;
+  BootOptions            = NULL;
+  BootOptionCount        = 0;
+  UsableInternalBootPath = FALSE;
   ZeroMem (&BootNextOption, sizeof (BootNextOption));
 
+  //
+  // BootNext is an explicit one-shot selection.  Keep it authoritative, but
+  // fall back to BootOrder if an internal BootNext is stale.
+  //
   DataSize = sizeof (BootNext);
   Status   = gRT->GetVariable (
                     EFI_BOOT_NEXT_VARIABLE_NAME,
@@ -1019,38 +1134,46 @@ PlatformSelectedBootOptionUsesInternalDisk (
     UnicodeSPrint (BootOptionName, sizeof (BootOptionName), L"Boot%04x", BootNext);
     Status = EfiBootManagerVariableToLoadOption (BootOptionName, &BootNextOption);
     if (!EFI_ERROR (Status)) {
-      SelectedOption = &BootNextOption;
-      HaveBootNext   = TRUE;
-    }
-  }
-
-  if (!HaveBootNext) {
-    BootOptions = EfiBootManagerGetLoadOptions (&BootOptionCount, LoadOptionTypeBoot);
-    for (Index = 0; Index < BootOptionCount; Index++) {
-      if ((BootOptions[Index].Attributes & LOAD_OPTION_ACTIVE) != 0) {
-        SelectedOption = &BootOptions[Index];
-        break;
+      if (!PlatformBootOptionUsesInternalDisk (&BootNextOption)) {
+        DEBUG ((DEBUG_INFO, "BootNext is removable or non-disk; discovering removable media\n"));
+        EfiBootManagerFreeLoadOption (&BootNextOption);
+        return FALSE;
       }
+
+      UsableInternalBootPath = PlatformBootOptionHasLoadableInternalDiskPath (&BootNextOption);
+      EfiBootManagerFreeLoadOption (&BootNextOption);
+      if (UsableInternalBootPath) {
+        return TRUE;
+      }
+
+      DEBUG ((DEBUG_INFO, "BootNext internal boot path is unavailable; checking BootOrder\n"));
+    } else {
+      DEBUG ((DEBUG_INFO, "BootNext option %04x is unavailable: %r\n", BootNext, Status));
     }
   }
 
-  if (SelectedOption != NULL) {
-    UsesInternalDisk = PlatformBootOptionUsesInternalDisk (SelectedOption);
-    DEBUG ((
-      DEBUG_INFO,
-      "Selected boot path is %a an internal disk\n",
-      UsesInternalDisk ? "" : "not"
-      ));
-  } else {
-    DEBUG ((DEBUG_INFO, "No active boot option selected\n"));
+  BootOptions = EfiBootManagerGetLoadOptions (&BootOptionCount, LoadOptionTypeBoot);
+  for (Index = 0; Index < BootOptionCount; Index++) {
+    if ((BootOptions[Index].Attributes & LOAD_OPTION_ACTIVE) == 0) {
+      continue;
+    }
+
+    if ((BootOptions[Index].Attributes & LOAD_OPTION_CATEGORY) != LOAD_OPTION_CATEGORY_BOOT) {
+      continue;
+    }
+
+    if (PlatformBootOptionHasLoadableInternalDiskPath (&BootOptions[Index])) {
+      UsableInternalBootPath = TRUE;
+      break;
+    }
   }
 
-  if (HaveBootNext) {
-    EfiBootManagerFreeLoadOption (&BootNextOption);
+  if (!UsableInternalBootPath) {
+    DEBUG ((DEBUG_INFO, "No usable internal boot path found\n"));
   }
 
   EfiBootManagerFreeLoadOptions (BootOptions, BootOptionCount);
-  return UsesInternalDisk;
+  return UsableInternalBootPath;
 }
 
 STATIC
@@ -1229,16 +1352,16 @@ PlatformBootManagerAfterConsole (
     if (FeaturePcdGet (PcdConnectAllDevices)) {
       EfiBootManagerConnectAll ();
       EfiBootManagerRefreshAllBootOption ();
-    } else if (!PlatformSelectedBootOptionUsesInternalDisk ()) {
+    } else if (!PlatformHasUsableInternalBootPath ()) {
       DEBUG ((
         DEBUG_INFO,
-        "Selected boot path is removable or unavailable; discovering removable media\n"
+        "No usable internal boot path; discovering removable media\n"
         ));
       PlatformConnectRemovableMedia ();
     } else {
       DEBUG ((
         DEBUG_INFO,
-        "Skipping global device discovery; connecting the selected boot path on demand\n"
+        "Skipping global device discovery; internal boot path is available\n"
         ));
     }
   }
