@@ -739,6 +739,10 @@ Cdk2CorebootResolveBootMode (
   }
 
   *BootMode = BOOT_WITH_FULL_CONFIGURATION;
+  if (Coreboot->Header == NULL && Coreboot->RecordCount == 0) {
+    return EFI_SUCCESS;
+  }
+
   Status = Cdk2CorebootFindRecord (
              Coreboot,
              CB_TAG_BOOT_MODE,
