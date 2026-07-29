@@ -12,6 +12,7 @@
 **/
 
 #include <errno.h>
+#include <ctype.h>
 #include <inttypes.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -43,14 +44,18 @@ typedef struct {
 } BLOB;
 
 typedef struct {
-  char  *Path;
-  BLOB  File;
-  bool  Used;
+  char     *Path;
+  BLOB     File;
+  uint8_t  Guid[16];
+  size_t   ReferenceOffset;
+  bool     HasReferenceOffset;
+  bool     Used;
 } FFS_INPUT;
 
 typedef struct {
   FFS_INPUT  *Items;
   size_t     Count;
+  bool       Ordered;
 } FFS_INPUTS;
 
 static const uint8_t  mFfsPadGuid[16] = {
@@ -513,6 +518,231 @@ DuplicateString (
   return Copy;
 }
 
+static char *
+Trim (
+  char  *String
+  )
+{
+  char  *End;
+
+  while (isspace ((unsigned char)*String)) {
+    String++;
+  }
+
+  End = String + strlen (String);
+  while ((End > String) && isspace ((unsigned char)End[-1])) {
+    End--;
+    *End = '\0';
+  }
+
+  return String;
+}
+
+static char *
+NextToken (
+  char  **Cursor
+  )
+{
+  char  *Start;
+  char  *End;
+
+  Start = *Cursor;
+  while (isspace ((unsigned char)*Start)) {
+    Start++;
+  }
+
+  if (*Start == '\0') {
+    *Cursor = Start;
+    return NULL;
+  }
+
+  End = Start;
+  while ((*End != '\0') && !isspace ((unsigned char)*End)) {
+    End++;
+  }
+
+  if (*End != '\0') {
+    *End = '\0';
+    End++;
+  }
+
+  *Cursor = End;
+  return Start;
+}
+
+static int
+HexValue (
+  char  Character
+  )
+{
+  if ((Character >= '0') && (Character <= '9')) {
+    return Character - '0';
+  }
+
+  if ((Character >= 'a') && (Character <= 'f')) {
+    return Character - 'a' + 10;
+  }
+
+  if ((Character >= 'A') && (Character <= 'F')) {
+    return Character - 'A' + 10;
+  }
+
+  return -1;
+}
+
+static uint32_t
+ParseHexGroup (
+  const char  *Text,
+  size_t      Offset,
+  size_t      Length
+  )
+{
+  uint32_t  Value;
+  int       Digit;
+  size_t    Index;
+
+  Value = 0;
+  for (Index = 0; Index < Length; Index++) {
+    Digit = HexValue (Text[Offset + Index]);
+    if (Digit < 0) {
+      Fail ("manifest contains an invalid GUID");
+    }
+
+    Value = (Value << 4) | (uint32_t)Digit;
+  }
+
+  return Value;
+}
+
+static void
+ParseGuid (
+  const char  *Text,
+  uint8_t     *Guid
+  )
+{
+  uint32_t  Data1;
+  uint32_t  Data2;
+  uint32_t  Data3;
+  size_t    Index;
+
+  if ((strlen (Text) != 36) ||
+      (Text[8] != '-') ||
+      (Text[13] != '-') ||
+      (Text[18] != '-') ||
+      (Text[23] != '-'))
+  {
+    Fail ("manifest contains an invalid GUID");
+  }
+
+  Data1 = ParseHexGroup (Text, 0, 8);
+  Data2 = ParseHexGroup (Text, 9, 4);
+  Data3 = ParseHexGroup (Text, 14, 4);
+
+  Guid[0] = (uint8_t)Data1;
+  Guid[1] = (uint8_t)(Data1 >> 8);
+  Guid[2] = (uint8_t)(Data1 >> 16);
+  Guid[3] = (uint8_t)(Data1 >> 24);
+  Guid[4] = (uint8_t)Data2;
+  Guid[5] = (uint8_t)(Data2 >> 8);
+  Guid[6] = (uint8_t)Data3;
+  Guid[7] = (uint8_t)(Data3 >> 8);
+  Guid[8] = (uint8_t)ParseHexGroup (Text, 19, 2);
+  Guid[9] = (uint8_t)ParseHexGroup (Text, 21, 2);
+  for (Index = 0; Index < 6; Index++) {
+    Guid[10 + Index] = (uint8_t)ParseHexGroup (Text, 24 + (Index * 2), 2);
+  }
+}
+
+static size_t
+ParseSize (
+  const char  *Text
+  )
+{
+  unsigned long long  Value;
+  char                *End;
+
+  if (Text[0] == '-') {
+    Fail ("manifest contains an invalid number");
+  }
+
+  errno = 0;
+  Value = strtoull (Text, &End, 0);
+  if ((errno != 0) || (*End != '\0') || (Value > SIZE_MAX)) {
+    Fail ("manifest contains an invalid number");
+  }
+
+  return (size_t)Value;
+}
+
+static void
+ValidateFfsInput (
+  const FFS_INPUT  *Input
+  )
+{
+  uint8_t  Header[FFS_HEADER_SIZE];
+  size_t   FileSize;
+
+  if (Input->File.Size < FFS_HEADER_SIZE) {
+    Fail ("FFS input is smaller than its header");
+  }
+
+  FileSize = Get24 (Input->File.Data + 20);
+  if (FileSize == 0xFFFFFFU) {
+    Fail ("large FFS inputs are not supported by the native packer");
+  }
+
+  if ((FileSize < FFS_HEADER_SIZE) || (FileSize != Input->File.Size)) {
+    Fail ("FFS input size does not match its header");
+  }
+
+  if (Input->File.Data[17] != FFS_FIXED_CHECKSUM) {
+    Fail ("FFS input has an unsupported data checksum mode");
+  }
+
+  memcpy (Header, Input->File.Data, sizeof (Header));
+  Header[16] = 0;
+  Header[17] = 0;
+  Header[23] = 0;
+  if (Checksum8 (Header, sizeof (Header)) != Input->File.Data[16]) {
+    Fail ("FFS input header checksum does not match");
+  }
+}
+
+static FFS_INPUT *
+AppendFfsInput (
+  FFS_INPUTS  *Inputs
+  )
+{
+  FFS_INPUT  *Item;
+
+  Item = realloc (Inputs->Items, (Inputs->Count + 1) * sizeof (*Item));
+  if (Item == NULL) {
+    Fail ("out of memory reading FFS inputs");
+  }
+
+  Inputs->Items = Item;
+  Item = &Inputs->Items[Inputs->Count++];
+  memset (Item, 0, sizeof (*Item));
+  return Item;
+}
+
+static bool
+HasEarlierGuid (
+  const FFS_INPUTS  *Inputs,
+  const uint8_t     *Guid
+  )
+{
+  size_t  Index;
+
+  for (Index = 0; Index + 1 < Inputs->Count; Index++) {
+    if (memcmp (Inputs->Items[Index].Guid, Guid, 16) == 0) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 static void
 ReadFfsList (
   const char   *Path,
@@ -521,7 +751,7 @@ ReadFfsList (
 {
   FILE       *File;
   char        Line[4096];
-  char       *End;
+  char       *PathText;
   FFS_INPUT  *Item;
 
   File = fopen (Path, "r");
@@ -531,28 +761,19 @@ ReadFfsList (
   }
 
   while (fgets (Line, sizeof (Line), File) != NULL) {
-    End = Line + strlen (Line);
-    while ((End > Line) && ((End[-1] == '\n') || (End[-1] == '\r'))) {
-      End--;
-      *End = '\0';
-    }
+    PathText = Trim (Line);
 
-    if ((Line[0] == '\0') || (Line[0] == '#')) {
+    if ((PathText[0] == '\0') || (PathText[0] == '#')) {
       continue;
     }
 
-    Item = realloc (Inputs->Items, (Inputs->Count + 1) * sizeof (*Item));
-    if (Item == NULL) {
-      Fail ("out of memory reading FFS list");
-    }
-
-    Inputs->Items = Item;
-    Item = &Inputs->Items[Inputs->Count++];
-    Item->Path = DuplicateString (Line);
-    Item->File = ReadFile (Line);
-    Item->Used = false;
-    if (Item->File.Size < FFS_HEADER_SIZE) {
-      Fail ("FFS input is smaller than its header");
+    Item = AppendFfsInput (Inputs);
+    Item->Path = DuplicateString (PathText);
+    Item->File = ReadFile (PathText);
+    memcpy (Item->Guid, Item->File.Data, sizeof (Item->Guid));
+    ValidateFfsInput (Item);
+    if (HasEarlierGuid (Inputs, Item->Guid)) {
+      Fail ("FFS input list contains a duplicate file GUID");
     }
   }
 
@@ -561,6 +782,105 @@ ReadFfsList (
   }
 
   fclose (File);
+}
+
+static void
+ReadFfsManifest (
+  const char   *Path,
+  FFS_INPUTS   *Inputs
+  )
+{
+  FILE       *File;
+  char        Line[4096];
+  char       *Cursor;
+  char       *Keyword;
+  char       *OffsetText;
+  char       *GuidText;
+  char       *PathText;
+  FFS_INPUT  *Item;
+  uint8_t     Guid[16];
+  bool        SawVersion;
+  bool        SawFile;
+  size_t      LastOffset;
+  size_t      Offset;
+
+  File = fopen (Path, "r");
+  if (File == NULL) {
+    fprintf (stderr, "cdk2-fvpack: cannot open FFS manifest %s: %s\n", Path, strerror (errno));
+    exit (EXIT_FAILURE);
+  }
+
+  Inputs->Ordered = true;
+  SawVersion = false;
+  SawFile = false;
+  LastOffset = 0;
+  while (fgets (Line, sizeof (Line), File) != NULL) {
+    Cursor = Trim (Line);
+    if ((Cursor[0] == '\0') || (Cursor[0] == '#')) {
+      continue;
+    }
+
+    Keyword = NextToken (&Cursor);
+    if ((Keyword != NULL) && (strcmp (Keyword, "VERSION") == 0)) {
+      OffsetText = NextToken (&Cursor);
+      if ((OffsetText == NULL) || (strcmp (OffsetText, "1") != 0) ||
+          (Trim (Cursor)[0] != '\0') || SawVersion)
+      {
+        Fail ("FFS manifest has an unsupported version");
+      }
+
+      SawVersion = true;
+      continue;
+    }
+
+    if ((Keyword == NULL) || (strcmp (Keyword, "FILE") != 0)) {
+      Fail ("FFS manifest contains an unsupported record");
+    }
+
+    if (!SawVersion) {
+      Fail ("FFS manifest must start with VERSION 1");
+    }
+
+    OffsetText = NextToken (&Cursor);
+    GuidText   = NextToken (&Cursor);
+    PathText   = Trim (Cursor);
+    if ((OffsetText == NULL) || (GuidText == NULL) || (PathText[0] == '\0')) {
+      Fail ("FFS manifest FILE record is incomplete");
+    }
+
+    ParseGuid (GuidText, Guid);
+    Offset = ParseSize (OffsetText);
+    if (SawFile && (Offset <= LastOffset)) {
+      Fail ("FFS manifest offsets are not strictly increasing");
+    }
+
+    SawFile = true;
+    LastOffset = Offset;
+
+    Item = AppendFfsInput (Inputs);
+    Item->ReferenceOffset    = Offset;
+    Item->HasReferenceOffset = true;
+    memcpy (Item->Guid, Guid, sizeof (Item->Guid));
+    if (HasEarlierGuid (Inputs, Item->Guid)) {
+      Fail ("FFS manifest contains a duplicate file GUID");
+    }
+
+    Item->Path = DuplicateString (PathText);
+    Item->File = ReadFile (PathText);
+    ValidateFfsInput (Item);
+    if (memcmp (Item->File.Data, Item->Guid, sizeof (Item->Guid)) != 0) {
+      Fail ("FFS manifest GUID does not match its input file");
+    }
+  }
+
+  if (ferror (File) != 0) {
+    Fail ("cannot read FFS manifest");
+  }
+
+  fclose (File);
+  if (!SawVersion || (Inputs->Count == 0)) {
+    Fail ("FFS manifest contains no files");
+  }
 }
 
 static FFS_INPUT *
@@ -607,6 +927,7 @@ FreeFfsInputs (
   free (Inputs->Items);
   Inputs->Items = NULL;
   Inputs->Count = 0;
+  Inputs->Ordered = false;
 }
 
 static void
@@ -836,6 +1157,11 @@ IsErased (
   return true;
 }
 
+static size_t
+GetFfsStartOffset (
+  const BLOB  *Volume
+  );
+
 static BLOB
 PackDxeVolume (
   const BLOB        *Reference,
@@ -957,6 +1283,76 @@ PackDxeVolume (
   return Result;
 }
 
+static BLOB
+PackDxeVolumeFromManifest (
+  const BLOB        *Reference,
+  const FFS_INPUTS  *Inputs
+  )
+{
+  BLOB    Result;
+  size_t  VolumeSize;
+  size_t  FfsOffset;
+  size_t  CurrentOffset;
+  size_t  Index;
+  bool    FoundDxeCore;
+
+  if ((Inputs == NULL) || !Inputs->Ordered || (Inputs->Count == 0)) {
+    Fail ("DXE FV manifest is not ordered");
+  }
+
+  FfsOffset = GetFfsStartOffset (Reference);
+  VolumeSize = (size_t)Get64 (Reference->Data + 0x20);
+
+  Result.Size = VolumeSize;
+  Result.Data = Allocate (Result.Size);
+  memset (Result.Data, 0xFF, Result.Size);
+  memcpy (Result.Data, Reference->Data, FfsOffset);
+
+  CurrentOffset = FfsOffset;
+  FoundDxeCore = false;
+  for (Index = 0; Index < Inputs->Count; Index++) {
+    FFS_INPUT  *Input;
+
+    Input = &Inputs->Items[Index];
+    if (Input->File.Data[18] == FFS_PAD_TYPE) {
+      Fail ("DXE FV manifest must not contain pad FFS files");
+    }
+
+    if (Input->HasReferenceOffset && (Input->ReferenceOffset < FfsOffset)) {
+      Fail ("DXE FV manifest file offset is before the file area");
+    }
+
+    Input->Used = true;
+    Input->File.Data[23] = FFS_STATE_VALID;
+    CurrentOffset = PlaceFfs (Result.Data, Result.Size, CurrentOffset, &Input->File);
+    FoundDxeCore = FoundDxeCore || (Input->File.Data[18] == FFS_TYPE_DXE_CORE);
+  }
+
+  if (!FoundDxeCore) {
+    Fail ("DXE FV manifest does not contain a DXE core");
+  }
+
+  if (memcmp (Result.Data, Reference->Data, VolumeSize) != 0) {
+    size_t  Difference;
+
+    for (Difference = 0; Difference < VolumeSize; Difference++) {
+      if (Result.Data[Difference] != Reference->Data[Difference]) {
+        fprintf (stderr,
+                 "cdk2-fvpack: first manifest DXE FV difference at 0x%zx: "
+                 "native=0x%02x reference=0x%02x\n",
+                 Difference,
+                 Result.Data[Difference],
+                 Reference->Data[Difference]);
+        break;
+      }
+    }
+
+    Fail ("manifest DXE FV does not match the GenFv reference");
+  }
+
+  return Result;
+}
+
 static size_t
 GetFfsStartOffset (
   const BLOB  *Volume
@@ -1003,6 +1399,43 @@ GetFfsStartOffset (
   }
 
   return FfsOffset;
+}
+
+static size_t
+PlaceFlatDxeManifest (
+  uint8_t           *Volume,
+  size_t            VolumeSize,
+  size_t            CurrentOffset,
+  const FFS_INPUTS  *DxeInputs
+  )
+{
+  size_t  Index;
+  bool    FoundDxeCore;
+
+  if ((DxeInputs == NULL) || !DxeInputs->Ordered || (DxeInputs->Count == 0)) {
+    Fail ("flat DXE FV requires an ordered FFS manifest");
+  }
+
+  FoundDxeCore = false;
+  for (Index = 0; Index < DxeInputs->Count; Index++) {
+    FFS_INPUT  *Input;
+
+    Input = &DxeInputs->Items[Index];
+    if (Input->File.Data[18] == FFS_PAD_TYPE) {
+      Fail ("flat DXE FV manifest must not contain pad FFS files");
+    }
+
+    Input->Used = true;
+    Input->File.Data[23] = FFS_STATE_VALID;
+    CurrentOffset = PlaceFfs (Volume, VolumeSize, CurrentOffset, &Input->File);
+    FoundDxeCore = FoundDxeCore || (Input->File.Data[18] == FFS_TYPE_DXE_CORE);
+  }
+
+  if (!FoundDxeCore) {
+    Fail ("flat DXE FV manifest does not contain a DXE core");
+  }
+
+  return CurrentOffset;
 }
 
 static BLOB
@@ -1083,6 +1516,10 @@ PackPayload (
   free (EntryFile.Data);
 
   if (!FlattenDxe) {
+    if (DxeVolume == NULL) {
+      Fail ("nested DXE FV requires a DXE FV input");
+    }
+
     DxeFile = MakeSectionFile (
                 mDxeVolumeFileGuid,
                 FFS_TYPE_FV_IMAGE,
@@ -1095,8 +1532,22 @@ PackPayload (
     CurrentOffset = PlaceFfs (Result.Data, Result.Size, CurrentOffset, &DxeFile);
     free (DxeFile.Data);
   } else {
+    if ((DxeInputs != NULL) && DxeInputs->Ordered) {
+      CurrentOffset = PlaceFlatDxeManifest (
+                        Result.Data,
+                        Result.Size,
+                        CurrentOffset,
+                        DxeInputs
+                        );
+      goto FinishPayload;
+    }
+
     if (DxeInputs == NULL || DxeInputs->Count == 0) {
       Fail ("flat DXE FV requires an FFS input list");
+    }
+
+    if (DxeVolume == NULL) {
+      Fail ("flat DXE FV input list requires a DXE FV reference");
     }
 
     DxeFfsOffset = GetFfsStartOffset (DxeVolume);
@@ -1139,6 +1590,7 @@ PackPayload (
     }
   }
 
+FinishPayload:
   /*
    * The requested volume size is a build-time upper bound.  Keeping the
    * unused tail in the linked image makes an otherwise small payload exceed
@@ -1172,8 +1624,12 @@ Usage (
   )
 {
   fprintf (stderr,
-           "usage: %s --output FILE --entry-efi FILE --dxe-fv FILE "
-           "[--dxe-ffs-list FILE] [--flatten-dxe] [--size BYTES]\n",
+           "usage: %s --output FILE --entry-efi FILE "
+           "(--dxe-manifest FILE --flatten-dxe | --dxe-fv FILE "
+           "[--dxe-ffs-list FILE] [--flatten-dxe]) [--size BYTES]\n"
+           "       %s --verify-dxe-manifest --dxe-manifest FILE "
+           "--reference-dxe-fv FILE\n",
+           Program,
            Program);
 }
 
@@ -1187,7 +1643,10 @@ main (
   const char  *EntryPath;
   const char  *DxePath;
   const char  *DxeFfsListPath;
+  const char  *DxeManifestPath;
+  const char  *ReferenceDxePath;
   bool         FlattenDxe;
+  bool         VerifyDxeManifest;
   size_t      VolumeSize;
   int         Index;
   BLOB        Entry;
@@ -1199,10 +1658,20 @@ main (
   EntryPath  = NULL;
   DxePath    = NULL;
   DxeFfsListPath = NULL;
+  DxeManifestPath = NULL;
+  ReferenceDxePath = NULL;
   FlattenDxe = false;
+  VerifyDxeManifest = false;
   VolumeSize = FV_SIZE_DEFAULT;
+  Entry.Data = NULL;
+  Entry.Size = 0;
+  Dxe.Data = NULL;
+  Dxe.Size = 0;
+  Volume.Data = NULL;
+  Volume.Size = 0;
   DxeInputs.Items = NULL;
   DxeInputs.Count = 0;
+  DxeInputs.Ordered = false;
   for (Index = 1; Index < Argc; Index++) {
     if ((strcmp (Argv[Index], "--output") == 0) && (Index + 1 < Argc)) {
       OutputPath = Argv[++Index];
@@ -1212,6 +1681,12 @@ main (
       DxePath = Argv[++Index];
     } else if ((strcmp (Argv[Index], "--dxe-ffs-list") == 0) && (Index + 1 < Argc)) {
       DxeFfsListPath = Argv[++Index];
+    } else if ((strcmp (Argv[Index], "--dxe-manifest") == 0) && (Index + 1 < Argc)) {
+      DxeManifestPath = Argv[++Index];
+    } else if ((strcmp (Argv[Index], "--reference-dxe-fv") == 0) && (Index + 1 < Argc)) {
+      ReferenceDxePath = Argv[++Index];
+    } else if (strcmp (Argv[Index], "--verify-dxe-manifest") == 0) {
+      VerifyDxeManifest = true;
     } else if (strcmp (Argv[Index], "--flatten-dxe") == 0) {
       FlattenDxe = true;
     } else if ((strcmp (Argv[Index], "--size") == 0) && (Index + 1 < Argc)) {
@@ -1228,15 +1703,43 @@ main (
     }
   }
 
-  if ((OutputPath == NULL) || (EntryPath == NULL) || (DxePath == NULL) ||
-      (FlattenDxe && (DxeFfsListPath == NULL))) {
+  if ((DxeManifestPath != NULL) && (DxeFfsListPath != NULL)) {
     Usage (Argv[0]);
     return EXIT_FAILURE;
   }
 
-  Entry  = ReadFile (EntryPath);
-  Dxe    = ReadFile (DxePath);
-  if (DxeFfsListPath != NULL) {
+  if (VerifyDxeManifest) {
+    BLOB  NativeDxe;
+
+    if ((DxeManifestPath == NULL) || (ReferenceDxePath == NULL)) {
+      Usage (Argv[0]);
+      return EXIT_FAILURE;
+    }
+
+    ReadFfsManifest (DxeManifestPath, &DxeInputs);
+    Dxe = ReadFile (ReferenceDxePath);
+    NativeDxe = PackDxeVolumeFromManifest (&Dxe, &DxeInputs);
+    VerifyAllFfsInputsUsed (&DxeInputs);
+    free (NativeDxe.Data);
+    free (Dxe.Data);
+    FreeFfsInputs (&DxeInputs);
+    return EXIT_SUCCESS;
+  }
+
+  if ((OutputPath == NULL) || (EntryPath == NULL) ||
+      (!FlattenDxe && (DxePath == NULL)) ||
+      (FlattenDxe && (DxeManifestPath == NULL) &&
+       ((DxePath == NULL) || (DxeFfsListPath == NULL))))
+  {
+    Usage (Argv[0]);
+    return EXIT_FAILURE;
+  }
+
+  Entry = ReadFile (EntryPath);
+  if (DxeManifestPath != NULL) {
+    ReadFfsManifest (DxeManifestPath, &DxeInputs);
+  } else if (DxeFfsListPath != NULL) {
+    Dxe = ReadFile (DxePath);
     ReadFfsList (DxeFfsListPath, &DxeInputs);
     {
       BLOB  NativeDxe;
@@ -1246,8 +1749,21 @@ main (
       free (Dxe.Data);
       Dxe = NativeDxe;
     }
+  } else if (DxePath != NULL) {
+    Dxe = ReadFile (DxePath);
   }
-  Volume = PackPayload (&Entry, &Dxe, &DxeInputs, FlattenDxe, VolumeSize);
+
+  Volume = PackPayload (
+             &Entry,
+             Dxe.Data == NULL ? NULL : &Dxe,
+             &DxeInputs,
+             FlattenDxe,
+             VolumeSize
+             );
+  if (DxeManifestPath != NULL) {
+    VerifyAllFfsInputsUsed (&DxeInputs);
+  }
+
   WriteFile (OutputPath, Volume.Data, Volume.Size);
   free (Entry.Data);
   free (Dxe.Data);

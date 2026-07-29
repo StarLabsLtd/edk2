@@ -150,6 +150,7 @@ CDK2_BACKEND_MODULE_GUIDS := $(CDK2_BUILD_DIR)/cdk2-module-guids.txt
 CDK2_BACKEND_MANIFEST_STATE := $(CDK2_BUILD_DIR)/cdk2-edk2-manifest-state.txt
 CDK2_BACKEND_FFS_LIST := $(CDK2_BUILD_DIR)/cdk2-dxe-ffs.txt
 CDK2_BACKEND_METADATA_MODULES := $(CDK2_BUILD_DIR)/cdk2-metadata-modules.txt
+CDK2_BACKEND_DXE_MANIFEST := $(CDK2_BUILD_DIR)/cdk2-dxe-fvpack.manifest
 CDK2_BACKEND_SELECTED_MODULES := $(CDK2_BUILD_DIR)/cdk2-selected-modules.txt
 CDK2_BACKEND_DXE_FV_GUIDS := $(CDK2_BUILD_DIR)/cdk2-dxe-fv-guids.txt
 CDK2_BACKEND_SELECTED_DXE_GUIDS := $(CDK2_BUILD_DIR)/cdk2-selected-dxe-guids.txt
@@ -263,7 +264,39 @@ awk -v entry_guid="$$entry_guid" -v pad_guid="$(CDK2_BACKEND_DXE_FFS_PAD_GUID)" 
       } \
     } \
     exit failed ? 1 : 0; \
-  }' "$(CDK2_BACKEND_DXE_FV_GUIDS)" - > "$(CDK2_BACKEND_FFS_LIST)"
+  }' "$(CDK2_BACKEND_DXE_FV_GUIDS)" - > "$(CDK2_BACKEND_FFS_LIST)" && \
+{ \
+  printf '%s\n' '# cdk2 native fvpack manifest'; \
+  printf '%s\n' '# Format: FILE <reference-dxe-fv-offset> <file-guid> <ffs-path>'; \
+  printf '%s\n' 'VERSION 1'; \
+  awk 'NR == FNR { \
+    file = $$0; base = file; sub(/^.*\//, "", base); \
+    guid = toupper(substr(base, 1, 36)); \
+    if (guid in path) { \
+      print "duplicate FFS manifest path for GUID: " guid > "/dev/stderr"; \
+      failed = 1; next; \
+    } \
+    path[guid] = file; next; \
+  } \
+  /^0x[[:xdigit:]]+[[:space:]]+[[:xdigit:]-]+$$/ { \
+    guid = toupper($$2); \
+    if (!(guid in path)) { \
+      print "ordered DXE FV GUID missing FFS path: " guid > "/dev/stderr"; \
+      failed = 1; next; \
+    } \
+    found[guid] = 1; \
+    print "FILE", $$1, guid, path[guid]; \
+  } \
+  END { \
+    for (guid in path) { \
+      if (!(guid in found)) { \
+        print "FFS path missing from ordered DXE FV manifest: " guid > "/dev/stderr"; \
+        failed = 1; \
+      } \
+    } \
+    exit failed ? 1 : 0; \
+  }' "$(CDK2_BACKEND_FFS_LIST)" "$(CDK2_BACKEND_DXE_FV_TEXT)"; \
+} > "$(CDK2_BACKEND_DXE_MANIFEST)"
 endef
 
 # The generic cdk2 build only asks a backend for a completed payload. Keep
@@ -274,10 +307,13 @@ $(CDK2_BACKEND_DISCOVER)
 test -s "$(CDK2_BACKEND_ENTRY_IMAGE)"
 test -s "$(CDK2_BACKEND_DXE_FV)"
 test -s "$(CDK2_BACKEND_FFS_LIST)"
+test -s "$(CDK2_BACKEND_DXE_MANIFEST)"
+$(CDK2_NATIVE_PACKER) --verify-dxe-manifest \
+  --dxe-manifest "$(CDK2_BACKEND_DXE_MANIFEST)" \
+  --reference-dxe-fv "$(CDK2_BACKEND_DXE_FV)"
 $(CDK2_NATIVE_PACKER) --output "$(CDK2_OUTPUT)" \
   --entry-efi "$(CDK2_BACKEND_ENTRY_IMAGE)" \
-  --dxe-fv "$(CDK2_BACKEND_DXE_FV)" \
-  --dxe-ffs-list "$(CDK2_BACKEND_FFS_LIST)" \
+  --dxe-manifest "$(CDK2_BACKEND_DXE_MANIFEST)" \
   --flatten-dxe \
   --size 0xa00000
 endef

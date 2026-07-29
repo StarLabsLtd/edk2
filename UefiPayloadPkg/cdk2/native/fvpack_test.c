@@ -117,6 +117,23 @@ AlignUp (
   return (Value + Alignment - 1U) & ~(Alignment - 1U);
 }
 
+static UINT8
+Checksum8 (
+  const UINT8  *Buffer,
+  UINTN        Size
+  )
+{
+  UINT8  Sum;
+  UINTN  Index;
+
+  Sum = 0;
+  for (Index = 0; Index < Size; Index++) {
+    Sum = (UINT8)(Sum + Buffer[Index]);
+  }
+
+  return (UINT8)(0U - Sum);
+}
+
 static int
 Expect (
   int          Condition,
@@ -265,9 +282,11 @@ BuildFfs (
 
   memset (Storage, 0, TEST_FFS_SIZE);
   memcpy (Storage, Guid, 16);
-  Storage[17] = FFS_FIXED_CHECKSUM;
   Storage[18] = Type;
   Put24 (Storage + 20, TEST_FFS_SIZE);
+  Storage[23] = 0;
+  Storage[16] = Checksum8 (Storage, FFS_HEADER_SIZE);
+  Storage[17] = FFS_FIXED_CHECKSUM;
   Storage[23] = FFS_STATE_VALID;
   memset (Storage + FFS_HEADER_SIZE, Type, TEST_FFS_SIZE - FFS_HEADER_SIZE);
   return TEST_FFS_SIZE;
@@ -354,23 +373,101 @@ WriteTextFile (
 }
 
 static int
-WriteFfsList (
-  const char  *Path,
-  const char  *FirstPath,
-  const char  *SecondPath
+GuidText (
+  const UINT8  *Guid,
+  char         *Text,
+  size_t       TextSize
   )
 {
-  char  Text[(TEST_PATH_SIZE * 2) + 4];
+  int  Count;
+
+  Count = snprintf (
+            Text,
+            TextSize,
+            "%02X%02X%02X%02X-%02X%02X-%02X%02X-%02X%02X-"
+            "%02X%02X%02X%02X%02X%02X",
+            Guid[3],
+            Guid[2],
+            Guid[1],
+            Guid[0],
+            Guid[5],
+            Guid[4],
+            Guid[7],
+            Guid[6],
+            Guid[8],
+            Guid[9],
+            Guid[10],
+            Guid[11],
+            Guid[12],
+            Guid[13],
+            Guid[14],
+            Guid[15]
+            );
+
+  if ((Count < 0) || ((size_t)Count >= TextSize)) {
+    fprintf (stderr, "cdk2 fvpack test: GUID text buffer is too small\n");
+    return 1;
+  }
+
+  return 0;
+}
+
+static int
+WriteManifest (
+  const char   *Path,
+  UINTN        FirstOffset,
+  const UINT8  *FirstGuid,
+  const char   *FirstPath,
+  UINTN        SecondOffset,
+  const UINT8  *SecondGuid,
+  const char   *SecondPath
+  )
+{
+  char  Text[(TEST_PATH_SIZE * 2) + 256];
+  char  FirstGuidText[37];
+  char  SecondGuidText[37];
   int   Count;
 
+  if (GuidText (FirstGuid, FirstGuidText, sizeof (FirstGuidText)) != 0) {
+    return 1;
+  }
+
   if (SecondPath == NULL) {
-    Count = snprintf (Text, sizeof (Text), "%s\n", FirstPath);
+    Count = snprintf (
+              Text,
+              sizeof (Text),
+              "# cdk2 native fvpack manifest\n"
+              "# Format: FILE <reference-dxe-fv-offset> <file-guid> <ffs-path>\n"
+              "VERSION 1\n"
+              "FILE 0x%zx %s %s\n",
+              (size_t)FirstOffset,
+              FirstGuidText,
+              FirstPath
+              );
   } else {
-    Count = snprintf (Text, sizeof (Text), "%s\n%s\n", FirstPath, SecondPath);
+    if (GuidText (SecondGuid, SecondGuidText, sizeof (SecondGuidText)) != 0) {
+      return 1;
+    }
+
+    Count = snprintf (
+              Text,
+              sizeof (Text),
+              "# cdk2 native fvpack manifest\n"
+              "# Format: FILE <reference-dxe-fv-offset> <file-guid> <ffs-path>\n"
+              "VERSION 1\n"
+              "FILE 0x%zx %s %s\n"
+              "FILE 0x%zx %s %s\n",
+              (size_t)FirstOffset,
+              FirstGuidText,
+              FirstPath,
+              (size_t)SecondOffset,
+              SecondGuidText,
+              SecondPath
+              );
   }
 
   if ((Count < 0) || ((size_t)Count >= sizeof (Text))) {
-    fprintf (stderr, "cdk2 fvpack test: FFS list path is too long\n");
+    fprintf (stderr, "cdk2 fvpack test: manifest path is too long\n");
     return 1;
   }
 
@@ -478,12 +575,11 @@ RunPacker (
 }
 
 static int
-RunFlatPacker (
+RunManifestPacker (
   const char  *Packer,
   const char  *OutputPath,
   const char  *EntryPath,
-  const char  *DxePath,
-  const char  *FfsListPath,
+  const char  *ManifestPath,
   int         ExpectSuccess
   )
 {
@@ -500,10 +596,8 @@ RunFlatPacker (
       OutputPath,
       "--entry-efi",
       EntryPath,
-      "--dxe-fv",
-      DxePath,
-      "--dxe-ffs-list",
-      FfsListPath,
+      "--dxe-manifest",
+      ManifestPath,
       "--flatten-dxe",
       "--size",
       "0x2000",
@@ -526,8 +620,58 @@ RunFlatPacker (
   if (ExpectSuccess ? !Succeeded : (!WIFEXITED (Status) || Succeeded)) {
     fprintf (
       stderr,
-      "cdk2 fvpack test: flat packer %s unexpectedly\n",
-      Succeeded ? "succeeded" : "did not exit successfully"
+      "cdk2 fvpack test: manifest packer %s unexpectedly\n",
+      Succeeded ? "succeeded" : "failed"
+      );
+    return 1;
+  }
+
+  return 0;
+}
+
+static int
+RunManifestVerifier (
+  const char  *Packer,
+  const char  *DxePath,
+  const char  *ManifestPath,
+  int         ExpectSuccess
+  )
+{
+  pid_t  Child;
+  int    Status;
+  int    Succeeded;
+
+  Child = fork ();
+  if (Child == 0) {
+    execl (
+      Packer,
+      Packer,
+      "--verify-dxe-manifest",
+      "--dxe-manifest",
+      ManifestPath,
+      "--reference-dxe-fv",
+      DxePath,
+      (char *)NULL
+      );
+    _exit (127);
+  }
+
+  if (Child < 0) {
+    fprintf (stderr, "cdk2 fvpack test: cannot fork: %s\n", strerror (errno));
+    return 1;
+  }
+
+  if (waitpid (Child, &Status, 0) < 0) {
+    fprintf (stderr, "cdk2 fvpack test: cannot wait for packer: %s\n", strerror (errno));
+    return 1;
+  }
+
+  Succeeded = WIFEXITED (Status) && (WEXITSTATUS (Status) == 0);
+  if (Succeeded != ExpectSuccess) {
+    fprintf (
+      stderr,
+      "cdk2 fvpack test: manifest verifier %s unexpectedly\n",
+      Succeeded ? "succeeded" : "failed"
       );
     return 1;
   }
@@ -636,12 +780,20 @@ main (
   UINT8   Dxe[TEST_DXE_FV_SIZE];
   UINT8   SelectedFfs[TEST_FFS_SIZE];
   UINT8   StaleFfs[TEST_FFS_SIZE];
+  static const UINT8  DxeCoreGuid[16] = {
+    0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
+    0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x10
+  };
+  static const UINT8  StaleGuid[16] = {
+    0x21, 0x32, 0x43, 0x54, 0x65, 0x76, 0x87, 0x98,
+    0xa9, 0xba, 0xcb, 0xdc, 0xed, 0xfe, 0x0f, 0x20
+  };
   char    EntryPath[TEST_PATH_SIZE];
   char    DxePath[TEST_PATH_SIZE];
   char    OutputPath[TEST_PATH_SIZE];
   char    SelectedFfsPath[TEST_PATH_SIZE];
   char    StaleFfsPath[TEST_PATH_SIZE];
-  char    FfsListPath[TEST_PATH_SIZE];
+  char    ManifestPath[TEST_PATH_SIZE];
   UINTN   EntrySize;
   UINTN   DxeSize;
   UINTN   SelectedFfsSize;
@@ -662,7 +814,7 @@ main (
   OutputPath[0] = '\0';
   SelectedFfsPath[0] = '\0';
   StaleFfsPath[0] = '\0';
-  FfsListPath[0] = '\0';
+  ManifestPath[0] = '\0';
   Packed = NULL;
   PackedSize = 0;
   ImageBase = 0;
@@ -674,7 +826,7 @@ main (
   Failures += BuildPath (OutputPath, sizeof (OutputPath), Arguments[2], "packed.fv");
   Failures += BuildPath (SelectedFfsPath, sizeof (SelectedFfsPath), Arguments[2], "selected.ffs");
   Failures += BuildPath (StaleFfsPath, sizeof (StaleFfsPath), Arguments[2], "stale.ffs");
-  Failures += BuildPath (FfsListPath, sizeof (FfsListPath), Arguments[2], "ffs-list.txt");
+  Failures += BuildPath (ManifestPath, sizeof (ManifestPath), Arguments[2], "fvpack.manifest");
 
   EntrySize = BuildNoRelocPe32Plus (Entry, sizeof (Entry));
   DxeSize = BuildDxeVolume (Dxe, sizeof (Dxe));
@@ -731,15 +883,6 @@ main (
   }
 
   if (Failures == 0) {
-    static const UINT8  DxeCoreGuid[16] = {
-      0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
-      0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x10
-    };
-    static const UINT8  StaleGuid[16] = {
-      0x21, 0x32, 0x43, 0x54, 0x65, 0x76, 0x87, 0x98,
-      0xa9, 0xba, 0xcb, 0xdc, 0xed, 0xfe, 0x0f, 0x20
-    };
-
     SelectedFfsSize = BuildFfs (
                         SelectedFfs,
                         sizeof (SelectedFfs),
@@ -765,25 +908,63 @@ main (
   }
 
   if (Failures == 0) {
-    Failures += WriteFfsList (FfsListPath, SelectedFfsPath, NULL);
-    Failures += RunFlatPacker (
+    Failures += WriteManifest (
+                  ManifestPath,
+                  0x48,
+                  DxeCoreGuid,
+                  SelectedFfsPath,
+                  0,
+                  NULL,
+                  NULL
+                  );
+    Failures += RunManifestVerifier (
+                  Arguments[1],
+                  DxePath,
+                  ManifestPath,
+                  1
+                  );
+    Failures += RunManifestPacker (
                   Arguments[1],
                   OutputPath,
                   EntryPath,
-                  DxePath,
-                  FfsListPath,
+                  ManifestPath,
                   1
                   );
   }
 
   if (Failures == 0) {
-    Failures += WriteFfsList (FfsListPath, SelectedFfsPath, StaleFfsPath);
-    Failures += RunFlatPacker (
+    Failures += WriteManifest (
+                  ManifestPath,
+                  0x48,
+                  StaleGuid,
+                  SelectedFfsPath,
+                  0,
+                  NULL,
+                  NULL
+                  );
+    Failures += RunManifestPacker (
                   Arguments[1],
                   OutputPath,
                   EntryPath,
+                  ManifestPath,
+                  0
+                  );
+  }
+
+  if (Failures == 0) {
+    Failures += WriteManifest (
+                  ManifestPath,
+                  0x48,
+                  DxeCoreGuid,
+                  SelectedFfsPath,
+                  AlignUp (0x48 + SelectedFfsSize, 8),
+                  StaleGuid,
+                  StaleFfsPath
+                  );
+    Failures += RunManifestVerifier (
+                  Arguments[1],
                   DxePath,
-                  FfsListPath,
+                  ManifestPath,
                   0
                   );
   }
@@ -809,8 +990,8 @@ main (
     remove (StaleFfsPath);
   }
 
-  if (FfsListPath[0] != '\0') {
-    remove (FfsListPath);
+  if (ManifestPath[0] != '\0') {
+    remove (ManifestPath);
   }
 
   if (Failures != 0) {

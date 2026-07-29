@@ -194,6 +194,7 @@ print:
 	@printf 'metadata=%s\n' '$(CDK2_BACKEND_METADATA)'
 	@printf 'link-manifest=%s\n' '$(CDK2_LINK_MANIFEST)'
 	@printf 'backend-ffs-list=%s\n' '$(CDK2_BACKEND_FFS_LIST)'
+	@printf 'backend-dxe-manifest=%s\n' '$(CDK2_BACKEND_DXE_MANIFEST)'
 	@printf 'source-date-epoch=%s\n' '$(SOURCE_DATE_EPOCH)'
 	@printf 'defines=%s\n' '$(CDK2_DEFINES)'
 
