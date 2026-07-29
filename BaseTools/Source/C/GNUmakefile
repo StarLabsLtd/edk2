@@ -15,6 +15,8 @@ endif
 
 include Makefiles/header.makefile
 
+export CC CXX AS AR LD LINKER CPPFLAGS CFLAGS CXXFLAGS LDFLAGS
+
 export PYTHON_COMMAND
 export HOST_ARCH
 
