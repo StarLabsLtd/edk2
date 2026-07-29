@@ -77,9 +77,15 @@ Cdk2EfiTransferToDxeCore (
   )
 {
   EFI_PEI_HOB_POINTERS  Hob;
+  EFI_STATUS            Status;
 
   if (Context == NULL || Context->HobList == NULL || Context->ImageEntryPoint == 0) {
     return EFI_INVALID_PARAMETER;
+  }
+
+  Status = Cdk2NativeHandoff (Context);
+  if (EFI_ERROR (Status)) {
+    return Status;
   }
 
   Hob.Raw = Context->HobList;

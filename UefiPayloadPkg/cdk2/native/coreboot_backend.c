@@ -1026,6 +1026,11 @@ Cdk2CorebootTransfer (
     return EFI_INVALID_PARAMETER;
   }
 
+  Status = Cdk2NativeHandoff (Context);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
   Handoff               = (EFI_HOB_HANDOFF_INFO_TABLE *)Context->HobList;
   SavedAllocationBottom = Context->AllocationBottom;
   SavedAllocationTop    = Context->AllocationTop;

@@ -702,9 +702,16 @@ main (
   TransferEnd->HobLength           = sizeof (*TransferEnd);
   TransferContext = (CDK2_NATIVE_CONTEXT){ 0 };
   TransferContext.HobList          = TransferHob;
+  TransferContext.HobListSize      = sizeof (*TransferHob) + sizeof (*TransferEnd);
+  TransferContext.ImageBase        = 0x00400000;
+  TransferContext.ImageSize        = 0x00020000;
   TransferContext.ImageEntryPoint  = 0x00401000;
   TransferContext.AllocationBottom = TransferFreeBottom;
   TransferContext.AllocationTop    = TransferFreeTop;
+  TransferContext.ImageSize        = 0;
+  Status = Cdk2CorebootTestTransfer (&TransferContext);
+  Failures += Expect (Status == EFI_NOT_READY, "transfer accepted invalid handoff image");
+  TransferContext.ImageSize        = 0x00020000;
   Status = Cdk2CorebootTestTransfer (&TransferContext);
   Failures += Expect (Status == EFI_OUT_OF_RESOURCES, "transfer stack HOB exhaustion status");
   Failures += Expect (
