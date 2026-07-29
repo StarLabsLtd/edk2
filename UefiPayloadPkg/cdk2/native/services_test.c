@@ -401,6 +401,17 @@ main (void)
                        ) == EFI_SUCCESS, "existing HOB handoff validation");
 
   Failures += Expect (Cdk2NativeAdoptHobList (&Context, NULL) == EFI_INVALID_PARAMETER, "null HOB rejection");
+  AllocatorHob = TestConstructHobs (
+                   (VOID *)(UINTN)0x00100000,
+                   (VOID *)(UINTN)0x00400000,
+                   (VOID *)(UINTN)0x00200000,
+                   (VOID *)(UINTN)0x00300000
+                   );
+  AllocatorHob->EfiFreeMemoryTop = MAX_UINT64;
+  Failures += Expect (
+                Cdk2NativeAdoptHobList (&Context, AllocatorHob) == EFI_COMPROMISED_DATA,
+                "out-of-range HOB free top rejection"
+                );
 
   Allocator.AllocationBottom = 0x00200000;
   Allocator.AllocationTop    = 0x00210000;

@@ -539,6 +539,14 @@ Cdk2NativeAdoptHobList (
     return EFI_INVALID_PARAMETER;
   }
 
+  if (Handoff->EfiMemoryBottom > Handoff->EfiMemoryTop ||
+      Handoff->EfiFreeMemoryBottom > Handoff->EfiFreeMemoryTop ||
+      Handoff->EfiFreeMemoryBottom < Handoff->EfiMemoryBottom ||
+      Handoff->EfiFreeMemoryTop > Handoff->EfiMemoryTop)
+  {
+    return EFI_COMPROMISED_DATA;
+  }
+
   End = (EFI_HOB_GENERIC_HEADER *)(UINTN)Handoff->EfiEndOfHobList;
   if ((UINTN)End <= (UINTN)Handoff ||
       (UINTN)End > MAX_UINTN - sizeof (*End)) {
