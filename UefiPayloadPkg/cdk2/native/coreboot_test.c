@@ -8,6 +8,7 @@
 
 #include "coreboot.h"
 #include "coreboot_hobs.h"
+#include "services.h"
 
 #include <Guid/MemoryAllocationHob.h>
 #include <Library/HobLib.h>
@@ -17,6 +18,26 @@
 #define TEST_TABLE_SIZE  4096U
 #define TEST_HOB_REGION_SIZE  0x04000000U
 #define TEST_TEMP_MAP_LIMIT   0x2000000000ULL
+
+#if defined (__GNUC__)
+static UINT8  mTransferHobStorage[EFI_PAGE_SIZE] __attribute__ ((aligned (EFI_PAGE_SIZE)));
+#else
+static UINT8  mTransferHobStorage[EFI_PAGE_SIZE];
+#endif
+
+EFI_STATUS
+EFIAPI
+Cdk2CorebootTestTransfer (
+  IN CDK2_NATIVE_CONTEXT  *Context
+  );
+
+VOID
+EFIAPI
+Cdk2PlatformLateInit (
+  VOID
+  )
+{
+}
 
 static int
 Expect (
@@ -193,6 +214,11 @@ main (
   EFI_GUID                    DxeCoreGuid;
   EFI_GUID                    ZeroGuid;
   UINT8                       TestData[4];
+  CDK2_NATIVE_CONTEXT         TransferContext;
+  EFI_HOB_HANDOFF_INFO_TABLE *TransferHob;
+  EFI_HOB_GENERIC_HEADER     *TransferEnd;
+  EFI_PHYSICAL_ADDRESS        TransferFreeBottom;
+  EFI_PHYSICAL_ADDRESS        TransferFreeTop;
   EFI_STATUS                  Status;
   int                         Failures;
 
@@ -526,6 +552,50 @@ main (
   Failures += Expect (
                 HobInfo->EfiFreeMemoryBottom == PreviousFreeMemoryBottom,
                 "rejected descriptor append moved free bottom"
+                );
+
+  memset (mTransferHobStorage, 0, sizeof (mTransferHobStorage));
+  TransferHob = (EFI_HOB_HANDOFF_INFO_TABLE *)(VOID *)mTransferHobStorage;
+  TransferEnd = (EFI_HOB_GENERIC_HEADER *)(VOID *)(
+                                                mTransferHobStorage +
+                                                sizeof (mTransferHobStorage) -
+                                                sizeof (*TransferEnd)
+                                                );
+  TransferFreeBottom = (EFI_PHYSICAL_ADDRESS)(UINTN)(mTransferHobStorage + sizeof (mTransferHobStorage));
+  TransferFreeTop    = TransferFreeBottom + 0x20 * EFI_PAGE_SIZE;
+  TransferHob->Header.HobType      = EFI_HOB_TYPE_HANDOFF;
+  TransferHob->Header.HobLength    = sizeof (*TransferHob);
+  TransferHob->Version             = EFI_HOB_HANDOFF_TABLE_VERSION;
+  TransferHob->BootMode            = BOOT_WITH_FULL_CONFIGURATION;
+  TransferHob->EfiMemoryBottom     = (EFI_PHYSICAL_ADDRESS)(UINTN)mTransferHobStorage;
+  TransferHob->EfiMemoryTop        = TransferFreeTop;
+  TransferHob->EfiEndOfHobList     = (EFI_PHYSICAL_ADDRESS)(UINTN)TransferEnd;
+  TransferHob->EfiFreeMemoryBottom = TransferFreeBottom;
+  TransferHob->EfiFreeMemoryTop    = TransferFreeTop;
+  TransferEnd->HobType             = EFI_HOB_TYPE_END_OF_HOB_LIST;
+  TransferEnd->HobLength           = sizeof (*TransferEnd);
+  TransferContext = (CDK2_NATIVE_CONTEXT){ 0 };
+  TransferContext.HobList          = TransferHob;
+  TransferContext.ImageEntryPoint  = 0x00401000;
+  TransferContext.AllocationBottom = TransferFreeBottom;
+  TransferContext.AllocationTop    = TransferFreeTop;
+  Status = Cdk2CorebootTestTransfer (&TransferContext);
+  Failures += Expect (Status == EFI_OUT_OF_RESOURCES, "transfer stack HOB exhaustion status");
+  Failures += Expect (
+                TransferContext.AllocationBottom == TransferFreeBottom,
+                "failed transfer moved allocation bottom"
+                );
+  Failures += Expect (
+                TransferContext.AllocationTop == TransferFreeTop,
+                "failed transfer moved allocation top"
+                );
+  Failures += Expect (
+                TransferHob->EfiFreeMemoryTop == TransferFreeTop,
+                "failed transfer moved PHIT free top"
+                );
+  Failures += Expect (
+                TransferHob->EfiEndOfHobList == (EFI_PHYSICAL_ADDRESS)(UINTN)TransferEnd,
+                "failed transfer moved HOB end marker"
                 );
 
   Status = Cdk2CorebootBuildHobs (

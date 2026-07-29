@@ -662,14 +662,22 @@ Cdk2CorebootTransfer (
   IN CDK2_NATIVE_CONTEXT  *Context
   )
 {
-  EFI_PHYSICAL_ADDRESS  StackBase;
-  UINTN                  StackPages;
-  EFI_STATUS             Status;
+  EFI_HOB_HANDOFF_INFO_TABLE  *Handoff;
+  EFI_PHYSICAL_ADDRESS         SavedAllocationBottom;
+  EFI_PHYSICAL_ADDRESS         SavedAllocationTop;
+  EFI_PHYSICAL_ADDRESS         SavedFreeMemoryTop;
+  EFI_PHYSICAL_ADDRESS         StackBase;
+  UINTN                        StackPages;
+  EFI_STATUS                   Status;
 
   if (Context == NULL || Context->HobList == NULL || Context->ImageEntryPoint == 0) {
     return EFI_INVALID_PARAMETER;
   }
 
+  Handoff               = (EFI_HOB_HANDOFF_INFO_TABLE *)Context->HobList;
+  SavedAllocationBottom = Context->AllocationBottom;
+  SavedAllocationTop    = Context->AllocationTop;
+  SavedFreeMemoryTop    = Handoff->EfiFreeMemoryTop;
   StackPages = 0x20;
   Status = Cdk2NativeAllocatePages (Context, StackPages, &StackBase);
   if (EFI_ERROR (Status)) {
@@ -682,6 +690,9 @@ Cdk2CorebootTransfer (
              StackPages * EFI_PAGE_SIZE
              );
   if (EFI_ERROR (Status)) {
+    Context->AllocationBottom = SavedAllocationBottom;
+    Context->AllocationTop    = SavedAllocationTop;
+    Handoff->EfiFreeMemoryTop = SavedFreeMemoryTop;
     return Status;
   }
 
@@ -692,6 +703,17 @@ Cdk2CorebootTransfer (
     );
   return EFI_DEVICE_ERROR;
 }
+
+#if defined (CDK2_COREBOOT_BACKEND_TEST)
+EFI_STATUS
+EFIAPI
+Cdk2CorebootTestTransfer (
+  IN CDK2_NATIVE_CONTEXT  *Context
+  )
+{
+  return Cdk2CorebootTransfer (Context);
+}
+#endif
 
 EFI_STATUS
 EFIAPI
