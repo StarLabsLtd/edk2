@@ -373,7 +373,7 @@ BuildElf (
     SymbolNameImageEnd,
     SectionBss,
     (Kind == ElfFixtureBssOutsideImage) ?
-      TEST_MODULES_ADDRESS + CDK2_MODULE_ENTRY_SIZE :
+      TEST_MODULES_ADDRESS + CDK2_FV_ALIGNMENT :
       TEST_BSS_ADDRESS + TEST_BSS_SIZE,
     0
     );
