@@ -427,6 +427,10 @@ BuildHobFromAcpi (
   if (!EFI_ERROR (Status)) {
     NewAcpiBoardInfo = BuildGuidHob (&gUefiAcpiBoardInfoGuid, sizeof (ACPI_BOARD_INFO));
     ASSERT (NewAcpiBoardInfo != NULL);
+    if (NewAcpiBoardInfo == NULL) {
+      return NULL;
+    }
+
     CopyMem (NewAcpiBoardInfo, &AcpiBoardInfo, sizeof (ACPI_BOARD_INFO));
     DEBUG ((DEBUG_INFO, "Create acpi board info guid hob\n"));
   }

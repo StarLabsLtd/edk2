@@ -8,6 +8,89 @@
 
 #include "entry/Cdk2EfiEntry.h"
 
+typedef struct {
+  EFI_PHYSICAL_ADDRESS   EndOfHobList;
+  EFI_PHYSICAL_ADDRESS   FreeMemoryBottom;
+  EFI_PHYSICAL_ADDRESS   FreeMemoryTop;
+  EFI_HOB_GENERIC_HEADER EndMarker;
+} CDK2_EFI_HOB_APPEND_STATE;
+
+STATIC
+EFI_STATUS
+Cdk2EfiSaveHobAppendState (
+  OUT CDK2_EFI_HOB_APPEND_STATE  *State
+  )
+{
+  EFI_HOB_GENERIC_HEADER      *End;
+  EFI_HOB_HANDOFF_INFO_TABLE  *Handoff;
+
+  if (State == NULL) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  Handoff = (EFI_HOB_HANDOFF_INFO_TABLE *)GetHobList ();
+  if (Handoff == NULL ||
+      Handoff->Header.HobType != EFI_HOB_TYPE_HANDOFF ||
+      Handoff->Header.HobLength != sizeof (*Handoff) ||
+      Handoff->EfiEndOfHobList == 0 ||
+      Handoff->EfiEndOfHobList > (EFI_PHYSICAL_ADDRESS)(MAX_UINTN - sizeof (*End)))
+  {
+    return EFI_COMPROMISED_DATA;
+  }
+
+  End = (EFI_HOB_GENERIC_HEADER *)(UINTN)Handoff->EfiEndOfHobList;
+  if (End->HobType != EFI_HOB_TYPE_END_OF_HOB_LIST ||
+      End->HobLength != sizeof (*End))
+  {
+    return EFI_COMPROMISED_DATA;
+  }
+
+  State->EndOfHobList     = Handoff->EfiEndOfHobList;
+  State->FreeMemoryBottom = Handoff->EfiFreeMemoryBottom;
+  State->FreeMemoryTop    = Handoff->EfiFreeMemoryTop;
+  State->EndMarker        = *End;
+  return EFI_SUCCESS;
+}
+
+STATIC
+VOID
+Cdk2EfiRestoreHobAppendState (
+  IN CONST CDK2_EFI_HOB_APPEND_STATE  *State
+  )
+{
+  EFI_HOB_HANDOFF_INFO_TABLE  *Handoff;
+
+  if (State == NULL || State->EndOfHobList == 0) {
+    return;
+  }
+
+  Handoff = (EFI_HOB_HANDOFF_INFO_TABLE *)GetHobList ();
+  if (Handoff == NULL) {
+    return;
+  }
+
+  Handoff->EfiEndOfHobList     = State->EndOfHobList;
+  Handoff->EfiFreeMemoryBottom = State->FreeMemoryBottom;
+  Handoff->EfiFreeMemoryTop    = State->FreeMemoryTop;
+  *(EFI_HOB_GENERIC_HEADER *)(UINTN)State->EndOfHobList = State->EndMarker;
+}
+
+STATIC
+EFI_STATUS
+Cdk2EfiRequireHobAppended (
+  IN EFI_PHYSICAL_ADDRESS  PreviousEndOfHobList
+  )
+{
+  EFI_HOB_HANDOFF_INFO_TABLE  *Handoff;
+
+  Handoff = (EFI_HOB_HANDOFF_INFO_TABLE *)GetHobList ();
+  if (Handoff == NULL || Handoff->EfiEndOfHobList == PreviousEndOfHobList) {
+    return EFI_OUT_OF_RESOURCES;
+  }
+
+  return EFI_SUCCESS;
+}
+
 /**
   Allocate pages for code.
 
@@ -262,13 +345,24 @@ LoadDxeCore (
   OUT UINTN             *DxeCoreImageSize
   )
 {
+  CDK2_EFI_HOB_APPEND_STATE   AppendState;
   EFI_STATUS                  Status;
   EFI_FIRMWARE_VOLUME_HEADER  *PayloadFv;
   EFI_FIRMWARE_VOLUME_HEADER  *DxeCoreFv;
   EFI_FFS_FILE_HEADER         *FileHeader;
   VOID                        *PeCoffImage;
+  EFI_HOB_HANDOFF_INFO_TABLE  *Handoff;
   EFI_PHYSICAL_ADDRESS        ImageAddress;
+  EFI_PHYSICAL_ADDRESS        PreviousEndOfHobList;
   UINT64                      ImageSize;
+
+  if (DxeCoreEntryPoint == NULL || DxeCoreImageBase == NULL || DxeCoreImageSize == NULL) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  *DxeCoreEntryPoint = 0;
+  *DxeCoreImageBase  = 0;
+  *DxeCoreImageSize  = 0;
 
   PayloadFv = (EFI_FIRMWARE_VOLUME_HEADER *)(UINTN)PcdGet32 (PcdPayloadFdMemBase);
 
@@ -295,19 +389,30 @@ LoadDxeCore (
   //
   // Report DXE FV to DXE core
   //
+  Status = Cdk2EfiSaveHobAppendState (&AppendState);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  Handoff             = (EFI_HOB_HANDOFF_INFO_TABLE *)GetHobList ();
+  PreviousEndOfHobList = Handoff->EfiEndOfHobList;
   BuildFvHob ((EFI_PHYSICAL_ADDRESS)(UINTN)DxeCoreFv, DxeCoreFv->FvLength);
+  Status = Cdk2EfiRequireHobAppended (PreviousEndOfHobList);
+  if (EFI_ERROR (Status)) {
+    goto Failed;
+  }
 
   //
   // Find DXE core file from DXE FV
   //
   Status = FvFindFileByTypeGuid (DxeCoreFv, EFI_FV_FILETYPE_DXE_CORE, NULL, &FileHeader);
   if (EFI_ERROR (Status)) {
-    return Status;
+    goto Failed;
   }
 
   Status = FileFindSection (FileHeader, EFI_SECTION_PE32, (VOID **)&PeCoffImage);
   if (EFI_ERROR (Status)) {
-    return Status;
+    goto Failed;
   }
 
   //
@@ -315,15 +420,27 @@ LoadDxeCore (
   //
   Status = LoadPeCoffImage (PeCoffImage, &ImageAddress, &ImageSize, DxeCoreEntryPoint);
   if (EFI_ERROR (Status)) {
-    return Status;
+    goto Failed;
   }
 
   *DxeCoreImageBase = ImageAddress;
   *DxeCoreImageSize = (UINTN)ImageSize;
 
+  PreviousEndOfHobList = Handoff->EfiEndOfHobList;
   BuildModuleHob (&FileHeader->Name, ImageAddress, EFI_SIZE_TO_PAGES ((UINT32)ImageSize) * EFI_PAGE_SIZE, *DxeCoreEntryPoint);
+  Status = Cdk2EfiRequireHobAppended (PreviousEndOfHobList);
+  if (EFI_ERROR (Status)) {
+    goto Failed;
+  }
 
   return EFI_SUCCESS;
+
+Failed:
+  Cdk2EfiRestoreHobAppendState (&AppendState);
+  *DxeCoreEntryPoint = 0;
+  *DxeCoreImageBase  = 0;
+  *DxeCoreImageSize  = 0;
+  return Status;
 }
 
 /**
@@ -341,11 +458,20 @@ UniversalLoadDxeCore (
   OUT PHYSICAL_ADDRESS            *DxeCoreEntryPoint
   )
 {
-  EFI_STATUS            Status;
-  EFI_FFS_FILE_HEADER   *FileHeader;
-  VOID                  *PeCoffImage;
-  EFI_PHYSICAL_ADDRESS  ImageAddress;
-  UINT64                ImageSize;
+  CDK2_EFI_HOB_APPEND_STATE  AppendState;
+  EFI_STATUS                 Status;
+  EFI_FFS_FILE_HEADER        *FileHeader;
+  VOID                       *PeCoffImage;
+  EFI_HOB_HANDOFF_INFO_TABLE  *Handoff;
+  EFI_PHYSICAL_ADDRESS       ImageAddress;
+  EFI_PHYSICAL_ADDRESS       PreviousEndOfHobList;
+  UINT64                     ImageSize;
+
+  if (DxeFv == NULL || DxeCoreEntryPoint == NULL) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  *DxeCoreEntryPoint = 0;
 
   //
   // Find DXE core file from DXE FV
@@ -360,15 +486,32 @@ UniversalLoadDxeCore (
     return Status;
   }
 
+  Status = Cdk2EfiSaveHobAppendState (&AppendState);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  Handoff = (EFI_HOB_HANDOFF_INFO_TABLE *)GetHobList ();
+
   //
   // Get DXE core info
   //
   Status = LoadPeCoffImage (PeCoffImage, &ImageAddress, &ImageSize, DxeCoreEntryPoint);
   if (EFI_ERROR (Status)) {
-    return Status;
+    goto Failed;
   }
 
+  PreviousEndOfHobList = Handoff->EfiEndOfHobList;
   BuildModuleHob (&FileHeader->Name, ImageAddress, EFI_SIZE_TO_PAGES ((UINT32)ImageSize) * EFI_PAGE_SIZE, *DxeCoreEntryPoint);
+  Status = Cdk2EfiRequireHobAppended (PreviousEndOfHobList);
+  if (EFI_ERROR (Status)) {
+    goto Failed;
+  }
 
   return EFI_SUCCESS;
+
+Failed:
+  Cdk2EfiRestoreHobAppendState (&AppendState);
+  *DxeCoreEntryPoint = 0;
+  return Status;
 }

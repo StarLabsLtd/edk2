@@ -16,6 +16,12 @@
 
 STATIC UINT32  mTopOfLowerUsableDram = 0;
 
+RETURN_STATUS
+EFIAPI
+ParseBootMode (
+  OUT EFI_BOOT_MODE  *Mode
+  );
+
 /**
    Callback function to build resource descriptor HOB
 
@@ -339,11 +345,12 @@ Cdk2EfiMemInfoCallback (
 **/
 EFI_STATUS
 Cdk2EfiBuildHobFromBl (
-  VOID
+  IN OUT EFI_HOB_HANDOFF_INFO_TABLE  *HobInfo
   )
 {
   EFI_STATUS                        Status;
   ACPI_BOARD_INFO                   *AcpiBoardInfo;
+  EFI_BOOT_MODE                     BootMode;
   SMMSTORE_INFO                     SmmStoreInfo;
   SMMSTORE_INFO                     *NewSmmStoreInfo;
   FIRMWARE_INFO                     FirmwareInfo;
@@ -355,7 +362,13 @@ Cdk2EfiBuildHobFromBl (
   EFI_PEI_GRAPHICS_DEVICE_INFO_HOB  GfxDeviceInfo;
   EFI_PEI_GRAPHICS_DEVICE_INFO_HOB  *NewGfxDeviceInfo;
   UNIVERSAL_PAYLOAD_SMBIOS_TABLE    *SmBiosTableHob;
+  UNIVERSAL_PAYLOAD_SMBIOS_TABLE    SmbiosTableInfo;
   UNIVERSAL_PAYLOAD_ACPI_TABLE      *AcpiTableHob;
+  UNIVERSAL_PAYLOAD_ACPI_TABLE      AcpiTableInfo;
+
+  if (HobInfo == NULL) {
+    return EFI_INVALID_PARAMETER;
+  }
 
   //
   // First find TOLUD
@@ -384,6 +397,10 @@ Cdk2EfiBuildHobFromBl (
   if (!EFI_ERROR (Status)) {
     NewGfxInfo = BuildGuidHob (&gEfiGraphicsInfoHobGuid, sizeof (GfxInfo));
     ASSERT (NewGfxInfo != NULL);
+    if (NewGfxInfo == NULL) {
+      return EFI_OUT_OF_RESOURCES;
+    }
+
     CopyMem (NewGfxInfo, &GfxInfo, sizeof (GfxInfo));
     DEBUG ((DEBUG_INFO, "Created graphics info hob\n"));
   }
@@ -392,6 +409,10 @@ Cdk2EfiBuildHobFromBl (
   if (!EFI_ERROR (Status)) {
     NewGfxDeviceInfo = BuildGuidHob (&gEfiGraphicsDeviceInfoHobGuid, sizeof (GfxDeviceInfo));
     ASSERT (NewGfxDeviceInfo != NULL);
+    if (NewGfxDeviceInfo == NULL) {
+      return EFI_OUT_OF_RESOURCES;
+    }
+
     CopyMem (NewGfxDeviceInfo, &GfxDeviceInfo, sizeof (GfxDeviceInfo));
     DEBUG ((DEBUG_INFO, "Created graphics device info hob\n"));
   }
@@ -403,6 +424,10 @@ Cdk2EfiBuildHobFromBl (
   if (!EFI_ERROR (Status)) {
     NewSmmStoreInfo = BuildGuidHob (&gEfiSmmStoreInfoHobGuid, sizeof (SmmStoreInfo));
     ASSERT (NewSmmStoreInfo != NULL);
+    if (NewSmmStoreInfo == NULL) {
+      return EFI_OUT_OF_RESOURCES;
+    }
+
     CopyMem (NewSmmStoreInfo, &SmmStoreInfo, sizeof (SmmStoreInfo));
     DEBUG ((DEBUG_INFO, "Created SmmStore info hob\n"));
   }
@@ -414,8 +439,21 @@ Cdk2EfiBuildHobFromBl (
   if (!EFI_ERROR (Status)) {
     NewFirmwareInfo = BuildGuidHob (&gEfiFirmwareInfoHobGuid, sizeof (FirmwareInfo));
     ASSERT (NewFirmwareInfo != NULL);
+    if (NewFirmwareInfo == NULL) {
+      return EFI_OUT_OF_RESOURCES;
+    }
+
     CopyMem (NewFirmwareInfo, &FirmwareInfo, sizeof (FirmwareInfo));
     DEBUG ((DEBUG_INFO, "Created firmware info hob\n"));
+  }
+
+  //
+  // Get boot mode from bootloader and set it in HOB.
+  //
+  Status = ParseBootMode (&BootMode);
+  if (!EFI_ERROR (Status)) {
+    HobInfo->BootMode = BootMode;
+    DEBUG ((DEBUG_INFO, "BootMode from payload: %x\n", BootMode));
   }
 
   //
@@ -425,6 +463,10 @@ Cdk2EfiBuildHobFromBl (
   if (!EFI_ERROR (Status)) {
     NewPhysicalPresenceInfo = BuildGuidHob (&gEfiTcgPhysicalPresenceInfoHobGuid, sizeof (TCG_PHYSICAL_PRESENCE_INFO));
     ASSERT (NewPhysicalPresenceInfo != NULL);
+    if (NewPhysicalPresenceInfo == NULL) {
+      return EFI_OUT_OF_RESOURCES;
+    }
+
     CopyMem (NewPhysicalPresenceInfo, &PhysicalPresenceInfo, sizeof (TCG_PHYSICAL_PRESENCE_INFO));
     DEBUG ((DEBUG_INFO, "Created Tcg Physical Presence info hob\n"));
   }
@@ -432,34 +474,52 @@ Cdk2EfiBuildHobFromBl (
   //
   // Create SmBios table Hob
   //
-  SmBiosTableHob = BuildGuidHob (&gUniversalPayloadSmbiosTableGuid, sizeof (UNIVERSAL_PAYLOAD_SMBIOS_TABLE));
-  ASSERT (SmBiosTableHob != NULL);
-  SmBiosTableHob->Header.Revision = UNIVERSAL_PAYLOAD_SMBIOS_TABLE_REVISION;
-  SmBiosTableHob->Header.Length   = sizeof (UNIVERSAL_PAYLOAD_SMBIOS_TABLE);
-  DEBUG ((DEBUG_INFO, "Create smbios table gUniversalPayloadSmbiosTableGuid guid hob\n"));
-  Status = ParseSmbiosTable (SmBiosTableHob);
+  ZeroMem (&SmbiosTableInfo, sizeof (SmbiosTableInfo));
+  Status = ParseSmbiosTable (&SmbiosTableInfo);
   if (!EFI_ERROR (Status)) {
+    SmBiosTableHob = BuildGuidHob (&gUniversalPayloadSmbiosTableGuid, sizeof (UNIVERSAL_PAYLOAD_SMBIOS_TABLE));
+    ASSERT (SmBiosTableHob != NULL);
+    if (SmBiosTableHob == NULL) {
+      return EFI_OUT_OF_RESOURCES;
+    }
+
+    SmBiosTableHob->Header.Revision  = UNIVERSAL_PAYLOAD_SMBIOS_TABLE_REVISION;
+    SmBiosTableHob->Header.Length    = sizeof (UNIVERSAL_PAYLOAD_SMBIOS_TABLE);
+    SmBiosTableHob->SmBiosEntryPoint = SmbiosTableInfo.SmBiosEntryPoint;
+    DEBUG ((DEBUG_INFO, "Create smbios table gUniversalPayloadSmbiosTableGuid guid hob\n"));
     DEBUG ((DEBUG_INFO, "Detected Smbios Table at 0x%lx\n", SmBiosTableHob->SmBiosEntryPoint));
   }
 
   //
   // Create ACPI table Hob
   //
+  ZeroMem (&AcpiTableInfo, sizeof (AcpiTableInfo));
+  Status = ParseAcpiTableInfo (&AcpiTableInfo);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "Error when parsing ACPI table info, Status = %r\n", Status));
+    return Status;
+  }
+
   AcpiTableHob = BuildGuidHob (&gUniversalPayloadAcpiTableGuid, sizeof (UNIVERSAL_PAYLOAD_ACPI_TABLE));
   ASSERT (AcpiTableHob != NULL);
+  if (AcpiTableHob == NULL) {
+    return EFI_OUT_OF_RESOURCES;
+  }
+
   AcpiTableHob->Header.Revision = UNIVERSAL_PAYLOAD_ACPI_TABLE_REVISION;
   AcpiTableHob->Header.Length   = sizeof (UNIVERSAL_PAYLOAD_ACPI_TABLE);
+  AcpiTableHob->Rsdp            = AcpiTableInfo.Rsdp;
   DEBUG ((DEBUG_INFO, "Create ACPI table gUniversalPayloadAcpiTableGuid guid hob\n"));
-  Status = ParseAcpiTableInfo (AcpiTableHob);
-  if (!EFI_ERROR (Status)) {
-    DEBUG ((DEBUG_INFO, "Detected ACPI Table at 0x%lx\n", AcpiTableHob->Rsdp));
-  }
+  DEBUG ((DEBUG_INFO, "Detected ACPI Table at 0x%lx\n", AcpiTableHob->Rsdp));
 
   //
   // Create guid hob for acpi board information
   //
   AcpiBoardInfo = BuildHobFromAcpi (AcpiTableHob->Rsdp);
   ASSERT (AcpiBoardInfo != NULL);
+  if (AcpiBoardInfo == NULL) {
+    return EFI_NOT_FOUND;
+  }
 
   //
   // Parse memory info and build memory HOBs for reserved DRAM and MMIO

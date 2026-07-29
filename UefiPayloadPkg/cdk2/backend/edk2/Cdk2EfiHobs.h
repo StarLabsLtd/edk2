@@ -13,7 +13,7 @@
 
 EFI_STATUS
 Cdk2EfiBuildHobFromBl (
-  VOID
+  IN OUT EFI_HOB_HANDOFF_INFO_TABLE  *HobInfo
   );
 
 VOID

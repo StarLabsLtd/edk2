@@ -33,7 +33,8 @@ Cdk2EfiPopulateHobs (
     return EFI_INVALID_PARAMETER;
   }
 
-  Status = Cdk2EfiBuildHobFromBl ();
+  HobInfo = (EFI_HOB_HANDOFF_INFO_TABLE *)Context->HobList;
+  Status = Cdk2EfiBuildHobFromBl (HobInfo);
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "Cdk2EfiBuildHobFromBl Status = %r\n", Status));
     return Status;
@@ -41,7 +42,6 @@ Cdk2EfiPopulateHobs (
 
   Cdk2EfiBuildGenericHob ();
 
-  HobInfo = (EFI_HOB_HANDOFF_INFO_TABLE *)Context->HobList;
   BuildMemoryTypeInformationHob (
     mDefaultMemoryTypeInformation,
     sizeof (mDefaultMemoryTypeInformation),
