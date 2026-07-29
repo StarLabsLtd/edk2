@@ -183,6 +183,81 @@ ParseMemory (
 }
 
 /**
+  Check whether a table lies inside a generic reserved-memory range.
+
+  @param[in]  Fdt               Address of the Fdt data.
+  @param[in]  ParentNode        reserved-memory node.
+  @param[in]  TableNode         ACPI or SMBIOS node.
+  @param[in]  StartAddress      Start of the table range.
+  @param[in]  NumberOfBytes     Size of the table range.
+
+  @retval TRUE                  A generic reservation contains the table.
+  @retval FALSE                 No generic reservation contains the table.
+**/
+STATIC
+BOOLEAN
+IsTableRangeReserved (
+  IN VOID    *Fdt,
+  IN INT32   ParentNode,
+  IN INT32   TableNode,
+  IN UINT64  StartAddress,
+  IN UINT64  NumberOfBytes
+  )
+{
+  CONST FDT_PROPERTY  *PropertyPtr;
+  CONST CHAR8         *NodeName;
+  CONST UINT64        *Data64;
+  UINT64              EndAddress;
+  UINT64              RangeEnd;
+  UINT64              RangeSize;
+  UINT64              RangeStart;
+  INT32               Node;
+  INT32               TempLen;
+
+  if ((NumberOfBytes == 0) || (StartAddress > (MAX_UINT64 - NumberOfBytes))) {
+    return FALSE;
+  }
+
+  EndAddress = StartAddress + NumberOfBytes;
+  for (Node = FdtFirstSubnode (Fdt, ParentNode); Node >= 0; Node = FdtNextSubnode (Fdt, Node)) {
+    if (Node == TableNode) {
+      continue;
+    }
+
+    NodeName = FdtGetName (Fdt, Node, NULL);
+    if ((NodeName == NULL) ||
+        (AsciiStrnCmp (NodeName, "memory@", AsciiStrLen ("memory@")) != 0))
+    {
+      continue;
+    }
+
+    PropertyPtr = FdtGetProperty (Fdt, Node, "compatible", &TempLen);
+    if (PropertyPtr != NULL) {
+      continue;
+    }
+
+    PropertyPtr = FdtGetProperty (Fdt, Node, "reg", &TempLen);
+    if ((PropertyPtr == NULL) || (TempLen != (2 * sizeof (UINT64)))) {
+      continue;
+    }
+
+    Data64     = (CONST UINT64 *)PropertyPtr->Data;
+    RangeStart = Fdt64ToCpu (ReadUnaligned64 (&Data64[0]));
+    RangeSize  = Fdt64ToCpu (ReadUnaligned64 (&Data64[1]));
+    if ((RangeSize == 0) || (RangeStart > (MAX_UINT64 - RangeSize))) {
+      continue;
+    }
+
+    RangeEnd = RangeStart + RangeSize;
+    if ((StartAddress >= RangeStart) && (EndAddress <= RangeEnd)) {
+      return TRUE;
+    }
+  }
+
+  return FALSE;
+}
+
+/**
   It will ParseReservedMemory node from FDT.
 
   @param[in]  Fdt               Address of the Fdt data.
@@ -261,11 +336,14 @@ ParseReservedMemory (
       } else if (AsciiStrnCmp (TempStr, "acpi", AsciiStrLen ("acpi")) == 0) {
         DEBUG ((DEBUG_INFO, "  acpi, StartAddress:%x, NumberOfBytes:%x\n", StartAddress, NumberOfBytes));
 
-        BuildMemoryAllocationHob (
-          UPL_ALIGN_DOWN (StartAddress),
-          ALIGN_VALUE (NumberOfBytes, EFI_PAGE_SIZE),
-          EfiBootServicesData
-          );
+        if (!IsTableRangeReserved (Fdt, Node, SubNode, StartAddress, NumberOfBytes)) {
+          BuildMemoryAllocationHob (
+            UPL_ALIGN_DOWN (StartAddress),
+            ALIGN_VALUE (NumberOfBytes, EFI_PAGE_SIZE),
+            EfiBootServicesData
+            );
+        }
+
         PlatformAcpiTable = BuildGuidHob (&gUniversalPayloadAcpiTableGuid, sizeof (UNIVERSAL_PAYLOAD_ACPI_TABLE));
         if (PlatformAcpiTable != NULL) {
           DEBUG ((DEBUG_INFO, " build gUniversalPayloadAcpiTableGuid , NumberOfBytes:%x\n", NumberOfBytes));
@@ -288,7 +366,10 @@ ParseReservedMemory (
           goto FallbackType;
         }
 
-        BuildMemoryAllocationHob (StartAddress, NumberOfBytes, EfiBootServicesData);
+        if (!IsTableRangeReserved (Fdt, Node, SubNode, StartAddress, NumberOfBytes)) {
+          BuildMemoryAllocationHob (StartAddress, NumberOfBytes, EfiBootServicesData);
+        }
+
         SmbiosTable = BuildGuidHob (SmbiosTableGuid, sizeof (UNIVERSAL_PAYLOAD_SMBIOS_TABLE));
         if (SmbiosTable != NULL) {
           SmbiosTable->Header.Revision  = UNIVERSAL_PAYLOAD_SMBIOS_TABLE_REVISION;
