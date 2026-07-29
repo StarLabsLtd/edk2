@@ -325,6 +325,75 @@ Cdk2CorebootAllocationType (
 
 STATIC
 EFI_STATUS
+Cdk2CorebootValidateAppendHandoff (
+  IN  EFI_HOB_HANDOFF_INFO_TABLE  *Handoff,
+  OUT EFI_HOB_GENERIC_HEADER      **End
+  )
+{
+  EFI_HOB_GENERIC_HEADER  *Hob;
+  EFI_PHYSICAL_ADDRESS     ExpectedFreeMemoryBottom;
+  UINTN                    EndAddress;
+  UINTN                    HobAddress;
+  UINTN                    HobLength;
+
+  if (Handoff == NULL || End == NULL || Handoff->EfiEndOfHobList == 0) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  if (Handoff->Header.HobType != EFI_HOB_TYPE_HANDOFF ||
+      Handoff->Header.HobLength != sizeof (*Handoff) ||
+      Handoff->EfiMemoryBottom > Handoff->EfiMemoryTop ||
+      Handoff->EfiFreeMemoryBottom > Handoff->EfiFreeMemoryTop ||
+      Handoff->EfiFreeMemoryBottom < Handoff->EfiMemoryBottom ||
+      Handoff->EfiFreeMemoryTop > Handoff->EfiMemoryTop ||
+      Handoff->EfiEndOfHobList > (EFI_PHYSICAL_ADDRESS)(MAX_UINTN - sizeof (**End)))
+  {
+    return EFI_COMPROMISED_DATA;
+  }
+
+  ExpectedFreeMemoryBottom = Handoff->EfiEndOfHobList + sizeof (**End);
+  if (Handoff->EfiFreeMemoryBottom != ExpectedFreeMemoryBottom ||
+      ExpectedFreeMemoryBottom > Handoff->EfiFreeMemoryTop)
+  {
+    return EFI_COMPROMISED_DATA;
+  }
+
+  EndAddress = (UINTN)Handoff->EfiEndOfHobList;
+  Hob        = (EFI_HOB_GENERIC_HEADER *)(VOID *)Handoff;
+  while ((UINTN)Hob < EndAddress) {
+    HobAddress = (UINTN)Hob;
+    if (EndAddress - HobAddress < sizeof (*Hob)) {
+      return EFI_COMPROMISED_DATA;
+    }
+
+    HobLength = Hob->HobLength;
+    if (HobLength < sizeof (*Hob) ||
+        HobLength > EndAddress - HobAddress ||
+        (HobLength & 7U) != 0 ||
+        Hob->HobType == EFI_HOB_TYPE_END_OF_HOB_LIST)
+    {
+      return EFI_COMPROMISED_DATA;
+    }
+
+    Hob = (EFI_HOB_GENERIC_HEADER *)(VOID *)((UINT8 *)(VOID *)Hob + HobLength);
+  }
+
+  if ((UINTN)Hob != EndAddress) {
+    return EFI_COMPROMISED_DATA;
+  }
+
+  *End = (EFI_HOB_GENERIC_HEADER *)(UINTN)Handoff->EfiEndOfHobList;
+  if ((*End)->HobType != EFI_HOB_TYPE_END_OF_HOB_LIST ||
+      (*End)->HobLength != sizeof (**End))
+  {
+    return EFI_COMPROMISED_DATA;
+  }
+
+  return EFI_SUCCESS;
+}
+
+STATIC
+EFI_STATUS
 Cdk2CorebootAppendBeforeEnd (
   IN OUT EFI_HOB_HANDOFF_INFO_TABLE  *Handoff,
   IN     UINT16                        Type,
@@ -337,12 +406,17 @@ Cdk2CorebootAppendBeforeEnd (
   UINTN                    Limit;
   UINTN                    FirstLength;
   UINTN                    EndLength;
+  EFI_STATUS               Status;
 
-  if (Handoff == NULL || NewHob == NULL || Handoff->EfiEndOfHobList == 0) {
+  if (NewHob == NULL) {
     return EFI_INVALID_PARAMETER;
   }
 
-  End         = (EFI_HOB_GENERIC_HEADER *)(UINTN)Handoff->EfiEndOfHobList;
+  Status = Cdk2CorebootValidateAppendHandoff (Handoff, &End);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
   Cursor      = (UINTN)End;
   Limit       = (UINTN)Handoff->EfiFreeMemoryTop;
   if (Cursor > Limit) {

@@ -40,6 +40,12 @@ STATIC CONST EFI_GUID  mCdk2TcgPhysicalPresenceInfoHobGuid =
 STATIC CONST EFI_GUID  mCdk2SerialPortInfoGuid =
   { 0xaa7e190d, 0xbe21, 0x4409, { 0x8e, 0x67, 0xa2, 0xcd, 0x0f, 0x61, 0xe1, 0x70 } };
 
+typedef struct {
+  EFI_PHYSICAL_ADDRESS    EndOfHobList;
+  EFI_PHYSICAL_ADDRESS    FreeMemoryBottom;
+  EFI_HOB_GENERIC_HEADER  EndMarker;
+} CDK2_COREBOOT_HOB_APPEND_STATE;
+
 STATIC
 UINT32
 Cdk2CorebootPixelMask (
@@ -539,6 +545,105 @@ Cdk2CorebootMaskLegacyInterrupts (
 
 STATIC
 EFI_STATUS
+Cdk2CorebootSaveHobAppendState (
+  IN  EFI_HOB_HANDOFF_INFO_TABLE       *Handoff,
+  OUT CDK2_COREBOOT_HOB_APPEND_STATE  *State
+  )
+{
+  EFI_HOB_GENERIC_HEADER  *End;
+
+  if (Handoff == NULL || State == NULL || Handoff->EfiEndOfHobList == 0) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  if (Handoff->EfiEndOfHobList > (EFI_PHYSICAL_ADDRESS)(MAX_UINTN - sizeof (*End))) {
+    return EFI_COMPROMISED_DATA;
+  }
+
+  End = (EFI_HOB_GENERIC_HEADER *)(UINTN)Handoff->EfiEndOfHobList;
+  if (End->HobType != EFI_HOB_TYPE_END_OF_HOB_LIST ||
+      End->HobLength != sizeof (*End))
+  {
+    return EFI_COMPROMISED_DATA;
+  }
+
+  State->EndOfHobList     = Handoff->EfiEndOfHobList;
+  State->FreeMemoryBottom = Handoff->EfiFreeMemoryBottom;
+  State->EndMarker        = *End;
+  return EFI_SUCCESS;
+}
+
+STATIC
+VOID
+Cdk2CorebootRestoreHobAppendState (
+  IN OUT EFI_HOB_HANDOFF_INFO_TABLE             *Handoff,
+  IN     CONST CDK2_COREBOOT_HOB_APPEND_STATE  *State
+  )
+{
+  if (Handoff == NULL || State == NULL || State->EndOfHobList == 0) {
+    return;
+  }
+
+  Handoff->EfiEndOfHobList     = State->EndOfHobList;
+  Handoff->EfiFreeMemoryBottom = State->FreeMemoryBottom;
+  *(EFI_HOB_GENERIC_HEADER *)(UINTN)State->EndOfHobList = State->EndMarker;
+}
+
+STATIC
+EFI_STATUS
+Cdk2CorebootAppendLoadedDxeCoreHobs (
+  IN OUT EFI_HOB_HANDOFF_INFO_TABLE  *Handoff,
+  IN     EFI_PHYSICAL_ADDRESS         FvBase,
+  IN     UINTN                        FvSize,
+  IN     CONST EFI_GUID              *ModuleName,
+  IN     EFI_PHYSICAL_ADDRESS         ImageBase,
+  IN     UINTN                        ImageSize,
+  IN     EFI_PHYSICAL_ADDRESS         EntryPoint
+  )
+{
+  CDK2_COREBOOT_HOB_APPEND_STATE  AppendState;
+  EFI_STATUS                      Status;
+
+  Status = Cdk2CorebootSaveHobAppendState (Handoff, &AppendState);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  Status = Cdk2CorebootAppendFvHob (Handoff, FvBase, FvSize);
+  if (EFI_ERROR (Status)) {
+    goto Failed;
+  }
+
+  Status = Cdk2CorebootAppendMemoryAllocationHob (
+             Handoff,
+             ImageBase,
+             ImageSize,
+             EfiBootServicesCode
+             );
+  if (EFI_ERROR (Status)) {
+    goto Failed;
+  }
+
+  Status = Cdk2CorebootAppendModuleHob (
+             Handoff,
+             ModuleName,
+             ImageBase,
+             ImageSize,
+             EntryPoint
+             );
+  if (EFI_ERROR (Status)) {
+    goto Failed;
+  }
+
+  return EFI_SUCCESS;
+
+Failed:
+  Cdk2CorebootRestoreHobAppendState (Handoff, &AppendState);
+  return Status;
+}
+
+STATIC
+EFI_STATUS
 EFIAPI
 Cdk2CorebootLoadDxeCore (
   IN OUT CDK2_NATIVE_CONTEXT  *Context,
@@ -548,7 +653,11 @@ Cdk2CorebootLoadDxeCore (
   )
 {
   CDK2_NATIVE_DXE_CORE  DxeCore;
+  EFI_HOB_HANDOFF_INFO_TABLE  *Handoff;
   EFI_PHYSICAL_ADDRESS   Destination;
+  EFI_PHYSICAL_ADDRESS   SavedAllocationBottom;
+  EFI_PHYSICAL_ADDRESS   SavedAllocationTop;
+  EFI_PHYSICAL_ADDRESS   SavedFreeMemoryTop;
   UINTN                  FvSize;
   UINTN                  AvailablePages;
   UINTN                  Pages;
@@ -556,12 +665,14 @@ Cdk2CorebootLoadDxeCore (
   EFI_STATUS             Status;
 
   if (Context == NULL || EntryPoint == NULL || ImageBase == NULL || ImageSize == NULL ||
+      Context->HobList == NULL ||
       __cdk2_fv_start == NULL || __cdk2_fv_end == NULL ||
       &__cdk2_fv_end[0] <= &__cdk2_fv_start[0])
   {
     return EFI_NOT_FOUND;
   }
 
+  Handoff = (EFI_HOB_HANDOFF_INFO_TABLE *)Context->HobList;
   FvSize = (UINTN)(__cdk2_fv_end - __cdk2_fv_start);
   Status = Cdk2NativeFindDxeCore (__cdk2_fv_start, FvSize, &DxeCore);
   if (EFI_ERROR (Status)) {
@@ -578,6 +689,9 @@ Cdk2CorebootLoadDxeCore (
     return EFI_OUT_OF_RESOURCES;
   }
 
+  SavedAllocationBottom = Context->AllocationBottom;
+  SavedAllocationTop    = Context->AllocationTop;
+  SavedFreeMemoryTop    = Handoff->EfiFreeMemoryTop;
   Status = Cdk2NativeAllocatePages (Context, Pages, &Destination);
   if (EFI_ERROR (Status)) {
     return Status;
@@ -593,36 +707,33 @@ Cdk2CorebootLoadDxeCore (
              EntryPoint
              );
   if (EFI_ERROR (Status)) {
-    return Status;
-  }
-
-  Status = Cdk2CorebootAppendFvHob (
-             (EFI_HOB_HANDOFF_INFO_TABLE *)Context->HobList,
-             (EFI_PHYSICAL_ADDRESS)(UINTN)__cdk2_fv_start,
-             FvSize
-             );
-  if (EFI_ERROR (Status)) {
-    return Status;
+    goto Failed;
   }
 
   LoadedImageSize = EFI_SIZE_TO_PAGES (*ImageSize) * EFI_PAGE_SIZE;
-  Status = Cdk2CorebootAppendMemoryAllocationHob (
-             (EFI_HOB_HANDOFF_INFO_TABLE *)Context->HobList,
+  Status = Cdk2CorebootAppendLoadedDxeCoreHobs (
+             Handoff,
+             (EFI_PHYSICAL_ADDRESS)(UINTN)__cdk2_fv_start,
+             FvSize,
+             &DxeCore.DxeCoreFile->Name,
              *ImageBase,
              LoadedImageSize,
-             EfiBootServicesCode
+             *EntryPoint
              );
   if (EFI_ERROR (Status)) {
-    return Status;
+    goto Failed;
   }
 
-  return Cdk2CorebootAppendModuleHob (
-           (EFI_HOB_HANDOFF_INFO_TABLE *)Context->HobList,
-           &DxeCore.DxeCoreFile->Name,
-           *ImageBase,
-           LoadedImageSize,
-           *EntryPoint
-           );
+  return EFI_SUCCESS;
+
+Failed:
+  Context->AllocationBottom = SavedAllocationBottom;
+  Context->AllocationTop    = SavedAllocationTop;
+  Handoff->EfiFreeMemoryTop = SavedFreeMemoryTop;
+  *EntryPoint = 0;
+  *ImageBase  = 0;
+  *ImageSize  = 0;
+  return Status;
 }
 
 STATIC
@@ -712,6 +823,29 @@ Cdk2CorebootTestTransfer (
   )
 {
   return Cdk2CorebootTransfer (Context);
+}
+
+EFI_STATUS
+EFIAPI
+Cdk2CorebootTestAppendLoadedDxeCoreHobs (
+  IN OUT EFI_HOB_HANDOFF_INFO_TABLE  *Handoff,
+  IN     EFI_PHYSICAL_ADDRESS         FvBase,
+  IN     UINTN                        FvSize,
+  IN     CONST EFI_GUID              *ModuleName,
+  IN     EFI_PHYSICAL_ADDRESS         ImageBase,
+  IN     UINTN                        ImageSize,
+  IN     EFI_PHYSICAL_ADDRESS         EntryPoint
+  )
+{
+  return Cdk2CorebootAppendLoadedDxeCoreHobs (
+           Handoff,
+           FvBase,
+           FvSize,
+           ModuleName,
+           ImageBase,
+           ImageSize,
+           EntryPoint
+           );
 }
 #endif
 

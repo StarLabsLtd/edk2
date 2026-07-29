@@ -18,6 +18,7 @@
 #define TEST_TABLE_SIZE  4096U
 #define TEST_HOB_REGION_SIZE  0x04000000U
 #define TEST_TEMP_MAP_LIMIT   0x2000000000ULL
+#define TEST_HOB_ALIGN8(Size)  (((Size) + 7U) & ~(UINTN)7U)
 
 #if defined (__GNUC__)
 static UINT8  mTransferHobStorage[EFI_PAGE_SIZE] __attribute__ ((aligned (EFI_PAGE_SIZE)));
@@ -29,6 +30,18 @@ EFI_STATUS
 EFIAPI
 Cdk2CorebootTestTransfer (
   IN CDK2_NATIVE_CONTEXT  *Context
+  );
+
+EFI_STATUS
+EFIAPI
+Cdk2CorebootTestAppendLoadedDxeCoreHobs (
+  IN OUT EFI_HOB_HANDOFF_INFO_TABLE  *Handoff,
+  IN     EFI_PHYSICAL_ADDRESS         FvBase,
+  IN     UINTN                        FvSize,
+  IN     CONST EFI_GUID              *ModuleName,
+  IN     EFI_PHYSICAL_ADDRESS         ImageBase,
+  IN     UINTN                        ImageSize,
+  IN     EFI_PHYSICAL_ADDRESS         EntryPoint
   );
 
 VOID
@@ -187,9 +200,14 @@ main (
   UINT8                       TargetStorage[TEST_TABLE_SIZE];
   UINT8                       HobStorage[TEST_TABLE_SIZE];
   UINT8                       TinyHobStorage[64];
+  UINT8                       TransactionHobStorage[512];
   CDK2_COREBOOT_HANDOFF       Handoff;
+  CDK2_COREBOOT_HANDOFF       TransactionHandoff;
   EFI_HOB_HANDOFF_INFO_TABLE *HobInfo;
+  EFI_HOB_HANDOFF_INFO_TABLE *TransactionHob;
   EFI_HOB_GENERIC_HEADER     *Hob;
+  EFI_HOB_GENERIC_HEADER      PreviousEndMarker;
+  EFI_HOB_GENERIC_HEADER      TransactionEndMarker;
   EFI_PEI_HOB_POINTERS        HobWalker;
   UINTN                       HobCursor;
   UINTN                       ResourceCount;
@@ -203,8 +221,13 @@ main (
   UINTN                       ModuleCount;
   EFI_PHYSICAL_ADDRESS        PreviousEndOfHobList;
   EFI_PHYSICAL_ADDRESS        PreviousFreeMemoryBottom;
+  EFI_PHYSICAL_ADDRESS        BadFreeMemoryBottom;
+  EFI_PHYSICAL_ADDRESS        TransactionEndOfHobList;
+  EFI_PHYSICAL_ADDRESS        TransactionFreeMemoryBottom;
+  EFI_PHYSICAL_ADDRESS        TransactionFreeMemoryTop;
   UINTN                       TableSize;
   UINTN                       HobMemBase;
+  UINTN                       TransactionFreeTopOffset;
   CONST VOID                 *Record;
   CONST struct cb_serial      *Serial;
   CONST struct cb_framebuffer *Framebuffer;
@@ -554,14 +577,84 @@ main (
                 "rejected descriptor append moved free bottom"
                 );
 
+  PreviousEndOfHobList     = HobInfo->EfiEndOfHobList;
+  PreviousFreeMemoryBottom = HobInfo->EfiFreeMemoryBottom;
+  PreviousEndMarker        = *(EFI_HOB_GENERIC_HEADER *)(UINTN)PreviousEndOfHobList;
+  BadFreeMemoryBottom      = PreviousFreeMemoryBottom + sizeof (EFI_HOB_GENERIC_HEADER);
+  HobInfo->EfiFreeMemoryBottom = BadFreeMemoryBottom;
+  Status = Cdk2CorebootAppendCpuHob (HobInfo, 36, 16);
+  Failures += Expect (Status == EFI_COMPROMISED_DATA, "desynchronized PHIT append accepted");
+  Failures += Expect (
+                HobInfo->EfiEndOfHobList == PreviousEndOfHobList,
+                "desynchronized PHIT append moved the end marker"
+                );
+  Failures += Expect (
+                HobInfo->EfiFreeMemoryBottom == BadFreeMemoryBottom,
+                "desynchronized PHIT append rewrote free bottom"
+                );
+  Hob = (EFI_HOB_GENERIC_HEADER *)(UINTN)PreviousEndOfHobList;
+  Failures += Expect (
+                Hob->HobType == PreviousEndMarker.HobType &&
+                Hob->HobLength == PreviousEndMarker.HobLength,
+                "desynchronized PHIT append overwrote the end marker"
+                );
+  HobInfo->EfiEndOfHobList     = PreviousEndOfHobList;
+  HobInfo->EfiFreeMemoryBottom = PreviousFreeMemoryBottom;
+  *(EFI_HOB_GENERIC_HEADER *)(UINTN)PreviousEndOfHobList = PreviousEndMarker;
+
+  TransactionHandoff       = (CDK2_COREBOOT_HANDOFF){ 0 };
+  TransactionFreeTopOffset = TEST_HOB_ALIGN8 (sizeof (EFI_HOB_HANDOFF_INFO_TABLE)) +
+                             TEST_HOB_ALIGN8 (sizeof (EFI_HOB_FIRMWARE_VOLUME)) +
+                             TEST_HOB_ALIGN8 (sizeof (EFI_HOB_MEMORY_ALLOCATION)) +
+                             TEST_HOB_ALIGN8 (sizeof (EFI_HOB_GENERIC_HEADER));
+  Status = Cdk2CorebootBuildHobs (
+             &TransactionHandoff,
+             TransactionHobStorage,
+             TransactionHobStorage + sizeof (TransactionHobStorage),
+             TransactionHobStorage,
+             TransactionHobStorage + TransactionFreeTopOffset,
+             &TransactionHob
+             );
+  Failures += Expect (Status == EFI_SUCCESS, "transactional HOB construction failed");
+  if (!EFI_ERROR (Status)) {
+    TransactionEndOfHobList     = TransactionHob->EfiEndOfHobList;
+    TransactionFreeMemoryBottom = TransactionHob->EfiFreeMemoryBottom;
+    TransactionFreeMemoryTop    = TransactionHob->EfiFreeMemoryTop;
+    TransactionEndMarker        = *(EFI_HOB_GENERIC_HEADER *)(UINTN)TransactionEndOfHobList;
+    Status = Cdk2CorebootTestAppendLoadedDxeCoreHobs (
+               TransactionHob,
+               0x00100000,
+               EFI_PAGE_SIZE,
+               &DxeCoreGuid,
+               0x00400000,
+               EFI_PAGE_SIZE,
+               0x00400100
+               );
+    Failures += Expect (Status == EFI_OUT_OF_RESOURCES, "partial DXE HOB append status");
+    Failures += Expect (
+                  TransactionHob->EfiEndOfHobList == TransactionEndOfHobList,
+                  "partial DXE HOB append moved the end marker"
+                  );
+    Failures += Expect (
+                  TransactionHob->EfiFreeMemoryBottom == TransactionFreeMemoryBottom,
+                  "partial DXE HOB append moved free bottom"
+                  );
+    Failures += Expect (
+                  TransactionHob->EfiFreeMemoryTop == TransactionFreeMemoryTop,
+                  "partial DXE HOB append moved free top"
+                  );
+    Hob = (EFI_HOB_GENERIC_HEADER *)(UINTN)TransactionEndOfHobList;
+    Failures += Expect (
+                  Hob->HobType == TransactionEndMarker.HobType &&
+                  Hob->HobLength == TransactionEndMarker.HobLength,
+                  "partial DXE HOB append overwrote the end marker"
+                  );
+  }
+
   memset (mTransferHobStorage, 0, sizeof (mTransferHobStorage));
   TransferHob = (EFI_HOB_HANDOFF_INFO_TABLE *)(VOID *)mTransferHobStorage;
-  TransferEnd = (EFI_HOB_GENERIC_HEADER *)(VOID *)(
-                                                mTransferHobStorage +
-                                                sizeof (mTransferHobStorage) -
-                                                sizeof (*TransferEnd)
-                                                );
-  TransferFreeBottom = (EFI_PHYSICAL_ADDRESS)(UINTN)(mTransferHobStorage + sizeof (mTransferHobStorage));
+  TransferEnd = (EFI_HOB_GENERIC_HEADER *)(VOID *)(TransferHob + 1);
+  TransferFreeBottom = (EFI_PHYSICAL_ADDRESS)(UINTN)(TransferEnd + 1);
   TransferFreeTop    = TransferFreeBottom + 0x20 * EFI_PAGE_SIZE;
   TransferHob->Header.HobType      = EFI_HOB_TYPE_HANDOFF;
   TransferHob->Header.HobLength    = sizeof (*TransferHob);
