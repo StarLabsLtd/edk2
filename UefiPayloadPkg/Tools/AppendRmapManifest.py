@@ -25,7 +25,7 @@ __copyright__   = 'Copyright (c) 2025, 3mdeb Sp. z o.o. All rights reserved.'
 # SIGNATURE_32('R','M','A','P')
 RMAP_SIGNATURE = 0x50414D52
 RMAP_VERSION   = 1
-ENTRY_SIZE     = 32
+ENTRY_SIZE     = 16
 
 
 def build_manifest(region_names):
