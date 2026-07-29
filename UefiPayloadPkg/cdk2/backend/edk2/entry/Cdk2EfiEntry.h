@@ -20,7 +20,6 @@
 #include <Guid/MemoryAllocationHob.h>
 #include <Guid/MemoryTypeInformation.h>
 #include <Library/IoLib.h>
-#include <Library/PeCoffLib.h>
 #include <Library/BlParseLib.h>
 #include <Library/SmmStoreParseLib.h>
 #include <Library/PlatformSupportLib.h>
