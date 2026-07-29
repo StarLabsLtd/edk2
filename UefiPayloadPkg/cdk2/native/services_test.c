@@ -116,6 +116,22 @@ TestFindHobMemory (
 
 static EFI_STATUS
 EFIAPI
+TestFindNoHobMemory (
+  IN OUT CDK2_NATIVE_CONTEXT  *Context,
+  OUT UINTN                  *HobMemBase
+  )
+{
+  if (Context == NULL || HobMemBase == NULL) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  *HobMemBase = 0;
+  mFindHobMemoryCalls++;
+  return EFI_NOT_FOUND;
+}
+
+static EFI_STATUS
+EFIAPI
 TestFindBelowPayloadHobMemory (
   IN OUT CDK2_NATIVE_CONTEXT  *Context,
   OUT UINTN                  *HobMemBase
@@ -309,6 +325,7 @@ main (void)
   CDK2_NATIVE_CONTEXT    Stage = { 0 };
   CDK2_NATIVE_CONTEXT    Prepared = { 0 };
   CDK2_NATIVE_CONTEXT    BelowPayload = { 0 };
+  CDK2_NATIVE_CONTEXT    FallbackOverflow = { 0 };
   CDK2_NATIVE_CONTEXT    Incomplete = { 0 };
   CDK2_NATIVE_CONTEXT    Failed = { 0 };
   CDK2_NATIVE_CONTEXT    Allocator = { 0 };
@@ -495,6 +512,15 @@ main (void)
   mFailFindHobMemory = TRUE;
   Failures += Expect (Cdk2NativePrepareEntry (&Failed) == EFI_DEVICE_ERROR, "HOB memory discovery failure");
   mFailFindHobMemory = FALSE;
+
+  FallbackOverflow = Prepared;
+  FallbackOverflow.PayloadBase = (EFI_PHYSICAL_ADDRESS)(MAX_UINTN - (SIZE_1MB / 2U));
+  FallbackOverflow.PayloadSize = EFI_PAGE_SIZE;
+  FallbackOverflow.Backend.FindHobMemory = TestFindNoHobMemory;
+  Failures += Expect (
+                Cdk2NativePrepareEntry (&FallbackOverflow) == EFI_INVALID_PARAMETER,
+                "fallback HOB memory alignment overflow accepted"
+                );
 
   BelowPayload = Prepared;
   BelowPayload.PayloadBase  = 0x00400000;

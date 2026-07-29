@@ -310,6 +310,9 @@ Cdk2NativePrepareEntry (
   }
 
   PayloadEnd = Context->PayloadBase + Context->PayloadSize;
+  if (PayloadEnd > MAX_UINTN) {
+    return EFI_INVALID_PARAMETER;
+  }
 
   Status = Cdk2NativeSetBootloaderParameter (Context);
   if (EFI_ERROR (Status)) {
@@ -328,8 +331,12 @@ Cdk2NativePrepareEntry (
   }
 
   if (HobMemBase == 0) {
+    if (PayloadEnd > (EFI_PHYSICAL_ADDRESS)(MAX_UINTN - (SIZE_1MB - 1U))) {
+      return EFI_INVALID_PARAMETER;
+    }
+
     HobMemBase = ALIGN_VALUE (
-                   (UINTN)Context->PayloadBase + (UINTN)Context->PayloadSize,
+                   (UINTN)PayloadEnd,
                    SIZE_1MB
                    );
   }
