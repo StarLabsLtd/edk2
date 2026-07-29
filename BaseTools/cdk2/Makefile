@@ -64,6 +64,9 @@ build:
 		CDK2_TOOLS="$(CDK2_TOOLS)" \
 		CDK2_OUTPUT_ROOT="$(CDK2_OUTPUT_ROOT)" \
 		HOST_ARCH="$(CDK2_HOST_ARCH)"
+	@set -e; for wrapper in $(CDK2_REJECT_WRAPPERS); do \
+		rm -f "$(CDK2_OUTPUT_ROOT)/bin/$$wrapper"; \
+	done
 
 check: build
 	@set -e; for tool in $(CDK2_TOOLS); do \
@@ -80,6 +83,9 @@ python-stage:
 	@set -e; for package in $(CDK2_PYTHON_PACKAGES); do \
 		mkdir -p "$(CDK2_PYTHON_SOURCE_ROOT)/$$package"; \
 		find "$(CDK2_BASETOOLS_DIR)/Source/Python/$$package" -maxdepth 1 -type f -exec install -m 0644 {} "$(CDK2_PYTHON_SOURCE_ROOT)/$$package/" \;; \
+	done
+	@set -e; for wrapper in $(CDK2_REJECT_WRAPPERS); do \
+		rm -f "$(CDK2_PYTHON_WRAPPER_ROOT)/$$wrapper"; \
 	done
 	@set -e; for wrapper in $(CDK2_PYTHON_WRAPPERS); do \
 		install -m 0755 "$(CDK2_BASETOOLS_DIR)/BinWrappers/PosixLike/$$wrapper" "$(CDK2_PYTHON_WRAPPER_ROOT)/$$wrapper"; \
@@ -110,6 +116,20 @@ python-check: python-stage
 	@printf '%s\n' "cdk2 BaseTools Python output: $(CDK2_PYTHON_STAGE_ROOT)"
 
 path-check: check python-check
+	@set -e; \
+	denied=$$(printf '%s\n' $(CDK2_REJECT_WRAPPERS) | sed -n '1p'); \
+	test -n "$$denied"; \
+	{ \
+		printf '%s\n' '#!/usr/bin/env bash'; \
+		printf '%s\n' 'exit 0'; \
+	} > "$(CDK2_PYTHON_WRAPPER_ROOT)/$$denied"; \
+	chmod 0755 "$(CDK2_PYTHON_WRAPPER_ROOT)/$$denied"
+	@$(MAKE) --no-print-directory -f "$(lastword $(MAKEFILE_LIST))" python-stage \
+		CDK2_BUILD_DIR="$(CDK2_BUILD_DIR)" \
+		CDK2_OUTPUT_ROOT="$(CDK2_OUTPUT_ROOT)" \
+		CDK2_HOST_ARCH="$(CDK2_HOST_ARCH)" \
+		CDK2_PYTHON_STAGE_ROOT="$(CDK2_PYTHON_STAGE_ROOT)" \
+		CDK2_TOOLS="$(CDK2_TOOLS)"
 	@PATH="$(CDK2_OUTPUT_ROOT)/bin:$(CDK2_PYTHON_WRAPPER_ROOT):$(CDK2_REJECT_WRAPPER_ROOT):$$PATH"; export PATH; \
 	set -e; for tool in $(CDK2_TOOLS); do \
 		actual=$$(command -v "$$tool") || { echo "missing cdk2 BaseTools executable on PATH: $$tool" >&2; exit 1; }; \
@@ -121,16 +141,17 @@ path-check: check python-check
 		expected="$(CDK2_PYTHON_WRAPPER_ROOT)/$$wrapper"; \
 		test "$$actual" = "$$expected" || { echo "wrong cdk2 BaseTools Python wrapper for $$wrapper: $$actual" >&2; exit 1; }; \
 	done; \
-	denied=$$(printf '%s\n' $(CDK2_REJECT_WRAPPERS) | sed -n '1p'); \
-	test -n "$$denied"; \
-	actual=$$(command -v "$$denied") || { echo "missing cdk2 BaseTools deny wrapper on PATH: $$denied" >&2; exit 1; }; \
-	expected="$(CDK2_REJECT_WRAPPER_ROOT)/$$denied"; \
-	test "$$actual" = "$$expected" || { echo "wrong cdk2 BaseTools deny wrapper for $$denied: $$actual" >&2; exit 1; }; \
-	if "$(CDK2_REJECT_WRAPPER_ROOT)/$$denied" >/dev/null 2>&1; then \
-		echo "cdk2 BaseTools deny wrapper unexpectedly allowed $$denied" >&2; exit 1; \
-	else \
-		status=$$?; test "$$status" -eq 127 || { echo "cdk2 BaseTools deny wrapper returned $$status for $$denied" >&2; exit 1; }; \
-	fi
+	test -n "$(strip $(CDK2_REJECT_WRAPPERS))"; \
+	for wrapper in $(CDK2_REJECT_WRAPPERS); do \
+		actual=$$(command -v "$$wrapper") || { echo "missing cdk2 BaseTools deny wrapper on PATH: $$wrapper" >&2; exit 1; }; \
+		expected="$(CDK2_REJECT_WRAPPER_ROOT)/$$wrapper"; \
+		test "$$actual" = "$$expected" || { echo "wrong cdk2 BaseTools deny wrapper for $$wrapper: $$actual" >&2; exit 1; }; \
+		if "$(CDK2_REJECT_WRAPPER_ROOT)/$$wrapper" >/dev/null 2>&1; then \
+			echo "cdk2 BaseTools deny wrapper unexpectedly allowed $$wrapper" >&2; exit 1; \
+		else \
+			status=$$?; test "$$status" -eq 127 || { echo "cdk2 BaseTools deny wrapper returned $$status for $$wrapper" >&2; exit 1; }; \
+		fi; \
+	done
 	@printf '%s\n' "cdk2 BaseTools path guard: $(words $(CDK2_REJECT_WRAPPERS)) unstaged wrappers blocked"
 
 print:
