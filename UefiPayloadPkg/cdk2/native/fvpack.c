@@ -1103,11 +1103,9 @@ FfsDataAlignment (
 }
 
 static size_t
-PlaceFfs (
-  uint8_t       *Volume,
-  size_t         VolumeSize,
-  size_t         CurrentOffset,
-  const BLOB     *File
+PlacedFfsOffset (
+  size_t      CurrentOffset,
+  const BLOB  *File
   )
 {
   size_t  Alignment;
@@ -1121,6 +1119,20 @@ PlaceFfs (
     Start += Alignment;
   }
 
+  return Start;
+}
+
+static size_t
+PlaceFfs (
+  uint8_t       *Volume,
+  size_t         VolumeSize,
+  size_t         CurrentOffset,
+  const BLOB     *File
+  )
+{
+  size_t  Start;
+
+  Start = PlacedFfsOffset (CurrentOffset, File);
   if (Start > CurrentOffset) {
     BLOB  Padding;
     size_t  PaddingSize;
@@ -1293,6 +1305,7 @@ PackDxeVolumeFromManifest (
   size_t  VolumeSize;
   size_t  FfsOffset;
   size_t  CurrentOffset;
+  size_t  FileOffset;
   size_t  Index;
   bool    FoundDxeCore;
 
@@ -1318,8 +1331,23 @@ PackDxeVolumeFromManifest (
       Fail ("DXE FV manifest must not contain pad FFS files");
     }
 
-    if (Input->HasReferenceOffset && (Input->ReferenceOffset < FfsOffset)) {
-      Fail ("DXE FV manifest file offset is before the file area");
+    FileOffset = PlacedFfsOffset (CurrentOffset, &Input->File);
+    if (Input->HasReferenceOffset) {
+      if (Input->ReferenceOffset < FfsOffset) {
+        Fail ("DXE FV manifest file offset is before the file area");
+      }
+
+      if (Input->ReferenceOffset != FileOffset) {
+        fprintf (
+          stderr,
+          "cdk2-fvpack: DXE FV manifest offset mismatch: manifest=0x%zx actual=0x%zx guid=",
+          Input->ReferenceOffset,
+          FileOffset
+          );
+        PrintGuid (Input->File.Data);
+        fputc ('\n', stderr);
+        Fail ("DXE FV manifest file offset does not match the reference");
+      }
     }
 
     Input->Used = true;

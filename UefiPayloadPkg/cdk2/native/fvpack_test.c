@@ -935,6 +935,24 @@ main (
   if (Failures == 0) {
     Failures += WriteManifest (
                   ManifestPath,
+                  0x50,
+                  DxeCoreGuid,
+                  SelectedFfsPath,
+                  0,
+                  NULL,
+                  NULL
+                  );
+    Failures += RunManifestVerifier (
+                  Arguments[1],
+                  DxePath,
+                  ManifestPath,
+                  0
+                  );
+  }
+
+  if (Failures == 0) {
+    Failures += WriteManifest (
+                  ManifestPath,
                   0x48,
                   StaleGuid,
                   SelectedFfsPath,
