@@ -1,8 +1,8 @@
 ## SPDX-License-Identifier: BSD-2-Clause-Patent
 
 # Coreboot-style entry point for the cdk2 payload. Kconfig owns the resolved
-# feature set; EDK II BaseTools remains the PE/COFF and firmware-volume
-# backend until the native linker backend is complete.
+# feature set; the EDK II backend remains an optional PE/COFF and
+# firmware-volume producer while the native stage owns the coreboot handoff.
 
 SHELL := /bin/bash
 
@@ -131,22 +131,22 @@ build-image: $(CDK2_OUTPUT) native-coreboot-image
 	@test -s "$(CDK2_OUTPUT)"
 	@test -s "$(CDK2_DIRECT_OUTPUT)"
 	@sha256sum "$(CDK2_OUTPUT)" "$(CDK2_DIRECT_OUTPUT)"
+	$(CDK2_BACKEND_WRITE_LINK_MANIFEST)
 
 $(CDK2_OUTPUT): $(CDK2_MANIFEST) $(CDK2_CONFIG_HEADER) $(CDK2_BACKEND_FILE) \
-		$(CDK2_DIR)/modules.mk $(CDK2_BACKEND_DESCRIPTOR) \
+		$(CDK2_DIR)/modules.mk $(CDK2_BACKEND_DESCRIPTOR) $(CDK2_BACKEND_INPUTS) \
 		$(CDK2_ROOT)/UefiPayloadPkg/UefiPayloadPkg.fdf native-stage native-check
 	@mkdir -p "$(dir $(CDK2_OUTPUT))"
 	$(CDK2_BACKEND_BUILD)
 	@printf '%s\n' "cdk2 $(CDK2_BACKEND_NAME) module closure: $(words $(CDK2_SELECTED_MODULES)) selected modules"
 	$(CDK2_BACKEND_ASSEMBLE)
-	$(CDK2_BACKEND_WRITE_LINK_MANIFEST)
 
-check: $(CDK2_CONFIG_HEADER)
+check: $(CDK2_CONFIG_HEADER) $(CDK2_BACKEND_CHECK_DEPS)
 	$(CDK2_BACKEND_CHECK)
 
 manifest: $(CDK2_MANIFEST)
 
-$(CDK2_MANIFEST): $(CDK2_CONFIG_HEADER) $(CDK2_BACKEND_FILE) $(CDK2_DIR)/modules.mk
+$(CDK2_MANIFEST): $(CDK2_CONFIG_HEADER) $(CDK2_BACKEND_FILE) $(CDK2_DIR)/modules.mk $(CDK2_BACKEND_INPUTS) $(CDK2_BACKEND_CHECK_DEPS)
 	$(CDK2_BACKEND_CHECK)
 	$(CDK2_BACKEND_WRITE_MANIFEST)
 

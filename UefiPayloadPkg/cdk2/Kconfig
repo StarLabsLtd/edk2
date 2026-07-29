@@ -66,9 +66,9 @@ config CDK2_NATIVE_STAGE
     default y
     depends on CDK2_PAYLOAD
     help
-      Build the freestanding C/linker stage that is replacing the current
-      BaseTools image backend. The stage is checked on every cdk2 build, but
-      remains a separate artifact until its UEFI service boundary is complete.
+      Build the freestanding C/linker stage used by the direct coreboot
+      handoff. The native stage owns HOB construction, DXE loading, and the
+      coreboot image link; the EDK II backend may still produce the payload FV.
 
 config CDK2_BUILD_DEBUG
     bool "Build a debug payload"
