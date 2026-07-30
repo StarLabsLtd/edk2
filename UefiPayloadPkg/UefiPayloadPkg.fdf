@@ -462,6 +462,7 @@ INF MdeModulePkg/Bus/Usb/UsbMouseAbsolutePointerDxe/UsbMouseAbsolutePointerDxe.i
 !else
 INF MdeModulePkg/Bus/Usb/UsbMouseDxe/UsbMouseDxe.inf
 !endif
+!endif
 
 #
 # ACPI Support
