@@ -25,6 +25,7 @@ CDK2_NATIVE_DIR := $(CDK2_DIR)/native
 CDK2_BACKEND ?= edk2
 CDK2_BACKEND_FILE ?= $(CDK2_DIR)$(CDK2_BACKEND)-backend.mk
 CDK2_BACKEND_INTERFACE_VERSION := 1
+CDK2_BACKEND_OUTPUT_DIRECTORY ?= $(patsubst $(CDK2_ROOT)/%,%,$(CDK2_BUILD_DIR))/edk2/UefiPayloadPkgX64
 CDK2_BASETOOLS_BUILD_DIR ?= $(abspath $(CDK2_BUILD_DIR)/basetools)
 CDK2_BASETOOLS_OUTPUT_ROOT ?= $(abspath $(CDK2_BASETOOLS_BUILD_DIR)/C)
 CDK2_BASETOOLS_BIN ?= $(CDK2_BASETOOLS_OUTPUT_ROOT)/bin
@@ -36,6 +37,20 @@ CDK2_CONFIG_TARGETS := build build-image check manifest modules native-stage \
 	native-coreboot-stage native-coreboot-image native-check native-pack \
 	native-service-test native-coreboot-test native-fv-test native-fvpack-test native-pe-test \
 	native-module-test native-elfcheck-test print
+
+# The coreboot wrapper deliberately clears MAKEOVERRIDES before entering cdk2
+# so compiler variables cannot leak into the native build. Forward cdk2's own
+# path/config/backend variables explicitly to the recursive configuration
+# passes instead of silently falling back to Build/cdk2.
+CDK2_RECURSIVE_ARGS := \
+	CDK2_BUILD_DIR="$(CDK2_BUILD_DIR)" \
+	CDK2_CONFIG="$(CDK2_CONFIG)" \
+	CDK2_DEFCONFIG="$(CDK2_DEFCONFIG)" \
+	CDK2_KCONFIG="$(CDK2_KCONFIG)" \
+	CDK2_KCONFIG_TOOL="$(CDK2_KCONFIG_TOOL)" \
+	CDK2_BACKEND="$(CDK2_BACKEND)" \
+	CDK2_BACKEND_FILE="$(CDK2_BACKEND_FILE)" \
+	CDK2_BACKEND_OUTPUT_DIRECTORY="$(CDK2_BACKEND_OUTPUT_DIRECTORY)"
 
 .PHONY: all build build-image config defconfig olddefconfig menuconfig prepare-kconfig check \
 	manifest modules native-stage native-coreboot-stage native-coreboot-image native-check \
@@ -65,7 +80,7 @@ defconfig: prepare-kconfig
 	@mkdir -p "$(CDK2_BUILD_DIR)" "$(dir $(CDK2_CONFIG))"
 	@cd "$(CDK2_BUILD_DIR)" && \
 			$(CDK2_KCONFIG_ENV) $(CDK2_KCONFIG_TOOL) --defconfig=kconfig/defconfig kconfig/Kconfig
-	@$(MAKE) --no-print-directory -f "$(CDK2_DIR)/Makefile" "$(CDK2_CONFIG_HEADER)"
+	@$(MAKE) --no-print-directory $(CDK2_RECURSIVE_ARGS) -f "$(CDK2_DIR)/Makefile" "$(CDK2_CONFIG_HEADER)"
 
 olddefconfig: prepare-kconfig
 	@mkdir -p "$(CDK2_BUILD_DIR)" "$(dir $(CDK2_CONFIG))"
@@ -75,13 +90,13 @@ olddefconfig: prepare-kconfig
 			else \
 				$(CDK2_KCONFIG_ENV) $(CDK2_KCONFIG_TOOL) --defconfig=kconfig/defconfig kconfig/Kconfig; \
 			fi
-	@$(MAKE) --no-print-directory -f "$(CDK2_DIR)/Makefile" "$(CDK2_CONFIG_HEADER)"
+	@$(MAKE) --no-print-directory $(CDK2_RECURSIVE_ARGS) -f "$(CDK2_DIR)/Makefile" "$(CDK2_CONFIG_HEADER)"
 
 menuconfig: prepare-kconfig
 	@command -v kconfig-mconf >/dev/null || { echo 'kconfig-mconf is required for menuconfig' >&2; exit 1; }
 	@mkdir -p "$(dir $(CDK2_CONFIG))"
 	@cd "$(CDK2_BUILD_DIR)" && $(CDK2_KCONFIG_ENV) kconfig-mconf kconfig/Kconfig
-	@$(MAKE) --no-print-directory -f "$(CDK2_DIR)/Makefile" "$(CDK2_CONFIG_HEADER)"
+	@$(MAKE) --no-print-directory $(CDK2_RECURSIVE_ARGS) -f "$(CDK2_DIR)/Makefile" "$(CDK2_CONFIG_HEADER)"
 
 $(CDK2_CONFIG_HEADER): $(CDK2_CONFIG)
 	@mkdir -p "$(dir $@)"
@@ -177,7 +192,7 @@ clean:
 	rm -rf "$(CDK2_BUILD_DIR)"
 else
 $(CDK2_CONFIG_TARGETS): $(CDK2_CONFIG) $(CDK2_CONFIG_HEADER)
-	@$(MAKE) --no-print-directory -f "$(CDK2_DIR)/Makefile" CDK2_CONFIG_READY=1 $@
+	@$(MAKE) --no-print-directory $(CDK2_RECURSIVE_ARGS) -f "$(CDK2_DIR)/Makefile" CDK2_CONFIG_READY=1 $@
 
 clean:
 	rm -rf "$(CDK2_BUILD_DIR)"
