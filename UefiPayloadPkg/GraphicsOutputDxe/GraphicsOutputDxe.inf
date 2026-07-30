@@ -44,6 +44,7 @@
   UefiLib
   HobLib
   PcdLib
+  SafeIntLib
 
 [Guids]
   gEfiGraphicsInfoHobGuid                       ## CONSUMES ## HOB
@@ -51,7 +52,6 @@
   gEfiEventReadyToBootGuid                      ## CONSUMES
 
 [Protocols]
-  gEdkiiBootLogo2ProtocolGuid                   ## SOMETIMES_CONSUMES
   gEfiGraphicsOutputProtocolGuid                ## BY_START
   gEfiDevicePathProtocolGuid                    ## BY_START
   gEfiPciIoProtocolGuid                         ## TO_START
@@ -61,6 +61,9 @@
   gEfiMdeModulePkgTokenSpaceGuid.PcdVideoVerticalResolution
   gEfiMdeModulePkgTokenSpaceGuid.PcdSetupVideoHorizontalResolution
   gEfiMdeModulePkgTokenSpaceGuid.PcdSetupVideoVerticalResolution
-  gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiWideAspectCapSupport
-  gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiWideAspectCapWidth
-  gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiWideAspectCapHeight
+  gUefiPayloadPkgTokenSpaceGuid.PcdFspGopBasicHiDpiSupport
+  gUefiPayloadPkgTokenSpaceGuid.PcdFspGopBasicHiDpiScaleThresholdHorizontal
+  gUefiPayloadPkgTokenSpaceGuid.PcdFspGopBasicHiDpiScaleThresholdVertical
+  gUefiPayloadPkgTokenSpaceGuid.PcdFspGopBasicHiDpiWideAspectCapSupport
+  gUefiPayloadPkgTokenSpaceGuid.PcdFspGopBasicHiDpiWideAspectCapWidth
+  gUefiPayloadPkgTokenSpaceGuid.PcdFspGopBasicHiDpiWideAspectCapHeight

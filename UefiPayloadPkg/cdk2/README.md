@@ -2,12 +2,13 @@
 
 `Kconfig` and `defconfig` describe the retained coreboot payload contract.
 `Makefile` is the reproducible entry point used to build it. It selects the
-`edk2` backend by default through `CDK2_BACKEND`. The `native-fv` backend
-provides the coreboot-facing handoff when a flat payload FV has already been
-produced: `CDK2_BACKEND=native-fv CDK2_PAYLOAD_FV=/path/to/payload.fv` validates
-that FV with the native C checker and embeds it in the native coreboot image
-without invoking Python or BaseTools. Both backends implement the same
-versioned interface.
+`edk2` backend by default through `CDK2_BACKEND`. The `native` backend provides
+the coreboot-facing handoff when a flat payload FV has already been produced:
+`CDK2_BACKEND=native CDK2_PAYLOAD_FV=/path/to/payload.fv` validates that FV
+with the native C checker and embeds it in the native coreboot image without
+invoking Python, BaseTools, a DSC, or an FDF. The old `native-fv` name remains
+as a compatibility alias. Both backends implement the same versioned
+interface.
 dispatcher validates that the selected backend provides the build, image
 assembly, validation, cleanup, manifest, and module-list operations before it
 runs. It runs the host
@@ -87,7 +88,7 @@ make -f UefiPayloadPkg/cdk2/Makefile metadata
 make -f UefiPayloadPkg/cdk2/Makefile native-check
 make -f UefiPayloadPkg/cdk2/Makefile build
 
-# Embed an FV produced by a separate EDK II build without running its backend.
+# Embed an FV produced by a separate EDK II build through the native backend.
 make -f UefiPayloadPkg/cdk2/Makefile \
-  CDK2_BACKEND=native-fv CDK2_PAYLOAD_FV=/path/to/UEFIPAYLOAD.fd build-image
+  CDK2_BACKEND=native CDK2_PAYLOAD_FV=/path/to/UEFIPAYLOAD.fd build-image
 ```

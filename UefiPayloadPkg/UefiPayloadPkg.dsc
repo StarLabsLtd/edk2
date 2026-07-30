@@ -50,9 +50,10 @@
   DEFINE NVME_ENABLE                  = TRUE
   DEFINE LOCKBOX_SUPPORT              = FALSE
   DEFINE LOAD_OPTION_ROMS             = FALSE
-  DEFINE PAYLOAD_FB_HIDPI_WIDE_ASPECT_CAP_SUPPORT = FALSE
-  DEFINE PAYLOAD_FB_HIDPI_WIDE_ASPECT_CAP_WIDTH   = 16
-  DEFINE PAYLOAD_FB_HIDPI_WIDE_ASPECT_CAP_HEIGHT  = 9
+  DEFINE FSP_GOP_BASIC_HIDPI_SUPPORT                 = FALSE
+  DEFINE FSP_GOP_BASIC_HIDPI_WIDE_ASPECT_CAP_SUPPORT = FALSE
+  DEFINE FSP_GOP_BASIC_HIDPI_WIDE_ASPECT_CAP_WIDTH   = 16
+  DEFINE FSP_GOP_BASIC_HIDPI_WIDE_ASPECT_CAP_HEIGHT  = 9
   DEFINE CONNECT_ALL_DEVICES          = TRUE
   DEFINE OPAL_PASSWORD_ENABLE         = FALSE
   DEFINE MEMORY_TYPE_EFI_ACPI_RECLAIM_MEMORY = 0x19
@@ -797,7 +798,10 @@
 ################################################################################
 [PcdsFeatureFlag]
   gEfiMdeModulePkgTokenSpaceGuid.PcdConOutGopSupport|TRUE
-  gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiWideAspectCapSupport|$(PAYLOAD_FB_HIDPI_WIDE_ASPECT_CAP_SUPPORT)
+!if $(FSP_GOP_BASIC_HIDPI_SUPPORT)
+  gUefiPayloadPkgTokenSpaceGuid.PcdFspGopBasicHiDpiSupport|TRUE
+!endif
+  gUefiPayloadPkgTokenSpaceGuid.PcdFspGopBasicHiDpiWideAspectCapSupport|$(FSP_GOP_BASIC_HIDPI_WIDE_ASPECT_CAP_SUPPORT)
   gUefiPayloadPkgTokenSpaceGuid.PcdConnectAllDevices|$(CONNECT_ALL_DEVICES)
   gUefiPayloadPkgTokenSpaceGuid.PcdCbmemTimestamps|$(CBMEM_TIMESTAMPS)
   ## This PCD specified whether ACPI SDT protocol is installed.
@@ -847,8 +851,8 @@
   gEfiMdePkgTokenSpaceGuid.PcdPerformanceLibraryPropertyMask       | 0x1
 !endif
   gEfiMdeModulePkgTokenSpaceGuid.PcdSdMmcGenericTimeoutValue|$(SD_MMC_TIMEOUT)
-  gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiWideAspectCapWidth|$(PAYLOAD_FB_HIDPI_WIDE_ASPECT_CAP_WIDTH)
-  gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiWideAspectCapHeight|$(PAYLOAD_FB_HIDPI_WIDE_ASPECT_CAP_HEIGHT)
+  gUefiPayloadPkgTokenSpaceGuid.PcdFspGopBasicHiDpiWideAspectCapWidth|$(FSP_GOP_BASIC_HIDPI_WIDE_ASPECT_CAP_WIDTH)
+  gUefiPayloadPkgTokenSpaceGuid.PcdFspGopBasicHiDpiWideAspectCapHeight|$(FSP_GOP_BASIC_HIDPI_WIDE_ASPECT_CAP_HEIGHT)
   gUefiPayloadPkgTokenSpaceGuid.PcdResetShutdownSleepType|7
   gUefiPayloadPkgTokenSpaceGuid.PcdEcAcpiBatteryProfile|$(EC_ACPI_BATTERY_PROFILE)
 

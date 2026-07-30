@@ -146,11 +146,14 @@ gUefiPayloadPkgTokenSpaceGuid.PcdUseUniversalPayloadSerialPort|TRUE|BOOLEAN|0x00
 ## Indicates whether allows PCI Root Bridge to allocate DMA memory resource above 4G
 gUefiPayloadPkgTokenSpaceGuid.PcdPciAllocateMemoryAbove4GB|FALSE|BOOLEAN|0x0000002E
 
-## Indicates whether the alternate setup GOP mode should cap wide displays to a
-## centered viewport when the physical framebuffer is wider than the configured
-## aspect ratio.
 [PcdsFeatureFlag]
-gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiWideAspectCapSupport|FALSE|BOOLEAN|0x00000032
+## Indicates whether basic HiDPI scaling is enabled for framebuffers passed via the
+## coreboot framebuffer tag (FSP GOP / RUN_FSP_GOP).
+gUefiPayloadPkgTokenSpaceGuid.PcdFspGopBasicHiDpiSupport|FALSE|BOOLEAN|0x0000002F
+
+## Indicates whether HiDPI scaling should cap wide displays to a centered viewport
+## when the physical framebuffer is wider than the configured aspect ratio.
+gUefiPayloadPkgTokenSpaceGuid.PcdFspGopBasicHiDpiWideAspectCapSupport|FALSE|BOOLEAN|0x00000032
 
 ## Indicates whether all boot devices are connected before the selected boot
 ## option is launched. Platforms that disable this can connect the selected

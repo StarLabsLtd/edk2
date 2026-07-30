@@ -36,9 +36,9 @@
 [Packages]
   MdePkg/MdePkg.dec
   MdeModulePkg/MdeModulePkg.dec
+  SecurityPkg/SecurityPkg.dec
   UefiPayloadPkg/UefiPayloadPkg.dec
   UefiCpuPkg/UefiCpuPkg.dec
-  SecurityPkg/SecurityPkg.dec
 
 [LibraryClasses]
   UefiDriverEntryPoint
@@ -67,9 +67,12 @@
   gEfiMdeModulePkgTokenSpaceGuid.PcdVideoVerticalResolution
   gEfiMdeModulePkgTokenSpaceGuid.PcdSetupVideoHorizontalResolution
   gEfiMdeModulePkgTokenSpaceGuid.PcdSetupVideoVerticalResolution
-  gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiWideAspectCapSupport
-  gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiWideAspectCapWidth
-  gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiWideAspectCapHeight
+  gUefiPayloadPkgTokenSpaceGuid.PcdFspGopBasicHiDpiSupport
+  gUefiPayloadPkgTokenSpaceGuid.PcdFspGopBasicHiDpiScaleThresholdHorizontal
+  gUefiPayloadPkgTokenSpaceGuid.PcdFspGopBasicHiDpiScaleThresholdVertical
+  gUefiPayloadPkgTokenSpaceGuid.PcdFspGopBasicHiDpiWideAspectCapSupport
+  gUefiPayloadPkgTokenSpaceGuid.PcdFspGopBasicHiDpiWideAspectCapWidth
+  gUefiPayloadPkgTokenSpaceGuid.PcdFspGopBasicHiDpiWideAspectCapHeight
   gEfiMdePkgTokenSpaceGuid.PcdPciExpressBaseAddress
   gEfiMdePkgTokenSpaceGuid.PcdPciExpressBaseSize
   gEfiSecurityPkgTokenSpaceGuid.PcdTpmInstanceGuid        ## SOMETIMES_PRODUCES

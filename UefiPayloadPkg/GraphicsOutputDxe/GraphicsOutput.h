@@ -41,7 +41,6 @@ typedef struct {
   EFI_GRAPHICS_OUTPUT_MODE_INFORMATION    LogicalModeInfo;
   EFI_GRAPHICS_OUTPUT_MODE_INFORMATION    PhysicalModeInfo;
   UINT32                                  FrameBufferScale;
-  UINT32                                  LogicalModeScale;
   UINT32                                  ViewportOffsetX;
   UINT32                                  ViewportOffsetY;
   UINT32                                  ViewportWidth;

@@ -7,11 +7,21 @@
 
 **/
 #include "BlSupportDxe.h"
+#include <Guid/TpmInstance.h>
 #include <Library/PcdLib.h>
 
-#define PAYLOAD_HIDPI_HORIZONTAL_RESOLUTION  1920
-#define PAYLOAD_HIDPI_VERTICAL_RESOLUTION    1080
+/**
+  Calculates a centered viewport width for a capped aspect ratio.
 
+  @param[in]  HorizontalResolution  Physical framebuffer width.
+  @param[in]  VerticalResolution    Physical framebuffer height.
+  @param[in]  CapAspectWidth        Maximum viewport aspect numerator.
+  @param[in]  CapAspectHeight       Maximum viewport aspect denominator.
+  @param[out] ViewportWidth         Cropped viewport width.
+
+  @retval TRUE   The framebuffer requires a narrower viewport.
+  @retval FALSE  The framebuffer fits the aspect cap or input is invalid.
+**/
 STATIC
 BOOLEAN
 TryGetWideAspectCappedViewportWidth (
@@ -37,7 +47,7 @@ TryGetWideAspectCappedViewportWidth (
     return FALSE;
   }
 
-  CandidateWidth = ((UINT64)VerticalResolution * CapAspectWidth) / CapAspectHeight;
+  CandidateWidth  = ((UINT64)VerticalResolution * CapAspectWidth) / CapAspectHeight;
   CandidateWidth &= ~1ULL;
   if ((CandidateWidth == 0) || (CandidateWidth >= HorizontalResolution)) {
     return FALSE;
@@ -45,17 +55,6 @@ TryGetWideAspectCappedViewportWidth (
 
   *ViewportWidth = (UINT32)CandidateWidth;
   return TRUE;
-}
-
-STATIC
-BOOLEAN
-IsHiDpiFramebuffer (
-  IN UINT32  HorizontalResolution,
-  IN UINT32  VerticalResolution
-  )
-{
-  return (HorizontalResolution > PAYLOAD_HIDPI_HORIZONTAL_RESOLUTION) &&
-         (VerticalResolution > PAYLOAD_HIDPI_VERTICAL_RESOLUTION);
 }
 
 /**
@@ -84,8 +83,8 @@ BlDxeEntryPoint (
   EFI_SYSTEM_RESOURCE_ENTRY  *Esre;
   UINT32                     HorizontalResolution;
   UINT32                     VerticalResolution;
-  UINT32                     SetupHorizontalResolution;
-  UINT32                     SetupVerticalResolution;
+  UINT32                     ThresholdH;
+  UINT32                     ThresholdV;
   UINT32                     ViewportWidth;
   UINTN                      Size;
 
@@ -97,35 +96,38 @@ BlDxeEntryPoint (
     GfxInfo              = (EFI_PEI_GRAPHICS_INFO_HOB *)GET_GUID_HOB_DATA (GuidHob);
     HorizontalResolution = GfxInfo->GraphicsMode.HorizontalResolution;
     VerticalResolution   = GfxInfo->GraphicsMode.VerticalResolution;
-    SetupHorizontalResolution = HorizontalResolution;
-    SetupVerticalResolution   = VerticalResolution;
 
-    if (FeaturePcdGet (PcdPayloadFbHiDpiWideAspectCapSupport) &&
-        TryGetWideAspectCappedViewportWidth (
-          SetupHorizontalResolution,
-          SetupVerticalResolution,
-          PcdGet32 (PcdPayloadFbHiDpiWideAspectCapWidth),
-          PcdGet32 (PcdPayloadFbHiDpiWideAspectCapHeight),
-          &ViewportWidth
-          ))
-    {
-      SetupHorizontalResolution = ViewportWidth;
-    }
+    if (FeaturePcdGet (PcdFspGopBasicHiDpiSupport)) {
+      ThresholdH = PcdGet32 (PcdFspGopBasicHiDpiScaleThresholdHorizontal);
+      ThresholdV = PcdGet32 (PcdFspGopBasicHiDpiScaleThresholdVertical);
 
-    if (IsHiDpiFramebuffer (HorizontalResolution, VerticalResolution) &&
-        ((SetupHorizontalResolution & 1) == 0) && ((SetupVerticalResolution & 1) == 0))
-    {
-      SetupHorizontalResolution /= 2;
-      SetupVerticalResolution   /= 2;
+      if ((HorizontalResolution >= ThresholdH) && (VerticalResolution >= ThresholdV) &&
+          ((HorizontalResolution & 1) == 0) && ((VerticalResolution & 1) == 0))
+      {
+        if (FeaturePcdGet (PcdFspGopBasicHiDpiWideAspectCapSupport) &&
+            TryGetWideAspectCappedViewportWidth (
+              HorizontalResolution,
+              VerticalResolution,
+              PcdGet32 (PcdFspGopBasicHiDpiWideAspectCapWidth),
+              PcdGet32 (PcdFspGopBasicHiDpiWideAspectCapHeight),
+              &ViewportWidth
+              ))
+        {
+          HorizontalResolution = ViewportWidth;
+        }
+
+        HorizontalResolution /= 2;
+        VerticalResolution   /= 2;
+      }
     }
 
     Status = PcdSet32S (PcdVideoHorizontalResolution, HorizontalResolution);
     ASSERT_EFI_ERROR (Status);
     Status = PcdSet32S (PcdVideoVerticalResolution, VerticalResolution);
     ASSERT_EFI_ERROR (Status);
-    Status = PcdSet32S (PcdSetupVideoHorizontalResolution, SetupHorizontalResolution);
+    Status = PcdSet32S (PcdSetupVideoHorizontalResolution, HorizontalResolution);
     ASSERT_EFI_ERROR (Status);
-    Status = PcdSet32S (PcdSetupVideoVerticalResolution, SetupVerticalResolution);
+    Status = PcdSet32S (PcdSetupVideoVerticalResolution, VerticalResolution);
     ASSERT_EFI_ERROR (Status);
   }
 

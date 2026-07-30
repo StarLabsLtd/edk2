@@ -31,7 +31,7 @@ CDK2_BASETOOLS_BUILD_DIR ?= $(abspath $(CDK2_BUILD_DIR)/basetools)
 CDK2_BASETOOLS_OUTPUT_ROOT ?= $(abspath $(CDK2_BASETOOLS_BUILD_DIR)/C)
 CDK2_BASETOOLS_BIN ?= $(CDK2_BASETOOLS_OUTPUT_ROOT)/bin
 CDK2_KCONFIG_ENV = KCONFIG_CONFIG="$(abspath $(CDK2_CONFIG))"
-CDK2_SOURCE_DATE_EPOCH ?= $(shell epoch=$$(git -C "$(CDK2_ROOT)" log -1 --format=%ct -- UefiPayloadPkg/cdk2 UefiPayloadPkg/UefiPayloadPkg.dsc UefiPayloadPkg/UefiPayloadPkg.fdf 2>/dev/null); test -n "$$epoch" || epoch=0; printf '%s' "$$epoch")
+CDK2_SOURCE_DATE_EPOCH ?= $(shell epoch=$$(git -C "$(CDK2_ROOT)" log -1 --format=%ct -- $(CDK2_BACKEND_SOURCE_DATE_PATHS) 2>/dev/null); test -n "$$epoch" || epoch=0; printf '%s' "$$epoch")
 SOURCE_DATE_EPOCH ?= $(CDK2_SOURCE_DATE_EPOCH)
 export SOURCE_DATE_EPOCH
 CDK2_CONFIG_TARGETS := build build-image check manifest metadata metadata-test modules native-stage \
@@ -150,15 +150,13 @@ build-image: $(CDK2_OUTPUT) native-coreboot-image
 	$(CDK2_BACKEND_WRITE_LINK_MANIFEST)
 
 $(CDK2_OUTPUT): $(CDK2_MANIFEST) $(CDK2_CONFIG_HEADER) $(CDK2_BACKEND_FILE) \
-		$(CDK2_BACKEND_METADATA) $(CDK2_BACKEND_MODULE_GUIDS) \
-		$(CDK2_DIR)/modules.mk $(CDK2_BACKEND_DESCRIPTOR) $(CDK2_BACKEND_INPUTS) \
-		$(CDK2_ROOT)/UefiPayloadPkg/UefiPayloadPkg.fdf native-stage native-check
+		$(CDK2_BACKEND_BUILD_DEPS) native-stage native-check
 	@mkdir -p "$(dir $(CDK2_OUTPUT))"
 	$(CDK2_BACKEND_BUILD)
 	@printf '%s\n' "cdk2 $(CDK2_BACKEND_NAME) module closure: $(words $(CDK2_SELECTED_MODULES)) selected modules"
 	$(CDK2_BACKEND_ASSEMBLE)
 
-check: $(CDK2_CONFIG_HEADER) metadata-test $(CDK2_BACKEND_CHECK_DEPS)
+check: $(CDK2_CONFIG_HEADER) $(CDK2_BACKEND_METADATA_TEST) $(CDK2_BACKEND_CHECK_DEPS)
 	$(CDK2_BACKEND_CHECK)
 
 manifest: $(CDK2_MANIFEST)
@@ -176,7 +174,7 @@ metadata-test:
 		-u CDK2_BACKEND_FILE -u CDK2_BACKEND_OUTPUT_DIRECTORY \
 		$(PYTHON) "$(CDK2_DIR)/edk2_backend_test.py"
 
-$(CDK2_MANIFEST): $(CDK2_CONFIG_HEADER) $(CDK2_BACKEND_FILE) $(CDK2_DIR)/modules.mk $(CDK2_BACKEND_INPUTS) $(CDK2_BACKEND_CHECK_DEPS)
+$(CDK2_MANIFEST): $(CDK2_CONFIG_HEADER) $(CDK2_BACKEND_FILE) $(CDK2_BACKEND_MANIFEST_DEPS)
 	$(CDK2_BACKEND_CHECK)
 	$(CDK2_BACKEND_WRITE_MANIFEST)
 
