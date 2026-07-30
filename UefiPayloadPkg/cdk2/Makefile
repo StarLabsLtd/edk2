@@ -51,7 +51,10 @@ CDK2_RECURSIVE_ARGS := \
 	CDK2_KCONFIG_TOOL="$(CDK2_KCONFIG_TOOL)" \
 	CDK2_BACKEND="$(CDK2_BACKEND)" \
 	CDK2_BACKEND_FILE="$(CDK2_BACKEND_FILE)" \
-	CDK2_BACKEND_OUTPUT_DIRECTORY="$(CDK2_BACKEND_OUTPUT_DIRECTORY)"
+	CDK2_BACKEND_OUTPUT_DIRECTORY="$(CDK2_BACKEND_OUTPUT_DIRECTORY)" \
+	$(if $(CC),CC="$(CC)") \
+	$(if $(CDK2_NATIVE_CC),CDK2_NATIVE_CC="$(CDK2_NATIVE_CC)") \
+	$(if $(CDK2_NATIVE_OBJCOPY),CDK2_NATIVE_OBJCOPY="$(CDK2_NATIVE_OBJCOPY)")
 
 .PHONY: all build build-image config defconfig olddefconfig menuconfig prepare-kconfig check \
 	manifest metadata metadata-test modules native-stage native-coreboot-stage native-coreboot-image native-check \
