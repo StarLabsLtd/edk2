@@ -15,6 +15,12 @@ CDK2_BACKEND_ARCHES ?= X64
 CDK2_BACKEND_BUILD_ARCH ?= X64
 CDK2_BACKEND_OUTPUT_DIRECTORY ?= Build/cdk2/edk2/UefiPayloadPkg$(CDK2_BACKEND_BUILD_ARCH)
 
+ifeq ($(CONFIG_CDK2_HPET_TIMER),y)
+CDK2_TIMER_SUPPORT := HPET
+else
+CDK2_TIMER_SUPPORT := LAPIC
+endif
+
 ifneq ($(strip $(CDK2_BACKEND_ENTRY_ARCH)),X64)
 $(error cdk2 direct EDK II backend is X64-only: CDK2_BACKEND_ENTRY_ARCH=$(CDK2_BACKEND_ENTRY_ARCH))
 endif
@@ -116,6 +122,7 @@ CDK2_DEFINES += -D SERIAL_DRIVER_ENABLE=FALSE -D DISABLE_SERIAL_TERMINAL=TRUE
 endif
 
 CDK2_DEFINES += -D PLATFORM_BOOT_TIMEOUT=$(CONFIG_CDK2_BOOT_TIMEOUT)
+CDK2_DEFINES += -D TIMER_SUPPORT=$(CDK2_TIMER_SUPPORT)
 
 # Command-line overrides are deliberately last, so QEMU and board-specific
 # test configurations can change one setting without copying defconfig.

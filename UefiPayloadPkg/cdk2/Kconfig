@@ -191,4 +191,21 @@ config CDK2_CPU_TIMER
     help
       QEMU does not provide the timer contract required by this library.
 
+choice
+    prompt "UEFI timer driver"
+    default CDK2_LAPIC_TIMER
+    depends on CDK2_PAYLOAD
+    help
+      Select the timer architectural protocol installed by the payload.
+      Local APIC is the direct-coreboot default; HPET remains available for
+      platforms that explicitly provide a working HPET interrupt path.
+
+config CDK2_LAPIC_TIMER
+    bool "Local APIC timer"
+
+config CDK2_HPET_TIMER
+    bool "HPET timer"
+
+endchoice
+
 endmenu

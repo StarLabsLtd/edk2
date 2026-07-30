@@ -33,8 +33,13 @@ CDK2_REQUIRED_MODULES := \
     MdeModulePkg/Universal/SmbiosDxe/SmbiosDxe.inf \
     MdeModulePkg/Universal/Acpi/AcpiTableDxe/AcpiTableDxe.inf \
     MdeModulePkg/Universal/Variable/RuntimeDxe/VariableRuntimeDxe.inf \
-    UefiCpuPkg/CpuDxe/CpuDxe.inf \
-    PcAtChipsetPkg/HpetTimerDxe/HpetTimerDxe.inf
+    UefiCpuPkg/CpuDxe/CpuDxe.inf
+
+ifeq ($(CONFIG_CDK2_HPET_TIMER),y)
+CDK2_REQUIRED_MODULES += PcAtChipsetPkg/HpetTimerDxe/HpetTimerDxe.inf
+else
+CDK2_REQUIRED_MODULES += OvmfPkg/LocalApicTimerDxe/LocalApicTimerDxe.inf
+endif
 
 CDK2_PCI_MODULES := \
     UefiCpuPkg/CpuIo2Dxe/CpuIo2Dxe.inf \
