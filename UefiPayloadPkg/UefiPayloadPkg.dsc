@@ -1336,6 +1336,7 @@
 !else
   MdeModulePkg/Universal/DisplayEngineDxe/DisplayEngineDxe.inf
 !endif
+!endif
   MdeModulePkg/Universal/PlatformDriOverrideDxe/PlatformDriOverrideDxe.inf
   MdeModulePkg/Universal/EbcDxe/EbcDxe.inf
 
