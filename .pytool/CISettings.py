@@ -208,6 +208,8 @@ class Settings(CiBuildSettingsManager, UpdateSettingsManager, SetupSettingsManag
             "SecurityPkg/DeviceSecurity/SpdmLib/libspdm", False))
         rs.append(RequiredSubmodule(
             "TcgTpmPkg/Library/TpmLib/TPM", False))
+        rs.append(RequiredSubmodule(
+            "3rdparty/LvglPkg", True))
         return rs
 
     def GetName(self):
@@ -218,7 +220,7 @@ class Settings(CiBuildSettingsManager, UpdateSettingsManager, SetupSettingsManag
         ]
 
     def GetPackagesPath(self):
-        return ()
+        return ("3rdparty",)
 
     def GetWorkspaceRoot(self):
         ''' get WorkspacePath '''

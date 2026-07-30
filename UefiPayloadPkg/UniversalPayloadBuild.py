@@ -152,6 +152,23 @@ def WarnIfSecureBootObjectsAreStale(Args):
         print("    remote: {}".format (RemoteRevision))
         print("    review object changes before updating the submodule. ***\n")
 
+def AddThirdPartyPackagesPath():
+    """Make cdk2's third-party EDK2 packages visible to direct builds."""
+    PackagePaths = os.environ.get('PACKAGES_PATH', '').split(os.pathsep)
+    PackagePaths = [PackagePath for PackagePath in PackagePaths if PackagePath]
+    Workspace = pathlib.Path(
+        os.environ.get('WORKSPACE', pathlib.Path(__file__).resolve().parents[1])
+    )
+    ThirdPartyPaths = [
+        os.path.join(str(Workspace), '3rdparty'),
+    ]
+    if os.environ.get('EDK2_PATH'):
+        ThirdPartyPaths.append(os.path.join(os.environ['EDK2_PATH'], '3rdparty'))
+    for ThirdPartyPath in ThirdPartyPaths:
+        if os.path.isdir(ThirdPartyPath) and ThirdPartyPath not in PackagePaths:
+            PackagePaths.insert(0, ThirdPartyPath)
+    os.environ['PACKAGES_PATH'] = os.pathsep.join(PackagePaths)
+
 def BuildUniversalPayload(Args):
     DscPath = os.path.normpath(Args.DscPath)
     print("Building FIT for DSC file %s"%DscPath)
@@ -425,6 +442,7 @@ def UniversalPayloadFullBuild(args):
 def main():
 
     args = InitArgumentParser(False)
+    AddThirdPartyPackagesPath()
     WarnIfSecureBootObjectsAreStale(args)
     return UniversalPayloadFullBuild(args)
 

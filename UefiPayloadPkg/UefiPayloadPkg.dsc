@@ -32,6 +32,7 @@
   PCD_DYNAMIC_AS_DYNAMICEX            = TRUE
 
   DEFINE SOURCE_DEBUG_ENABLE          = FALSE
+  DEFINE LVGL_ENABLE                  = FALSE
   DEFINE PS2_KEYBOARD_ENABLE          = FALSE
   DEFINE RAM_DISK_ENABLE              = FALSE
   DEFINE SIO_BUS_ENABLE               = FALSE
@@ -308,6 +309,9 @@
 
 [Packages]
   UefiPayloadPkg/UserAuthPkg/UserAuthPkg.dec
+!if $(LVGL_ENABLE) == TRUE
+  3rdparty/LvglPkg/LvglPkg.dec
+!endif
 
 [LibraryClasses]
   GptLib|MdeModulePkg/Library/GptLib/GptLib.inf
@@ -319,6 +323,13 @@
   DxeCoreEntryPoint|MdePkg/Library/DxeCoreEntryPoint/DxeCoreEntryPoint.inf
   UefiDriverEntryPoint|MdePkg/Library/UefiDriverEntryPoint/UefiDriverEntryPoint.inf
   UefiApplicationEntryPoint|MdePkg/Library/UefiApplicationEntryPoint/UefiApplicationEntryPoint.inf
+
+!if $(LVGL_ENABLE) == TRUE
+  # cdk2 uses LVGL for the graphical HII display engine.
+  LvglLib|3rdparty/LvglPkg/Library/LvglLib/LvglLib.inf
+  LvglThemeLib|3rdparty/LvglPkg/Library/LvglThemeLib/LvglThemeLib.inf
+  LvglUiConfigLib|3rdparty/LvglPkg/Library/LvglUiConfigLib/LvglUiConfigLib.inf
+!endif
 
   #
   # Basic
@@ -797,6 +808,11 @@
 
 [PcdsFeatureFlag.IA32]
   gUefiPayloadPkgTokenSpaceGuid.PcdCbmemTimestamps|FALSE
+
+!if $(LVGL_ENABLE) == TRUE
+  # LVGL owns graphical banner repainting; do not overlay it through ConOut.
+  gEfiMdeModulePkgTokenSpaceGuid.PcdUiAppFrontPageBatteryToConOut|FALSE
+!endif
 
 [PcdsFeatureFlag.X64]
   gEfiMdeModulePkgTokenSpaceGuid.PcdDxeIplSwitchToLongMode|TRUE
@@ -1311,8 +1327,12 @@
   MdeModulePkg/Universal/HiiDatabaseDxe/HiiDatabaseDxe.inf
 !if $(CDK2_FLAT_DXE_FV) == FALSE || $(SETUP_UI_ENABLE) == TRUE
   MdeModulePkg/Universal/SetupBrowserDxe/SetupBrowserDxe.inf
-  MdeModulePkg/Universal/DisplayEngineDxe/DisplayEngineDxe.inf
   UefiPayloadPkg/UserAuthPkg/UserAuthenticationDxe/UserAuthenticationDxe.inf
+!if $(LVGL_ENABLE) == TRUE
+  3rdparty/LvglPkg/LvglDisplayEngineDxe/LvglDisplayEngineDxe.inf
+  3rdparty/LvglPkg/LvglSetupDxe/LvglSetupDxe.inf
+!else
+  MdeModulePkg/Universal/DisplayEngineDxe/DisplayEngineDxe.inf
 !endif
   MdeModulePkg/Universal/PlatformDriOverrideDxe/PlatformDriOverrideDxe.inf
   MdeModulePkg/Universal/EbcDxe/EbcDxe.inf
@@ -1396,6 +1416,9 @@
   MdeModulePkg/Bus/Usb/UsbBusDxe/UsbBusDxe.inf
   MdeModulePkg/Bus/Usb/UsbKbDxe/UsbKbDxe.inf
   MdeModulePkg/Bus/Usb/UsbMassStorageDxe/UsbMassStorageDxe.inf
+!if $(LVGL_ENABLE) == TRUE
+  MdeModulePkg/Bus/Usb/UsbMouseAbsolutePointerDxe/UsbMouseAbsolutePointerDxe.inf
+!else
   MdeModulePkg/Bus/Usb/UsbMouseDxe/UsbMouseDxe.inf
 !endif
 

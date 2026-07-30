@@ -1673,7 +1673,7 @@ EfiBootManagerGetLoadOptionBuffer (
   *FullPath = NULL;
 
   EfiBootManagerConnectDevicePath (FilePath, NULL);
-  return BmGetNextLoadOptionBuffer (LoadOptionTypeMax, FilePath, FullPath, FileSize);
+  return BmGetNextLoadOptionBuffer (LoadOptionTypeMax, FilePath, FullPath, FileSize, TRUE);
 }
 
 /**
@@ -2014,7 +2014,9 @@ EfiBootManagerBoot (
     Status   = EFI_NOT_FOUND;
     FilePath = NULL;
     EfiBootManagerConnectDevicePath (BootOption->FilePath, NULL);
-    FileBuffer = BmGetNextLoadOptionBuffer (LoadOptionTypeBoot, BootOption->FilePath, &FilePath, &FileSize);
+    // Full paths take the already-connected fast path; short forms still need
+    // ConnectAll so removable and network boot options can be expanded.
+    FileBuffer = BmGetNextLoadOptionBuffer (LoadOptionTypeBoot, BootOption->FilePath, &FilePath, &FileSize, TRUE);
     if (FileBuffer != NULL) {
       RamDiskDevicePath = BmGetRamDiskDevicePath (FilePath);
 

@@ -466,5 +466,6 @@ BmGetNextLoadOptionBuffer (
   IN  EFI_BOOT_MANAGER_LOAD_OPTION_TYPE  Type,
   IN  EFI_DEVICE_PATH_PROTOCOL           *FilePath,
   OUT EFI_DEVICE_PATH_PROTOCOL           **FullPath,
-  OUT UINTN                              *FileSize
+  OUT UINTN                              *FileSize,
+  IN  BOOLEAN                             ConnectAll
   );

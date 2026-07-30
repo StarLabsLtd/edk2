@@ -183,13 +183,11 @@ GetProducerString (
   This function is the main entry of the UI entry.
   The function will present the main menu of the system UI.
 
-  @param ConnectAllHappened Caller passes the value to UI to avoid unnecessary connect-all.
-
 **/
 VOID
 EFIAPI
 UiEntry (
-  IN BOOLEAN  ConnectAllHappened
+  VOID
   );
 
 /**

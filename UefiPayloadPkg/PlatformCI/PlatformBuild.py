@@ -163,7 +163,7 @@ class PlatformBuilder(UefiBuilder, BuildSettingsManager):
 
     def GetPackagesPath(self):
         ''' Return a list of workspace relative paths that should be mapped as edk2 PackagesPath '''
-        return ()
+        return ("3rdparty",)
 
     def GetActiveScopes(self):
         ''' return tuple containing scopes that should be active for this process '''

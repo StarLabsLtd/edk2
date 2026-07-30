@@ -35,3 +35,7 @@
 [submodule "3rdparty/secureboot_objects"]
 	path = 3rdparty/secureboot_objects
 	url = https://github.com/microsoft/secureboot_objects.git
+[submodule "3rdparty/LvglPkg"]
+	path = 3rdparty/LvglPkg
+	url = https://github.com/StarLabsLtd/LvglPkg.git
+	branch = cdk2-manrope-light

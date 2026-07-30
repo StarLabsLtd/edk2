@@ -1316,7 +1316,8 @@ BmGetNextLoadOptionBuffer (
   IN  EFI_BOOT_MANAGER_LOAD_OPTION_TYPE  Type,
   IN  EFI_DEVICE_PATH_PROTOCOL           *FilePath,
   OUT EFI_DEVICE_PATH_PROTOCOL           **FullPath,
-  OUT UINTN                              *FileSize
+  OUT UINTN                              *FileSize,
+  IN  BOOLEAN                             ConnectAll
   )
 {
   VOID                      *FileBuffer;
@@ -1331,7 +1332,7 @@ BmGetNextLoadOptionBuffer (
   CurFullPath   = *FullPath;
   do {
     PreFullPath = CurFullPath;
-    CurFullPath = BmGetNextLoadOptionDevicePath (FilePath, CurFullPath, TRUE);
+    CurFullPath = BmGetNextLoadOptionDevicePath (FilePath, CurFullPath, ConnectAll);
     //
     // Only free the full path created *inside* this routine
     //
@@ -1449,7 +1450,7 @@ EfiBootManagerProcessLoadOption (
   while (TRUE) {
     Status      = EFI_INVALID_PARAMETER;
     PreFullPath = CurFullPath;
-    FileBuffer  = BmGetNextLoadOptionBuffer (LoadOption->OptionType, LoadOption->FilePath, &CurFullPath, &FileSize);
+    FileBuffer  = BmGetNextLoadOptionBuffer (LoadOption->OptionType, LoadOption->FilePath, &CurFullPath, &FileSize, TRUE);
     if (PreFullPath != NULL) {
       FreePool (PreFullPath);
     }

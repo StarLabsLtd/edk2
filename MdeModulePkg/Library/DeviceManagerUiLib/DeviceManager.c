@@ -866,6 +866,7 @@ DeviceManagerCallback (
     // Update device manager page when form opens, because options may add or remove.
     //
     if (QuestionId == 0x1212) {
+      EfiBootManagerConnectAll ();
       CreateDeviceManagerForm (DEVICE_MANAGER_FORM_ID);
     }
 
@@ -940,13 +941,6 @@ DeviceManagerUiLibConstructor (
                                       NULL
                                       );
   ASSERT (gDeviceManagerPrivate.HiiHandle != NULL);
-
-  //
-  // The device manager form contains a page listing all the network
-  // controllers in the system. This list can only be populated if all
-  // handles have been connected, so do it here.
-  //
-  EfiBootManagerConnectAll ();
 
   return EFI_SUCCESS;
 }

@@ -287,7 +287,12 @@ DrawFrontPageBatteryStatus (
   UINTN                            ClearWidth;
   CHAR16                           ClearString[MAX_STRING_LEN];
 
-  if (!mFrontPageActive || (gST == NULL) || (gST->ConOut == NULL) || (gST->ConOut->Mode == NULL)) {
+  if (!FeaturePcdGet (PcdUiAppFrontPageBatteryToConOut) ||
+      !mFrontPageActive ||
+      (gST == NULL) ||
+      (gST->ConOut == NULL) ||
+      (gST->ConOut->Mode == NULL))
+  {
     return;
   }
 
@@ -1276,7 +1281,7 @@ InitializeUserInterface (
   InitializeStringSupport ();
 
   UiSetConsoleMode (TRUE);
-  UiEntry (FALSE);
+  UiEntry ();
   UiSetConsoleMode (FALSE);
   Status = BootLogoEnableLogo ();
   DEBUG ((DEBUG_INFO, "%a: repainted boot logo after setup: %r\n", __func__, Status));
@@ -1291,13 +1296,11 @@ InitializeUserInterface (
   This function is the main entry of the UI entry.
   The function will present the main menu of the system UI.
 
-  @param ConnectAllHappened Caller passes the value to UI to avoid unnecessary connect-all.
-
 **/
 VOID
 EFIAPI
 UiEntry (
-  IN BOOLEAN  ConnectAllHappened
+  VOID
   )
 {
   EFI_STATUS              Status;
@@ -1310,19 +1313,6 @@ UiEntry (
     EFI_PROGRESS_CODE,
     (EFI_SOFTWARE_DXE_BS_DRIVER | EFI_SW_PC_USER_SETUP)
     );
-
-  //
-  // Indicate if the connect all has been performed before.
-  // If has not been performed before, do here.
-  //
-  if (!ConnectAllHappened) {
-    EfiBootManagerConnectAll ();
-  }
-
-  //
-  // The boot option enumeration time is acceptable in Ui driver
-  //
-  EfiBootManagerRefreshAllBootOption ();
 
   //
   // Boot Logo is corrupted, report it using Boot Logo protocol.
