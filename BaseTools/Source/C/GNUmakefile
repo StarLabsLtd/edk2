@@ -45,8 +45,8 @@ endif
 
 SUBDIRS := $(LIBRARIES) $(CDK2_APPLICATIONS)
 
-$(LIBRARIES): $(CDK2_LIB_DIR)
-$(CDK2_APPLICATIONS): $(LIBRARIES) $(CDK2_BIN_DIR)
+$(LIBRARIES): makerootdir
+$(CDK2_APPLICATIONS): $(LIBRARIES) makerootdir
 
 .PHONY: outputdirs
 makerootdir:
