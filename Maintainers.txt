@@ -294,7 +294,6 @@ MdeModulePkg: Core services (PEI, DXE and Runtime) modules
 F: MdeModulePkg/*Mem*/
 F: MdeModulePkg/*SectionExtract*/
 F: MdeModulePkg/*StatusCode*/
-F: MdeModulePkg/Application/DumpDynPcd/
 F: MdeModulePkg/Core/Dxe/
 F: MdeModulePkg/Core/DxeIplPeim/
 F: MdeModulePkg/Core/RuntimeDxe/

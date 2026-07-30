@@ -209,8 +209,6 @@
 
 [Components]
   MdeModulePkg/Application/HelloWorld/HelloWorld.inf
-  MdeModulePkg/Application/DumpDynPcd/DumpDynPcd.inf
-  MdeModulePkg/Application/MemoryProfileInfo/MemoryProfileInfo.inf
 
   MdeModulePkg/Library/UefiSortLib/UefiSortLib.inf
   MdeModulePkg/Logo/Logo.inf
@@ -406,7 +404,6 @@
   MdeModulePkg/Universal/SecurityStubDxe/SecurityStubDxe.inf
   MdeModulePkg/Universal/SetupBrowserDxe/SetupBrowserDxe.inf
   MdeModulePkg/Universal/DisplayEngineDxe/DisplayEngineDxe.inf
-  MdeModulePkg/Application/VariableInfo/VariableInfo.inf
   MdeModulePkg/Universal/FaultTolerantWritePei/FaultTolerantWritePei.inf
   MdeModulePkg/Universal/Variable/Pei/VariablePei.inf
   MdeModulePkg/Universal/Variable/MmVariablePei/MmVariablePei.inf
@@ -477,7 +474,6 @@
 
 [Components.IA32, Components.X64]
   MdeModulePkg/Universal/DebugSupportDxe/DebugSupportDxe.inf
-  MdeModulePkg/Application/SmiHandlerProfileInfo/SmiHandlerProfileInfo.inf
   MdeModulePkg/Core/PiSmmCore/PiSmmIpl.inf
   MdeModulePkg/Core/PiSmmCore/PiSmmCore.inf
   MdeModulePkg/Universal/Variable/RuntimeDxe/VariableSmm.inf {
