@@ -93,6 +93,8 @@
   gEfiMdeModulePkgTokenSpaceGuid.PcdTdxSharedBitMask                    ## CONSUMES
   gUefiCpuPkgTokenSpaceGuid.PcdCpuStackSwitchExceptionList              ## CONSUMES
   gUefiCpuPkgTokenSpaceGuid.PcdCpuKnownGoodStackSize                    ## CONSUMES
+  gUefiCpuPkgTokenSpaceGuid.PcdCpuDisableMtrrProgramming                ## CONSUMES
+  gUefiCpuPkgTokenSpaceGuid.PcdCpuRefreshGcdMemoryAttributes            ## CONSUMES
 
 [Pcd.LoongArch64]
   gUefiCpuPkgTokenSpaceGuid.PcdLoongArchExceptionVectorBaseAddress      ## CONSUMES

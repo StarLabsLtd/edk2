@@ -2969,6 +2969,22 @@ IsMtrrSupported (
 }
 
 /**
+  Checks whether the processor exposes readable MTRRs.
+
+  @retval TRUE  MTRR state can be read from the processor.
+  @retval FALSE MTRR state cannot be read from the processor.
+
+**/
+BOOLEAN
+EFIAPI
+MtrrIsHardwareSupported (
+  VOID
+  )
+{
+  return MtrrLibIsMtrrSupported (NULL, NULL);
+}
+
+/**
   This function returns a Ranges array containing the memory cache types
   of all memory addresses.
 

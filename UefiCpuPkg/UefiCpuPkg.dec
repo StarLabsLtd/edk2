@@ -333,6 +333,10 @@
   # @Prompt Disable MTRR programming.
   gUefiCpuPkgTokenSpaceGuid.PcdCpuDisableMtrrProgramming|FALSE|BOOLEAN|0x00000017
 
+  ## Controls whether CpuDxe synchronizes GCD cache attributes from MTRRs.
+  # @Prompt Refresh GCD memory attributes from MTRRs.
+  gUefiCpuPkgTokenSpaceGuid.PcdCpuRefreshGcdMemoryAttributes|TRUE|BOOLEAN|0x0000001F
+
   ## Specifies the number of variable MTRRs reserved for OS use. The default number of
   #  MTRRs reserved for OS use is 2.
   # @Prompt Number of reserved variable MTRRs.

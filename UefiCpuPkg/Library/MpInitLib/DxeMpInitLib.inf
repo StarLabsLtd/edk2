@@ -86,6 +86,7 @@
   gProcessorResourceHobGuid                     ## SOMETIMES_CONSUMES  ## HOB
 
 [Pcd]
+  gUefiCpuPkgTokenSpaceGuid.PcdCpuDisableMtrrProgramming                ## CONSUMES
   gEfiMdeModulePkgTokenSpaceGuid.PcdCpuStackGuard                      ## CONSUMES
   gEfiMdeModulePkgTokenSpaceGuid.PcdGhcbBase                           ## CONSUMES
   gEfiMdePkgTokenSpaceGuid.PcdConfidentialComputingGuestAttr           ## CONSUMES
