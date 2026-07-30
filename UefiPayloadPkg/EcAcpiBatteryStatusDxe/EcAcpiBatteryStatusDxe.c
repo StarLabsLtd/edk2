@@ -14,6 +14,7 @@
 #include <Library/DebugLib.h>
 #include <Library/IoLib.h>
 #include <Library/MemoryAllocationLib.h>
+#include <Library/PcdLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/UefiDriverEntryPoint.h>
 #include <Protocol/BatteryStatus.h>
@@ -128,9 +129,22 @@ DetectEcType (
   VOID
   )
 {
-  UINTN  i;
+  UINTN    i;
+  EC_TYPE  RequestedType;
+
+  RequestedType = (EC_TYPE)PcdGet8 (PcdEcAcpiBatteryProfile);
+  if (RequestedType == EcTypeNone) {
+    DEBUG ((DEBUG_INFO, "EcAcpiBattery: Platform reports no EC\n"));
+    return EFI_NOT_FOUND;
+  }
 
   for (i = 0; i < (sizeof (mEcProfiles) / sizeof (mEcProfiles[0])); i++) {
+    if ((RequestedType != EcTypeUnknown) &&
+        (mEcProfiles[i].Type != RequestedType))
+    {
+      continue;
+    }
+
     if (mEcProfiles[i].CheckEcPresent != NULL) {
       if (!EFI_ERROR (mEcProfiles[i].CheckEcPresent ())) {
         mEcBatteryPrivate->EcType   = mEcProfiles[i].Type;
@@ -139,6 +153,10 @@ DetectEcType (
         return EFI_SUCCESS;
       }
     }
+  }
+
+  if (RequestedType != EcTypeUnknown) {
+    DEBUG ((DEBUG_INFO, "EcAcpiBattery: Selected EC profile is not present\n"));
   }
 
   return EFI_NOT_FOUND;

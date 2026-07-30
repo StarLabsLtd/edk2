@@ -43,7 +43,8 @@ typedef enum {
   EcTypeUnknown = 0,
   EcTypeChromeOs,
   EcTypeMerlin,
-  EcTypeThinkPad
+  EcTypeThinkPad,
+  EcTypeNone
 } EC_TYPE;
 
 //

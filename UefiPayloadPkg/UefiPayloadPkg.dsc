@@ -57,6 +57,7 @@
   DEFINE MEMORY_TYPE_EFI_ACPI_RECLAIM_MEMORY = 0x19
   DEFINE MEMORY_TYPE_INFORMATION_BIN_BASE = 0
   DEFINE MEMORY_TYPE_INFORMATION_BIN_SIZE = 0
+  DEFINE EC_ACPI_BATTERY_PROFILE     = 0
 
   #
   # Capsule updates
@@ -832,6 +833,7 @@
   gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiWideAspectCapWidth|$(PAYLOAD_FB_HIDPI_WIDE_ASPECT_CAP_WIDTH)
   gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiWideAspectCapHeight|$(PAYLOAD_FB_HIDPI_WIDE_ASPECT_CAP_HEIGHT)
   gUefiPayloadPkgTokenSpaceGuid.PcdResetShutdownSleepType|7
+  gUefiPayloadPkgTokenSpaceGuid.PcdEcAcpiBatteryProfile|$(EC_ACPI_BATTERY_PROFILE)
 
   gUefiPayloadPkgTokenSpaceGuid.PcdBootManagerEscape|$(BOOT_MANAGER_ESCAPE)
 

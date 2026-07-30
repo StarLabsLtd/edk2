@@ -34,13 +34,18 @@
 [Packages]
   MdePkg/MdePkg.dec
   MdeModulePkg/MdeModulePkg.dec
+  UefiPayloadPkg/UefiPayloadPkg.dec
 
 [LibraryClasses]
   DebugLib
   IoLib
   MemoryAllocationLib
+  PcdLib
   UefiBootServicesTableLib
   UefiDriverEntryPoint
+
+[Pcd]
+  gUefiPayloadPkgTokenSpaceGuid.PcdEcAcpiBatteryProfile
 
 [Protocols]
   gEfiBatteryStatusProtocolGuid                 ## PRODUCES
