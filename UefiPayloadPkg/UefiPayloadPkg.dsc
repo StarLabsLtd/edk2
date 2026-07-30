@@ -1423,6 +1423,7 @@
 !else
   MdeModulePkg/Bus/Usb/UsbMouseDxe/UsbMouseDxe.inf
 !endif
+!endif
 
   #
   # ISA Support
