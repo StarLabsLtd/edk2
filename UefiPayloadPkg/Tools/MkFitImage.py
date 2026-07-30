@@ -12,6 +12,15 @@ from ctypes import *
 import time
 import os
 
+def AlignValue(Value, Alignment):
+    return (Value + Alignment - 1) & ~(Alignment - 1)
+
+def GetFitTimestamp():
+    SourceDateEpoch = os.environ.get('SOURCE_DATE_EPOCH')
+    if SourceDateEpoch is not None:
+        return int(SourceDateEpoch)
+    return int(time.time())
+
 class FIT_IMAGE_INFO_HEADER:
     """Class for user setting data to use MakeFitImage()
     """
@@ -37,6 +46,7 @@ class FIT_IMAGE_INFO_HEADER:
         ('TargetPath',    str),
         ('UefifvPath',    str),
         ('BdsfvPath',     str),
+        ('SecfvPath',     str),
         ('NetworkfvPath', str),
         ('Project',       str),
         ]
@@ -76,6 +86,7 @@ def BuildTianoImageNode(Fdt, InfoHeader, ParentNode, DataOffset, DataSize, Descr
     if InfoHeader.LoadAddr is not None:
         libfdt.fdt_setprop_u64(Fdt, ParentNode, 'load', InfoHeader.LoadAddr)
     if InfoHeader.Entry is not None:
+        libfdt.fdt_setprop_u64(Fdt, ParentNode, 'entry', InfoHeader.Entry)
         libfdt.fdt_setprop_u64(Fdt, ParentNode, 'entry-start', InfoHeader.Entry)
     if InfoHeader.RelocStart is not None:
         libfdt.fdt_setprop_u32(Fdt, ParentNode, 'reloc-start', InfoHeader.RelocStart)
@@ -105,6 +116,7 @@ def BuildFitImage(Fdt, InfoHeader, Arch):
         ["tianocore",   InfoHeader.Binary,        BuildTianoImageNode , InfoHeader.Description,     None, 0 ],
         ["uefi-fv",     InfoHeader.UefifvPath,    BuildFvImageNode,     "UEFI Firmware Volume",     None, 0 ],
         ["bds-fv",      InfoHeader.BdsfvPath,     BuildFvImageNode ,    "BDS Firmware Volume",      None, 0 ],
+        ["sec-fv",      InfoHeader.SecfvPath,     BuildFvImageNode ,    "Security Firmware Volume", None, 0 ],
         ["network-fv",  InfoHeader.NetworkfvPath, BuildFvImageNode ,    "Network Firmware Volume",  None, 0 ],
     ]
 
@@ -121,7 +133,7 @@ def BuildFitImage(Fdt, InfoHeader, Arch):
     BuildConfNode(Fdt, ConfNode, MultiImage)
 
     # Build image
-    DataOffset = InfoHeader.DataOffset
+    DataOffset = 0
     for Index in range (0, len (MultiImage)):
         _, Path, _, _, _, _ = MultiImage[Index]
         if exists(Path) == 1:
@@ -131,8 +143,8 @@ def BuildFitImage(Fdt, InfoHeader, Arch):
             MultiImage[Index][-2] = BinaryData
             MultiImage[Index][-1] = DataOffset
             DataOffset += len (BinaryData)
-    libfdt.fdt_setprop_u32(Fdt, 0, 'size', DataOffset)
-    posix_time = int(time.time())
+    libfdt.fdt_setprop_u32(Fdt, 0, 'size', len(Fdt) + DataOffset)
+    posix_time = GetFitTimestamp()
     libfdt.fdt_setprop_u32(Fdt, 0, 'timestamp', posix_time)
     DescriptionFit = 'Uefi OS Loader'
     libfdt.fdt_setprop(Fdt, 0, 'description', bytes(DescriptionFit, 'utf-8'), len(DescriptionFit) + 1)
@@ -186,6 +198,7 @@ def ReplaceFv (UplBinary, SectionFvFile, SectionName, Arch):
             Dtb = File.read ()
         Fit          = libfdt.Fdt (Dtb)
         NewFitHeader = bytearray(Dtb[0:Fit.totalsize()])
+        DataBase     = AlignValue(Fit.totalsize(), 4)
         FitSize      = len(Dtb)
 
         LoadablesList = []
@@ -207,7 +220,8 @@ def ReplaceFv (UplBinary, SectionFvFile, SectionName, Arch):
             ImageNode    = libfdt.fdt_subnode_offset(NewFitHeader, ImagesNode, Item)
             ImageOffset  = int.from_bytes (libfdt.fdt_getprop (NewFitHeader, ImageNode, 'data-offset')[0], 'big')
             ImageSize    = int.from_bytes (libfdt.fdt_getprop (NewFitHeader, ImageNode, 'data-size')[0], 'big')
-            MultiFvList.append ([Item, Dtb[ImageOffset:ImageOffset + ImageSize]])
+            ImageBase    = DataBase + ImageOffset
+            MultiFvList.append ([Item, Dtb[ImageBase:ImageBase + ImageSize]])
 
         IsFvExist = False
         for Index in range (0, len (MultiFvList)):
@@ -231,7 +245,7 @@ def ReplaceFv (UplBinary, SectionFvFile, SectionName, Arch):
                 SectionFvFileBinary = File.read ()
             MultiFvList.append ([SectionName, SectionFvFileBinary])
             FvNode = libfdt.fdt_add_subnode(NewFitHeader, ImagesNode, SectionName)
-            BuildFvImageNode (NewFitHeader, None, FvNode, FitSize, len(SectionFvFileBinary), SectionName + " Firmware Volume", Arch)
+            BuildFvImageNode (NewFitHeader, None, FvNode, FitSize - DataBase, len(SectionFvFileBinary), SectionName + " Firmware Volume", Arch)
             FitSize += len(SectionFvFileBinary)
         else:
             for Index in range (0, len (MultiFvList)):
@@ -253,7 +267,8 @@ def ReplaceFv (UplBinary, SectionFvFile, SectionName, Arch):
         TianoNode     = libfdt.fdt_subnode_offset(NewFitHeader, ImagesNode, 'tianocore')
         TianoOffset   = int.from_bytes (libfdt.fdt_getprop (NewFitHeader, TianoNode, 'data-offset')[0], 'big')
         TianoSize     = int.from_bytes (libfdt.fdt_getprop (NewFitHeader, TianoNode, 'data-size')[0], 'big')
-        TianoBinary   = Dtb[TianoOffset:TianoOffset + TianoSize]
+        TianoBase     = DataBase + TianoOffset
+        TianoBinary   = Dtb[TianoBase:TianoBase + TianoSize]
 
         print("\nGenerate new fit image:")
         NewUplBinary = bytearray(FitSize)
@@ -265,7 +280,8 @@ def ReplaceFv (UplBinary, SectionFvFile, SectionName, Arch):
             ImageNode   = libfdt.fdt_subnode_offset(NewFitHeader, ImagesNode, MultiFvList[Index][0])
             ImageOffset = int.from_bytes (libfdt.fdt_getprop (NewFitHeader, ImageNode, 'data-offset')[0], 'big')
             ImageSize   = int.from_bytes (libfdt.fdt_getprop (NewFitHeader, ImageNode, 'data-size')[0], 'big')
-            NewUplBinary[ImageOffset:ImageOffset + ImageSize] = MultiFvList[Index][1]
+            ImageBase   = DataBase + ImageOffset
+            NewUplBinary[ImageBase:ImageBase + ImageSize] = MultiFvList[Index][1]
             print("Update " + MultiFvList[Index][0] + "\t\t to " + str(hex(ImageOffset)) + "\t ~ " + str(hex(ImageOffset + ImageSize)))
 
         with open (UplBinary, "wb") as File:

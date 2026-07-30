@@ -105,6 +105,11 @@ RecordMemoryNode (
   )
 {
   DEBUG ((DEBUG_INFO, "\n RecordMemoryNode  %x , mNodeIndex :%x  \n", Node, mNodeIndex));
+  if (mNodeIndex >= (sizeof (mNode) / sizeof (mNode[0]))) {
+    DEBUG ((DEBUG_ERROR, "  Too many reserved-memory nodes\n"));
+    return;
+  }
+
   mNode[mNodeIndex] = Node;
   mNodeIndex++;
 }
@@ -247,6 +252,7 @@ ParseReservedMemory (
   UNIVERSAL_PAYLOAD_SMBIOS_TABLE  *SmbiosTable;
   FDT_NODE_HEADER                 *NodePtr;
   UINT32                          Attribute;
+  EFI_GUID                        *SmbiosTableGuid;
 
   PlatformAcpiTable = NULL;
 
@@ -254,15 +260,16 @@ ParseReservedMemory (
     NodePtr = (FDT_NODE_HEADER *)((CONST CHAR8 *)Fdt + SubNode + Fdt32ToCpu (((FDT_HEADER *)Fdt)->OffsetDtStruct));
     DEBUG ((DEBUG_INFO, "\n      SubNode(%08X)  %a", SubNode, NodePtr->Name));
     PropertyPtr = FdtGetProperty (Fdt, SubNode, "reg", &TempLen);
-    ASSERT (TempLen > 0);
-    TempStr = (CHAR8 *)(PropertyPtr->Data);
-    if (TempLen > 0) {
-      Data64        = (UINT64 *)(PropertyPtr->Data);
-      StartAddress  = Fdt64ToCpu (ReadUnaligned64 (Data64));
-      NumberOfBytes = Fdt64ToCpu (ReadUnaligned64 (Data64 + 1));
-      DEBUG ((DEBUG_INFO, "\n         Property  %a", TempStr));
-      DEBUG ((DEBUG_INFO, "  %016lX  %016lX\n", StartAddress, NumberOfBytes));
+    if ((PropertyPtr == NULL) || (TempLen < (INT32)(2 * sizeof (UINT64)))) {
+      DEBUG ((DEBUG_WARN, "  reserved-memory node has no valid reg property\n"));
+      continue;
     }
+
+    Data64        = (UINT64 *)(PropertyPtr->Data);
+    StartAddress  = Fdt64ToCpu (ReadUnaligned64 (Data64));
+    NumberOfBytes = Fdt64ToCpu (ReadUnaligned64 (Data64 + 1));
+    DEBUG ((DEBUG_INFO, "\n         Property  reg"));
+    DEBUG ((DEBUG_INFO, "  %016lX  %016lX\n", StartAddress, NumberOfBytes));
 
     RecordMemoryNode (SubNode);
 
@@ -276,28 +283,32 @@ ParseReservedMemory (
         );
     } else {
       PropertyPtr = FdtGetProperty (Fdt, SubNode, "compatible", &TempLen);
-      TempStr     = (CHAR8 *)(PropertyPtr->Data);
-      DEBUG ((DEBUG_INFO, "compatible:  %a\n", TempStr));
-      if (AsciiStrnCmp (TempStr, "boot-code", AsciiStrLen ("boot-code")) == 0) {
+      TempStr     = NULL;
+      if ((PropertyPtr != NULL) && (TempLen > 0)) {
+        TempStr = (CHAR8 *)(PropertyPtr->Data);
+        DEBUG ((DEBUG_INFO, "compatible:  %a\n", TempStr));
+      }
+
+      if ((TempStr != NULL) && (AsciiStrnCmp (TempStr, "boot-code", AsciiStrLen ("boot-code")) == 0)) {
         DEBUG ((DEBUG_INFO, "  boot-code\n"));
         BuildMemoryAllocationHob (StartAddress, NumberOfBytes, EfiBootServicesCode);
-      } else if (AsciiStrnCmp (TempStr, "boot-data", AsciiStrLen ("boot-data")) == 0) {
+      } else if ((TempStr != NULL) && (AsciiStrnCmp (TempStr, "boot-data", AsciiStrLen ("boot-data")) == 0)) {
         DEBUG ((DEBUG_INFO, "  boot-data\n"));
         BuildMemoryAllocationHob (StartAddress, NumberOfBytes, EfiBootServicesData);
-      } else if (AsciiStrnCmp (TempStr, "runtime-code", AsciiStrLen ("runtime-code")) == 0) {
+      } else if ((TempStr != NULL) && (AsciiStrnCmp (TempStr, "runtime-code", AsciiStrLen ("runtime-code")) == 0)) {
         DEBUG ((DEBUG_INFO, "  runtime-code\n"));
         BuildMemoryAllocationHob (StartAddress, NumberOfBytes, EfiRuntimeServicesCode);
-      } else if (AsciiStrnCmp (TempStr, "runtime-data", AsciiStrLen ("runtime-data")) == 0) {
+      } else if ((TempStr != NULL) && (AsciiStrnCmp (TempStr, "runtime-data", AsciiStrLen ("runtime-data")) == 0)) {
         DEBUG ((DEBUG_INFO, "  runtime-data\n"));
         BuildMemoryAllocationHob (StartAddress, NumberOfBytes, EfiRuntimeServicesData);
-      } else if (AsciiStrnCmp (TempStr, "special-purpose", AsciiStrLen ("special-purpose")) == 0) {
+      } else if ((TempStr != NULL) && (AsciiStrnCmp (TempStr, "special-purpose", AsciiStrLen ("special-purpose")) == 0)) {
         Attribute = MEMORY_ATTRIBUTE_DEFAULT | EFI_RESOURCE_ATTRIBUTE_SPECIAL_PURPOSE;
         DEBUG ((DEBUG_INFO, "  special-purpose memory\n"));
         BuildResourceDescriptorHob (EFI_RESOURCE_SYSTEM_MEMORY, Attribute, StartAddress, NumberOfBytes);
-      } else if (AsciiStrnCmp (TempStr, "acpi-nvs", AsciiStrLen ("acpi-nvs")) == 0) {
+      } else if ((TempStr != NULL) && (AsciiStrnCmp (TempStr, "acpi-nvs", AsciiStrLen ("acpi-nvs")) == 0)) {
         DEBUG ((DEBUG_INFO, "\n ********* acpi-nvs ********\n"));
         BuildMemoryAllocationHob (StartAddress, NumberOfBytes, EfiACPIMemoryNVS);
-      } else if (AsciiStrnCmp (TempStr, "acpi", AsciiStrLen ("acpi")) == 0) {
+      } else if ((TempStr != NULL) && (AsciiStrnCmp (TempStr, "acpi", AsciiStrLen ("acpi")) == 0)) {
         DEBUG ((DEBUG_INFO, "  acpi, StartAddress:%x, NumberOfBytes:%x\n", StartAddress, NumberOfBytes));
 
         BuildMemoryAllocationHob (
@@ -312,10 +323,17 @@ ParseReservedMemory (
           PlatformAcpiTable->Header.Revision = UNIVERSAL_PAYLOAD_ACPI_TABLE_REVISION;
           PlatformAcpiTable->Header.Length   = sizeof (UNIVERSAL_PAYLOAD_ACPI_TABLE);
         }
-      } else if (AsciiStrnCmp (TempStr, "smbios", AsciiStrLen ("smbios")) == 0) {
+      } else if ((TempStr != NULL) && (AsciiStrnCmp (TempStr, "smbios", AsciiStrLen ("smbios")) == 0)) {
         DEBUG ((DEBUG_INFO, " build smbios, NumberOfBytes:%x\n", NumberOfBytes));
         BuildMemoryAllocationHob (StartAddress, NumberOfBytes, EfiBootServicesData);
-        SmbiosTable = BuildGuidHob (&gUniversalPayloadSmbios3TableGuid, sizeof (UNIVERSAL_PAYLOAD_SMBIOS_TABLE));
+        SmbiosTableGuid = &gUniversalPayloadSmbios3TableGuid;
+        if ((NumberOfBytes >= SMBIOS_ANCHOR_STRING_LENGTH) &&
+            (CompareMem ((VOID *)(UINTN)StartAddress, SMBIOS_ANCHOR_STRING, SMBIOS_ANCHOR_STRING_LENGTH) == 0))
+        {
+          SmbiosTableGuid = &gUniversalPayloadSmbiosTableGuid;
+        }
+
+        SmbiosTable = BuildGuidHob (SmbiosTableGuid, sizeof (UNIVERSAL_PAYLOAD_SMBIOS_TABLE));
         if (SmbiosTable != NULL) {
           SmbiosTable->Header.Revision  = UNIVERSAL_PAYLOAD_SMBIOS_TABLE_REVISION;
           SmbiosTable->Header.Length    = sizeof (UNIVERSAL_PAYLOAD_SMBIOS_TABLE);
@@ -399,9 +417,9 @@ ParseFrameBuffer (
     } else if (AsciiStrCmp (TempStr, "format") == 0) {
       TempStr = (CHAR8 *)(PropertyPtr->Data);
       if (AsciiStrCmp (TempStr, "a8r8g8b8") == 0) {
-        GraphicsInfo->GraphicsMode.PixelFormat = PixelRedGreenBlueReserved8BitPerColor;
-      } else if (AsciiStrCmp (TempStr, "a8b8g8r8") == 0) {
         GraphicsInfo->GraphicsMode.PixelFormat = PixelBlueGreenRedReserved8BitPerColor;
+      } else if (AsciiStrCmp (TempStr, "a8b8g8r8") == 0) {
+        GraphicsInfo->GraphicsMode.PixelFormat = PixelRedGreenBlueReserved8BitPerColor;
       } else {
         GraphicsInfo->GraphicsMode.PixelFormat = PixelFormatMax;
       }
@@ -451,7 +469,9 @@ ParseOptions (
     NodePtr = (FDT_NODE_HEADER *)((CONST CHAR8 *)Fdt + SubNode + Fdt32ToCpu (((FDT_HEADER *)Fdt)->OffsetDtStruct));
     DEBUG ((DEBUG_INFO, "\n      SubNode(%08X)  %a", SubNode, NodePtr->Name));
 
-    if (AsciiStrnCmp (NodePtr->Name, "upl-images@", AsciiStrLen ("upl-images@")) == 0) {
+    if ((AsciiStrnCmp (NodePtr->Name, "upl-image@", AsciiStrLen ("upl-image@")) == 0) ||
+        (AsciiStrnCmp (NodePtr->Name, "upl-images@", AsciiStrLen ("upl-images@")) == 0))
+    {
       DEBUG ((DEBUG_INFO, "  Found image@ node \n"));
       //
       // Build PayloadBase HOB .
@@ -1247,6 +1267,7 @@ ParseDtb (
   BootMode         = 0;
   NodeType         = 0;
   RootAddressCells = 2;
+  GmaStr           = "Gma";
 
   DEBUG ((DEBUG_INFO, "FDT = 0x%x  %x\n", Fdt, Fdt32ToCpu (*((UINT32 *)Fdt))));
   DEBUG ((DEBUG_INFO, "Start parsing DTB data\n"));
@@ -1306,6 +1327,11 @@ ParseDtb (
         RootBridgeCount++;
       }
     }
+  }
+
+  if (!IsHobConstructed) {
+    DEBUG ((DEBUG_ERROR, "No usable memory node found for FDT HOB list\n"));
+    return 0;
   }
 
   NumRsv = FdtGetNumberOfReserveMapEntries (Fdt);

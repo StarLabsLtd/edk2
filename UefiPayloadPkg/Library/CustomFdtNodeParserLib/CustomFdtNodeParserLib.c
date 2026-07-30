@@ -137,17 +137,29 @@ CustomFdtNodeParser (
   // Look for if exists hob list node
   //
   Node = FdtSubnodeOffsetNameLen (FdtBase, 0, "options", (INT32)AsciiStrLen ("options"));
-  if (Node > 0) {
-    DEBUG ((DEBUG_INFO, "  Found options node (%08X)", Node));
-    CustomNode = FdtSubnodeOffsetNameLen (FdtBase, Node, "upl-custom", (INT32)AsciiStrLen ("upl-custom"));
-    if (CustomNode > 0) {
-      DEBUG ((DEBUG_INFO, "  Found upl-custom node (%08X)", CustomNode));
-      PropertyPtr = FdtGetProperty (FdtBase, CustomNode, "hoblistptr", &TempLen);
-      Data64      = (UINT64 *)(PropertyPtr->Data);
-      CHobList    = (UINTN)Fdt64ToCpu (ReadUnaligned64 (Data64));
-      DEBUG ((DEBUG_INFO, "  Found hob list node (%08X)", CustomNode));
-      DEBUG ((DEBUG_INFO, " -pointer  %016lX\n", CHobList));
-    }
+  if (Node <= 0) {
+    return CHobList;
+  }
+
+  DEBUG ((DEBUG_INFO, "  Found options node (%08X)", Node));
+  CustomNode = FdtSubnodeOffsetNameLen (FdtBase, Node, "upl-custom", (INT32)AsciiStrLen ("upl-custom"));
+  if (CustomNode <= 0) {
+    return CHobList;
+  }
+
+  DEBUG ((DEBUG_INFO, "  Found upl-custom node (%08X)", CustomNode));
+  PropertyPtr = FdtGetProperty (FdtBase, CustomNode, "hoblistptr", &TempLen);
+  if ((PropertyPtr == NULL) || (TempLen != sizeof (UINT64))) {
+    return CHobList;
+  }
+
+  Data64   = (UINT64 *)(PropertyPtr->Data);
+  CHobList = (UINTN)Fdt64ToCpu (ReadUnaligned64 (Data64));
+  DEBUG ((DEBUG_INFO, "  Found hob list node (%08X)", CustomNode));
+  DEBUG ((DEBUG_INFO, " -pointer  %016lX\n", CHobList));
+
+  if ((CHobList == 0) || (CHobList == (UINTN)HobList)) {
+    return (UINTN)HobList;
   }
 
   Hob.Raw = (UINT8 *)CHobList;
