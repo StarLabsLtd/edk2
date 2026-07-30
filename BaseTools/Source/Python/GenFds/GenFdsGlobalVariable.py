@@ -503,7 +503,8 @@ class GenFdsGlobalVariable:
                 GenFdsGlobalVariable.CallExternalTool(Cmd, "Failed to generate section")
         else:
             Cmd += ("-o", Output)
-            Cmd += Input
+            # GenFds executes these commands through a shell, so preserve paths that contain spaces.
+            Cmd += [GenFdsGlobalVariable.QuoteCommandArgument(Path) for Path in Input]
 
             SaveFileOnChange(CommandFile, ' '.join(Cmd), False)
             if IsMakefile:
@@ -519,6 +520,13 @@ class GenFdsGlobalVariable:
                 if (os.path.getsize(Output) >= GenFdsGlobalVariable.LARGE_FILE_SIZE and
                     GenFdsGlobalVariable.LargeFileInFvFlags):
                     GenFdsGlobalVariable.LargeFileInFvFlags[-1] = True
+
+    @staticmethod
+    def QuoteCommandArgument(Argument):
+        Argument = str(Argument)
+        if ' ' not in Argument and '\t' not in Argument:
+            return Argument
+        return '"%s"' % Argument.replace('"', '\\"')
 
     @staticmethod
     def GetAlignment (AlignString):

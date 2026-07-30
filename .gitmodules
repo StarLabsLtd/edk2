@@ -32,3 +32,6 @@
 [submodule "TcgTpmPkg/Library/TpmLib/TPM"]
 	path = TcgTpmPkg/Library/TpmLib/TPM
 	url = https://github.com/TrustedComputingGroup/TPM
+[submodule "3rdparty/secureboot_objects"]
+	path = 3rdparty/secureboot_objects
+	url = https://github.com/microsoft/secureboot_objects.git

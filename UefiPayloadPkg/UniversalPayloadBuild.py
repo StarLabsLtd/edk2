@@ -111,6 +111,47 @@ def RunCommand(cmd):
         print("- Failed - error happened when run command: %s"%cmd)
         raise Exception("ERROR: when run command: %s"%cmd)
 
+def WarnIfSecureBootObjectsAreStale(Args):
+    if not any(Macro == "SECURE_BOOT_ENABLE=TRUE" for Macro in Args.Macro):
+        return
+
+    Workspace = pathlib.Path(os.environ.get('EDK2_PATH', os.environ.get('WORKSPACE', '.')))
+    ObjectsPath = Workspace / '3rdparty/secureboot_objects'
+    if not (ObjectsPath / '.git').exists():
+        print("\n*** WARNING: Microsoft secure-boot objects submodule is missing. ***\n")
+        return
+
+    try:
+        Current = subprocess.run (
+            ['git', '-C', str(ObjectsPath), 'rev-parse', 'HEAD'],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5,
+            )
+        Remote = subprocess.run (
+            ['git', 'ls-remote', 'https://github.com/microsoft/secureboot_objects.git', 'HEAD'],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5,
+            )
+    except subprocess.TimeoutExpired:
+        print("\n*** WARNING: timed out checking Microsoft secure-boot object freshness. ***\n")
+        return
+    except OSError as Error:
+        print("\n*** WARNING: unable to run git while checking Microsoft secure-boot object freshness: {} ***\n".format(Error))
+        return
+    CurrentRevision = Current.stdout.strip ()
+    RemoteRevision = Remote.stdout.split ()[0] if Remote.returncode == 0 and Remote.stdout else None
+    if not CurrentRevision or not RemoteRevision:
+        print("\n*** WARNING: unable to check Microsoft secure-boot object freshness. ***\n")
+    elif CurrentRevision != RemoteRevision:
+        print("\n*** WARNING: Microsoft secure-boot objects are stale. ***")
+        print("    pinned: {}".format (CurrentRevision))
+        print("    remote: {}".format (RemoteRevision))
+        print("    review object changes before updating the submodule. ***\n")
+
 def BuildUniversalPayload(Args):
     DscPath = os.path.normpath(Args.DscPath)
     print("Building FIT for DSC file %s"%DscPath)
@@ -384,6 +425,7 @@ def UniversalPayloadFullBuild(args):
 def main():
 
     args = InitArgumentParser(False)
+    WarnIfSecureBootObjectsAreStale(args)
     return UniversalPayloadFullBuild(args)
 
 if __name__ == '__main__':
