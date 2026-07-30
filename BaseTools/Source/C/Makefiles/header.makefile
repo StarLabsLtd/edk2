@@ -131,6 +131,14 @@ CXX = $(GCC_PREFIX)g++
 AS = $(GCC_PREFIX)gcc
 AR = $(GCC_PREFIX)ar
 LD = $(GCC_PREFIX)ld
+else
+# A caller may override CC on the command line.  Keep the other native
+# tool defaults in that case; otherwise archive rules expand to a bare
+# operation such as "crs" instead of invoking ar.
+CXX ?= $(GCC_PREFIX)g++
+AS ?= $(GCC_PREFIX)gcc
+AR ?= $(GCC_PREFIX)ar
+LD ?= $(GCC_PREFIX)ld
 endif
 LINKER ?= $(CC)
 ifeq ($(HOST_ARCH), IA32)
