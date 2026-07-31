@@ -17,12 +17,6 @@ CDK2_BACKEND_ARCHES ?= X64
 CDK2_BACKEND_BUILD_ARCH ?= X64
 CDK2_BACKEND_OUTPUT_DIRECTORY ?= Build/cdk2/edk2/UefiPayloadPkg$(CDK2_BACKEND_BUILD_ARCH)
 
-ifeq ($(CONFIG_CDK2_HPET_TIMER),y)
-CDK2_TIMER_SUPPORT := HPET
-else
-CDK2_TIMER_SUPPORT := LAPIC
-endif
-
 ifneq ($(strip $(CDK2_BACKEND_ENTRY_ARCH)),X64)
 $(error cdk2 direct EDK II backend is X64-only: CDK2_BACKEND_ENTRY_ARCH=$(CDK2_BACKEND_ENTRY_ARCH))
 endif
@@ -34,6 +28,7 @@ $(error cdk2 direct EDK II backend is X64-only: CDK2_BACKEND_BUILD_ARCH=$(CDK2_B
 endif
 
 include $(CDK2_DIR)/modules.mk
+CDK2_TIMER_SUPPORT := $(CDK2_EFFECTIVE_TIMER_SUPPORT)
 
 # These are EDK II build definitions, not cdk2 policy. Keep their translation
 # behind the backend so a native linker can consume the same Kconfig values
@@ -42,11 +37,11 @@ CDK2_DEFAULT_DEFINES := \
   -D BOOTLOADER=COREBOOT \
   -D UNIVERSAL_PAYLOAD=FALSE \
   -D UNIVERSAL_PAYLOAD_FORMAT=ELF \
-  -D MEMORY_TEST=NULL \
+  -D MEMORY_TEST=$(CDK2_EFFECTIVE_MEMORY_TEST) \
   -D NETWORK_DRIVER_ENABLE=FALSE \
   -D DISABLE_RESET_SYSTEM=FALSE \
   -D BOOTSPLASH_IMAGE=FALSE \
-  -D SECURITY_STUB_ENABLE=TRUE
+  -D SECURITY_STUB_ENABLE=$(if $(filter y,$(CDK2_EFFECTIVE_SECURITY_STUB)),TRUE,FALSE)
 
 CDK2_DEFINES := $(CDK2_DEFAULT_DEFINES)
 # Coreboot hands the payload CPUs that have already been initialized by the
@@ -69,7 +64,7 @@ CDK2_EFFECTIVE_CAPSULE_MAIN_FW_GUID := $(strip $(if $(CDK2_CAPSULE_MAIN_FW_GUID_
 # so the entry path does not have to discover and unwrap a nested FV image.
 CDK2_DEFINES += -D CDK2_FLAT_DXE_FV=TRUE
 
-ifeq ($(CONFIG_CDK2_SHELL),y)
+ifeq ($(CDK2_EFFECTIVE_SHELL),y)
 CDK2_DEFINES += -D SHELL_TYPE=BUILD_SHELL
 else
 CDK2_DEFINES += -D SHELL_TYPE=NONE
@@ -103,7 +98,7 @@ CDK2_BOOL_DEFINES := \
   LATE_LINK:CDK2_LATE_LINK
 
 define CDK2_ADD_BOOL_DEFINE
-ifeq ($(CONFIG_CDK2_$(word 1,$(subst :, ,$(1)))),y)
+ifeq ($(CDK2_EFFECTIVE_$(word 1,$(subst :, ,$(1)))),y)
 CDK2_DEFINES += -D $(word 2,$(subst :, ,$(1)))=TRUE
 else
 CDK2_DEFINES += -D $(word 2,$(subst :, ,$(1)))=FALSE
@@ -112,25 +107,25 @@ endef
 
 $(foreach map,$(CDK2_BOOL_DEFINES),$(eval $(call CDK2_ADD_BOOL_DEFINE,$(map))))
 
-ifeq ($(CONFIG_CDK2_SMMSTORE),y)
+ifeq ($(CDK2_EFFECTIVE_SMMSTORE),y)
 CDK2_DEFINES += -D VARIABLE_SUPPORT=SMMSTORE
 else
 CDK2_DEFINES += -D VARIABLE_SUPPORT=EMU
 endif
 
-ifeq ($(CONFIG_CDK2_CAPSULE),y)
+ifeq ($(CDK2_EFFECTIVE_CAPSULE),y)
 ifneq ($(strip $(CDK2_CAPSULE_MAIN_FW_GUID)),)
 CDK2_DEFINES += -D CAPSULE_MAIN_FW_GUID=$(CDK2_CAPSULE_MAIN_FW_GUID)
 endif
 endif
 
-ifneq ($(filter y,$(CONFIG_CDK2_TPM12) $(CONFIG_CDK2_TPM2)),)
+ifneq ($(filter y,$(CDK2_EFFECTIVE_TPM12) $(CDK2_EFFECTIVE_TPM2)),)
 CDK2_DEFINES += -D TPM_ENABLE=TRUE
 else
 CDK2_DEFINES += -D TPM_ENABLE=FALSE
 endif
 
-ifeq ($(CONFIG_CDK2_SERIAL),y)
+ifeq ($(CDK2_EFFECTIVE_SERIAL),y)
 CDK2_DEFINES += -D SERIAL_DRIVER_ENABLE=TRUE -D DISABLE_SERIAL_TERMINAL=FALSE
 else
 CDK2_DEFINES += -D SERIAL_DRIVER_ENABLE=FALSE -D DISABLE_SERIAL_TERMINAL=TRUE
@@ -248,7 +243,7 @@ awk '/^0x[[:xdigit:]]+[[:space:]]+[[:xdigit:]-]+$$/ { print toupper($$2) }' \
   printf '%s\n' \
     "$(CDK2_BACKEND_DXE_APRIORI_GUID) UefiPayloadPkg/UefiPayloadPkg.fdf:APRIORI_DXE" \
     "$(CDK2_BACKEND_LOW_BATTERY_LOGO_GUID) UefiPayloadPkg/Library/PlatformBootManagerLib/LowBatteryLogo.bmp"; \
-  if [ "$(CONFIG_CDK2_SECURE_BOOT)" = "y" ]; then \
+  if [ "$(CDK2_EFFECTIVE_SECURE_BOOT)" = "y" ]; then \
     printf '%s\n' $(CDK2_BACKEND_SECURE_BOOT_CERT_GUIDS); \
   fi; \
 } | sort -k2,2 > "$(CDK2_BACKEND_SELECTED_DXE_GUIDS)" && \
@@ -347,7 +342,7 @@ $(CDK2_NATIVE_PACKER) --output "$(CDK2_OUTPUT)" \
 endef
 
 define CDK2_BACKEND_CHECK
-if test "$(CONFIG_CDK2_CAPSULE)" = "y" && test -z "$(strip $(CDK2_EFFECTIVE_CAPSULE_MAIN_FW_GUID))"; then \
+if test "$(CDK2_EFFECTIVE_CAPSULE)" = "y" && test -z "$(strip $(CDK2_EFFECTIVE_CAPSULE_MAIN_FW_GUID))"; then \
   echo "CONFIG_CDK2_CAPSULE requires CONFIG_CDK2_CAPSULE_MAIN_FW_GUID or a CAPSULE_MAIN_FW_GUID override" >&2; exit 1; \
 fi
 for module in $(CDK2_RETAINED_MODULES) $(CDK2_PAYLOAD_LIBRARIES); do \
@@ -369,7 +364,7 @@ set -e; tmp="$(CDK2_MANIFEST).tmp"; { \
   printf '%s\n' '# Resolved cdk2 backend module set'; \
   printf '%s\n' '# Generated from Kconfig; do not edit.'; \
   for module in $(CDK2_SELECTED_MODULES); do \
-    if test "$$module" = "$(CDK2_CAPSULE_FMP_DXE_MODULE)" && test "$(CONFIG_CDK2_CAPSULE)" = "y"; then \
+    if test "$$module" = "$(CDK2_CAPSULE_FMP_DXE_MODULE)" && test "$(CDK2_EFFECTIVE_CAPSULE)" = "y"; then \
       printf '%s FILE_GUID=%s\n' "$$module" "$(CDK2_EFFECTIVE_CAPSULE_MAIN_FW_GUID)"; \
     else \
       printf '%s\n' "$$module"; \

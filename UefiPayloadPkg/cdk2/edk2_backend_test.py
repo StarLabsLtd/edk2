@@ -288,7 +288,9 @@ class Edk2BackendPs2KeyboardTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
-    def _run_inspect(self, config: str) -> subprocess.CompletedProcess[str]:
+    def _run_inspect(
+        self, config: str, *, extra_defines: str = ""
+    ) -> subprocess.CompletedProcess[str]:
         makefile = self.workspace / "Makefile"
         makefile.write_text(
             "\n".join(
@@ -297,6 +299,7 @@ class Edk2BackendPs2KeyboardTests(unittest.TestCase):
                     f"override CDK2_ROOT := {CDK2_DIR.parents[1]}",
                     f"override CDK2_DIR := {CDK2_DIR}",
                     f"override CDK2_BUILD_DIR := {self.workspace / 'build'}",
+                    f"CDK2_EXTRA_DEFINES := {extra_defines}",
                     "CONFIG_CDK2_PAYLOAD := y",
                     "CONFIG_CDK2_CONSOLE := y",
                     "CONFIG_CDK2_BOOT_TIMEOUT := 0",
@@ -364,6 +367,37 @@ class Edk2BackendPs2KeyboardTests(unittest.TestCase):
         )
         self.assertIn("-D SIO_BUS_ENABLE=TRUE", result.stdout)
         self.assertIn("-D PS2_KEYBOARD_ENABLE=TRUE", result.stdout)
+
+    def test_extra_defines_drive_selected_module_set(self) -> None:
+        result = self._run_inspect(
+            "\n".join(
+                [
+                    "CONFIG_CDK2_PCI := y",
+                    "CONFIG_CDK2_TPM12 := y",
+                    "CONFIG_CDK2_TPM2 := y",
+                    "CONFIG_CDK2_TPM_CONFIG := y",
+                    "CONFIG_CDK2_SECURE_BOOT := n",
+                    "CONFIG_CDK2_SECURE_BOOT_CONFIG := n",
+                ]
+            ),
+            extra_defines="-D MEMORY_TEST=NONE -D TPM1_ENABLE=FALSE "
+            "-D SECURE_BOOT_ENABLE=TRUE -D OPAL_PASSWORD_ENABLE=TRUE",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn(
+            "MdeModulePkg/Universal/MemoryTest/NullMemoryTestDxe/NullMemoryTestDxe.inf",
+            result.stdout,
+        )
+        self.assertNotIn("SecurityPkg/Tcg/TcgDxe/TcgDxe.inf", result.stdout)
+        self.assertNotIn("SecurityPkg/Tcg/TcgConfigDxe/TcgConfigDxe.inf", result.stdout)
+        self.assertIn("SecurityPkg/Tcg/Tcg2Dxe/Tcg2Dxe.inf", result.stdout)
+        self.assertIn("SecurityPkg/Tcg/Tcg2Config/Tcg2ConfigDxe.inf", result.stdout)
+        self.assertIn("UefiPayloadPkg/EnrollDefaultKeys/EnrollDefaultKeys.inf", result.stdout)
+        self.assertIn("SecurityPkg/Tcg/Opal/OpalPassword/OpalPasswordDxe.inf", result.stdout)
+        self.assertIn("-D MEMORY_TEST=NONE", result.stdout)
+        self.assertIn("-D TPM1_ENABLE=FALSE", result.stdout)
+        self.assertIn("-D SECURE_BOOT_ENABLE=TRUE", result.stdout)
 
 
 if __name__ == "__main__":
