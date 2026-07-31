@@ -352,12 +352,16 @@ ParseReservedMemory (
   @param[in]  Fdt               Address of the Fdt data.
   @param[in]  SubNode           first Sub node of the PCI root bridge node.
 
-  @return     GmaStr            Graphic device node name string.
+  @param[out] GmaStr            Graphic device node name string.
+
+  @retval TRUE                  Framebuffer info HOB was built.
+  @retval FALSE                 Framebuffer node was invalid or unsupported.
 **/
-CHAR8 *
+BOOLEAN
 ParseFrameBuffer (
-  IN VOID   *Fdt,
-  IN INT32  Node
+  IN  VOID   *Fdt,
+  IN  INT32  Node,
+  OUT CHAR8  **GmaStr
   )
 {
   INT32                      Property;
@@ -365,77 +369,117 @@ ParseFrameBuffer (
   CONST FDT_PROPERTY         *PropertyPtr;
   CONST CHAR8                *TempStr;
   UINT32                     *Data32;
-  UINT64                     *Data64;
   UINT64                     FrameBufferBase;
-  UINT32                     FrameBufferSize;
-  UINT32                     FrameBufferStride;
+  UINT64                     FrameBufferSize;
+  UINT32                     Width;
+  UINT32                     Height;
+  UINT32                     Stride;
+  EFI_GRAPHICS_PIXEL_FORMAT  PixelFormat;
   EFI_PEI_GRAPHICS_INFO_HOB  *GraphicsInfo;
-  CHAR8                      *GmaStr;
+  CHAR8                      *LocalGmaStr;
+  BOOLEAN                    HasReg;
 
-  GmaStr = "Gma";
-  FrameBufferBase   = 0;
-  FrameBufferSize   = 0;
-  FrameBufferStride = 0;
-  //
-  // Create GraphicInfo HOB.
-  //
-  GraphicsInfo = BuildGuidHob (&gEfiGraphicsInfoHobGuid, sizeof (EFI_PEI_GRAPHICS_INFO_HOB));
-  ASSERT (GraphicsInfo != NULL);
-  if (GraphicsInfo == NULL) {
-    return GmaStr;
+  if (GmaStr == NULL) {
+    return FALSE;
   }
 
-  ZeroMem (GraphicsInfo, sizeof (EFI_PEI_GRAPHICS_INFO_HOB));
+  LocalGmaStr     = "Gma";
+  FrameBufferBase = 0;
+  FrameBufferSize = 0;
+  Width           = 0;
+  Height          = 0;
+  Stride          = 0;
+  PixelFormat     = PixelFormatMax;
+  HasReg          = FALSE;
 
   for (Property = FdtFirstPropertyOffset (Fdt, Node); Property >= 0; Property = FdtNextPropertyOffset (Fdt, Property)) {
     PropertyPtr = FdtGetPropertyByOffset (Fdt, Property, &TempLen);
     TempStr     = FdtGetString (Fdt, Fdt32ToCpu (PropertyPtr->NameOffset), NULL);
     if (AsciiStrCmp (TempStr, "reg") == 0) {
-      if (TempLen >= (INT32)(2 * sizeof (UINT64))) {
-        Data64                        = (UINT64 *)(PropertyPtr->Data);
-        FrameBufferBase               = Fdt64ToCpu (ReadUnaligned64 (Data64));
-        FrameBufferSize               = (UINT32)Fdt64ToCpu (ReadUnaligned64 (Data64 + 1));
-      } else if (TempLen >= (INT32)(2 * sizeof (UINT32))) {
-        Data32                        = (UINT32 *)(PropertyPtr->Data);
-        FrameBufferBase               = Fdt32ToCpu (*(Data32 + 0));
-        FrameBufferSize               = Fdt32ToCpu (*(Data32 + 1));
+      if (TempLen == (2 * sizeof (UINT64))) {
+        FrameBufferBase = Fdt64ToCpu (ReadUnaligned64 ((CONST UINT64 *)&PropertyPtr->Data[0]));
+        FrameBufferSize = Fdt64ToCpu (ReadUnaligned64 ((CONST UINT64 *)&PropertyPtr->Data[sizeof (UINT64)]));
+      } else if (TempLen == (2 * sizeof (UINT32))) {
+        Data32          = (UINT32 *)(PropertyPtr->Data);
+        FrameBufferBase = Fdt32ToCpu (ReadUnaligned32 (Data32));
+        FrameBufferSize = Fdt32ToCpu (ReadUnaligned32 (Data32 + 1));
       } else {
-        DEBUG ((DEBUG_WARN, "  Invalid framebuffer reg property\n"));
-        continue;
+        DEBUG ((DEBUG_ERROR, "Framebuffer reg must contain address and size cells\n"));
+        return FALSE;
       }
-      GraphicsInfo->FrameBufferBase = FrameBufferBase;
-      GraphicsInfo->FrameBufferSize = (UINT32)FrameBufferSize;
+
+      HasReg = TRUE;
     } else if (AsciiStrCmp (TempStr, "width") == 0) {
-      Data32                                          = (UINT32 *)(PropertyPtr->Data);
-      GraphicsInfo->GraphicsMode.HorizontalResolution = Fdt32ToCpu (*Data32);
+      if (TempLen != sizeof (UINT32)) {
+        return FALSE;
+      }
+
+      Data32 = (UINT32 *)(PropertyPtr->Data);
+      Width  = Fdt32ToCpu (ReadUnaligned32 (Data32));
     } else if (AsciiStrCmp (TempStr, "height") == 0) {
-      Data32                                        = (UINT32 *)(PropertyPtr->Data);
-      GraphicsInfo->GraphicsMode.VerticalResolution = Fdt32ToCpu (*Data32);
+      if (TempLen != sizeof (UINT32)) {
+        return FALSE;
+      }
+
+      Data32 = (UINT32 *)(PropertyPtr->Data);
+      Height = Fdt32ToCpu (ReadUnaligned32 (Data32));
     } else if (AsciiStrCmp (TempStr, "stride") == 0) {
-      Data32             = (UINT32 *)(PropertyPtr->Data);
-      FrameBufferStride  = Fdt32ToCpu (*Data32);
+      if (TempLen != sizeof (UINT32)) {
+        return FALSE;
+      }
+
+      Data32 = (UINT32 *)(PropertyPtr->Data);
+      Stride = Fdt32ToCpu (ReadUnaligned32 (Data32));
     } else if (AsciiStrCmp (TempStr, "format") == 0) {
+      if (TempLen != sizeof ("a8r8g8b8")) {
+        return FALSE;
+      }
+
       TempStr = (CHAR8 *)(PropertyPtr->Data);
-      if (AsciiStrCmp (TempStr, "a8r8g8b8") == 0) {
-        GraphicsInfo->GraphicsMode.PixelFormat = PixelBlueGreenRedReserved8BitPerColor;
-      } else if (AsciiStrCmp (TempStr, "a8b8g8r8") == 0) {
-        GraphicsInfo->GraphicsMode.PixelFormat = PixelRedGreenBlueReserved8BitPerColor;
+      if ((AsciiStrCmp (TempStr, "a8r8g8b8") == 0) || (AsciiStrCmp (TempStr, "x8r8g8b8") == 0)) {
+        PixelFormat = PixelBlueGreenRedReserved8BitPerColor;
+      } else if ((AsciiStrCmp (TempStr, "a8b8g8r8") == 0) || (AsciiStrCmp (TempStr, "x8b8g8r8") == 0)) {
+        PixelFormat = PixelRedGreenBlueReserved8BitPerColor;
       } else {
-        GraphicsInfo->GraphicsMode.PixelFormat = PixelFormatMax;
+        DEBUG ((DEBUG_ERROR, "Unsupported framebuffer format: %a\n", TempStr));
+        return FALSE;
       }
     } else if (AsciiStrCmp (TempStr, "display") == 0) {
-      GmaStr = (CHAR8 *)(PropertyPtr->Data);
-      GmaStr++;
-      DEBUG ((DEBUG_INFO, "  display (%s)", GmaStr));
+      LocalGmaStr = (CHAR8 *)(PropertyPtr->Data);
+      LocalGmaStr++;
+      DEBUG ((DEBUG_INFO, "  display (%s)", LocalGmaStr));
     }
-
-    // In most case, PixelsPerScanLine is identical to HorizontalResolution
-    GraphicsInfo->GraphicsMode.PixelsPerScanLine = (FrameBufferStride != 0) ?
-                                                    FrameBufferStride / sizeof (UINT32) :
-                                                    GraphicsInfo->GraphicsMode.HorizontalResolution;
   }
 
-  return GmaStr;
+  if ((Stride == 0) && (Width <= (MAX_UINT32 / sizeof (UINT32)))) {
+    Stride = Width * sizeof (UINT32);
+  }
+
+  if (!HasReg || (FrameBufferSize > MAX_UINT32) || (Width == 0) || (Height == 0) ||
+      (Width > (MAX_UINT32 / sizeof (UINT32))) ||
+      (Stride < (Width * sizeof (UINT32))) || ((Stride % sizeof (UINT32)) != 0) ||
+      ((UINT64)Stride * Height > FrameBufferSize) || (PixelFormat == PixelFormatMax))
+  {
+    DEBUG ((DEBUG_ERROR, "Framebuffer node is incomplete or invalid\n"));
+    return FALSE;
+  }
+
+  GraphicsInfo = BuildGuidHob (&gEfiGraphicsInfoHobGuid, sizeof (EFI_PEI_GRAPHICS_INFO_HOB));
+  ASSERT (GraphicsInfo != NULL);
+  if (GraphicsInfo == NULL) {
+    return FALSE;
+  }
+
+  ZeroMem (GraphicsInfo, sizeof (EFI_PEI_GRAPHICS_INFO_HOB));
+  GraphicsInfo->FrameBufferBase                   = FrameBufferBase;
+  GraphicsInfo->FrameBufferSize                   = (UINT32)FrameBufferSize;
+  GraphicsInfo->GraphicsMode.HorizontalResolution = Width;
+  GraphicsInfo->GraphicsMode.VerticalResolution   = Height;
+  GraphicsInfo->GraphicsMode.PixelFormat          = PixelFormat;
+  GraphicsInfo->GraphicsMode.PixelsPerScanLine    = Stride / sizeof (UINT32);
+
+  *GmaStr = LocalGmaStr;
+  return TRUE;
 }
 
 /**
@@ -730,7 +774,6 @@ ParsePciRootBridge (
 {
   INT32               SubNode;
   INT32               Property;
-  INT32               SSubNode;
   FDT_NODE_HEADER     *NodePtr;
   CONST FDT_PROPERTY  *PropertyPtr;
   INT32               TempLen;
@@ -739,7 +782,7 @@ ParsePciRootBridge (
   CONST CHAR8         *TempStr;
   UINT8               RbIndex;
   UINTN               HobDataSize;
-  UINT8               Base;
+  UINT32              Base;
   UINT32              AddressCells;
 
   if (RootBridgeCount == 0) {
@@ -791,19 +834,6 @@ ParsePciRootBridge (
       ParsegraphicNode (Fdt, SubNode);
     }
 
-    if (AsciiStrnCmp (NodePtr->Name, "isa", AsciiStrLen ("isa")) == 0) {
-      PropertyPtr = FdtGetProperty (Fdt, SubNode, "#address-cells", &TempLen);
-      if ((PropertyPtr != NULL) && (TempLen > 0)) {
-        AddressCells = Fdt32ToCpu (*(UINT32 *)PropertyPtr->Data);
-      }
-
-      SSubNode = FdtFirstSubnode (Fdt, SubNode);
-      ParseSerialPort (Fdt, SSubNode, AddressCells);
-    }
-
-    if (AsciiStrnCmp (NodePtr->Name, "serial@", AsciiStrLen ("serial@")) == 0) {
-      ParseSerialPort (Fdt, SubNode, AddressCells);
-    }
   }
 
   for (Property = FdtFirstPropertyOffset (Fdt, Node); Property >= 0; Property = FdtNextPropertyOffset (Fdt, Property)) {
@@ -856,11 +886,21 @@ ParsePciRootBridge (
     // DMA (Direct Memory Access) addresses above the 4GiB boundary.
     //
     if (AsciiStrCmp (TempStr, "dma-ranges") == 0) {
-      Data32 = (UINT32 *)(PropertyPtr->Data);
+      INT32   DmaRangesLength;
+      INT32   ParentNode;
+      UINT32  ChildAddrCells;
+      UINT32  DmaRangeCells;
+      UINT32  ParentAddrCells;
+      UINT32  SizeCells;
+      UINT32  TripletCells;
 
-      if (TempLen == 0) {
+      Data32          = (UINT32 *)(PropertyPtr->Data);
+      DmaRangesLength = TempLen;
+      if ((DmaRangesLength <= 0) || ((DmaRangesLength % sizeof (UINT32)) != 0)) {
         continue;
       }
+
+      DmaRangeCells = (UINT32)(DmaRangesLength / sizeof (UINT32));
 
       //
       // According to the device tree specification, a dma-ranges entry is a tuple of
@@ -868,26 +908,33 @@ ParsePciRootBridge (
       // for each part of the tuple is defined by the '#address-cells' and '#size-cells'
       // properties.
       //
-      UINT32  ChildAddrCells = AddressCells;
-
-      UINT32  ParentAddrCells = AddressCells;
-      INT32   ParentNode      = FdtParentOffset (Fdt, Node);
+      ChildAddrCells  = AddressCells;
+      ParentAddrCells = AddressCells;
+      ParentNode      = FdtParentOffset (Fdt, Node);
       if (ParentNode >= 0) {
         PropertyPtr = FdtGetProperty (Fdt, ParentNode, "#address-cells", &TempLen);
-        if ((PropertyPtr != NULL) && (TempLen > 0)) {
+        if ((PropertyPtr != NULL) && (TempLen == sizeof (UINT32))) {
           ParentAddrCells = Fdt32ToCpu (*(UINT32 *)PropertyPtr->Data);
         }
       }
 
-      UINT32  SizeCells = 2;
+      SizeCells = 2;
       PropertyPtr = FdtGetProperty (Fdt, Node, "#size-cells", &TempLen);
-      if ((PropertyPtr != NULL) && (TempLen > 0)) {
+      if ((PropertyPtr != NULL) && (TempLen == sizeof (UINT32))) {
         SizeCells = Fdt32ToCpu (*(UINT32 *)PropertyPtr->Data);
       }
 
-      UINT32  TripletCells = ChildAddrCells + ParentAddrCells + SizeCells;
+      if ((ChildAddrCells == 0) || (ParentAddrCells == 0) || (SizeCells == 0) ||
+          (ParentAddrCells > 2) || (SizeCells > 2) ||
+          (ChildAddrCells > DmaRangeCells) ||
+          (ParentAddrCells > (DmaRangeCells - ChildAddrCells)) ||
+          (SizeCells > (DmaRangeCells - ChildAddrCells - ParentAddrCells)))
+      {
+        continue;
+      }
 
-      for (Base = 0; Base < TempLen / sizeof (UINT32); Base = Base + TripletCells) {
+      TripletCells = ChildAddrCells + ParentAddrCells + SizeCells;
+      for (Base = 0; Base + TripletCells <= DmaRangeCells; Base = Base + TripletCells) {
         UINT64  ParentBusAddress = 0;
         UINT64  DmaRangeSize     = 0;
         UINT32  ParentBase       = Base + ChildAddrCells;
@@ -906,8 +953,10 @@ ParsePciRootBridge (
           DmaRangeSize = Fdt32ToCpu (*(Data32 + SizeBase));
         }
 
-        if ((ParentBusAddress > 0xFFFFFFFF) ||
-            ((ParentBusAddress + DmaRangeSize - 1) > 0xFFFFFFFF))
+        if ((DmaRangeSize != 0) &&
+            ((ParentBusAddress > 0xFFFFFFFF) ||
+             ((DmaRangeSize - 1) > (MAX_UINT64 - ParentBusAddress)) ||
+             ((ParentBusAddress + DmaRangeSize - 1) > 0xFFFFFFFF)))
         {
           mPciRootBridgeInfo->RootBridge[RbIndex].DmaAbove4G = TRUE;
           DEBUG ((
@@ -1253,6 +1302,7 @@ ParseDtb (
   UINT32                RootAddressCells;
   UINT32                SerialAddressCells;
   INT32                 ParentNode;
+  BOOLEAN               FrameBufferParsed;
 
   Fdt               = FdtBase;
   Depth             = 0;
@@ -1267,7 +1317,8 @@ ParseDtb (
   BootMode         = 0;
   NodeType         = 0;
   RootAddressCells = 2;
-  GmaStr           = "Gma";
+  GmaStr            = "Gma";
+  FrameBufferParsed = FALSE;
 
   DEBUG ((DEBUG_INFO, "FDT = 0x%x  %x\n", Fdt, Fdt32ToCpu (*((UINT32 *)Fdt))));
   DEBUG ((DEBUG_INFO, "Start parsing DTB data\n"));
@@ -1298,6 +1349,17 @@ ParseDtb (
           NodePtr    = (FDT_NODE_HEADER *)((CONST CHAR8 *)Fdt + ParentNode + Fdt32ToCpu (((FDT_HEADER *)Fdt)->OffsetDtStruct));
           NodeType   = CheckNodeType (NodePtr->Name, Depth);
           if (!IsHobConstructed && (NodeType != ReservedMemory)) {
+            if (sizeof (UINTN) == sizeof (UINT32)) {
+              if (StartAddress >= (BASE_4GB - EFI_PAGE_SIZE)) {
+                DEBUG ((DEBUG_INFO, "Skipping memory outside the IA32 HOB address limit\n"));
+                continue;
+              }
+
+              if (NumberOfBytes > (BASE_4GB - EFI_PAGE_SIZE - StartAddress)) {
+                NumberOfBytes = BASE_4GB - EFI_PAGE_SIZE - StartAddress;
+              }
+            }
+
             if (NumberOfBytes > MinimalNeededSize) {
               MemoryBottom     = StartAddress + NumberOfBytes - MinimalNeededSize;
               FreeMemoryBottom = MemoryBottom;
@@ -1350,6 +1412,17 @@ ParseDtb (
   }
 #endif
 
+  Depth = 0;
+  for (Node = FdtNextNode (Fdt, 0, &Depth); Node >= 0; Node = FdtNextNode (Fdt, Node, &Depth)) {
+    NodePtr = (FDT_NODE_HEADER *)((CONST CHAR8 *)Fdt + Node + Fdt32ToCpu (((FDT_HEADER *)Fdt)->OffsetDtStruct));
+    if (CheckNodeType (NodePtr->Name, Depth) == FrameBuffer) {
+      DEBUG ((DEBUG_INFO, "PreParseFrameBuffer\n"));
+      if (ParseFrameBuffer (Fdt, Node, &GmaStr)) {
+        FrameBufferParsed = TRUE;
+      }
+    }
+  }
+
   index               = RootBridgeCount - 1;
   Depth               = 0;
   for (Node = FdtNextNode (Fdt, 0, &Depth); Node >= 0; Node = FdtNextNode (Fdt, Node, &Depth)) {
@@ -1385,8 +1458,13 @@ ParseDtb (
 
         break;
       case FrameBuffer:
-        DEBUG ((DEBUG_INFO, "ParseFrameBuffer\n"));
-        GmaStr = ParseFrameBuffer (Fdt, Node);
+        if (!FrameBufferParsed) {
+          DEBUG ((DEBUG_INFO, "ParseFrameBuffer\n"));
+          if (ParseFrameBuffer (Fdt, Node, &GmaStr)) {
+            FrameBufferParsed = TRUE;
+          }
+        }
+
         break;
       case PciRootBridge:
         DEBUG ((DEBUG_INFO, "ParsePciRootBridge, index :%x \n", index));

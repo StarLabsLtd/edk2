@@ -206,7 +206,6 @@ BuildTpmEventHobsFromAcpi (
   UINT32                Laml;
   EFI_PHYSICAL_ADDRESS  Lasa;
   UINT32                EventType;
-  UINT32                PcrIndex;
   UINTN                 Offset;
   UINTN                 TpmEventCount;
 
@@ -229,10 +228,8 @@ BuildTpmEventHobsFromAcpi (
       break;
     }
 
-    PcrIndex  = ReadUnaligned32 ((UINT32 *)(EventLog + Offset));
     EventType = ReadUnaligned32 ((UINT32 *)(EventLog + Offset + sizeof (TCG_PCRINDEX)));
-    if ((PcrIndex != 0) &&
-        ((EventType != EV_NO_ACTION) || !IsSpecIdEvent (EventLog + Offset + EventDataOffset, EventDataSize)))
+    if ((EventType != EV_NO_ACTION) || !IsSpecIdEvent (EventLog + Offset + EventDataOffset, EventDataSize))
     {
       HobData = BuildGuidHob (&gTcgEvent2EntryHobGuid, EventSize);
       if (HobData == NULL) {

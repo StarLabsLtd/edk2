@@ -13,6 +13,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 
 #include <Library/PcdLib.h>
 #include <Library/SafeIntLib.h>
+#include <Protocol/PlatformLogo.h>
 
 #define GRAPHICS_OUTPUT_MODE_PHYSICAL  0
 #define GRAPHICS_OUTPUT_MODE_HIDPI     1
@@ -35,6 +36,13 @@ EFI_PEI_GRAPHICS_DEVICE_INFO_HOB  mDefaultGraphicsDeviceInfo = {
 // So a global flag is used to remember that the driver is already started.
 //
 BOOLEAN  mDriverStarted = FALSE;
+
+STATIC
+EFI_STATUS
+RedrawPlatformLogo (
+  IN EFI_GRAPHICS_OUTPUT_PROTOCOL  *GraphicsOutput,
+  IN BOOLEAN                       ScaleLogo
+  );
 
 /**
   Return TRUE if the framebuffer is wider than the configured cap aspect and can
@@ -453,6 +461,11 @@ GraphicsOutputReadyToBoot (
     if (EFI_ERROR (Status)) {
       DEBUG ((DEBUG_VERBOSE, "[%a]: PcdSetupVideoVerticalResolution update failed: %r\n", gEfiCallerBaseName, Status));
     }
+
+    Status = RedrawPlatformLogo (&Private->GraphicsOutput, TRUE);
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_VERBOSE, "[%a]: RedrawPlatformLogo failed: %r\n", gEfiCallerBaseName, Status));
+    }
   }
 }
 
@@ -536,6 +549,220 @@ ScaleBltBuffer2x (
   }
 
   return EFI_SUCCESS;
+}
+
+STATIC
+EFI_STATUS
+GetLogoDestination (
+  IN  EDKII_PLATFORM_LOGO_DISPLAY_ATTRIBUTE  Attribute,
+  IN  UINTN                                  ScreenWidth,
+  IN  UINTN                                  ScreenHeight,
+  IN  UINTN                                  LogoWidth,
+  IN  UINTN                                  LogoHeight,
+  IN  INTN                                   OffsetX,
+  IN  INTN                                   OffsetY,
+  OUT INTN                                   *DestX,
+  OUT INTN                                   *DestY
+  )
+{
+  if ((DestX == NULL) || (DestY == NULL) || (LogoWidth > ScreenWidth) || (LogoHeight > ScreenHeight)) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  switch (Attribute) {
+    case EdkiiPlatformLogoDisplayAttributeLeftTop:
+      *DestX = 0;
+      *DestY = 0;
+      break;
+    case EdkiiPlatformLogoDisplayAttributeCenterTop:
+      *DestX = (INTN)((ScreenWidth - LogoWidth) / 2);
+      *DestY = 0;
+      break;
+    case EdkiiPlatformLogoDisplayAttributeRightTop:
+      *DestX = (INTN)(ScreenWidth - LogoWidth);
+      *DestY = 0;
+      break;
+    case EdkiiPlatformLogoDisplayAttributeCenterLeft:
+      *DestX = 0;
+      *DestY = (INTN)((ScreenHeight - LogoHeight) / 2);
+      break;
+    case EdkiiPlatformLogoDisplayAttributeCenter:
+      *DestX = (INTN)((ScreenWidth - LogoWidth) / 2);
+      *DestY = (INTN)((ScreenHeight - LogoHeight) / 2);
+      break;
+    case EdkiiPlatformLogoDisplayAttributeCenterRight:
+      *DestX = (INTN)(ScreenWidth - LogoWidth);
+      *DestY = (INTN)((ScreenHeight - LogoHeight) / 2);
+      break;
+    case EdkiiPlatformLogoDisplayAttributeLeftBottom:
+      *DestX = 0;
+      *DestY = (INTN)(ScreenHeight - LogoHeight);
+      break;
+    case EdkiiPlatformLogoDisplayAttributeCenterBottom:
+      *DestX = (INTN)((ScreenWidth - LogoWidth) / 2);
+      *DestY = (INTN)(ScreenHeight - LogoHeight);
+      break;
+    case EdkiiPlatformLogoDisplayAttributeRightBottom:
+      *DestX = (INTN)(ScreenWidth - LogoWidth);
+      *DestY = (INTN)(ScreenHeight - LogoHeight);
+      break;
+    default:
+      return EFI_UNSUPPORTED;
+  }
+
+  *DestX += OffsetX;
+  *DestY += OffsetY;
+  if ((*DestX < 0) || (*DestY < 0) ||
+      (LogoWidth > ScreenWidth - (UINTN)*DestX) ||
+      (LogoHeight > ScreenHeight - (UINTN)*DestY))
+  {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  return EFI_SUCCESS;
+}
+
+STATIC
+EFI_STATUS
+RedrawPlatformLogo (
+  IN EFI_GRAPHICS_OUTPUT_PROTOCOL  *GraphicsOutput,
+  IN BOOLEAN                       ScaleLogo
+  )
+{
+  EDKII_PLATFORM_LOGO_DISPLAY_ATTRIBUTE  Attribute;
+  EFI_GRAPHICS_OUTPUT_BLT_PIXEL          *Blt;
+  EFI_GRAPHICS_OUTPUT_BLT_PIXEL          *ScaledBlt;
+  UINTN                                  BltSize;
+  INTN                                   DestX;
+  INTN                                   DestY;
+  EFI_IMAGE_INPUT                        Image;
+  UINT32                                 Instance;
+  UINTN                                  LogoHeight;
+  UINTN                                  LogoWidth;
+  INTN                                   OffsetX;
+  INTN                                   OffsetY;
+  EDKII_PLATFORM_LOGO_PROTOCOL           *PlatformLogo;
+  BOOLEAN                                Redrawn;
+  UINTN                                  ScaledHeight;
+  UINTN                                  ScaledWidth;
+  EFI_STATUS                             Status;
+
+  if ((GraphicsOutput == NULL) ||
+      (GraphicsOutput->Mode == NULL) ||
+      (GraphicsOutput->Mode->Info == NULL))
+  {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  Status = gBS->LocateProtocol (&gEdkiiPlatformLogoProtocolGuid, NULL, (VOID **)&PlatformLogo);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  Instance = 0;
+  Redrawn  = FALSE;
+  while (TRUE) {
+    ZeroMem (&Image, sizeof (Image));
+    Status = PlatformLogo->GetImage (
+                             PlatformLogo,
+                             &Instance,
+                             &Image,
+                             &Attribute,
+                             &OffsetX,
+                             &OffsetY
+                             );
+    if (EFI_ERROR (Status)) {
+      break;
+    }
+
+    Blt        = Image.Bitmap;
+    LogoWidth  = Image.Width;
+    LogoHeight = Image.Height;
+    if ((Blt == NULL) || (LogoWidth == 0) || (LogoHeight == 0)) {
+      if (Blt != NULL) {
+        FreePool (Blt);
+      }
+
+      continue;
+    }
+
+    if (ScaleLogo) {
+      ScaledBlt = NULL;
+      Status    = SafeUintnMult (LogoWidth, 2, &ScaledWidth);
+      if (!RETURN_ERROR (Status)) {
+        Status = SafeUintnMult (LogoHeight, 2, &ScaledHeight);
+      }
+
+      if (!RETURN_ERROR (Status)) {
+        Status = SafeUintnMult (ScaledWidth, ScaledHeight, &BltSize);
+      }
+
+      if (!RETURN_ERROR (Status)) {
+        Status = SafeUintnMult (BltSize, sizeof (*ScaledBlt), &BltSize);
+      }
+
+      if (!RETURN_ERROR (Status)) {
+        ScaledBlt = AllocatePool (BltSize);
+        if (ScaledBlt == NULL) {
+          Status = EFI_OUT_OF_RESOURCES;
+        }
+      }
+
+      if (!EFI_ERROR (Status)) {
+        Status = ScaleBltBuffer2x (
+                   Blt,
+                   LogoWidth,
+                   LogoHeight,
+                   LogoWidth * sizeof (*Blt),
+                   ScaledBlt
+                   );
+      }
+
+      if (!EFI_ERROR (Status)) {
+        FreePool (Blt);
+        Blt        = ScaledBlt;
+        LogoWidth  = ScaledWidth;
+        LogoHeight = ScaledHeight;
+        OffsetX   *= 2;
+        OffsetY   *= 2;
+      } else if (ScaledBlt != NULL) {
+        FreePool (ScaledBlt);
+      }
+    }
+
+    Status = GetLogoDestination (
+               Attribute,
+               GraphicsOutput->Mode->Info->HorizontalResolution,
+               GraphicsOutput->Mode->Info->VerticalResolution,
+               LogoWidth,
+               LogoHeight,
+               OffsetX,
+               OffsetY,
+               &DestX,
+               &DestY
+               );
+    if (!EFI_ERROR (Status)) {
+      Status = GraphicsOutput->Blt (
+                                 GraphicsOutput,
+                                 Blt,
+                                 EfiBltBufferToVideo,
+                                 0,
+                                 0,
+                                 (UINTN)DestX,
+                                 (UINTN)DestY,
+                                 LogoWidth,
+                                 LogoHeight,
+                                 LogoWidth * sizeof (*Blt)
+                                 );
+      if (!EFI_ERROR (Status)) {
+        Redrawn = TRUE;
+      }
+    }
+
+    FreePool (Blt);
+  }
+
+  return Redrawn ? EFI_SUCCESS : EFI_UNSUPPORTED;
 }
 
 /**

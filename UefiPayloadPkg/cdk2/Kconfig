@@ -28,7 +28,7 @@ config CDK2_CONSOLE
 config CDK2_GRAPHICS
     bool "Include graphics support"
     default y
-    depends on CDK2_CONSOLE
+    depends on CDK2_CONSOLE && CDK2_PCI
 
 config CDK2_SETUP_UI
     bool "Include the firmware setup UI"
@@ -143,7 +143,8 @@ config CDK2_SD
 config CDK2_PS2_MOUSE
     bool "Include PS/2 mouse support"
     default y
-    depends on CDK2_CONSOLE
+    depends on CDK2_CONSOLE && CDK2_PCI
+    select CDK2_SIO_BUS
 
 config CDK2_SIO_BUS
     bool

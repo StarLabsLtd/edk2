@@ -22,6 +22,7 @@ Cdk2CorebootBuildHobs (
   IN  VOID                          *EfiMemoryTop,
   IN  VOID                          *EfiFreeMemoryBottom,
   IN  VOID                          *EfiFreeMemoryTop,
+  IN  BOOLEAN                        CapsuleSupportEnabled,
   OUT EFI_HOB_HANDOFF_INFO_TABLE   **Handoff
   );
 
@@ -37,6 +38,13 @@ Cdk2CorebootFindHobMemoryBase (
 
 EFI_STATUS
 Cdk2CorebootAppendFvHob (
+  IN OUT EFI_HOB_HANDOFF_INFO_TABLE  *Handoff,
+  IN     EFI_PHYSICAL_ADDRESS         BaseAddress,
+  IN     UINT64                       Length
+  );
+
+EFI_STATUS
+Cdk2CorebootAppendCapsuleHob (
   IN OUT EFI_HOB_HANDOFF_INFO_TABLE  *Handoff,
   IN     EFI_PHYSICAL_ADDRESS         BaseAddress,
   IN     UINT64                       Length

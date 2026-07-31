@@ -60,13 +60,28 @@ CDK2_GRAPHICS_MODULES := \
     MdeModulePkg/Universal/Console/GraphicsConsoleDxe/GraphicsConsoleDxe.inf \
     UefiPayloadPkg/GraphicsOutputDxe/GraphicsOutputDxe.inf
 
+CDK2_EXTRA_DEFINES_NORMALIZED ?= $(subst ",,$(CDK2_EXTRA_DEFINES))
+CDK2_LVGL_ENABLE_FROM_EXTRA := $(filter LVGL_ENABLE=% -DLVGL_ENABLE=% --define=LVGL_ENABLE=%,$(CDK2_EXTRA_DEFINES_NORMALIZED))
+CDK2_LVGL_ENABLE_FROM_EXTRA := $(patsubst --define=LVGL_ENABLE=%,%,$(CDK2_LVGL_ENABLE_FROM_EXTRA))
+CDK2_LVGL_ENABLE_FROM_EXTRA := $(patsubst -DLVGL_ENABLE=%,%,$(CDK2_LVGL_ENABLE_FROM_EXTRA))
+CDK2_LVGL_ENABLE_FROM_EXTRA := $(patsubst LVGL_ENABLE=%,%,$(CDK2_LVGL_ENABLE_FROM_EXTRA))
+CDK2_LVGL_ENABLE := $(strip $(lastword $(CDK2_LVGL_ENABLE_FROM_EXTRA)))
+
 CDK2_SETUP_UI_MODULES := \
     UefiPayloadPkg/CfrSetupMenuDxe/CfrSetupMenuDxe.inf \
     MdeModulePkg/Application/UiApp/UiApp.inf \
     MdeModulePkg/Application/BootManagerMenuApp/BootManagerMenuApp.inf \
     MdeModulePkg/Universal/SetupBrowserDxe/SetupBrowserDxe.inf \
-    MdeModulePkg/Universal/DisplayEngineDxe/DisplayEngineDxe.inf \
     UefiPayloadPkg/UserAuthPkg/UserAuthenticationDxe/UserAuthenticationDxe.inf
+
+ifeq ($(CDK2_LVGL_ENABLE),TRUE)
+CDK2_SETUP_UI_MODULES += \
+    3rdparty/LvglPkg/LvglDisplayEngineDxe/LvglDisplayEngineDxe.inf \
+    3rdparty/LvglPkg/LvglSetupDxe/LvglSetupDxe.inf
+else
+CDK2_SETUP_UI_MODULES += \
+    MdeModulePkg/Universal/DisplayEngineDxe/DisplayEngineDxe.inf
+endif
 
 CDK2_USB_MODULES := \
     MdeModulePkg/Bus/Pci/UhciDxe/UhciDxe.inf \
@@ -74,8 +89,15 @@ CDK2_USB_MODULES := \
     MdeModulePkg/Bus/Pci/XhciDxe/XhciDxe.inf \
     MdeModulePkg/Bus/Usb/UsbBusDxe/UsbBusDxe.inf \
     MdeModulePkg/Bus/Usb/UsbKbDxe/UsbKbDxe.inf \
-    MdeModulePkg/Bus/Usb/UsbMassStorageDxe/UsbMassStorageDxe.inf \
+    MdeModulePkg/Bus/Usb/UsbMassStorageDxe/UsbMassStorageDxe.inf
+
+ifeq ($(CDK2_LVGL_ENABLE),TRUE)
+CDK2_USB_MODULES += \
+    MdeModulePkg/Bus/Usb/UsbMouseAbsolutePointerDxe/UsbMouseAbsolutePointerDxe.inf
+else
+CDK2_USB_MODULES += \
     MdeModulePkg/Bus/Usb/UsbMouseDxe/UsbMouseDxe.inf
+endif
 
 CDK2_ATA_MODULES := \
     MdeModulePkg/Bus/Pci/SataControllerDxe/SataControllerDxe.inf \
@@ -179,12 +201,12 @@ CDK2_FEATURE_MODULES := \
 CDK2_RETAINED_MODULES := $(sort $(CDK2_REQUIRED_MODULES) $(CDK2_FEATURE_MODULES))
 CDK2_SELECTED_MODULES := $(CDK2_REQUIRED_MODULES)
 
-ifeq ($(CONFIG_CDK2_PS2_KEYBOARD),y)
+ifneq ($(filter y,$(CONFIG_CDK2_PS2_KEYBOARD) $(CONFIG_CDK2_PS2_MOUSE)),)
 ifneq ($(CONFIG_CDK2_CONSOLE),y)
-$(error CONFIG_CDK2_PS2_KEYBOARD requires CONFIG_CDK2_CONSOLE)
+$(error CONFIG_CDK2_PS2_KEYBOARD/CONFIG_CDK2_PS2_MOUSE require CONFIG_CDK2_CONSOLE)
 endif
 ifneq ($(CONFIG_CDK2_PCI),y)
-$(error CONFIG_CDK2_PS2_KEYBOARD requires CONFIG_CDK2_PCI)
+$(error CONFIG_CDK2_PS2_KEYBOARD/CONFIG_CDK2_PS2_MOUSE require CONFIG_CDK2_PCI)
 endif
 CONFIG_CDK2_SIO_BUS := y
 endif

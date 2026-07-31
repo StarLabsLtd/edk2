@@ -8,10 +8,45 @@
 
 #include <Base.h>
 #include <PiDxe.h>
+#include <Guid/SerialPortInfoGuid.h>
 #include <UniversalPayload/SerialPortInfo.h>
 #include <Library/PlatformHookLib.h>
 #include <Library/PcdLib.h>
 #include <Library/HobLib.h>
+
+STATIC
+RETURN_STATUS
+PlatformHookApplySerialClockRate (
+  VOID
+  )
+{
+  UINT8             *GuidHob;
+  UINTN             HobDataSize;
+  SERIAL_PORT_INFO  *SerialPortInfo;
+  RETURN_STATUS     Status;
+
+  GuidHob = GetFirstGuidHob (&gUefiSerialPortInfoGuid);
+  if (GuidHob == NULL) {
+    return RETURN_SUCCESS;
+  }
+
+  HobDataSize = GET_GUID_HOB_DATA_SIZE (GuidHob);
+  if (HobDataSize < OFFSET_OF (SERIAL_PORT_INFO, InputHertz) + sizeof (SerialPortInfo->InputHertz)) {
+    return RETURN_SUCCESS;
+  }
+
+  SerialPortInfo = (SERIAL_PORT_INFO *)GET_GUID_HOB_DATA (GuidHob);
+  if (SerialPortInfo->InputHertz == 0) {
+    return RETURN_SUCCESS;
+  }
+
+  Status = PcdSet32S (PcdSerialClockRate, SerialPortInfo->InputHertz);
+  if (RETURN_ERROR (Status)) {
+    return Status;
+  }
+
+  return RETURN_SUCCESS;
+}
 
 /** Library Constructor
 
@@ -53,6 +88,11 @@ PlatformHookSerialPortInitialize (
 
   if (GetHobList () == NULL) {
     return RETURN_SUCCESS;
+  }
+
+  Status = PlatformHookApplySerialClockRate ();
+  if (RETURN_ERROR (Status)) {
+    return Status;
   }
 
   GuidHob = GetFirstGuidHob (&gUniversalPayloadSerialPortInfoGuid);

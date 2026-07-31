@@ -125,6 +125,8 @@ that are covered by additional licenses.
 -  `MdePkg/Library/BaseFdtLib/libfdt <https://github.com/devicetree-org/pylibfdt/blob/f39368a217496d32c4091a2dba4045b60649e3a5/BSD-2-Clause>`__
 -  `SecurityPkg/DeviceSecurity/SpdmLib/libspdm <https://github.com/DMTF/libspdm/blob/main/LICENSE.md>`__
 -  `TcgTpmPkg/Library/TpmLib/TPM <https://github.com/TrustedComputingGroup/TPM/blob/main/LICENSE>`__
+-  `3rdparty/LvglPkg <https://github.com/StarLabsLtd/LvglPkg/blob/3375a8d16a62497f173145d67f9b203e6e1a7c45/LICENSE>`__
+-  `3rdparty/secureboot_objects <https://github.com/microsoft/secureboot_objects/blob/06fe58a31d2da381fb68c6d9f30af0dfb91cbe3a/License.txt>`__
 
 The EDK II Project is composed of packages. The maintainers for each package
 are listed in `Maintainers.txt <Maintainers.txt>`__.

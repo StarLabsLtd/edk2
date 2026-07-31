@@ -32,9 +32,11 @@
 
 [Guids]
   gUniversalPayloadSerialPortInfoGuid
+  gUefiSerialPortInfoGuid
 
 [Pcd]
   gEfiMdeModulePkgTokenSpaceGuid.PcdSerialUseMmio         ## PRODUCES
   gEfiMdeModulePkgTokenSpaceGuid.PcdSerialRegisterBase    ## PRODUCES
   gEfiMdeModulePkgTokenSpaceGuid.PcdSerialBaudRate        ## PRODUCES
   gEfiMdeModulePkgTokenSpaceGuid.PcdSerialRegisterStride  ## PRODUCES
+  gEfiMdeModulePkgTokenSpaceGuid.PcdSerialClockRate       ## PRODUCES

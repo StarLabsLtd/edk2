@@ -210,6 +210,8 @@ class Settings(CiBuildSettingsManager, UpdateSettingsManager, SetupSettingsManag
             "TcgTpmPkg/Library/TpmLib/TPM", False))
         rs.append(RequiredSubmodule(
             "3rdparty/LvglPkg", True))
+        rs.append(RequiredSubmodule(
+            "3rdparty/secureboot_objects", True))
         return rs
 
     def GetName(self):

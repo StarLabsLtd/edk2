@@ -18,6 +18,7 @@
 [Packages]
   MdePkg/MdePkg.dec
   MdeModulePkg/MdeModulePkg.dec
+  UefiPayloadPkg/UefiPayloadPkg.dec
 
 [LibraryClasses]
   PcdLib
@@ -43,3 +44,4 @@
 
 [Guids]
   gUniversalPayloadSerialPortInfoGuid
+  gUefiSerialPortInfoGuid

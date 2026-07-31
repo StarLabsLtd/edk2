@@ -508,10 +508,11 @@ class GenFdsGlobalVariable:
 
             SaveFileOnChange(CommandFile, ' '.join(Cmd), False)
             if IsMakefile:
+                InputGuard = GenFdsGlobalVariable.QuoteCommandArgument(Input[0])
                 if sys.platform == "win32":
-                    Cmd = ['if', 'exist', Input[0]] + Cmd
+                    Cmd = ['if', 'exist', InputGuard] + Cmd
                 else:
-                    Cmd = ['-test', '-e', Input[0], "&&"] + Cmd
+                    Cmd = ['-test', '-e', InputGuard, "&&"] + Cmd
                 if ' '.join(Cmd).strip() not in GenFdsGlobalVariable.SecCmdList:
                     GenFdsGlobalVariable.SecCmdList.append(' '.join(Cmd).strip())
             elif GenFdsGlobalVariable.NeedsUpdate(Output, list(Input) + [CommandFile]):

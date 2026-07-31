@@ -251,12 +251,12 @@ Cdk2CorebootAppendHob (
 }
 
 STATIC
-UINT32
+UINT64
 Cdk2CorebootFindTolud (
   IN CONST CDK2_COREBOOT_HANDOFF  *Coreboot
   )
 {
-  UINT32  Tolud;
+  UINT64  Tolud;
   UINTN   Index;
   UINT64  End;
 
@@ -274,7 +274,7 @@ Cdk2CorebootFindTolud (
     }
 
     if (End <= 0x100000000ULL && End > Tolud) {
-      Tolud = (UINT32)End;
+      Tolud = End;
     }
   }
 
@@ -285,7 +285,7 @@ STATIC
 EFI_RESOURCE_TYPE
 Cdk2CorebootResourceType (
   IN CONST CDK2_COREBOOT_MEMORY_RANGE  *Range,
-  IN UINT32                              Tolud
+  IN UINT64                              Tolud
   )
 {
   if (Range->Type == CB_MEM_TABLE) {
@@ -463,7 +463,7 @@ Cdk2CorebootAppendResource (
   IN OUT UINTN                              *Cursor,
   IN     UINTN                               Limit,
   IN     CONST CDK2_COREBOOT_MEMORY_RANGE  *Range,
-  IN     UINT32                              Tolud
+  IN     UINT64                              Tolud
   )
 {
   EFI_HOB_RESOURCE_DESCRIPTOR  *Resource;
@@ -511,6 +511,35 @@ Cdk2CorebootAppendFvHob (
 
   Fv->BaseAddress = BaseAddress;
   Fv->Length      = Length;
+  return EFI_SUCCESS;
+}
+
+EFI_STATUS
+Cdk2CorebootAppendCapsuleHob (
+  IN OUT EFI_HOB_HANDOFF_INFO_TABLE  *Handoff,
+  IN     EFI_PHYSICAL_ADDRESS         BaseAddress,
+  IN     UINT64                       Length
+  )
+{
+  EFI_HOB_UEFI_CAPSULE  *Capsule;
+  EFI_STATUS             Status;
+
+  if (!Cdk2CorebootDescriptorRangeValid (BaseAddress, Length)) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  Status = Cdk2CorebootAppendBeforeEnd (
+             Handoff,
+             EFI_HOB_TYPE_UEFI_CAPSULE,
+             sizeof (*Capsule),
+             (VOID **)&Capsule
+             );
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  Capsule->BaseAddress = BaseAddress;
+  Capsule->Length      = Length;
   return EFI_SUCCESS;
 }
 
@@ -727,12 +756,14 @@ STATIC
 EFI_STATUS
 Cdk2CorebootResolveBootMode (
   IN  CONST CDK2_COREBOOT_HANDOFF  *Coreboot,
+  IN  BOOLEAN                      CapsuleSupportEnabled,
   OUT EFI_BOOT_MODE                *BootMode
   )
 {
   EFI_STATUS                 Status;
   CONST VOID                 *Record;
   CONST struct lb_boot_mode  *CorebootBootMode;
+  CONST struct cb_boot_info  *BootInfo;
 
   if (Coreboot == NULL || BootMode == NULL) {
     return EFI_INVALID_PARAMETER;
@@ -741,6 +772,39 @@ Cdk2CorebootResolveBootMode (
   *BootMode = BOOT_WITH_FULL_CONFIGURATION;
   if (Coreboot->Header == NULL && Coreboot->RecordCount == 0) {
     return EFI_SUCCESS;
+  }
+
+  if (CapsuleSupportEnabled) {
+    Status = Cdk2CorebootFindRecord (
+               Coreboot,
+               CB_TAG_CAPSULE,
+               sizeof (struct cb_range),
+               &Record
+               );
+    if (!EFI_ERROR (Status)) {
+      *BootMode = BOOT_ON_FLASH_UPDATE;
+      return EFI_SUCCESS;
+    }
+
+    if (Status != EFI_NOT_FOUND) {
+      return Status;
+    }
+
+    Status = Cdk2CorebootFindRecord (
+               Coreboot,
+               CB_TAG_BOOT_INFO,
+               sizeof (*BootInfo),
+               &Record
+               );
+    if (!EFI_ERROR (Status)) {
+      BootInfo = (CONST struct cb_boot_info *)Record;
+      if (BootInfo->is_disk_capsules_boot != 0) {
+        *BootMode = BOOT_ON_FLASH_UPDATE;
+        return EFI_SUCCESS;
+      }
+    } else if (Status != EFI_NOT_FOUND) {
+      return Status;
+    }
   }
 
   Status = Cdk2CorebootFindRecord (
@@ -772,6 +836,7 @@ Cdk2CorebootBuildHobs (
   IN  VOID                          *EfiMemoryTop,
   IN  VOID                          *EfiFreeMemoryBottom,
   IN  VOID                          *EfiFreeMemoryTop,
+  IN  BOOLEAN                        CapsuleSupportEnabled,
   OUT EFI_HOB_HANDOFF_INFO_TABLE   **Handoff
   )
 {
@@ -782,7 +847,7 @@ Cdk2CorebootBuildHobs (
   UINTN                        FreeMemoryBottom;
   UINTN                        FreeMemoryTop;
   UINTN                        Cursor;
-  UINT32                       Tolud;
+  UINT64                       Tolud;
   UINTN                        Index;
   EFI_BOOT_MODE                BootMode;
   EFI_STATUS                   Status;
@@ -818,7 +883,7 @@ Cdk2CorebootBuildHobs (
     return Status;
   }
 
-  Status = Cdk2CorebootResolveBootMode (Coreboot, &BootMode);
+  Status = Cdk2CorebootResolveBootMode (Coreboot, CapsuleSupportEnabled, &BootMode);
   if (EFI_ERROR (Status)) {
     return Status;
   }

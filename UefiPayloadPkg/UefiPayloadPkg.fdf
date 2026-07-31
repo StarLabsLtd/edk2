@@ -298,7 +298,7 @@ INF MdeModulePkg/Universal/ResetSystemRuntimeDxe/ResetSystemRuntimeDxe.inf
 
     FILE FREEFORM = f5a81b7b-419a-4a92-8212-1c369bcbe2cb {
       SECTION RAW = 3rdparty/secureboot_objects/PreSignedObjects/DB/Certificates/microsoft$(SPACE)option$(SPACE)rom$(SPACE)uefi$(SPACE)ca$(SPACE)2023.der
-      SECTION UI = "Microsoft Corporation UEFI KEK CA 2023"
+      SECTION UI = "Microsoft Corporation DB Option ROM UEFI 2023"
     }
 
     FILE FREEFORM = 701649dd-8739-40b9-bbdb-9ca434fdcd3b {
@@ -578,7 +578,7 @@ FILE FREEFORM = cce7d8e7-aae8-4697-b5c0-ef35a92a059f {
 
 FILE FREEFORM = f5a81b7b-419a-4a92-8212-1c369bcbe2cb {
   SECTION RAW = 3rdparty/secureboot_objects/PreSignedObjects/DB/Certificates/microsoft$(SPACE)option$(SPACE)rom$(SPACE)uefi$(SPACE)ca$(SPACE)2023.der
-  SECTION UI = "Microsoft Corporation UEFI KEK CA 2023"
+  SECTION UI = "Microsoft Corporation DB Option ROM UEFI 2023"
 }
 
 FILE FREEFORM = 701649dd-8739-40b9-bbdb-9ca434fdcd3b {

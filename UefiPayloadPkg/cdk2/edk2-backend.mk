@@ -176,6 +176,16 @@ CDK2_BACKEND_MANIFEST_DEPS := $(CDK2_DIR)/modules.mk $(CDK2_BACKEND_INPUTS) $(CD
 CDK2_BACKEND_DXE_APRIORI_GUID := FC510EE7-FFDC-11D4-BD41-0080C73C8881
 CDK2_BACKEND_DXE_FFS_PAD_GUID := FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF
 CDK2_BACKEND_LOW_BATTERY_LOGO_GUID := BE6E1243-682C-4186-8151-448D48AFE341
+CDK2_BACKEND_SECURE_BOOT_CERT_GUIDS := \
+  "4E52DD60-D79E-42C5-8337-089232EA5C87 UefiPayloadPkg/UefiPayloadPkg.fdf:SecureBootDbxUpdate" \
+  "73282F84-7909-4E87-ADF0-845D5DA335AB UefiPayloadPkg/UefiPayloadPkg.fdf:MicrosoftUefiDb2011" \
+  "9B29F606-5102-4DE1-A88A-FF6210BD8B65 UefiPayloadPkg/UefiPayloadPkg.fdf:MicrosoftWindowsDb2011" \
+  "C7769261-FE8D-4E15-B334-CADF4364AD92 UefiPayloadPkg/UefiPayloadPkg.fdf:MicrosoftUefiDb2023" \
+  "4AC66F32-6895-46FC-AD00-F1C81D06C668 UefiPayloadPkg/UefiPayloadPkg.fdf:MicrosoftWindowsDb2023" \
+  "73F89874-B2EC-4C28-A7E3-7D8030134E0B UefiPayloadPkg/UefiPayloadPkg.fdf:MicrosoftKek2011" \
+  "CCE7D8E7-AAE8-4697-B5C0-EF35A92A059F UefiPayloadPkg/UefiPayloadPkg.fdf:MicrosoftKek2023" \
+  "F5A81B7B-419A-4A92-8212-1C369BCBE2CB UefiPayloadPkg/UefiPayloadPkg.fdf:MicrosoftOptionRomDb2023" \
+  "701649DD-8739-40B9-BBDB-9CA434FDCD3B UefiPayloadPkg/UefiPayloadPkg.fdf:MicrosoftOemPk2023"
 
 $(CDK2_BACKEND_METADATA): $(CDK2_MANIFEST) \
 		$(CDK2_BACKEND_METADATA_TOOL) $(CDK2_BACKEND_SELECTED_MODULE_FILES) \
@@ -237,6 +247,9 @@ awk '/^0x[[:xdigit:]]+[[:space:]]+[[:xdigit:]-]+$$/ { print toupper($$2) }' \
   printf '%s\n' \
     "$(CDK2_BACKEND_DXE_APRIORI_GUID) UefiPayloadPkg/UefiPayloadPkg.fdf:APRIORI_DXE" \
     "$(CDK2_BACKEND_LOW_BATTERY_LOGO_GUID) UefiPayloadPkg/Library/PlatformBootManagerLib/LowBatteryLogo.bmp"; \
+  if [ "$(CONFIG_CDK2_SECURE_BOOT)" = "y" ]; then \
+    printf '%s\n' $(CDK2_BACKEND_SECURE_BOOT_CERT_GUIDS); \
+  fi; \
 } | sort -k2,2 > "$(CDK2_BACKEND_SELECTED_DXE_GUIDS)" && \
 awk 'NR == FNR { fv[$$1] = 1; next } \
   !($$1 in fv) { print "selected cdk2 DXE GUID missing from EDK2 DXE FV: " $$1 " " $$2 > "/dev/stderr"; missing = 1 } \

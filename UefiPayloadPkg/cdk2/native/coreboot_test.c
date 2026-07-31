@@ -372,6 +372,7 @@ main (
              HobStorage + sizeof (HobStorage),
              HobStorage,
              HobStorage + sizeof (HobStorage),
+             TRUE,
              &HobInfo
              );
   Failures += Expect (Status == EFI_SUCCESS, "HOB construction failed");
@@ -646,6 +647,7 @@ main (
              TransactionHobStorage + sizeof (TransactionHobStorage),
              TransactionHobStorage,
              TransactionHobStorage + TransactionFreeTopOffset,
+             FALSE,
              &TransactionHob
              );
   Failures += Expect (Status == EFI_SUCCESS, "transactional HOB construction failed");
@@ -737,6 +739,7 @@ main (
              TinyHobStorage + sizeof (TinyHobStorage),
              TinyHobStorage,
              TinyHobStorage + sizeof (TinyHobStorage),
+             FALSE,
              &HobInfo
              );
   Failures += Expect (Status == EFI_OUT_OF_RESOURCES, "HOB exhaustion was not rejected");
@@ -747,6 +750,7 @@ main (
              (VOID *)(UINTN)MAX_UINTN,
              (VOID *)(UINTN)(MAX_UINTN - 3U),
              (VOID *)(UINTN)MAX_UINTN,
+             FALSE,
              &HobInfo
              );
   Failures += Expect (Status == EFI_INVALID_PARAMETER, "wrapped HOB free bottom accepted");
@@ -812,6 +816,7 @@ main (
              HobStorage + sizeof (HobStorage),
              HobStorage,
              HobStorage + sizeof (HobStorage),
+             FALSE,
              &HobInfo
              );
   Failures += Expect (Status == EFI_COMPROMISED_DATA, "overlapping memory ranges accepted");

@@ -55,6 +55,7 @@
   gEfiGraphicsOutputProtocolGuid                ## BY_START
   gEfiDevicePathProtocolGuid                    ## BY_START
   gEfiPciIoProtocolGuid                         ## TO_START
+  gEdkiiPlatformLogoProtocolGuid                ## SOMETIMES_CONSUMES
 
 [Pcd]
   gEfiMdeModulePkgTokenSpaceGuid.PcdVideoHorizontalResolution
