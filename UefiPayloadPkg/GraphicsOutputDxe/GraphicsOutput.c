@@ -41,7 +41,11 @@ STATIC
 EFI_STATUS
 RedrawPlatformLogo (
   IN EFI_GRAPHICS_OUTPUT_PROTOCOL  *GraphicsOutput,
-  IN BOOLEAN                       ScaleLogo
+  IN BOOLEAN                       ScaleLogo,
+  IN UINTN                         RedrawOriginX,
+  IN UINTN                         RedrawOriginY,
+  IN UINTN                         RedrawWidth,
+  IN UINTN                         RedrawHeight
   );
 
 /**
@@ -462,7 +466,14 @@ GraphicsOutputReadyToBoot (
       DEBUG ((DEBUG_VERBOSE, "[%a]: PcdSetupVideoVerticalResolution update failed: %r\n", gEfiCallerBaseName, Status));
     }
 
-    Status = RedrawPlatformLogo (&Private->GraphicsOutput, TRUE);
+    Status = RedrawPlatformLogo (
+               &Private->GraphicsOutput,
+               TRUE,
+               Private->ViewportOffsetX,
+               Private->ViewportOffsetY,
+               Private->ViewportWidth,
+               Private->ViewportHeight
+               );
     if (EFI_ERROR (Status)) {
       DEBUG ((DEBUG_VERBOSE, "[%a]: RedrawPlatformLogo failed: %r\n", gEfiCallerBaseName, Status));
     }
@@ -626,7 +637,11 @@ STATIC
 EFI_STATUS
 RedrawPlatformLogo (
   IN EFI_GRAPHICS_OUTPUT_PROTOCOL  *GraphicsOutput,
-  IN BOOLEAN                       ScaleLogo
+  IN BOOLEAN                       ScaleLogo,
+  IN UINTN                         RedrawOriginX,
+  IN UINTN                         RedrawOriginY,
+  IN UINTN                         RedrawWidth,
+  IN UINTN                         RedrawHeight
   )
 {
   EDKII_PLATFORM_LOGO_DISPLAY_ATTRIBUTE  Attribute;
@@ -636,6 +651,8 @@ RedrawPlatformLogo (
   INTN                                   DestX;
   INTN                                   DestY;
   EFI_IMAGE_INPUT                        Image;
+  UINTN                                  OutputHeight;
+  UINTN                                  OutputWidth;
   UINT32                                 Instance;
   UINTN                                  LogoHeight;
   UINTN                                  LogoWidth;
@@ -643,13 +660,28 @@ RedrawPlatformLogo (
   INTN                                   OffsetY;
   EDKII_PLATFORM_LOGO_PROTOCOL           *PlatformLogo;
   BOOLEAN                                Redrawn;
+  UINTN                                  TargetX;
+  UINTN                                  TargetY;
+  RETURN_STATUS                          ReturnStatus;
   UINTN                                  ScaledHeight;
   UINTN                                  ScaledWidth;
   EFI_STATUS                             Status;
 
   if ((GraphicsOutput == NULL) ||
       (GraphicsOutput->Mode == NULL) ||
-      (GraphicsOutput->Mode->Info == NULL))
+      (GraphicsOutput->Mode->Info == NULL) ||
+      (RedrawWidth == 0) ||
+      (RedrawHeight == 0))
+  {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  OutputWidth  = GraphicsOutput->Mode->Info->HorizontalResolution;
+  OutputHeight = GraphicsOutput->Mode->Info->VerticalResolution;
+  if ((RedrawOriginX > OutputWidth) ||
+      (RedrawOriginY > OutputHeight) ||
+      (RedrawWidth > OutputWidth - RedrawOriginX) ||
+      (RedrawHeight > OutputHeight - RedrawOriginY))
   {
     return EFI_INVALID_PARAMETER;
   }
@@ -732,8 +764,8 @@ RedrawPlatformLogo (
 
     Status = GetLogoDestination (
                Attribute,
-               GraphicsOutput->Mode->Info->HorizontalResolution,
-               GraphicsOutput->Mode->Info->VerticalResolution,
+               RedrawWidth,
+               RedrawHeight,
                LogoWidth,
                LogoHeight,
                OffsetX,
@@ -742,18 +774,28 @@ RedrawPlatformLogo (
                &DestY
                );
     if (!EFI_ERROR (Status)) {
-      Status = GraphicsOutput->Blt (
-                                 GraphicsOutput,
-                                 Blt,
-                                 EfiBltBufferToVideo,
-                                 0,
-                                 0,
-                                 (UINTN)DestX,
-                                 (UINTN)DestY,
-                                 LogoWidth,
-                                 LogoHeight,
-                                 LogoWidth * sizeof (*Blt)
-                                 );
+      ReturnStatus = SafeUintnAdd ((UINTN)DestX, RedrawOriginX, &TargetX);
+      if (!RETURN_ERROR (ReturnStatus)) {
+        ReturnStatus = SafeUintnAdd ((UINTN)DestY, RedrawOriginY, &TargetY);
+      }
+
+      if (RETURN_ERROR (ReturnStatus)) {
+        Status = EFI_INVALID_PARAMETER;
+      } else {
+        Status = GraphicsOutput->Blt (
+                                   GraphicsOutput,
+                                   Blt,
+                                   EfiBltBufferToVideo,
+                                   0,
+                                   0,
+                                   TargetX,
+                                   TargetY,
+                                   LogoWidth,
+                                   LogoHeight,
+                                   LogoWidth * sizeof (*Blt)
+                                   );
+      }
+
       if (!EFI_ERROR (Status)) {
         Redrawn = TRUE;
       }
