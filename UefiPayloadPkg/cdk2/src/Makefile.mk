@@ -41,7 +41,7 @@ CDK2_NATIVE_DEPFILES := $(wildcard $(CDK2_NATIVE_BUILD_DIR)/*.d)
 ifneq ($(strip $(CDK2_NATIVE_DEPFILES)),)
 # Ignore dependency files from the pre-src-layout tree. They can name deleted
 # source paths and make an otherwise clean incremental checkout fail to parse.
-CDK2_NATIVE_DEPFILES := $(shell grep -L 'UefiPayloadPkg/cdk2/.*native/' $(CDK2_NATIVE_DEPFILES) 2>/dev/null)
+CDK2_NATIVE_DEPFILES := $(shell grep -L 'UefiPayloadPkg/cdk2//*native/' $(CDK2_NATIVE_DEPFILES) 2>/dev/null)
 endif
 CDK2_NATIVE_STAGE_OBJS := \
 	$(CDK2_NATIVE_BUILD_DIR)/entry.o \
