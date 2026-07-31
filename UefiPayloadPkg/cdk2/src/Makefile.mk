@@ -37,7 +37,12 @@ CDK2_NATIVE_COREBOOT_ENTRY ?= $(CDK2_NATIVE_BUILD_DIR)/entry32.o
 CDK2_NATIVE_CFLAGS ?= -ffreestanding -fno-builtin -fno-stack-protector -fno-pie -fno-asynchronous-unwind-tables -fno-unwind-tables -fdata-sections -ffunction-sections -fshort-wchar -m64 -mno-red-zone -mno-sse -mno-mmx -Os -Wall -Werror
 CDK2_NATIVE_HOST_CFLAGS ?= -std=c11 -O2 -Wall -Wextra -Werror -fshort-wchar
 CDK2_NATIVE_INCLUDES := -I$(CDK2_BUILD_DIR)/include -I$(CDK2_DIR)/include -I$(CDK2_ROOT)/MdePkg -I$(CDK2_ROOT)/MdePkg/Include -I$(CDK2_ROOT)/MdePkg/Include/X64 -I$(CDK2_ROOT)/MdeModulePkg/Include -I$(CDK2_ROOT)/UefiPayloadPkg/Include
-CDK2_NATIVE_DEPFILES := $(CDK2_NATIVE_BUILD_DIR)/*.d
+CDK2_NATIVE_DEPFILES := $(wildcard $(CDK2_NATIVE_BUILD_DIR)/*.d)
+ifneq ($(strip $(CDK2_NATIVE_DEPFILES)),)
+# Ignore dependency files from the pre-src-layout tree. They can name deleted
+# source paths and make an otherwise clean incremental checkout fail to parse.
+CDK2_NATIVE_DEPFILES := $(shell grep -L 'UefiPayloadPkg/cdk2/.*native/' $(CDK2_NATIVE_DEPFILES) 2>/dev/null)
+endif
 CDK2_NATIVE_STAGE_OBJS := \
 	$(CDK2_NATIVE_BUILD_DIR)/entry.o \
 	$(CDK2_NATIVE_BUILD_DIR)/module.o \
