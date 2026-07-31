@@ -6,8 +6,8 @@
 
 **/
 
-#ifndef CDK2_NATIVE_FV_H_
-#define CDK2_NATIVE_FV_H_
+#ifndef CDK2_FV_H_
+#define CDK2_FV_H_
 
 #include <Uefi.h>
 #include <Pi/PiFirmwareFile.h>

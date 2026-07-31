@@ -6,8 +6,8 @@
 
 **/
 
-#ifndef CDK2_NATIVE_CONTEXT_H_
-#define CDK2_NATIVE_CONTEXT_H_
+#ifndef CDK2_CONTEXT_H_
+#define CDK2_CONTEXT_H_
 
 #include <Library/Cdk2NativeServices.h>
 

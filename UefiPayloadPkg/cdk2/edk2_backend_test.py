@@ -157,6 +157,51 @@ class Edk2BackendDiscoverTests(unittest.TestCase):
             text=True,
         )
 
+    def _run_check_secure_boot(self) -> subprocess.CompletedProcess[str]:
+        root = self.workspace / "root"
+        build = self.workspace / "build"
+        config = build / ".config"
+
+        root.mkdir(parents=True, exist_ok=True)
+        self._write(
+            str(config.relative_to(self.workspace)),
+            "CONFIG_CDK2_PAYLOAD=y\n",
+        )
+        makefile = self._write(
+            "Makefile",
+            textwrap.dedent(
+                f"""\
+                SHELL := /bin/bash
+                CONFIG_CDK2_PAYLOAD := y
+                CONFIG_CDK2_PCI := y
+                CONFIG_CDK2_CONSOLE := y
+                CONFIG_CDK2_GRAPHICS := y
+                CONFIG_CDK2_SECURE_BOOT := y
+                CONFIG_CDK2_BOOT_TIMEOUT := 0
+                CDK2_ROOT := {root}
+                CDK2_DIR := {CDK2_DIR}
+                CDK2_BUILD_DIR := {build}
+                CDK2_CONFIG := {config}
+                include $(CDK2_DIR)/edk2-backend.mk
+                CDK2_RETAINED_MODULES :=
+                CDK2_SELECTED_MODULES :=
+                CDK2_PAYLOAD_LIBRARIES :=
+
+                .PHONY: check
+                check:
+                \t$(CDK2_BACKEND_CHECK)
+                """
+            ),
+        )
+
+        return subprocess.run(
+            ["make", "--no-print-directory", "-f", str(makefile), "check"],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
     def test_discover_accepts_cdk2_owned_non_module_dxe_guids(self) -> None:
         result = self._run_discover(
             [APRIORI_GUID, ENTRY_GUID, GOOD_GUID, LOW_BATTERY_LOGO_GUID, PAD_GUID]
@@ -284,6 +329,20 @@ class Edk2BackendDiscoverTests(unittest.TestCase):
         self.assertIn(f"{FMP_DXE_MODULE} FILE_GUID={second_guid}\n", manifest)
         self.assertNotIn(f"{FMP_DXE_MODULE} FILE_GUID={first_guid}\n", manifest)
 
+    def test_check_rejects_missing_secure_boot_default_key_objects(self) -> None:
+        result = self._run_check_secure_boot()
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(
+            "missing Secure Boot default-key object: "
+            "3rdparty/secureboot_objects/PostSignedObjects/DBX/amd64/DBXUpdate.bin",
+            result.stderr,
+        )
+        self.assertIn(
+            "git submodule update --init --checkout 3rdparty/secureboot_objects",
+            result.stderr,
+        )
+
 
 class Edk2BackendPs2KeyboardTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -372,6 +431,101 @@ class Edk2BackendPs2KeyboardTests(unittest.TestCase):
         )
         self.assertIn("-D SIO_BUS_ENABLE=TRUE", result.stdout)
         self.assertIn("-D PS2_KEYBOARD_ENABLE=TRUE", result.stdout)
+
+    def test_setup_ui_disabled_keeps_browser_modules_out(self) -> None:
+        result = self._run_inspect(
+            "\n".join(
+                [
+                    "CONFIG_CDK2_PCI := y",
+                    "CONFIG_CDK2_SETUP_UI := n",
+                ]
+            )
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("MdeModulePkg/Universal/HiiDatabaseDxe/HiiDatabaseDxe.inf", result.stdout)
+        self.assertNotIn("UefiPayloadPkg/CfrSetupMenuDxe/CfrSetupMenuDxe.inf", result.stdout)
+        self.assertNotIn("MdeModulePkg/Application/UiApp/UiApp.inf", result.stdout)
+        self.assertNotIn(
+            "MdeModulePkg/Application/BootManagerMenuApp/BootManagerMenuApp.inf",
+            result.stdout,
+        )
+        self.assertNotIn(
+            "MdeModulePkg/Universal/SetupBrowserDxe/SetupBrowserDxe.inf",
+            result.stdout,
+        )
+        self.assertNotIn(
+            "UefiPayloadPkg/UserAuthPkg/UserAuthenticationDxe/UserAuthenticationDxe.inf",
+            result.stdout,
+        )
+        self.assertNotIn(
+            "MdeModulePkg/Universal/DisplayEngineDxe/DisplayEngineDxe.inf",
+            result.stdout,
+        )
+        self.assertNotIn("3rdparty/LvglPkg/LvglSetupDxe/LvglSetupDxe.inf", result.stdout)
+        self.assertIn("-D SETUP_UI_ENABLE=FALSE", result.stdout)
+
+    def test_setup_ui_enabled_selects_browser_modules(self) -> None:
+        result = self._run_inspect(
+            "\n".join(
+                [
+                    "CONFIG_CDK2_PCI := y",
+                    "CONFIG_CDK2_SETUP_UI := y",
+                ]
+            )
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("UefiPayloadPkg/CfrSetupMenuDxe/CfrSetupMenuDxe.inf", result.stdout)
+        self.assertIn("MdeModulePkg/Application/UiApp/UiApp.inf", result.stdout)
+        self.assertIn(
+            "MdeModulePkg/Universal/SetupBrowserDxe/SetupBrowserDxe.inf",
+            result.stdout,
+        )
+        self.assertIn(
+            "MdeModulePkg/Universal/DisplayEngineDxe/DisplayEngineDxe.inf",
+            result.stdout,
+        )
+        self.assertIn("-D SETUP_UI_ENABLE=TRUE", result.stdout)
+
+    def test_lvgl_override_is_setup_ui_opt_in(self) -> None:
+        result = self._run_inspect(
+            "\n".join(
+                [
+                    "CONFIG_CDK2_PCI := y",
+                    "CONFIG_CDK2_SETUP_UI := y",
+                ]
+            ),
+            extra_defines="-D LVGL_ENABLE=TRUE",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(
+            "3rdparty/LvglPkg/LvglDisplayEngineDxe/LvglDisplayEngineDxe.inf",
+            result.stdout,
+        )
+        self.assertIn("3rdparty/LvglPkg/LvglSetupDxe/LvglSetupDxe.inf", result.stdout)
+        self.assertNotIn(
+            "MdeModulePkg/Universal/DisplayEngineDxe/DisplayEngineDxe.inf",
+            result.stdout,
+        )
+
+    def test_lvgl_override_requires_setup_ui(self) -> None:
+        result = self._run_inspect(
+            "\n".join(
+                [
+                    "CONFIG_CDK2_PCI := y",
+                    "CONFIG_CDK2_SETUP_UI := n",
+                ]
+            ),
+            extra_defines="-D LVGL_ENABLE=TRUE",
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(
+            "cdk2 define LVGL_ENABLE=TRUE requires SETUP_UI_ENABLE=TRUE",
+            result.stderr,
+        )
 
     def test_extra_defines_drive_selected_module_set(self) -> None:
         result = self._run_inspect(

@@ -6,8 +6,8 @@
 
 **/
 
-#ifndef CDK2_NATIVE_COREBOOT_HOBS_H_
-#define CDK2_NATIVE_COREBOOT_HOBS_H_
+#ifndef CDK2_COREBOOT_HOBS_H_
+#define CDK2_COREBOOT_HOBS_H_
 
 #include <Uefi.h>
 #include <Pi/PiBootMode.h>

@@ -6,8 +6,8 @@
 
 **/
 
-#ifndef CDK2_NATIVE_PE_H_
-#define CDK2_NATIVE_PE_H_
+#ifndef CDK2_PE_H_
+#define CDK2_PE_H_
 
 #include <Uefi.h>
 #include <IndustryStandard/PeImage.h>

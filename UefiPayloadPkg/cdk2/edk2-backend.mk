@@ -182,6 +182,16 @@ CDK2_BACKEND_SECURE_BOOT_CERT_GUIDS := \
   "CCE7D8E7-AAE8-4697-B5C0-EF35A92A059F UefiPayloadPkg/UefiPayloadPkg.fdf:MicrosoftKek2023" \
   "F5A81B7B-419A-4A92-8212-1C369BCBE2CB UefiPayloadPkg/UefiPayloadPkg.fdf:MicrosoftOptionRomDb2023" \
   "701649DD-8739-40B9-BBDB-9CA434FDCD3B UefiPayloadPkg/UefiPayloadPkg.fdf:MicrosoftOemPk2023"
+CDK2_BACKEND_SECURE_BOOT_CERT_FILES := \
+  "3rdparty/secureboot_objects/PostSignedObjects/DBX/amd64/DBXUpdate.bin" \
+  "3rdparty/secureboot_objects/PreSignedObjects/DB/Certificates/MicCorUEFCA2011_2011-06-27.der" \
+  "3rdparty/secureboot_objects/PreSignedObjects/DB/Certificates/MicWinProPCA2011_2011-10-19.der" \
+  "3rdparty/secureboot_objects/PreSignedObjects/DB/Certificates/microsoft uefi ca 2023.der" \
+  "3rdparty/secureboot_objects/PreSignedObjects/DB/Certificates/windows uefi ca 2023.der" \
+  "3rdparty/secureboot_objects/PreSignedObjects/KEK/Certificates/MicCorKEKCA2011_2011-06-24.der" \
+  "3rdparty/secureboot_objects/PreSignedObjects/KEK/Certificates/microsoft corporation kek 2k ca 2023.der" \
+  "3rdparty/secureboot_objects/PreSignedObjects/DB/Certificates/microsoft option rom uefi ca 2023.der" \
+  "3rdparty/secureboot_objects/PreSignedObjects/PK/Certificate/WindowsOEMDevicesPK.der"
 
 $(CDK2_BACKEND_METADATA): $(CDK2_MANIFEST) \
 		$(CDK2_BACKEND_METADATA_TOOL) $(CDK2_BACKEND_SELECTED_MODULE_FILES) \
@@ -344,6 +354,22 @@ endef
 define CDK2_BACKEND_CHECK
 if test "$(CDK2_EFFECTIVE_CAPSULE)" = "y" && test -z "$(strip $(CDK2_EFFECTIVE_CAPSULE_MAIN_FW_GUID))"; then \
   echo "CONFIG_CDK2_CAPSULE requires CONFIG_CDK2_CAPSULE_MAIN_FW_GUID or a CAPSULE_MAIN_FW_GUID override" >&2; exit 1; \
+fi
+if test "$(CDK2_EFFECTIVE_SECURE_BOOT)" = "y"; then \
+  if git -C "$(CDK2_ROOT)" rev-parse --is-inside-work-tree >/dev/null 2>&1; then \
+    submodule_status=$$(git -C "$(CDK2_ROOT)" submodule status -- 3rdparty/secureboot_objects 2>/dev/null || true); \
+    case "$$submodule_status" in \
+      -*) echo "missing Secure Boot default-key submodule: 3rdparty/secureboot_objects" >&2; exit 1 ;; \
+      +*) echo "stale Secure Boot default-key submodule: 3rdparty/secureboot_objects" >&2; exit 1 ;; \
+    esac; \
+  fi; \
+  for object in $(CDK2_BACKEND_SECURE_BOOT_CERT_FILES); do \
+    test -f "$(CDK2_ROOT)/$$object" || { \
+      echo "missing Secure Boot default-key object: $$object" >&2; \
+      echo "run: git submodule update --init --checkout 3rdparty/secureboot_objects" >&2; \
+      exit 1; \
+    }; \
+  done; \
 fi
 for module in $(CDK2_RETAINED_MODULES) $(CDK2_PAYLOAD_LIBRARIES); do \
   test -f "$(CDK2_ROOT)/$$module" || { echo "missing backend module: $$module" >&2; exit 1; }; \

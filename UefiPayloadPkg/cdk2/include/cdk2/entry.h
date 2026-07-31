@@ -6,8 +6,8 @@
 
 **/
 
-#ifndef CDK2_NATIVE_ENTRY_H_
-#define CDK2_NATIVE_ENTRY_H_
+#ifndef CDK2_ENTRY_H_
+#define CDK2_ENTRY_H_
 
 #include <cdk2/context.h>
 

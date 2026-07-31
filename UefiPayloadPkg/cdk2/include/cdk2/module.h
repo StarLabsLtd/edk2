@@ -6,8 +6,8 @@
 
 **/
 
-#ifndef CDK2_NATIVE_MODULE_H_
-#define CDK2_NATIVE_MODULE_H_
+#ifndef CDK2_MODULE_H_
+#define CDK2_MODULE_H_
 
 #include <cdk2/context.h>
 #include <Library/Cdk2PlatformLib.h>

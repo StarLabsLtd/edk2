@@ -32,11 +32,12 @@ config CDK2_GRAPHICS
 
 config CDK2_SETUP_UI
     bool "Include the firmware setup UI"
-    default y
+    default n
     depends on CDK2_CONSOLE
     help
       Include the CFR, UiApp, setup browser, and boot-manager UI modules.
-      Disable this only for payloads that provide their own setup surface.
+      Enable this only for payloads that intentionally use the HII setup
+      browser. Payloads with a native setup surface should leave this off.
 
 config CDK2_CONNECT_ALL_DEVICES
     bool "Connect every device before boot"
