@@ -24,9 +24,13 @@ writes a selected manifest beside the payload. The backend also emits
 set, making the module/library/source/PCD/DEPEX inventory cdk2-owned instead
 of deriving it from an EDK II build report. The default build also emits a
 freestanding native stage and its linker map under `Build/cdk2/native/`.
-The x86 backend builds X64 only. The native `entry32.S` file is the small
-coreboot-to-long-mode bootstrap and is not an IA32 payload build. The flat cdk2
-EDK II bridge rejects IA32 and AArch64 when `CDK2_FLAT_DXE_FV` is enabled.
+Native source follows a coreboot-shaped layout under `cdk2/src/`: common entry
+and service code lives in `src/common`, the coreboot table adapter lives in
+`src/drivers/coreboot`, x86 entry/linker code lives in `src/arch/x86`, and
+host tools/tests live in `src/tools` and `src/tests`. The x86 backend builds
+X64 only. The native `entry32.S` file is the small coreboot-to-long-mode
+bootstrap and is not an IA32 payload build. The flat cdk2 EDK II bridge
+rejects IA32 and AArch64 when `CDK2_FLAT_DXE_FV` is enabled.
 
 The `edk2` backend still compiles the PE/COFF modules and emits the FFS inputs used as the
 DXE firmware-volume reference. The native cdk2 host packer assembles the
@@ -49,7 +53,7 @@ late-link alignment policy. `Cdk2PlatformLib` provides a weak late hook so
 board-specific payload policy can override the common entry path without
 editing shared entry code. The native stage compiles that same weak library
 implementation with the generated config header and links it with
-`native/cdk2.ld`; `native-check` verifies static ELF output, section layout,
+`src/arch/x86/cdk2.ld`; `native-check` verifies static ELF output, section layout,
 program-header permissions, weak-to-strong board override resolution, and the
 linker-collected native module table. The native ELF contract keeps the image
 fixed at 1 MiB with separate RX text, read-only metadata/FV, and RW state

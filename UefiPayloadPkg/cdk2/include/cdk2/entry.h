@@ -9,7 +9,7 @@
 #ifndef CDK2_NATIVE_ENTRY_H_
 #define CDK2_NATIVE_ENTRY_H_
 
-#include "context.h"
+#include <cdk2/context.h>
 
 /**
   Dispatch the registered native modules using an initialized context.

@@ -6,7 +6,7 @@
 
 **/
 
-#include "coreboot.h"
+#include <cdk2/coreboot.h>
 
 STATIC
 UINT64

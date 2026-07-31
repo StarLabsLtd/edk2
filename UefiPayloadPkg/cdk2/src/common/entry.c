@@ -8,9 +8,9 @@
 
 #include <Library/Cdk2PlatformLib.h>
 #include <cdk2/config.h>
-#include "entry.h"
-#include "module.h"
-#include "services.h"
+#include <cdk2/entry.h>
+#include <cdk2/module.h>
+#include <cdk2/services.h>
 
 #if defined (__GNUC__)
 #define CDK2_ENTRY  __attribute__ ((section (".text.entry"), used))

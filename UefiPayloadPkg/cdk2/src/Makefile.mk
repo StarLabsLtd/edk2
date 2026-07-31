@@ -4,6 +4,12 @@
 # has been resolved, so the same generated config controls both backends.
 
 CDK2_NATIVE_BUILD_DIR ?= $(CDK2_BUILD_DIR)/native
+CDK2_NATIVE_ARCH_X86_DIR := $(CDK2_NATIVE_DIR)/arch/x86
+CDK2_NATIVE_COMMON_DIR := $(CDK2_NATIVE_DIR)/common
+CDK2_NATIVE_COREBOOT_DIR := $(CDK2_NATIVE_DIR)/drivers/coreboot
+CDK2_NATIVE_PLATFORM_DIR := $(CDK2_NATIVE_DIR)/platform/default
+CDK2_NATIVE_TOOLS_DIR := $(CDK2_NATIVE_DIR)/tools
+CDK2_NATIVE_TESTS_DIR := $(CDK2_NATIVE_DIR)/tests
 CDK2_NATIVE_ELF ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-stage.elf
 CDK2_NATIVE_MAP ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-stage.map
 CDK2_NATIVE_COREBOOT_ELF ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-coreboot-stage.elf
@@ -60,7 +66,7 @@ CDK2_NATIVE_OVERRIDE_OBJS := \
 CDK2_NATIVE_STAGE_LINK_INPUTS := $(foreach obj,$(CDK2_NATIVE_STAGE_OBJS),"$(obj)")
 CDK2_NATIVE_COREBOOT_LINK_INPUTS := $(foreach obj,$(CDK2_NATIVE_COREBOOT_OBJS),"$(obj)")
 CDK2_NATIVE_OVERRIDE_LINK_INPUTS := $(foreach obj,$(CDK2_NATIVE_OVERRIDE_OBJS),"$(obj)")
-CDK2_NATIVE_LINK_FLAGS := -static -no-pie -nostdlib -nostartfiles -nodefaultlibs -Wl,-z,max-page-size=0x1000 -Wl,-z,common-page-size=0x1000 -Wl,-T,"$(CDK2_NATIVE_DIR)/cdk2.ld"
+CDK2_NATIVE_LINK_FLAGS := -static -no-pie -nostdlib -nostartfiles -nodefaultlibs -Wl,-z,max-page-size=0x1000 -Wl,-z,common-page-size=0x1000 -Wl,-T,"$(CDK2_NATIVE_ARCH_X86_DIR)/cdk2.ld"
 CDK2_NATIVE_LINK_POST_MAP_FLAGS := -Wl,--gc-sections -Wl,--build-id=none
 
 .PHONY: native-stage native-coreboot-stage native-coreboot-image native-check native-pack native-service-test native-coreboot-test native-fv-test native-fvpack-test native-pe-test native-module-test native-elfcheck-test FORCE
@@ -145,58 +151,58 @@ native-elfcheck-test: $(CDK2_NATIVE_ELF_CHECK) $(CDK2_NATIVE_ELF_CHECK_TEST)
 $(CDK2_NATIVE_BUILD_DIR):
 	@mkdir -p "$@"
 
-$(CDK2_NATIVE_COREBOOT_ENTRY): $(CDK2_NATIVE_DIR)/entry32.S | $(CDK2_NATIVE_BUILD_DIR)
+$(CDK2_NATIVE_COREBOOT_ENTRY): $(CDK2_NATIVE_ARCH_X86_DIR)/entry32.S | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_CC) -c -ffreestanding -fno-pie -fno-stack-protector -o "$@" "$<"
 
-$(CDK2_NATIVE_BUILD_DIR)/entry.o: $(CDK2_NATIVE_DIR)/entry.c $(CDK2_NATIVE_DIR)/entry.h $(CDK2_NATIVE_DIR)/module.h $(CDK2_NATIVE_DIR)/context.h $(CDK2_CONFIG_HEADER) | $(CDK2_NATIVE_BUILD_DIR)
+$(CDK2_NATIVE_BUILD_DIR)/entry.o: $(CDK2_NATIVE_COMMON_DIR)/entry.c $(CDK2_DIR)/include/cdk2/entry.h $(CDK2_DIR)/include/cdk2/module.h $(CDK2_DIR)/include/cdk2/context.h $(CDK2_CONFIG_HEADER) | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_CC) $(CDK2_NATIVE_CFLAGS) -MMD -MP -MF "$(@:.o=.d)" -MT "$@" $(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
 
-$(CDK2_NATIVE_BUILD_DIR)/module.o: $(CDK2_NATIVE_DIR)/module.c $(CDK2_NATIVE_DIR)/module.h $(CDK2_NATIVE_DIR)/context.h $(CDK2_NATIVE_DIR)/services.h $(CDK2_CONFIG_HEADER) | $(CDK2_NATIVE_BUILD_DIR)
-	@$(CDK2_NATIVE_CC) $(CDK2_NATIVE_CFLAGS) -MMD -MP -MF "$(@:.o=.d)" -MT "$@" $(CDK2_NATIVE_INCLUDES) -I$(CDK2_NATIVE_DIR) -c "$<" -o "$@"
+$(CDK2_NATIVE_BUILD_DIR)/module.o: $(CDK2_NATIVE_COMMON_DIR)/module.c $(CDK2_DIR)/include/cdk2/module.h $(CDK2_DIR)/include/cdk2/context.h $(CDK2_DIR)/include/cdk2/services.h $(CDK2_CONFIG_HEADER) | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(CDK2_NATIVE_CFLAGS) -MMD -MP -MF "$(@:.o=.d)" -MT "$@" $(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
 
 $(CDK2_NATIVE_BUILD_DIR)/platform.o: $(CDK2_ROOT)/UefiPayloadPkg/cdk2/Library/Cdk2PlatformLib/Cdk2PlatformLib.c $(CDK2_CONFIG_HEADER) | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_CC) $(CDK2_NATIVE_CFLAGS) -MMD -MP -MF "$(@:.o=.d)" -MT "$@" $(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
 
-$(CDK2_NATIVE_BUILD_DIR)/coreboot_backend.o: $(CDK2_NATIVE_DIR)/coreboot_backend.c $(CDK2_NATIVE_DIR)/coreboot_hobs.h $(CDK2_NATIVE_DIR)/fv.h $(CDK2_NATIVE_DIR)/pe.h $(CDK2_CONFIG_HEADER) | $(CDK2_NATIVE_BUILD_DIR)
-	@$(CDK2_NATIVE_CC) $(CDK2_NATIVE_CFLAGS) -MMD -MP -MF "$(@:.o=.d)" -MT "$@" $(CDK2_NATIVE_INCLUDES) -I$(CDK2_NATIVE_DIR) -c "$<" -o "$@"
-
-$(CDK2_NATIVE_BUILD_DIR)/coreboot.o: $(CDK2_NATIVE_DIR)/coreboot.c $(CDK2_NATIVE_DIR)/coreboot.h $(CDK2_ROOT)/UefiPayloadPkg/Include/Coreboot.h | $(CDK2_NATIVE_BUILD_DIR)
-	@$(CDK2_NATIVE_CC) $(CDK2_NATIVE_CFLAGS) -MMD -MP -MF "$(@:.o=.d)" -MT "$@" $(CDK2_NATIVE_INCLUDES) -I$(CDK2_NATIVE_DIR) -c "$<" -o "$@"
-
-$(CDK2_NATIVE_BUILD_DIR)/coreboot_hobs.o: $(CDK2_NATIVE_DIR)/coreboot_hobs.c $(CDK2_NATIVE_DIR)/coreboot_hobs.h $(CDK2_NATIVE_DIR)/coreboot.h $(CDK2_ROOT)/MdePkg/Include/Pi/PiHob.h | $(CDK2_NATIVE_BUILD_DIR)
-	@$(CDK2_NATIVE_CC) $(CDK2_NATIVE_CFLAGS) -MMD -MP -MF "$(@:.o=.d)" -MT "$@" $(CDK2_NATIVE_INCLUDES) -I$(CDK2_NATIVE_DIR) -c "$<" -o "$@"
-
-$(CDK2_NATIVE_BUILD_DIR)/fv.o: $(CDK2_NATIVE_DIR)/fv.c $(CDK2_NATIVE_DIR)/fv.h $(CDK2_ROOT)/MdePkg/Include/Pi/PiFirmwareFile.h $(CDK2_ROOT)/MdePkg/Include/Pi/PiFirmwareVolume.h | $(CDK2_NATIVE_BUILD_DIR)
-	@$(CDK2_NATIVE_CC) $(CDK2_NATIVE_CFLAGS) -MMD -MP -MF "$(@:.o=.d)" -MT "$@" $(CDK2_NATIVE_INCLUDES) -I$(CDK2_NATIVE_DIR) -c "$<" -o "$@"
-
-$(CDK2_NATIVE_BUILD_DIR)/pe.o: $(CDK2_NATIVE_DIR)/pe.c $(CDK2_NATIVE_DIR)/pe.h $(CDK2_ROOT)/MdePkg/Include/IndustryStandard/PeImage.h | $(CDK2_NATIVE_BUILD_DIR)
-	@$(CDK2_NATIVE_CC) $(CDK2_NATIVE_CFLAGS) -MMD -MP -MF "$(@:.o=.d)" -MT "$@" $(CDK2_NATIVE_INCLUDES) -I$(CDK2_NATIVE_DIR) -c "$<" -o "$@"
-
-$(CDK2_NATIVE_BUILD_DIR)/services.o: $(CDK2_NATIVE_DIR)/services.c $(CDK2_NATIVE_DIR)/services.h $(CDK2_NATIVE_DIR)/context.h $(CDK2_CONFIG_HEADER) | $(CDK2_NATIVE_BUILD_DIR)
+$(CDK2_NATIVE_BUILD_DIR)/coreboot_backend.o: $(CDK2_NATIVE_COREBOOT_DIR)/coreboot_backend.c $(CDK2_DIR)/include/cdk2/coreboot_hobs.h $(CDK2_DIR)/include/cdk2/fv.h $(CDK2_DIR)/include/cdk2/pe.h $(CDK2_CONFIG_HEADER) | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_CC) $(CDK2_NATIVE_CFLAGS) -MMD -MP -MF "$(@:.o=.d)" -MT "$@" $(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
 
-$(CDK2_NATIVE_BUILD_DIR)/override.o: $(CDK2_NATIVE_DIR)/override.c $(CDK2_CONFIG_HEADER) | $(CDK2_NATIVE_BUILD_DIR)
+$(CDK2_NATIVE_BUILD_DIR)/coreboot.o: $(CDK2_NATIVE_COREBOOT_DIR)/coreboot.c $(CDK2_DIR)/include/cdk2/coreboot.h $(CDK2_ROOT)/UefiPayloadPkg/Include/Coreboot.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_CC) $(CDK2_NATIVE_CFLAGS) -MMD -MP -MF "$(@:.o=.d)" -MT "$@" $(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
 
-$(CDK2_NATIVE_PACKER): $(CDK2_NATIVE_DIR)/fvpack.c | $(CDK2_NATIVE_BUILD_DIR)
+$(CDK2_NATIVE_BUILD_DIR)/coreboot_hobs.o: $(CDK2_NATIVE_COREBOOT_DIR)/coreboot_hobs.c $(CDK2_DIR)/include/cdk2/coreboot_hobs.h $(CDK2_DIR)/include/cdk2/coreboot.h $(CDK2_ROOT)/MdePkg/Include/Pi/PiHob.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(CDK2_NATIVE_CFLAGS) -MMD -MP -MF "$(@:.o=.d)" -MT "$@" $(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+
+$(CDK2_NATIVE_BUILD_DIR)/fv.o: $(CDK2_NATIVE_COMMON_DIR)/fv.c $(CDK2_DIR)/include/cdk2/fv.h $(CDK2_ROOT)/MdePkg/Include/Pi/PiFirmwareFile.h $(CDK2_ROOT)/MdePkg/Include/Pi/PiFirmwareVolume.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(CDK2_NATIVE_CFLAGS) -MMD -MP -MF "$(@:.o=.d)" -MT "$@" $(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+
+$(CDK2_NATIVE_BUILD_DIR)/pe.o: $(CDK2_NATIVE_COMMON_DIR)/pe.c $(CDK2_DIR)/include/cdk2/pe.h $(CDK2_ROOT)/MdePkg/Include/IndustryStandard/PeImage.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(CDK2_NATIVE_CFLAGS) -MMD -MP -MF "$(@:.o=.d)" -MT "$@" $(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+
+$(CDK2_NATIVE_BUILD_DIR)/services.o: $(CDK2_NATIVE_COMMON_DIR)/services.c $(CDK2_DIR)/include/cdk2/services.h $(CDK2_DIR)/include/cdk2/context.h $(CDK2_CONFIG_HEADER) | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(CDK2_NATIVE_CFLAGS) -MMD -MP -MF "$(@:.o=.d)" -MT "$@" $(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+
+$(CDK2_NATIVE_BUILD_DIR)/override.o: $(CDK2_NATIVE_PLATFORM_DIR)/override.c $(CDK2_CONFIG_HEADER) | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(CDK2_NATIVE_CFLAGS) -MMD -MP -MF "$(@:.o=.d)" -MT "$@" $(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+
+$(CDK2_NATIVE_PACKER): $(CDK2_NATIVE_TOOLS_DIR)/fvpack.c | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CC) $(CDK2_NATIVE_HOST_CFLAGS) -o "$@" "$<"
 
-$(CDK2_NATIVE_ELF_CHECK): $(CDK2_NATIVE_DIR)/elfcheck.c | $(CDK2_NATIVE_BUILD_DIR)
+$(CDK2_NATIVE_ELF_CHECK): $(CDK2_NATIVE_TOOLS_DIR)/elfcheck.c | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CC) $(CDK2_NATIVE_HOST_CFLAGS) -o "$@" "$<"
 
-$(CDK2_NATIVE_ELF_CHECK_TEST): $(CDK2_NATIVE_DIR)/elfcheck_test.c | $(CDK2_NATIVE_BUILD_DIR)
+$(CDK2_NATIVE_ELF_CHECK_TEST): $(CDK2_NATIVE_TESTS_DIR)/elfcheck_test.c | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CC) $(CDK2_NATIVE_HOST_CFLAGS) -MMD -MP -MF "$(CDK2_NATIVE_BUILD_DIR)/elfcheck-test.d" -MT "$@" -o "$@" "$<"
 
-$(CDK2_NATIVE_BUILD_DIR)/payload.o: $(CDK2_NATIVE_DIR)/payload.c $(CDK2_NATIVE_DIR)/services.h $(CDK2_NATIVE_DIR)/context.h $(CDK2_CONFIG_HEADER) | $(CDK2_NATIVE_BUILD_DIR)
+$(CDK2_NATIVE_BUILD_DIR)/payload.o: $(CDK2_NATIVE_COMMON_DIR)/payload.c $(CDK2_DIR)/include/cdk2/services.h $(CDK2_DIR)/include/cdk2/context.h $(CDK2_CONFIG_HEADER) | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_CC) $(CDK2_NATIVE_CFLAGS) -MMD -MP -MF "$(@:.o=.d)" -MT "$@" $(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
 
-$(CDK2_NATIVE_ELF): $(CDK2_NATIVE_STAGE_OBJS) $(CDK2_NATIVE_DIR)/cdk2.ld
+$(CDK2_NATIVE_ELF): $(CDK2_NATIVE_STAGE_OBJS) $(CDK2_NATIVE_ARCH_X86_DIR)/cdk2.ld
 	@$(CDK2_NATIVE_CC) $(CDK2_NATIVE_LINK_FLAGS) -Wl,-Map,"$(CDK2_NATIVE_MAP)" $(CDK2_NATIVE_LINK_POST_MAP_FLAGS) -Wl,-e,Cdk2NativeStageEntry -o "$@" $(CDK2_NATIVE_STAGE_LINK_INPUTS)
 
-$(CDK2_NATIVE_OVERRIDE_ELF): $(CDK2_NATIVE_OVERRIDE_OBJS) $(CDK2_NATIVE_DIR)/cdk2.ld
+$(CDK2_NATIVE_OVERRIDE_ELF): $(CDK2_NATIVE_OVERRIDE_OBJS) $(CDK2_NATIVE_ARCH_X86_DIR)/cdk2.ld
 	@$(CDK2_NATIVE_CC) $(CDK2_NATIVE_LINK_FLAGS) -Wl,-Map,"$(CDK2_NATIVE_OVERRIDE_MAP)" $(CDK2_NATIVE_LINK_POST_MAP_FLAGS) -Wl,-e,Cdk2NativeStageEntry -o "$@" $(CDK2_NATIVE_OVERRIDE_LINK_INPUTS)
 
-$(CDK2_NATIVE_COREBOOT_ELF): $(CDK2_NATIVE_COREBOOT_OBJS) $(CDK2_NATIVE_DIR)/cdk2.ld
+$(CDK2_NATIVE_COREBOOT_ELF): $(CDK2_NATIVE_COREBOOT_OBJS) $(CDK2_NATIVE_ARCH_X86_DIR)/cdk2.ld
 	@$(CDK2_NATIVE_CC) $(CDK2_NATIVE_LINK_FLAGS) -Wl,-Map,"$(CDK2_NATIVE_COREBOOT_MAP)" $(CDK2_NATIVE_LINK_POST_MAP_FLAGS) -Wl,-e,Cdk2CorebootEntry32 -o "$@" $(CDK2_NATIVE_COREBOOT_LINK_INPUTS)
 
 FORCE:
@@ -208,22 +214,22 @@ $(CDK2_NATIVE_FV_BLOB_OBJ): $(CDK2_OUTPUT) FORCE | $(CDK2_NATIVE_BUILD_DIR)
 $(CDK2_NATIVE_COREBOOT_IMAGE): $(CDK2_NATIVE_COREBOOT_ELF) $(CDK2_NATIVE_FV_BLOB_OBJ)
 	@$(CDK2_NATIVE_CC) $(CDK2_NATIVE_LINK_FLAGS) -Wl,-Map,"$(CDK2_NATIVE_COREBOOT_IMAGE_MAP)" $(CDK2_NATIVE_LINK_POST_MAP_FLAGS) -Wl,-e,Cdk2CorebootEntry32 -o "$@" $(CDK2_NATIVE_COREBOOT_LINK_INPUTS) "$(CDK2_NATIVE_FV_BLOB_OBJ)"
 
-$(CDK2_NATIVE_SERVICE_TEST): $(CDK2_NATIVE_DIR)/payload.c $(CDK2_NATIVE_DIR)/services.c $(CDK2_NATIVE_DIR)/services.h $(CDK2_NATIVE_DIR)/context.h $(CDK2_NATIVE_DIR)/services_test.c | $(CDK2_NATIVE_BUILD_DIR)
-	@$(CC) $(CDK2_NATIVE_HOST_CFLAGS) -MMD -MP -MF "$(CDK2_NATIVE_BUILD_DIR)/services-test.d" -MT "$@" $(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_NATIVE_DIR)/payload.c" "$(CDK2_NATIVE_DIR)/services.c" "$(CDK2_NATIVE_DIR)/services_test.c"
+$(CDK2_NATIVE_SERVICE_TEST): $(CDK2_NATIVE_COMMON_DIR)/payload.c $(CDK2_NATIVE_COMMON_DIR)/services.c $(CDK2_DIR)/include/cdk2/services.h $(CDK2_DIR)/include/cdk2/context.h $(CDK2_NATIVE_TESTS_DIR)/services_test.c | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CC) $(CDK2_NATIVE_HOST_CFLAGS) -MMD -MP -MF "$(CDK2_NATIVE_BUILD_DIR)/services-test.d" -MT "$@" $(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_NATIVE_COMMON_DIR)/payload.c" "$(CDK2_NATIVE_COMMON_DIR)/services.c" "$(CDK2_NATIVE_TESTS_DIR)/services_test.c"
 
-$(CDK2_NATIVE_COREBOOT_TEST): $(CDK2_NATIVE_DIR)/coreboot.c $(CDK2_NATIVE_DIR)/coreboot.h $(CDK2_NATIVE_DIR)/coreboot_hobs.c $(CDK2_NATIVE_DIR)/coreboot_hobs.h $(CDK2_NATIVE_DIR)/coreboot_backend.c $(CDK2_NATIVE_DIR)/services.c $(CDK2_NATIVE_DIR)/services.h $(CDK2_NATIVE_DIR)/coreboot_test.c $(CDK2_ROOT)/UefiPayloadPkg/Include/Coreboot.h | $(CDK2_NATIVE_BUILD_DIR)
-	@$(CC) $(CDK2_NATIVE_HOST_CFLAGS) -DCDK2_COREBOOT_BACKEND_TEST -ffunction-sections -fdata-sections -Wl,--gc-sections -MMD -MP -MF "$(CDK2_NATIVE_BUILD_DIR)/coreboot-test.d" -MT "$@" $(CDK2_NATIVE_INCLUDES) -I$(CDK2_NATIVE_DIR) -o "$@" "$(CDK2_NATIVE_DIR)/coreboot.c" "$(CDK2_NATIVE_DIR)/coreboot_hobs.c" "$(CDK2_NATIVE_DIR)/coreboot_backend.c" "$(CDK2_NATIVE_DIR)/services.c" "$(CDK2_NATIVE_DIR)/coreboot_test.c"
+$(CDK2_NATIVE_COREBOOT_TEST): $(CDK2_NATIVE_COREBOOT_DIR)/coreboot.c $(CDK2_DIR)/include/cdk2/coreboot.h $(CDK2_NATIVE_COREBOOT_DIR)/coreboot_hobs.c $(CDK2_DIR)/include/cdk2/coreboot_hobs.h $(CDK2_NATIVE_COREBOOT_DIR)/coreboot_backend.c $(CDK2_NATIVE_COMMON_DIR)/services.c $(CDK2_DIR)/include/cdk2/services.h $(CDK2_NATIVE_TESTS_DIR)/coreboot_test.c $(CDK2_ROOT)/UefiPayloadPkg/Include/Coreboot.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CC) $(CDK2_NATIVE_HOST_CFLAGS) -DCDK2_COREBOOT_BACKEND_TEST -ffunction-sections -fdata-sections -Wl,--gc-sections -MMD -MP -MF "$(CDK2_NATIVE_BUILD_DIR)/coreboot-test.d" -MT "$@" $(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_NATIVE_COREBOOT_DIR)/coreboot.c" "$(CDK2_NATIVE_COREBOOT_DIR)/coreboot_hobs.c" "$(CDK2_NATIVE_COREBOOT_DIR)/coreboot_backend.c" "$(CDK2_NATIVE_COMMON_DIR)/services.c" "$(CDK2_NATIVE_TESTS_DIR)/coreboot_test.c"
 
-$(CDK2_NATIVE_FV_TEST): $(CDK2_NATIVE_DIR)/fv.c $(CDK2_NATIVE_DIR)/fv.h $(CDK2_NATIVE_DIR)/fv_test.c $(CDK2_ROOT)/MdePkg/Include/Pi/PiFirmwareFile.h $(CDK2_ROOT)/MdePkg/Include/Pi/PiFirmwareVolume.h | $(CDK2_NATIVE_BUILD_DIR)
-	@$(CC) $(CDK2_NATIVE_HOST_CFLAGS) -MMD -MP -MF "$(CDK2_NATIVE_BUILD_DIR)/fv-test.d" -MT "$@" $(CDK2_NATIVE_INCLUDES) -I$(CDK2_NATIVE_DIR) -o "$@" "$(CDK2_NATIVE_DIR)/fv.c" "$(CDK2_NATIVE_DIR)/fv_test.c"
+$(CDK2_NATIVE_FV_TEST): $(CDK2_NATIVE_COMMON_DIR)/fv.c $(CDK2_DIR)/include/cdk2/fv.h $(CDK2_NATIVE_TESTS_DIR)/fv_test.c $(CDK2_ROOT)/MdePkg/Include/Pi/PiFirmwareFile.h $(CDK2_ROOT)/MdePkg/Include/Pi/PiFirmwareVolume.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CC) $(CDK2_NATIVE_HOST_CFLAGS) -MMD -MP -MF "$(CDK2_NATIVE_BUILD_DIR)/fv-test.d" -MT "$@" $(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_NATIVE_COMMON_DIR)/fv.c" "$(CDK2_NATIVE_TESTS_DIR)/fv_test.c"
 
-$(CDK2_NATIVE_FVPACK_TEST): $(CDK2_NATIVE_DIR)/fvpack_test.c $(CDK2_ROOT)/MdePkg/Include/IndustryStandard/PeImage.h $(CDK2_ROOT)/MdePkg/Include/Pi/PiFirmwareFile.h | $(CDK2_NATIVE_BUILD_DIR)
-	@$(CC) $(CDK2_NATIVE_HOST_CFLAGS) -MMD -MP -MF "$(CDK2_NATIVE_BUILD_DIR)/fvpack-test.d" -MT "$@" $(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_NATIVE_DIR)/fvpack_test.c"
+$(CDK2_NATIVE_FVPACK_TEST): $(CDK2_NATIVE_TESTS_DIR)/fvpack_test.c $(CDK2_ROOT)/MdePkg/Include/IndustryStandard/PeImage.h $(CDK2_ROOT)/MdePkg/Include/Pi/PiFirmwareFile.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CC) $(CDK2_NATIVE_HOST_CFLAGS) -MMD -MP -MF "$(CDK2_NATIVE_BUILD_DIR)/fvpack-test.d" -MT "$@" $(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_NATIVE_TESTS_DIR)/fvpack_test.c"
 
-$(CDK2_NATIVE_PE_TEST): $(CDK2_NATIVE_DIR)/pe.c $(CDK2_NATIVE_DIR)/pe.h $(CDK2_NATIVE_DIR)/pe_test.c $(CDK2_ROOT)/MdePkg/Include/IndustryStandard/PeImage.h | $(CDK2_NATIVE_BUILD_DIR)
-	@$(CC) $(CDK2_NATIVE_HOST_CFLAGS) -MMD -MP -MF "$(CDK2_NATIVE_BUILD_DIR)/pe-test.d" -MT "$@" $(CDK2_NATIVE_INCLUDES) -I$(CDK2_NATIVE_DIR) -o "$@" "$(CDK2_NATIVE_DIR)/pe.c" "$(CDK2_NATIVE_DIR)/pe_test.c"
+$(CDK2_NATIVE_PE_TEST): $(CDK2_NATIVE_COMMON_DIR)/pe.c $(CDK2_DIR)/include/cdk2/pe.h $(CDK2_NATIVE_TESTS_DIR)/pe_test.c $(CDK2_ROOT)/MdePkg/Include/IndustryStandard/PeImage.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CC) $(CDK2_NATIVE_HOST_CFLAGS) -MMD -MP -MF "$(CDK2_NATIVE_BUILD_DIR)/pe-test.d" -MT "$@" $(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_NATIVE_COMMON_DIR)/pe.c" "$(CDK2_NATIVE_TESTS_DIR)/pe_test.c"
 
-$(CDK2_NATIVE_MODULE_TEST): $(CDK2_NATIVE_DIR)/entry.c $(CDK2_NATIVE_DIR)/entry.h $(CDK2_NATIVE_DIR)/module.h $(CDK2_NATIVE_DIR)/module_test.c $(CDK2_NATIVE_DIR)/context.h $(CDK2_CONFIG_HEADER) | $(CDK2_NATIVE_BUILD_DIR)
-	@$(CC) $(CDK2_NATIVE_HOST_CFLAGS) -MMD -MP -MF "$(CDK2_NATIVE_BUILD_DIR)/module-test.d" -MT "$@" $(CDK2_NATIVE_INCLUDES) -I$(CDK2_NATIVE_DIR) -o "$@" "$(CDK2_NATIVE_DIR)/entry.c" "$(CDK2_NATIVE_DIR)/module_test.c"
+$(CDK2_NATIVE_MODULE_TEST): $(CDK2_NATIVE_COMMON_DIR)/entry.c $(CDK2_DIR)/include/cdk2/entry.h $(CDK2_DIR)/include/cdk2/module.h $(CDK2_NATIVE_TESTS_DIR)/module_test.c $(CDK2_DIR)/include/cdk2/context.h $(CDK2_CONFIG_HEADER) | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CC) $(CDK2_NATIVE_HOST_CFLAGS) -MMD -MP -MF "$(CDK2_NATIVE_BUILD_DIR)/module-test.d" -MT "$@" $(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_NATIVE_COMMON_DIR)/entry.c" "$(CDK2_NATIVE_TESTS_DIR)/module_test.c"
 
 -include $(CDK2_NATIVE_DEPFILES)

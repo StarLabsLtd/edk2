@@ -29,8 +29,8 @@
   ../LoadDxeCore.c
   ../MemoryTypeInformationHob.c
   ../AcpiTable.c
-  ../../../native/payload.c
-  ../../../native/services.c
+  ../../../src/common/payload.c
+  ../../../src/common/services.c
 
 [Sources.X64]
   X64/VirtualMemory.h

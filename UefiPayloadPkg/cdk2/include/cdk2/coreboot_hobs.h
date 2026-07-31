@@ -13,7 +13,7 @@
 #include <Pi/PiBootMode.h>
 #include <Pi/PiHob.h>
 
-#include "coreboot.h"
+#include <cdk2/coreboot.h>
 
 EFI_STATUS
 Cdk2CorebootBuildHobs (

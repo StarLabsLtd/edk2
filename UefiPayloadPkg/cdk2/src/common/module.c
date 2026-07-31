@@ -6,7 +6,7 @@
 
 **/
 
-#include "module.h"
+#include <cdk2/module.h>
 STATIC
 EFI_STATUS
 EFIAPI

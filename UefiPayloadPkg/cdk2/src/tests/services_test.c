@@ -6,7 +6,7 @@
 
 **/
 
-#include "services.h"
+#include <cdk2/services.h>
 
 #include <stdio.h>
 

@@ -15,7 +15,7 @@
 #include <Pi/PiHob.h>
 #include <Library/Cdk2PlatformLib.h>
 
-#include "services.h"
+#include <cdk2/services.h>
 
 #if defined (__GNUC__)
 STATIC UINT8  mCdk2NativeHobStorage[CDK2_NATIVE_HOB_BUFFER_SIZE]

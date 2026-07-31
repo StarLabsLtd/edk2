@@ -6,8 +6,8 @@
 
 **/
 
-#include "entry.h"
-#include "module.h"
+#include <cdk2/entry.h>
+#include <cdk2/module.h>
 
 #include <stdio.h>
 

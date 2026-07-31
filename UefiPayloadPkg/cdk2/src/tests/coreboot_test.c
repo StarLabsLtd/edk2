@@ -6,9 +6,9 @@
 
 **/
 
-#include "coreboot.h"
-#include "coreboot_hobs.h"
-#include "services.h"
+#include <cdk2/coreboot.h>
+#include <cdk2/coreboot_hobs.h>
+#include <cdk2/services.h>
 
 #include <Guid/MemoryAllocationHob.h>
 #include <Library/HobLib.h>

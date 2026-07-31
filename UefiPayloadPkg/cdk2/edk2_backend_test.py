@@ -125,6 +125,11 @@ class Edk2BackendDiscoverTests(unittest.TestCase):
                 f"""\
                 SHELL := /bin/bash
                 CONFIG_CDK2_CAPSULE := {"y" if capsule else "n"}
+                CONFIG_CDK2_ESRT := y
+                CONFIG_CDK2_PCI := y
+                CONFIG_CDK2_CONSOLE := y
+                CONFIG_CDK2_GRAPHICS := y
+                CONFIG_CDK2_SMM := y
                 CONFIG_CDK2_CAPSULE_MAIN_FW_GUID := "{capsule_guid}"
                 CDK2_ROOT := {root}
                 CDK2_DIR := {CDK2_DIR}
@@ -378,6 +383,7 @@ class Edk2BackendPs2KeyboardTests(unittest.TestCase):
                     "CONFIG_CDK2_TPM_CONFIG := y",
                     "CONFIG_CDK2_SECURE_BOOT := n",
                     "CONFIG_CDK2_SECURE_BOOT_CONFIG := n",
+                    "CONFIG_CDK2_SETUP_UI := y",
                 ]
             ),
             extra_defines="-D MEMORY_TEST=NONE -D TPM1_ENABLE=FALSE "
@@ -398,6 +404,80 @@ class Edk2BackendPs2KeyboardTests(unittest.TestCase):
         self.assertIn("-D MEMORY_TEST=NONE", result.stdout)
         self.assertIn("-D TPM1_ENABLE=FALSE", result.stdout)
         self.assertIn("-D SECURE_BOOT_ENABLE=TRUE", result.stdout)
+
+    def test_storage_override_disables_storage_children(self) -> None:
+        result = self._run_inspect(
+            "\n".join(
+                [
+                    "CONFIG_CDK2_PCI := y",
+                    "CONFIG_CDK2_STORAGE := y",
+                    "CONFIG_CDK2_NVME := y",
+                    "CONFIG_CDK2_ATA := y",
+                    "CONFIG_CDK2_SD := y",
+                ]
+            ),
+            extra_defines="-D STORAGE_ENABLE=FALSE",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("MdeModulePkg/Bus/Pci/NvmExpressDxe/NvmExpressDxe.inf", result.stdout)
+        self.assertNotIn("MdeModulePkg/Bus/Ata/AtaBusDxe/AtaBusDxe.inf", result.stdout)
+        self.assertNotIn("MdeModulePkg/Bus/Sd/SdDxe/SdDxe.inf", result.stdout)
+        self.assertIn("-D STORAGE_ENABLE=FALSE", result.stdout)
+        self.assertIn("-D NVME_ENABLE=FALSE", result.stdout)
+        self.assertIn("-D ATA_ENABLE=FALSE", result.stdout)
+        self.assertIn("-D SD_ENABLE=FALSE", result.stdout)
+
+    def test_child_override_rejects_disabled_parent(self) -> None:
+        result = self._run_inspect(
+            "\n".join(
+                [
+                    "CONFIG_CDK2_PCI := y",
+                    "CONFIG_CDK2_STORAGE := y",
+                    "CONFIG_CDK2_NVME := y",
+                ]
+            ),
+            extra_defines="-D STORAGE_ENABLE=FALSE -D NVME_ENABLE=TRUE",
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(
+            "cdk2 define NVME_ENABLE=TRUE requires STORAGE_ENABLE=TRUE",
+            result.stderr,
+        )
+
+    def test_unsupported_variable_support_override_is_rejected(self) -> None:
+        result = self._run_inspect(
+            "CONFIG_CDK2_PCI := y",
+            extra_defines="-D VARIABLE_SUPPORT=SPI",
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(
+            "unsupported cdk2 VARIABLE_SUPPORT value: SPI",
+            result.stderr,
+        )
+
+    def test_duplicate_define_override_is_rejected(self) -> None:
+        result = self._run_inspect(
+            "CONFIG_CDK2_PCI := y",
+            extra_defines="-D PCI_ENABLE=FALSE --define=PCI_ENABLE=TRUE",
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("duplicate cdk2 define override for PCI_ENABLE", result.stderr)
+
+    def test_noncanonical_bool_override_is_rejected(self) -> None:
+        result = self._run_inspect(
+            "CONFIG_CDK2_PCI := y",
+            extra_defines="-D PCI_ENABLE=1",
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(
+            "cdk2 define PCI_ENABLE must use TRUE or FALSE",
+            result.stderr,
+        )
 
 
 if __name__ == "__main__":

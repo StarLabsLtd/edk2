@@ -25,9 +25,9 @@
 #include <UniversalPayload/SmbiosTable.h>
 #include <cdk2/config.h>
 
-#include "coreboot_hobs.h"
-#include "fv.h"
-#include "pe.h"
+#include <cdk2/coreboot_hobs.h>
+#include <cdk2/fv.h>
+#include <cdk2/pe.h>
 
 #define CDK2_COREBOOT_HOB_REGION_SIZE  (0x04000000U)
 #define CDK2_COREBOOT_DXE_MAX_PAGES    (0x2000U)

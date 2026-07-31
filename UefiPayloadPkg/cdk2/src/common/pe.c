@@ -6,7 +6,7 @@
 
 **/
 
-#include "pe.h"
+#include <cdk2/pe.h>
 
 STATIC
 BOOLEAN

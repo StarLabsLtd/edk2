@@ -6,7 +6,7 @@
 
 **/
 
-#include "coreboot_hobs.h"
+#include <cdk2/coreboot_hobs.h>
 
 #include <Guid/MemoryAllocationHob.h>
 

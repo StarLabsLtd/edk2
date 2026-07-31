@@ -9,7 +9,7 @@
 #ifndef CDK2_NATIVE_MODULE_H_
 #define CDK2_NATIVE_MODULE_H_
 
-#include "context.h"
+#include <cdk2/context.h>
 #include <Library/Cdk2PlatformLib.h>
 
 typedef EFI_STATUS (EFIAPI *CDK2_NATIVE_MODULE_INIT)(
