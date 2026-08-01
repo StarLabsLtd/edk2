@@ -132,7 +132,7 @@ ParseBootMode (
 /**
   Acquire SMBIOS table from slim bootloader.
 
-  @param  SmBiosEntryPoint          Pointer to the SMBIOS structure.
+  @param  SmbiosTable               Pointer to the SMBIOS table information.
 
   @retval RETURN_SUCCESS            Successfully find out the tables.
   @retval RETURN_NOT_FOUND          Failed to find the tables.
@@ -141,12 +141,12 @@ ParseBootMode (
 RETURN_STATUS
 EFIAPI
 ParseSmbiosTable (
-  OUT UINT64  *SmBiosEntryPoint
+  OUT UNIVERSAL_PAYLOAD_SMBIOS_TABLE  *SmbiosTable
   )
 {
   UNIVERSAL_PAYLOAD_SMBIOS_TABLE  *TableInfo;
 
-  if (SmBiosEntryPoint == NULL) {
+  if (SmbiosTable == NULL) {
     return RETURN_INVALID_PARAMETER;
   }
 
@@ -156,7 +156,7 @@ ParseSmbiosTable (
     return RETURN_NOT_FOUND;
   }
 
-  *SmBiosEntryPoint = TableInfo->SmBiosEntryPoint;
+  CopyMem (SmbiosTable, TableInfo, sizeof (*SmbiosTable));
 
   return RETURN_SUCCESS;
 }
