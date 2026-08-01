@@ -874,6 +874,30 @@ class Edk2BackendPs2KeyboardTests(unittest.TestCase):
             result.stdout,
         )
 
+    def test_lvgl_kconfig_selects_renderer_modules(self) -> None:
+        result = self._run_inspect(
+            "\n".join(
+                [
+                    "CONFIG_CDK2_PCI := y",
+                    "CONFIG_CDK2_GRAPHICS := y",
+                    "CONFIG_CDK2_SETUP_UI := y",
+                    "CONFIG_CDK2_LVGL := y",
+                ]
+            )
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("-D LVGL_ENABLE=TRUE", result.stdout)
+        self.assertIn(
+            "3rdparty/LvglPkg/LvglDisplayEngineDxe/LvglDisplayEngineDxe.inf",
+            result.stdout,
+        )
+        self.assertIn("3rdparty/LvglPkg/LvglSetupDxe/LvglSetupDxe.inf", result.stdout)
+        self.assertNotIn(
+            "MdeModulePkg/Universal/DisplayEngineDxe/DisplayEngineDxe.inf",
+            result.stdout,
+        )
+
     def test_lvgl_override_requires_setup_ui(self) -> None:
         result = self._run_inspect(
             "\n".join(

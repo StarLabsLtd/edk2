@@ -39,6 +39,11 @@ config CDK2_SETUP_UI
       Enable this only for payloads that intentionally use the HII setup
       browser. Payloads with a native setup surface should leave this off.
 
+config CDK2_LVGL
+    bool "Use LVGL setup renderer"
+    default n
+    depends on CDK2_SETUP_UI && CDK2_GRAPHICS
+
 config CDK2_CONNECT_ALL_DEVICES
     bool "Connect every device before boot"
     default n
