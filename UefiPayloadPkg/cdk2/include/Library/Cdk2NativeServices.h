@@ -98,6 +98,13 @@ typedef EFI_STATUS (EFIAPI *CDK2_NATIVE_TRANSFER)(
   IN CDK2_NATIVE_CONTEXT  *Context
   );
 
+typedef VOID (EFIAPI *CDK2_NATIVE_LOG_WRITE)(
+  IN OUT CDK2_NATIVE_CONTEXT  *Context,
+  IN     UINTN                 Level,
+  IN     CONST CHAR8           *Buffer,
+  IN     UINTN                 Length
+  );
+
 typedef struct {
   CDK2_NATIVE_CONSTRUCT_HOBS          ConstructHobs;
   CDK2_NATIVE_BUILD_PLATFORM_HOBS     BuildPlatformHobs;
@@ -111,6 +118,7 @@ typedef struct {
   CDK2_NATIVE_MASK_LEGACY_INTERRUPTS  MaskLegacyInterrupts;
   CDK2_NATIVE_LOAD_DXE_CORE           LoadDxeCore;
   CDK2_NATIVE_TRANSFER                Transfer;
+  CDK2_NATIVE_LOG_WRITE               LogWrite;
 } CDK2_NATIVE_BACKEND;
 
 typedef struct {

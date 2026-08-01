@@ -37,7 +37,7 @@ export SOURCE_DATE_EPOCH
 CDK2_CONFIG_TARGETS := build build-image check manifest metadata metadata-test modules native-stage \
 	native-coreboot-stage native-coreboot-image native-check native-pack \
 	native-service-test native-coreboot-test native-fv-test native-fvpack-test native-pe-test \
-	native-module-test native-elfcheck-test print
+	native-printk-test native-module-test native-elfcheck-test print
 
 # The coreboot wrapper deliberately clears MAKEOVERRIDES before entering cdk2
 # so compiler variables cannot leak into the native build. Forward cdk2's own
@@ -60,7 +60,7 @@ CDK2_RECURSIVE_ARGS := \
 .PHONY: all build build-image config defconfig olddefconfig menuconfig prepare-kconfig check \
 	manifest metadata metadata-test modules native-stage native-coreboot-stage native-coreboot-image native-check \
 	native-pack native-service-test native-coreboot-test native-fv-test native-fvpack-test \
-	native-pe-test native-module-test native-elfcheck-test print clean
+	native-pe-test native-printk-test native-module-test native-elfcheck-test print clean
 .DELETE_ON_ERROR: $(CDK2_CONFIG) $(CDK2_CONFIG_HEADER) $(CDK2_MANIFEST) $(CDK2_OUTPUT) $(CDK2_LINK_MANIFEST)
 
 all: build

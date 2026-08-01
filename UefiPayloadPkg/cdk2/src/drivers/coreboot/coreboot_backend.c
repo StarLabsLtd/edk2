@@ -28,6 +28,7 @@
 #include <cdk2/coreboot_hobs.h>
 #include <cdk2/fv.h>
 #include <cdk2/pe.h>
+#include <cdk2/printk.h>
 
 #define CDK2_COREBOOT_HOB_REGION_SIZE  (0x04000000U)
 #define CDK2_COREBOOT_DXE_MAX_PAGES    (0x2000U)
@@ -63,6 +64,9 @@
 #define CDK2_COREBOOT_HPET_LEGACY_ROUTE_ENABLE      BIT1
 #define CDK2_COREBOOT_HPET_TIMER_INTERRUPT_ENABLE   BIT2
 #define CDK2_COREBOOT_HPET_TIMER_MSI_ENABLE         BIT14
+#define CDK2_COREBOOT_SERIAL_LINE_STATUS_OFFSET     5U
+#define CDK2_COREBOOT_SERIAL_THR_EMPTY              BIT5
+#define CDK2_COREBOOT_SERIAL_POLL_LIMIT             100000U
 
 #if defined (__GNUC__)
 #define CDK2_COREBOOT_NORETURN  __attribute__ ((noreturn))
@@ -1447,6 +1451,100 @@ Cdk2CorebootIoWrite8 (
 #endif
 }
 
+#if CONFIG_CDK2_SERIAL
+STATIC
+UINT8
+Cdk2CorebootIoRead8 (
+  IN UINT16  Port
+  )
+{
+#if defined (__x86_64__) && !defined (CDK2_COREBOOT_BACKEND_TEST)
+  UINT8  Value;
+
+  __asm__ volatile ("inb %w1, %0" : "=a" (Value) : "Nd" (Port));
+  return Value;
+#else
+  (void)Port;
+  return 0xFFU;
+#endif
+}
+
+STATIC
+VOID
+Cdk2CorebootSerialWriteChar (
+  IN UINT16  Base,
+  IN CHAR8   Character
+  )
+{
+  UINTN  Timeout;
+
+  if (Character == '\n') {
+    Cdk2CorebootSerialWriteChar (Base, '\r');
+  }
+
+  for (Timeout = 0; Timeout < CDK2_COREBOOT_SERIAL_POLL_LIMIT; Timeout++) {
+    if ((Cdk2CorebootIoRead8 (Base + CDK2_COREBOOT_SERIAL_LINE_STATUS_OFFSET) &
+         CDK2_COREBOOT_SERIAL_THR_EMPTY) != 0)
+    {
+      break;
+    }
+  }
+
+  Cdk2CorebootIoWrite8 (Base, (UINT8)Character);
+}
+#endif
+
+STATIC
+VOID
+EFIAPI
+Cdk2CorebootLogWrite (
+  IN OUT CDK2_NATIVE_CONTEXT  *Context,
+  IN     UINTN                 Level,
+  IN     CONST CHAR8           *Buffer,
+  IN     UINTN                 Length
+  )
+{
+#if CONFIG_CDK2_SERIAL
+  CONST VOID              *Record;
+  CONST struct cb_serial  *Serial;
+  EFI_STATUS              Status;
+  UINTN                   Index;
+
+  (void)Context;
+  (void)Level;
+  if (Buffer == NULL || Length == 0) {
+    return;
+  }
+
+  Status = Cdk2CorebootFindRecord (
+             &mCorebootHandoff,
+             CB_TAG_SERIAL,
+             CDK2_COREBOOT_SERIAL_MIN_SIZE,
+             &Record
+             );
+  if (EFI_ERROR (Status)) {
+    return;
+  }
+
+  Serial = (CONST struct cb_serial *)Record;
+  if (Serial->type != CB_SERIAL_TYPE_IO_MAPPED ||
+      Serial->regwidth != 1 ||
+      Serial->baseaddr > MAX_UINT16)
+  {
+    return;
+  }
+
+  for (Index = 0; Index < Length; Index++) {
+    Cdk2CorebootSerialWriteChar ((UINT16)Serial->baseaddr, Buffer[Index]);
+  }
+#else
+  (void)Context;
+  (void)Level;
+  (void)Buffer;
+  (void)Length;
+#endif
+}
+
 STATIC
 UINT32
 Cdk2CorebootIoApicRead (
@@ -2396,5 +2494,16 @@ Cdk2PlatformInitializeNativeContext (
   Context->Backend.MaskLegacyInterrupts     = Cdk2CorebootMaskLegacyInterrupts;
   Context->Backend.LoadDxeCore               = Cdk2CorebootLoadDxeCore;
   Context->Backend.Transfer                  = Cdk2CorebootTransfer;
+  Context->Backend.LogWrite                  = Cdk2CorebootLogWrite;
+#if !defined (CDK2_COREBOOT_BACKEND_TEST)
+  Cdk2Printk (
+    Context,
+    CDK2_BIOS_INFO,
+    "cdk2: coreboot table=%p payload=%p size=%u\n",
+    Handoff.Header,
+    (CONST VOID *)(UINTN)Context->PayloadBase,
+    Context->PayloadSize
+    );
+#endif
   return EFI_SUCCESS;
 }
