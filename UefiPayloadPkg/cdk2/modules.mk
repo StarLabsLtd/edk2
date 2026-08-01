@@ -202,7 +202,6 @@ CDK2_REQUIRED_MODULES := \
     MdeModulePkg/Universal/StatusCodeHandler/RuntimeDxe/StatusCodeHandlerRuntimeDxe.inf \
     MdeModulePkg/Universal/DevicePathDxe/DevicePathDxe.inf \
     MdeModulePkg/Universal/HiiDatabaseDxe/HiiDatabaseDxe.inf \
-    MdeModulePkg/Universal/PlatformDriOverrideDxe/PlatformDriOverrideDxe.inf \
     MdeModulePkg/Universal/EbcDxe/EbcDxe.inf \
     UefiPayloadPkg/BlSupportDxe/BlSupportDxe.inf \
     UefiPayloadPkg/EcAcpiBatteryStatusDxe/EcAcpiBatteryStatusDxe.inf \
@@ -250,6 +249,7 @@ CDK2_SETUP_UI_MODULES := \
     MdeModulePkg/Application/UiApp/UiApp.inf \
     MdeModulePkg/Application/BootManagerMenuApp/BootManagerMenuApp.inf \
     MdeModulePkg/Universal/SetupBrowserDxe/SetupBrowserDxe.inf \
+    MdeModulePkg/Universal/PlatformDriOverrideDxe/PlatformDriOverrideDxe.inf \
     UefiPayloadPkg/UserAuthPkg/UserAuthenticationDxe/UserAuthenticationDxe.inf
 
 ifeq ($(CDK2_EFFECTIVE_LVGL),y)

@@ -114,8 +114,8 @@ CDK2_DEFINES += -D VARIABLE_SUPPORT=EMU
 endif
 
 ifeq ($(CDK2_EFFECTIVE_CAPSULE),y)
-ifneq ($(strip $(CDK2_CAPSULE_MAIN_FW_GUID)),)
-CDK2_DEFINES += -D CAPSULE_MAIN_FW_GUID=$(CDK2_CAPSULE_MAIN_FW_GUID)
+ifneq ($(strip $(CDK2_EFFECTIVE_CAPSULE_MAIN_FW_GUID)),)
+CDK2_DEFINES += -D CAPSULE_MAIN_FW_GUID=$(CDK2_EFFECTIVE_CAPSULE_MAIN_FW_GUID)
 endif
 endif
 
@@ -151,6 +151,7 @@ CDK2_REJECT_WRAPPER_ROOT := $(CDK2_PYTHON_STAGE_ROOT)/BinWrappers/cdk2-denied
 CDK2_BACKEND_ENTRY_MODULE := UefiPayloadPkg/cdk2/backend/edk2/entry/UefiPayloadEntry.inf
 CDK2_BACKEND_ENTRY_IMAGE := $(CDK2_BACKEND_BUILD_DIR)/$(CDK2_BACKEND_ENTRY_ARCH)/UefiPayloadPkg/cdk2/backend/edk2/entry/UefiPayloadEntry/OUTPUT/PayloadEntry.efi
 CDK2_BACKEND_DXE_FV := $(CDK2_BACKEND_BUILD_DIR)/FV/DXEFV.Fv
+CDK2_BACKEND_DXE_FV_INF := $(CDK2_BACKEND_BUILD_DIR)/FV/DXEFV.inf
 CDK2_BACKEND_DXE_FV_TEXT := $(CDK2_BACKEND_DXE_FV).txt
 CDK2_BACKEND_METADATA_TOOL := $(CDK2_DIR)/module_metadata.py
 CDK2_BACKEND_METADATA := $(CDK2_BUILD_DIR)/cdk2-module-metadata.json
@@ -271,32 +272,32 @@ awk -v entry_guid="$$entry_guid" -v pad_guid="$(CDK2_BACKEND_DXE_FFS_PAD_GUID)" 
   "$(CDK2_BACKEND_SELECTED_DXE_GUIDS)" "$(CDK2_BACKEND_DXE_FV_GUIDS)" || { \
   echo "cdk2 EDK2 DXE FV contains GUIDs outside the cdk2 selected map" >&2; exit 1; \
 } && \
-find "$(CDK2_BACKEND_BUILD_DIR)/FV/Ffs" -type f -iname '*.ffs' -print | sort | \
-awk -v entry_guid="$$entry_guid" -v pad_guid="$(CDK2_BACKEND_DXE_FFS_PAD_GUID)" 'NR == FNR { \
-    if (($$1 != entry_guid) && ($$1 != pad_guid)) { dxe[$$1] = 1 } \
-    next \
-  } \
-  { \
-    file = $$NF; \
-    sub(/^.*\//, "", file); \
-    guid = toupper(substr(file, 1, 36)); \
-    if (guid in dxe) { \
-      if (guid in found) { \
-        print "duplicate DXE FV FFS: " guid > "/dev/stderr"; \
-        failed = 1; next; \
-      } \
-      found[guid] = 1; print $$0; \
-    } \
-  } \
-  END { \
-    for (guid in dxe) { \
-      if (!(guid in found)) { \
-        print "DXE FV FFS missing from build output: " guid > "/dev/stderr"; \
-        failed = 1; \
-      } \
-    } \
-    exit failed ? 1 : 0; \
-  }' "$(CDK2_BACKEND_DXE_FV_GUIDS)" - > "$(CDK2_BACKEND_FFS_LIST)" && \
+awk '/^EFI_FILE_NAME[[:space:]]*=/ { \
+  sub(/^EFI_FILE_NAME[[:space:]]*=[[:space:]]*/, ""); \
+  print; \
+}' "$(CDK2_BACKEND_DXE_FV_INF)" | \
+awk -v entry_guid="$$entry_guid" -v pad_guid="$(CDK2_BACKEND_DXE_FFS_PAD_GUID)" '{ \
+  file = $$0; base = file; sub(/^.*\//, "", base); \
+  guid = toupper(substr(base, 1, 36)); \
+  if ((guid != entry_guid) && (guid != pad_guid)) { print file } \
+}' > "$(CDK2_BACKEND_FFS_LIST)" && \
+test -s "$(CDK2_BACKEND_FFS_LIST)" && \
+while IFS= read -r ffs; do \
+  case "$$ffs" in \
+    *.ffs|*.Ffs|*.FFS) ;; \
+    *) echo "cdk2 DXE FV references non-FFS file $$ffs" >&2; exit 1 ;; \
+  esac; \
+  if [ ! -f "$$ffs" ]; then \
+    echo "cdk2 DXE FV references missing FFS file $$ffs" >&2; \
+    exit 1; \
+  fi; \
+done < "$(CDK2_BACKEND_FFS_LIST)" && \
+dups=$$(sort "$(CDK2_BACKEND_FFS_LIST)" | uniq -d) && \
+if [ -n "$$dups" ]; then \
+  echo "cdk2 DXE FV references duplicate FFS files:" >&2; \
+  printf '%s\n' "$$dups" >&2; \
+  exit 1; \
+fi && \
 { \
   printf '%s\n' '# cdk2 native fvpack manifest'; \
   printf '%s\n' '# Format: FILE <reference-dxe-fv-offset> <file-guid> <ffs-path>'; \

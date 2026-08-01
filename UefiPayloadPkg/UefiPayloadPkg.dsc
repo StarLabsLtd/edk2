@@ -546,7 +546,7 @@
   LocalApicLib|UefiCpuPkg/Library/BaseXApicX2ApicLib/BaseXApicX2ApicLib.inf
   MicrocodeLib|UefiCpuPkg/Library/MicrocodeLib/MicrocodeLib.inf
   IoApicLib|PcAtChipsetPkg/Library/BaseIoApicLib/BaseIoApicLib.inf
-!if $(CPU_TIMER_LIB_ENABLE) == TRUE && $(UNIVERSAL_PAYLOAD) == TRUE
+!if $(CPU_TIMER_LIB_ENABLE) == TRUE && ($(UNIVERSAL_PAYLOAD) == TRUE || $(CDK2_FLAT_DXE_FV) == TRUE)
   TimerLib|UefiCpuPkg/Library/CpuTimerLib/BaseCpuTimerLib.inf
 !else
   TimerLib|UefiPayloadPkg/Library/AcpiTimerLib/AcpiTimerLib.inf
@@ -840,6 +840,9 @@
   gUefiPayloadPkgTokenSpaceGuid.PcdHandOffFdtEnable|$(HAND_OFF_FDT_ENABLE)
 
   gEfiMdeModulePkgTokenSpaceGuid.PcdBootManagerMenuFile|{ 0x21, 0xaa, 0x2c, 0x46, 0x14, 0x76, 0x03, 0x45, 0x83, 0x6e, 0x8a, 0xb6, 0xf4, 0x66, 0x23, 0x31 }
+!if $(CDK2_FLAT_DXE_FV) == TRUE && $(SETUP_UI_ENABLE) == FALSE
+  gEfiMdeModulePkgTokenSpaceGuid.PcdDriverHealthConfigureForm|{ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }
+!endif
   gUefiPayloadPkgTokenSpaceGuid.PcdPcdDriverFile|{ 0x57, 0x72, 0xcf, 0x80, 0xab, 0x87, 0xf9, 0x47, 0xa3, 0xfe, 0xD5, 0x0B, 0x76, 0xd8, 0x95, 0x41 }
 
 !if $(SOURCE_DEBUG_ENABLE)
@@ -1333,6 +1336,7 @@
   MdeModulePkg/Universal/HiiDatabaseDxe/HiiDatabaseDxe.inf
 !if $(CDK2_FLAT_DXE_FV) == FALSE || $(SETUP_UI_ENABLE) == TRUE
   MdeModulePkg/Universal/SetupBrowserDxe/SetupBrowserDxe.inf
+  MdeModulePkg/Universal/PlatformDriOverrideDxe/PlatformDriOverrideDxe.inf
   UefiPayloadPkg/UserAuthPkg/UserAuthenticationDxe/UserAuthenticationDxe.inf
 !if $(LVGL_ENABLE) == TRUE
   3rdparty/LvglPkg/LvglDisplayEngineDxe/LvglDisplayEngineDxe.inf
@@ -1341,7 +1345,6 @@
   MdeModulePkg/Universal/DisplayEngineDxe/DisplayEngineDxe.inf
 !endif
 !endif
-  MdeModulePkg/Universal/PlatformDriOverrideDxe/PlatformDriOverrideDxe.inf
   MdeModulePkg/Universal/EbcDxe/EbcDxe.inf
 
   UefiPayloadPkg/BlSupportDxe/BlSupportDxe.inf

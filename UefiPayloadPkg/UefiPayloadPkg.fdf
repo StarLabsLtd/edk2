@@ -320,6 +320,7 @@ INF  MdeModulePkg/Universal/MemoryTest/NullMemoryTestDxe/NullMemoryTestDxe.inf
 INF MdeModulePkg/Universal/HiiDatabaseDxe/HiiDatabaseDxe.inf
 !if $(CDK2_FLAT_DXE_FV) == FALSE || $(SETUP_UI_ENABLE) == TRUE
 INF MdeModulePkg/Universal/SetupBrowserDxe/SetupBrowserDxe.inf
+INF MdeModulePkg/Universal/PlatformDriOverrideDxe/PlatformDriOverrideDxe.inf
 INF UefiPayloadPkg/UserAuthPkg/UserAuthenticationDxe/UserAuthenticationDxe.inf
 !endif
 !if $(OPAL_PASSWORD_ENABLE) == TRUE
@@ -335,7 +336,6 @@ INF 3rdparty/LvglPkg/LvglSetupDxe/LvglSetupDxe.inf
 INF MdeModulePkg/Universal/DisplayEngineDxe/DisplayEngineDxe.inf
 !endif
 !endif
-INF MdeModulePkg/Universal/PlatformDriOverrideDxe/PlatformDriOverrideDxe.inf
 INF MdeModulePkg/Universal/EbcDxe/EbcDxe.inf
 INF UefiPayloadPkg/BlSupportDxe/BlSupportDxe.inf
 INF UefiPayloadPkg/EcAcpiBatteryStatusDxe/EcAcpiBatteryStatusDxe.inf

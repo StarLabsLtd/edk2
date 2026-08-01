@@ -25,6 +25,21 @@ CAPSULE_GUID = "22222222-3333-4444-5555-666666666666"
 OVERRIDE_CAPSULE_GUID = "33333333-4444-5555-6666-777777777777"
 
 
+class Edk2BackendDscTests(unittest.TestCase):
+    def test_cpu_timer_library_is_available_to_cdk2_flat_fv(self) -> None:
+        dsc = (CDK2_DIR.parent / "UefiPayloadPkg.dsc").read_text(encoding="utf-8")
+        condition = (
+            "!if $(CPU_TIMER_LIB_ENABLE) == TRUE && "
+            "($(UNIVERSAL_PAYLOAD) == TRUE || $(CDK2_FLAT_DXE_FV) == TRUE)"
+        )
+
+        self.assertIn(condition, dsc)
+        self.assertIn(
+            "TimerLib|UefiCpuPkg/Library/CpuTimerLib/BaseCpuTimerLib.inf",
+            dsc,
+        )
+
+
 class Edk2BackendDiscoverTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
@@ -39,20 +54,26 @@ class Edk2BackendDiscoverTests(unittest.TestCase):
         path.write_text(text, encoding="utf-8")
         return path
 
-    def _write_ffs(self, guid: str) -> None:
+    def _write_ffs(self, guid: str, suffix: str = "Fixture") -> Path:
         path = (
             self.workspace
             / "root/out/RELEASE_TEST/FV/Ffs"
-            / f"{guid}Fixture"
+            / f"{guid}{suffix}"
             / f"{guid}.ffs"
         )
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(b"fixture")
+        return path
 
-    def _run_discover(self, dxe_fv_guids: list[str]) -> subprocess.CompletedProcess[str]:
+    def _run_discover(
+        self,
+        dxe_fv_guids: list[str],
+        stale_ffs_guids: list[str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
         root = self.workspace / "root"
         build = self.workspace / "build"
         fv_text = root / "out/RELEASE_TEST/FV/DXEFV.Fv.txt"
+        fv_inf = root / "out/RELEASE_TEST/FV/DXEFV.inf"
         module_guids = build / "cdk2-module-guids.txt"
 
         self._write(
@@ -72,8 +93,13 @@ class Edk2BackendDiscoverTests(unittest.TestCase):
             + "\n",
         )
 
-        for guid in dxe_fv_guids:
-            self._write_ffs(guid)
+        ffs_paths = [self._write_ffs(guid) for guid in dxe_fv_guids]
+        for guid in stale_ffs_guids or []:
+            self._write_ffs(guid, suffix="Stale")
+        self._write(
+            str(fv_inf.relative_to(self.workspace)),
+            "".join(f"EFI_FILE_NAME = {path}\n" for path in ffs_paths),
+        )
 
         makefile = self._write(
             "Makefile",
@@ -213,6 +239,19 @@ class Edk2BackendDiscoverTests(unittest.TestCase):
         self.assertEqual(len(packed_ffs.splitlines()), 3)
         self.assertNotIn(ENTRY_GUID, packed_ffs)
         self.assertNotIn(PAD_GUID, packed_ffs)
+
+    def test_discover_ignores_stale_unreferenced_matching_guid_ffs(self) -> None:
+        result = self._run_discover(
+            [APRIORI_GUID, ENTRY_GUID, GOOD_GUID, LOW_BATTERY_LOGO_GUID, PAD_GUID],
+            stale_ffs_guids=[GOOD_GUID],
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        packed_ffs = (self.workspace / "build/cdk2-dxe-ffs.txt").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(f"{GOOD_GUID}Fixture/{GOOD_GUID}.ffs", packed_ffs)
+        self.assertNotIn(f"{GOOD_GUID}Stale/{GOOD_GUID}.ffs", packed_ffs)
 
     def test_discover_rejects_unexpected_extra_dxe_guid(self) -> None:
         result = self._run_discover(
@@ -558,6 +597,28 @@ class Edk2BackendPs2KeyboardTests(unittest.TestCase):
         self.assertIn("-D MEMORY_TEST=NONE", result.stdout)
         self.assertIn("-D TPM1_ENABLE=FALSE", result.stdout)
         self.assertIn("-D SECURE_BOOT_ENABLE=TRUE", result.stdout)
+
+    def test_capsule_define_uses_effective_guid_override(self) -> None:
+        result = self._run_inspect(
+            "\n".join(
+                [
+                    "CONFIG_CDK2_PCI := y",
+                    "CONFIG_CDK2_GRAPHICS := y",
+                    "CONFIG_CDK2_SMM := y",
+                    "CONFIG_CDK2_ESRT := y",
+                    "CONFIG_CDK2_CAPSULE := y",
+                    f'CONFIG_CDK2_CAPSULE_MAIN_FW_GUID := "{CAPSULE_GUID}"',
+                ]
+            ),
+            extra_defines=f"-D CAPSULE_MAIN_FW_GUID={OVERRIDE_CAPSULE_GUID}",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(
+            f"-D CAPSULE_MAIN_FW_GUID={OVERRIDE_CAPSULE_GUID}",
+            result.stdout,
+        )
+        self.assertNotIn(f"-D CAPSULE_MAIN_FW_GUID={CAPSULE_GUID}", result.stdout)
 
     def test_storage_override_disables_storage_children(self) -> None:
         result = self._run_inspect(
