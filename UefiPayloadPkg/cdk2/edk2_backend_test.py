@@ -8,6 +8,7 @@ from __future__ import annotations
 import subprocess
 import tempfile
 import textwrap
+import time
 import unittest
 from pathlib import Path
 
@@ -209,6 +210,8 @@ class Edk2BackendDiscoverTests(unittest.TestCase):
                 CDK2_BUILD_DIR := {build}
                 CDK2_CONFIG := {config}
                 include $(CDK2_DIR)/edk2-backend.mk
+                CDK2_BACKEND_REQUIRED_SUBMODULES :=
+                CDK2_BACKEND_REQUIRED_SUBMODULE_FILES :=
                 CDK2_RETAINED_MODULES :=
                 CDK2_SELECTED_MODULES :=
                 CDK2_PAYLOAD_LIBRARIES :=
@@ -227,6 +230,280 @@ class Edk2BackendDiscoverTests(unittest.TestCase):
             stderr=subprocess.PIPE,
             text=True,
         )
+
+    def _run_check_missing_submodule_file(self) -> subprocess.CompletedProcess[str]:
+        root = self.workspace / "root"
+        build = self.workspace / "build"
+        config = build / ".config"
+
+        root.mkdir(parents=True, exist_ok=True)
+        self._write(
+            str(config.relative_to(self.workspace)),
+            "CONFIG_CDK2_PAYLOAD=y\n",
+        )
+        makefile = self._write(
+            "Makefile",
+            textwrap.dedent(
+                f"""\
+                SHELL := /bin/bash
+                PYTHON := python3
+                CONFIG_CDK2_PAYLOAD := y
+                CONFIG_CDK2_BOOT_TIMEOUT := 0
+                CDK2_ROOT := {root}
+                CDK2_DIR := {CDK2_DIR}
+                CDK2_BUILD_DIR := {build}
+                CDK2_CONFIG := {config}
+                include $(CDK2_DIR)/edk2-backend.mk
+                CDK2_BACKEND_REQUIRED_SUBMODULES :=
+                CDK2_RETAINED_MODULES :=
+                CDK2_SELECTED_MODULES :=
+                CDK2_PAYLOAD_LIBRARIES :=
+
+                .PHONY: check
+                check:
+                \t$(CDK2_BACKEND_CHECK)
+                """
+            ),
+        )
+
+        return subprocess.run(
+            ["make", "--no-print-directory", "-f", str(makefile), "check"],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+    def _run_check_lvgl(self) -> subprocess.CompletedProcess[str]:
+        root = self.workspace / "root"
+        build = self.workspace / "build"
+        config = build / ".config"
+
+        root.mkdir(parents=True, exist_ok=True)
+        self._write(
+            str(config.relative_to(self.workspace)),
+            "CONFIG_CDK2_PAYLOAD=y\n",
+        )
+        makefile = self._write(
+            "Makefile",
+            textwrap.dedent(
+                f"""\
+                SHELL := /bin/bash
+                CONFIG_CDK2_PAYLOAD := y
+                CONFIG_CDK2_PCI := y
+                CONFIG_CDK2_CONSOLE := y
+                CONFIG_CDK2_GRAPHICS := y
+                CONFIG_CDK2_SETUP_UI := y
+                CONFIG_CDK2_BOOT_TIMEOUT := 0
+                CDK2_EXTRA_DEFINES := -D LVGL_ENABLE=TRUE
+                CDK2_ROOT := {root}
+                CDK2_DIR := {CDK2_DIR}
+                CDK2_BUILD_DIR := {build}
+                CDK2_CONFIG := {config}
+                include $(CDK2_DIR)/edk2-backend.mk
+                CDK2_BACKEND_REQUIRED_SUBMODULES :=
+                CDK2_BACKEND_REQUIRED_SUBMODULE_FILES :=
+                CDK2_RETAINED_MODULES :=
+                CDK2_SELECTED_MODULES :=
+                CDK2_PAYLOAD_LIBRARIES :=
+
+                .PHONY: check
+                check:
+                \t$(CDK2_BACKEND_CHECK)
+                """
+            ),
+        )
+
+        return subprocess.run(
+            ["make", "--no-print-directory", "-f", str(makefile), "check"],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+    def _run_parallel_metadata_with_missing_lvgl(self) -> subprocess.CompletedProcess[str]:
+        root = self.workspace / "root"
+        build = self.workspace / "build"
+        config = build / ".config"
+
+        root.mkdir(parents=True, exist_ok=True)
+        self._write(
+            str(config.relative_to(self.workspace)),
+            "CONFIG_CDK2_PAYLOAD=y\n",
+        )
+        makefile = self._write(
+            "Makefile",
+            textwrap.dedent(
+                f"""\
+                SHELL := /bin/bash
+                CONFIG_CDK2_PAYLOAD := y
+                CONFIG_CDK2_PCI := y
+                CONFIG_CDK2_CONSOLE := y
+                CONFIG_CDK2_GRAPHICS := y
+                CONFIG_CDK2_SETUP_UI := y
+                CONFIG_CDK2_BOOT_TIMEOUT := 0
+                CDK2_EXTRA_DEFINES := -D LVGL_ENABLE=TRUE
+                CDK2_ROOT := {root}
+                CDK2_DIR := {CDK2_DIR}
+                CDK2_BUILD_DIR := {build}
+                CDK2_CONFIG := {config}
+                CDK2_MANIFEST := $(CDK2_BUILD_DIR)/cdk2-modules.txt
+                include $(CDK2_DIR)/edk2-backend.mk
+                CDK2_BACKEND_REQUIRED_SUBMODULES :=
+                CDK2_BACKEND_REQUIRED_SUBMODULE_FILES :=
+                CDK2_RETAINED_MODULES :=
+                CDK2_PAYLOAD_LIBRARIES :=
+
+                $(CDK2_MANIFEST): $(CDK2_BACKEND_MANIFEST_DEPS)
+                \t$(CDK2_BACKEND_CHECK)
+                \t$(CDK2_BACKEND_WRITE_MANIFEST)
+
+                .PHONY: build
+                build: $(CDK2_BACKEND_METADATA)
+                """
+            ),
+        )
+
+        return subprocess.run(
+            ["make", "--no-print-directory", "-j8", "-f", str(makefile), "build"],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+    def _run_metadata_with_stale_missing_selected_module(
+        self,
+    ) -> subprocess.CompletedProcess[str]:
+        root = self.workspace / "root"
+        build = self.workspace / "build"
+        config = build / ".config"
+        manifest = build / "cdk2-modules.txt"
+        metadata = build / "cdk2-module-metadata.json"
+
+        root.mkdir(parents=True, exist_ok=True)
+        self._write(
+            str(config.relative_to(self.workspace)),
+            "CONFIG_CDK2_PAYLOAD=y\n",
+        )
+        self._write(str(manifest.relative_to(self.workspace)), f"{GOOD_MODULE}\n")
+        self._write(str(metadata.relative_to(self.workspace)), "{}\n")
+        makefile = self._write(
+            "Makefile",
+            textwrap.dedent(
+                f"""\
+                SHELL := /bin/bash
+                PYTHON := python3
+                CONFIG_CDK2_PAYLOAD := y
+                CONFIG_CDK2_BOOT_TIMEOUT := 0
+                CDK2_ROOT := {root}
+                CDK2_DIR := {CDK2_DIR}
+                CDK2_BUILD_DIR := {build}
+                CDK2_CONFIG := {config}
+                CDK2_MANIFEST := {manifest}
+                include $(CDK2_DIR)/edk2-backend.mk
+                CDK2_BACKEND_REQUIRED_SUBMODULES :=
+                CDK2_BACKEND_REQUIRED_SUBMODULE_FILES :=
+                CDK2_RETAINED_MODULES :=
+                CDK2_SELECTED_MODULES := {GOOD_MODULE}
+                CDK2_PAYLOAD_LIBRARIES :=
+
+                .PHONY: metadata
+                metadata: $(CDK2_BACKEND_METADATA)
+                """
+            ),
+        )
+
+        return subprocess.run(
+            ["make", "--no-print-directory", "-f", str(makefile), "metadata"],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+    def _run_noop_metadata(self):
+        root = self.workspace / "root"
+        build = self.workspace / "build"
+        config = build / ".config"
+        manifest = build / "cdk2-modules.txt"
+        metadata = build / "cdk2-module-metadata.json"
+        dsc = root / "UefiPayloadPkg/UefiPayloadPkg.dsc"
+
+        self._write(
+            str(root.joinpath(GOOD_MODULE).relative_to(self.workspace)),
+            f"""\
+[Defines]
+  INF_VERSION = 1.30
+  BASE_NAME = GoodDxe
+  FILE_GUID = {GOOD_GUID}
+  MODULE_TYPE = DXE_DRIVER
+  ENTRY_POINT = GoodEntry
+
+[Sources]
+  Good.c
+""",
+        )
+        self._write(str(dsc.relative_to(self.workspace)), f"{GOOD_MODULE}\n")
+        self._write(
+            str(config.relative_to(self.workspace)),
+            "CONFIG_CDK2_PAYLOAD=y\n",
+        )
+        self._write(str(manifest.relative_to(self.workspace)), f"{GOOD_MODULE}\n")
+        makefile = self._write(
+            "Makefile",
+            textwrap.dedent(
+                f"""\
+                SHELL := /bin/bash
+                PYTHON := python3
+                CONFIG_CDK2_PAYLOAD := y
+                CONFIG_CDK2_BOOT_TIMEOUT := 0
+                CDK2_ROOT := {root}
+                CDK2_DIR := {CDK2_DIR}
+                CDK2_BUILD_DIR := {build}
+                CDK2_CONFIG := {config}
+                CDK2_MANIFEST := {manifest}
+                include $(CDK2_DIR)/edk2-backend.mk
+
+                .PHONY: metadata
+                metadata: $(CDK2_BACKEND_METADATA)
+                """
+            ),
+        )
+        command = [
+            "make",
+            "--no-print-directory",
+            "-f",
+            str(makefile),
+            "metadata",
+            f"CDK2_SELECTED_MODULES={GOOD_MODULE}",
+            "CDK2_PAYLOAD_LIBRARIES=",
+            "CDK2_RETAINED_MODULES=",
+            "CDK2_BACKEND_REQUIRED_SUBMODULES=",
+            "CDK2_BACKEND_REQUIRED_SUBMODULE_FILES=",
+        ]
+        result = subprocess.run(
+            command,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        if result.returncode != 0:
+            return result, None
+
+        metadata_mtime = metadata.stat().st_mtime_ns
+        time.sleep(1.1)
+
+        result = subprocess.run(
+            command,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        return result, metadata_mtime
 
     def test_discover_accepts_cdk2_owned_non_module_dxe_guids(self) -> None:
         result = self._run_discover(
@@ -367,6 +644,54 @@ class Edk2BackendDiscoverTests(unittest.TestCase):
         )
         self.assertIn(f"{FMP_DXE_MODULE} FILE_GUID={second_guid}\n", manifest)
         self.assertNotIn(f"{FMP_DXE_MODULE} FILE_GUID={first_guid}\n", manifest)
+
+    def test_check_rejects_missing_required_edk2_submodule_file(self) -> None:
+        result = self._run_check_missing_submodule_file()
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(
+            "missing required cdk2 EDK2 submodule file: "
+            "CryptoPkg/Library/OpensslLib/openssl/crypto/aes/aes_core.c",
+            result.stderr,
+        )
+        self.assertIn("git submodule update --init --checkout", result.stderr)
+
+    def test_check_rejects_missing_lvgl_files_when_enabled(self) -> None:
+        result = self._run_check_lvgl()
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(
+            "missing LVGL module file: 3rdparty/LvglPkg/LvglPkg.dec",
+            result.stderr,
+        )
+        self.assertIn(
+            "git submodule update --init --checkout 3rdparty/LvglPkg",
+            result.stderr,
+        )
+
+    def test_parallel_metadata_reports_missing_lvgl_guard(self) -> None:
+        result = self._run_parallel_metadata_with_missing_lvgl()
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(
+            "missing LVGL module file: 3rdparty/LvglPkg/LvglPkg.dec",
+            result.stderr,
+        )
+        self.assertNotIn("No rule to make target", result.stderr)
+
+    def test_metadata_rejects_stale_missing_selected_module(self) -> None:
+        result = self._run_metadata_with_stale_missing_selected_module()
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(f"missing selected backend module: {GOOD_MODULE}", result.stderr)
+
+    def test_metadata_noop_preserves_output_mtime(self) -> None:
+        result, metadata_mtime = self._run_noop_metadata()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIsNotNone(metadata_mtime)
+        metadata = self.workspace / "build/cdk2-module-metadata.json"
+        self.assertEqual(metadata_mtime, metadata.stat().st_mtime_ns)
 
     def test_check_rejects_missing_secure_boot_default_key_objects(self) -> None:
         result = self._run_check_secure_boot()

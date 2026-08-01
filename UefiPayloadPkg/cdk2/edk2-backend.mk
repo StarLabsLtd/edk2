@@ -155,6 +155,7 @@ CDK2_BACKEND_DXE_FV_INF := $(CDK2_BACKEND_BUILD_DIR)/FV/DXEFV.inf
 CDK2_BACKEND_DXE_FV_TEXT := $(CDK2_BACKEND_DXE_FV).txt
 CDK2_BACKEND_METADATA_TOOL := $(CDK2_DIR)/module_metadata.py
 CDK2_BACKEND_METADATA := $(CDK2_BUILD_DIR)/cdk2-module-metadata.json
+CDK2_BACKEND_METADATA_INPUT_STATE := $(CDK2_BUILD_DIR)/cdk2-edk2-metadata-input-state.txt
 CDK2_BACKEND_MODULE_GUIDS := $(CDK2_BUILD_DIR)/cdk2-module-guids.txt
 CDK2_BACKEND_MANIFEST_STATE := $(CDK2_BUILD_DIR)/cdk2-edk2-manifest-state.txt
 CDK2_BACKEND_FFS_LIST := $(CDK2_BUILD_DIR)/cdk2-dxe-ffs.txt
@@ -165,8 +166,14 @@ CDK2_BACKEND_DXE_FV_GUIDS := $(CDK2_BUILD_DIR)/cdk2-dxe-fv-guids.txt
 CDK2_BACKEND_SELECTED_DXE_GUIDS := $(CDK2_BUILD_DIR)/cdk2-selected-dxe-guids.txt
 CDK2_BACKEND_SELECTED_MODULE_FILES := $(addprefix $(CDK2_ROOT)/,$(CDK2_SELECTED_MODULES))
 CDK2_BACKEND_PAYLOAD_LIBRARY_FILES := $(addprefix $(CDK2_ROOT)/,$(CDK2_PAYLOAD_LIBRARIES))
+CDK2_BACKEND_SELECTED_MODULE_FILES_EXISTING := $(wildcard $(CDK2_BACKEND_SELECTED_MODULE_FILES))
+CDK2_BACKEND_PAYLOAD_LIBRARY_FILES_EXISTING := $(wildcard $(CDK2_BACKEND_PAYLOAD_LIBRARY_FILES))
+CDK2_BACKEND_SELECTED_MODULE_FILE_STATUS = $(foreach module,$(CDK2_SELECTED_MODULES),\
+  $(module)=$(if $(wildcard $(CDK2_ROOT)/$(module)),present,missing))
+CDK2_BACKEND_PAYLOAD_LIBRARY_FILE_STATUS = $(foreach library,$(CDK2_PAYLOAD_LIBRARIES),\
+  $(library)=$(if $(wildcard $(CDK2_ROOT)/$(library)),present,missing))
 CDK2_BACKEND_BUILD_DEPS := $(CDK2_BACKEND_METADATA) $(CDK2_BACKEND_MODULE_GUIDS) \
-	$(CDK2_DIR)/modules.mk $(CDK2_BACKEND_DESCRIPTOR) $(CDK2_ROOT)/UefiPayloadPkg/UefiPayloadPkg.fdf
+  $(CDK2_DIR)/modules.mk $(CDK2_BACKEND_DESCRIPTOR) $(CDK2_ROOT)/UefiPayloadPkg/UefiPayloadPkg.fdf
 CDK2_BACKEND_INPUTS += $(CDK2_BACKEND_MANIFEST_STATE)
 CDK2_BACKEND_MANIFEST_DEPS := $(CDK2_DIR)/modules.mk $(CDK2_BACKEND_INPUTS) $(CDK2_BACKEND_CHECK_DEPS)
 # FDF-owned DXE files without INF metadata must be explicit cdk2 selections.
@@ -193,10 +200,39 @@ CDK2_BACKEND_SECURE_BOOT_CERT_FILES := \
   "3rdparty/secureboot_objects/PreSignedObjects/KEK/Certificates/microsoft corporation kek 2k ca 2023.der" \
   "3rdparty/secureboot_objects/PreSignedObjects/DB/Certificates/microsoft option rom uefi ca 2023.der" \
   "3rdparty/secureboot_objects/PreSignedObjects/PK/Certificate/WindowsOEMDevicesPK.der"
+CDK2_BACKEND_REQUIRED_SUBMODULE_FILES := \
+  "CryptoPkg/Library/OpensslLib/openssl/crypto/aes/aes_core.c" \
+  "MdePkg/Library/BaseFdtLib/libfdt/libfdt/fdt.c"
+CDK2_BACKEND_REQUIRED_SUBMODULES := \
+  "CryptoPkg/Library/OpensslLib/openssl" \
+  "MdePkg/Library/BaseFdtLib/libfdt"
+CDK2_BACKEND_LVGL_FILES := \
+  "3rdparty/LvglPkg/LvglPkg.dec" \
+  "3rdparty/LvglPkg/LvglDisplayEngineDxe/LvglDisplayEngineDxe.inf" \
+  "3rdparty/LvglPkg/LvglSetupDxe/LvglSetupDxe.inf"
 
-$(CDK2_BACKEND_METADATA): $(CDK2_MANIFEST) \
-		$(CDK2_BACKEND_METADATA_TOOL) $(CDK2_BACKEND_SELECTED_MODULE_FILES) \
-		$(CDK2_BACKEND_PAYLOAD_LIBRARY_FILES)
+define CDK2_BACKEND_WRITE_METADATA_INPUT_STATE
+$(CDK2_BACKEND_CHECK)
+mkdir -p "$(dir $(CDK2_BACKEND_METADATA_INPUT_STATE))"
+set -e; tmp="$(CDK2_BACKEND_METADATA_INPUT_STATE).tmp"; { \
+  printf 'CDK2_SELECTED_MODULE_FILE_STATUS=%s\n' "$(CDK2_BACKEND_SELECTED_MODULE_FILE_STATUS)"; \
+  printf 'CDK2_PAYLOAD_LIBRARY_FILE_STATUS=%s\n' "$(CDK2_BACKEND_PAYLOAD_LIBRARY_FILE_STATUS)"; \
+} > "$$tmp"; \
+if test -e "$(CDK2_BACKEND_METADATA_INPUT_STATE)" && cmp -s "$$tmp" "$(CDK2_BACKEND_METADATA_INPUT_STATE)"; then \
+  rm "$$tmp"; \
+else \
+  mv "$$tmp" "$(CDK2_BACKEND_METADATA_INPUT_STATE)"; \
+fi
+endef
+
+.PHONY: cdk2-edk2-metadata-input-state-force
+cdk2-edk2-metadata-input-state-force:
+
+$(CDK2_BACKEND_METADATA_INPUT_STATE): cdk2-edk2-metadata-input-state-force ; $(CDK2_BACKEND_WRITE_METADATA_INPUT_STATE)
+
+$(CDK2_BACKEND_METADATA): $(CDK2_BACKEND_METADATA_INPUT_STATE) $(CDK2_MANIFEST) \
+    $(CDK2_BACKEND_METADATA_TOOL) $(CDK2_BACKEND_SELECTED_MODULE_FILES_EXISTING) \
+    $(CDK2_BACKEND_PAYLOAD_LIBRARY_FILES_EXISTING)
 	@mkdir -p "$(dir $(CDK2_BACKEND_METADATA))"
 	@$(PYTHON) "$(CDK2_BACKEND_METADATA_TOOL)" \
 	  --workspace "$(CDK2_ROOT)" \
@@ -356,6 +392,38 @@ define CDK2_BACKEND_CHECK
 if test "$(CDK2_EFFECTIVE_CAPSULE)" = "y" && test -z "$(strip $(CDK2_EFFECTIVE_CAPSULE_MAIN_FW_GUID))"; then \
   echo "CONFIG_CDK2_CAPSULE requires CONFIG_CDK2_CAPSULE_MAIN_FW_GUID or a CAPSULE_MAIN_FW_GUID override" >&2; exit 1; \
 fi
+if git -C "$(CDK2_ROOT)" rev-parse --is-inside-work-tree >/dev/null 2>&1; then \
+  for submodule in $(CDK2_BACKEND_REQUIRED_SUBMODULES); do \
+    submodule_status=$$(git -C "$(CDK2_ROOT)" submodule status -- "$$submodule" 2>/dev/null || true); \
+    case "$$submodule_status" in \
+      -*) echo "missing required cdk2 EDK2 submodule: $$submodule" >&2; exit 1 ;; \
+      +*) echo "stale required cdk2 EDK2 submodule: $$submodule" >&2; exit 1 ;; \
+    esac; \
+  done; \
+fi
+for object in $(CDK2_BACKEND_REQUIRED_SUBMODULE_FILES); do \
+  test -f "$(CDK2_ROOT)/$$object" || { \
+    echo "missing required cdk2 EDK2 submodule file: $$object" >&2; \
+    echo "run: git submodule update --init --checkout" >&2; \
+    exit 1; \
+  }; \
+done
+if test "$(CDK2_EFFECTIVE_LVGL)" = "y"; then \
+  if git -C "$(CDK2_ROOT)" rev-parse --is-inside-work-tree >/dev/null 2>&1; then \
+    submodule_status=$$(git -C "$(CDK2_ROOT)" submodule status -- 3rdparty/LvglPkg 2>/dev/null || true); \
+    case "$$submodule_status" in \
+      -*) echo "missing LVGL submodule: 3rdparty/LvglPkg" >&2; exit 1 ;; \
+      +*) echo "stale LVGL submodule: 3rdparty/LvglPkg" >&2; exit 1 ;; \
+    esac; \
+  fi; \
+  for object in $(CDK2_BACKEND_LVGL_FILES); do \
+    test -f "$(CDK2_ROOT)/$$object" || { \
+      echo "missing LVGL module file: $$object" >&2; \
+      echo "run: git submodule update --init --checkout 3rdparty/LvglPkg" >&2; \
+      exit 1; \
+    }; \
+  done; \
+fi
 if test "$(CDK2_EFFECTIVE_SECURE_BOOT)" = "y"; then \
   if git -C "$(CDK2_ROOT)" rev-parse --is-inside-work-tree >/dev/null 2>&1; then \
     submodule_status=$$(git -C "$(CDK2_ROOT)" submodule status -- 3rdparty/secureboot_objects 2>/dev/null || true); \
@@ -376,6 +444,7 @@ for module in $(CDK2_RETAINED_MODULES) $(CDK2_PAYLOAD_LIBRARIES); do \
   test -f "$(CDK2_ROOT)/$$module" || { echo "missing backend module: $$module" >&2; exit 1; }; \
 done
 for module in $(CDK2_SELECTED_MODULES); do \
+  test -f "$(CDK2_ROOT)/$$module" || { echo "missing selected backend module: $$module" >&2; exit 1; }; \
   grep -Fq "$$module" "$(CDK2_BACKEND_DESCRIPTOR)" || { \
     echo "selected backend module not referenced by descriptor: $$module" >&2; exit 1; \
   }; \
