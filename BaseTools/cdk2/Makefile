@@ -36,7 +36,6 @@ CDK2_PYTHON_PACKAGES := \
 	build
 CDK2_PYTHON_WRAPPERS := \
 	build \
-	GenerateCapsule \
 	GenDepex \
 	GenFds \
 	GenPatchPcdTable \
