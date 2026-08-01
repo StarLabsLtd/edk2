@@ -11,6 +11,10 @@
 
 #include <Uefi.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct _CDK2_NATIVE_CONTEXT  CDK2_NATIVE_CONTEXT;
 
 /**
@@ -32,5 +36,9 @@ EFIAPI
 Cdk2PlatformLateInit (
   VOID
   );
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

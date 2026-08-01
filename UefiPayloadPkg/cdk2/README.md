@@ -9,7 +9,7 @@ with the native C checker and embeds it in the native coreboot image without
 invoking Python, BaseTools, a DSC, or an FDF. The old `native-fv` name remains
 as a compatibility alias. Both backends implement the same versioned
 interface.
-dispatcher validates that the selected backend provides the build, image
+The dispatcher validates that the selected backend provides the build, image
 assembly, validation, cleanup, manifest, and module-list operations before it
 runs. It runs the host
 Kconfig solver, writes `Build/cdk2/.config` and `Build/cdk2/include/cdk2/config.h`,
@@ -27,6 +27,10 @@ freestanding native stage and its linker map under `Build/cdk2/native/`.
 The x86 backend builds X64 only. The native `entry32.S` file is the small
 coreboot-to-long-mode bootstrap and is not an IA32 payload build. The flat cdk2
 EDK II bridge rejects IA32 and AArch64 when `CDK2_FLAT_DXE_FV` is enabled.
+The native stage compiler is selected with `CDK2_NATIVE_CC`; host-side native
+tools and tests use `CDK2_NATIVE_HOST_CC`, defaulting through `HOSTCC`, so a
+coreboot target compiler exported as `CC` does not leak into runnable test
+binaries.
 
 The `edk2` backend still compiles the PE/COFF modules and emits the FFS inputs used as the
 DXE firmware-volume reference. The native cdk2 host packer assembles the

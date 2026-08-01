@@ -13,6 +13,10 @@
 #include <Pi/PiBootMode.h>
 #include <Pi/PiHob.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct _CDK2_NATIVE_CONTEXT  CDK2_NATIVE_CONTEXT;
 
 typedef EFI_STATUS (EFIAPI *CDK2_NATIVE_INITIALIZE_CONTEXT)(
@@ -326,5 +330,9 @@ Cdk2NativeValidateEntry (
   IN     UINTN                       ImageSize,
   IN     EFI_PHYSICAL_ADDRESS        ImageEntryPoint
   );
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

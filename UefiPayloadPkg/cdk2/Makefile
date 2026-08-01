@@ -147,20 +147,21 @@ $(foreach required,BUILD ASSEMBLE CHECK CLEAN WRITE_MANIFEST WRITE_LINK_MANIFEST
 
 build: build-image
 
-build-image: $(CDK2_OUTPUT) native-coreboot-image
+build-image: $(CDK2_OUTPUT) native-coreboot-image native-check
 	@test -s "$(CDK2_OUTPUT)"
 	@test -s "$(CDK2_DIRECT_OUTPUT)"
 	@sha256sum "$(CDK2_OUTPUT)" "$(CDK2_DIRECT_OUTPUT)"
 	$(CDK2_BACKEND_WRITE_LINK_MANIFEST)
 
 $(CDK2_OUTPUT): $(CDK2_MANIFEST) $(CDK2_CONFIG_HEADER) $(CDK2_BACKEND_FILE) \
-		$(CDK2_BACKEND_BUILD_DEPS) native-stage native-check
+		$(CDK2_BACKEND_BUILD_DEPS) \
+		$(CDK2_NATIVE_STAGE_DEPS) $(CDK2_NATIVE_PACKER)
 	@mkdir -p "$(dir $(CDK2_OUTPUT))"
 	$(CDK2_BACKEND_BUILD)
 	@printf '%s\n' "cdk2 $(CDK2_BACKEND_NAME) module closure: $(words $(CDK2_SELECTED_MODULES)) selected modules"
 	$(CDK2_BACKEND_ASSEMBLE)
 
-check: $(CDK2_CONFIG_HEADER) $(CDK2_BACKEND_METADATA_TEST) $(CDK2_BACKEND_CHECK_DEPS)
+check: $(CDK2_CONFIG_HEADER) $(CDK2_BACKEND_METADATA_TEST) native-check $(CDK2_BACKEND_CHECK_DEPS)
 	$(CDK2_BACKEND_CHECK)
 
 manifest: $(CDK2_MANIFEST)
