@@ -811,13 +811,13 @@
   ## Whether capsules are allowed to persist across reset.
   gEfiMdeModulePkgTokenSpaceGuid.PcdSupportUpdateCapsuleReset|$(CAPSULE_SUPPORT)
 
-[PcdsFeatureFlag.IA32]
-  gUefiPayloadPkgTokenSpaceGuid.PcdCbmemTimestamps|FALSE
-
 !if $(LVGL_ENABLE) == TRUE
   # LVGL owns graphical banner repainting; do not overlay it through ConOut.
   gEfiMdeModulePkgTokenSpaceGuid.PcdUiAppFrontPageBatteryToConOut|FALSE
 !endif
+
+[PcdsFeatureFlag.IA32]
+  gUefiPayloadPkgTokenSpaceGuid.PcdCbmemTimestamps|FALSE
 
 [PcdsFeatureFlag.X64]
   gEfiMdeModulePkgTokenSpaceGuid.PcdDxeIplSwitchToLongMode|TRUE
@@ -838,6 +838,14 @@
   gEfiMdeModulePkgTokenSpaceGuid.PcdStatusCodeUseMemory|FALSE
   gEfiMdeModulePkgTokenSpaceGuid.PcdUse1GPageTable|TRUE
   gUefiPayloadPkgTokenSpaceGuid.PcdHandOffFdtEnable|$(HAND_OFF_FDT_ENABLE)
+
+!if $(LVGL_ENABLE) == TRUE
+  gLvglPkgTokenSpaceGuid.PcdLvglHelpPaneWidthPct|21
+  gLvglPkgTokenSpaceGuid.PcdLvglAptioHeaderTitle|"Firmware Setup"
+  gLvglPkgTokenSpaceGuid.PcdLvglAptioHeaderVendor|"Star Labs cdk2"
+  gLvglPkgTokenSpaceGuid.PcdLvglCenteredFrameEnabled|FALSE
+  gLvglPkgTokenSpaceGuid.PcdLvglAptioSubtitleShowsDeviceModel|TRUE
+!endif
 
   gEfiMdeModulePkgTokenSpaceGuid.PcdBootManagerMenuFile|{ 0x21, 0xaa, 0x2c, 0x46, 0x14, 0x76, 0x03, 0x45, 0x83, 0x6e, 0x8a, 0xb6, 0xf4, 0x66, 0x23, 0x31 }
 !if $(CDK2_FLAT_DXE_FV) == TRUE && $(SETUP_UI_ENABLE) == FALSE

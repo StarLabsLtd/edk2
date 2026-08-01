@@ -149,6 +149,9 @@ CDK2_BACKEND_BUILD_DIR := $(CDK2_BACKEND_OUTPUT_ROOT)/$(CDK2_TARGET)_$(CDK2_BACK
 CDK2_PYTHON_STAGE_ROOT := $(CDK2_BASETOOLS_BUILD_DIR)/Python
 CDK2_PYTHON_WRAPPER_ROOT := $(CDK2_PYTHON_STAGE_ROOT)/BinWrappers/PosixLike
 CDK2_REJECT_WRAPPER_ROOT := $(CDK2_PYTHON_STAGE_ROOT)/BinWrappers/cdk2-denied
+ifeq ($(CDK2_EFFECTIVE_LVGL),y)
+CDK2_BACKEND_ENV += PACKAGES_PATH="$(CDK2_ROOT)/3rdparty$${PACKAGES_PATH:+:$$PACKAGES_PATH}"
+endif
 CDK2_BACKEND_ENTRY_MODULE := UefiPayloadPkg/cdk2/backend/edk2/entry/UefiPayloadEntry.inf
 CDK2_BACKEND_ENTRY_IMAGE := $(CDK2_BACKEND_BUILD_DIR)/$(CDK2_BACKEND_ENTRY_ARCH)/UefiPayloadPkg/cdk2/backend/edk2/entry/UefiPayloadEntry/OUTPUT/PayloadEntry.efi
 CDK2_BACKEND_DXE_FV := $(CDK2_BACKEND_BUILD_DIR)/FV/DXEFV.Fv
@@ -209,6 +212,8 @@ CDK2_BACKEND_REQUIRED_SUBMODULES := \
   "MdePkg/Library/BaseFdtLib/libfdt"
 CDK2_BACKEND_LVGL_FILES := \
   "3rdparty/LvglPkg/LvglPkg.dec" \
+  "3rdparty/LvglPkg/Library/LvglLib/LvglLib.inf" \
+  "3rdparty/LvglPkg/Library/LvglLib/lvgl/src/lv_init.c" \
   "3rdparty/LvglPkg/LvglDisplayEngineDxe/LvglDisplayEngineDxe.inf" \
   "3rdparty/LvglPkg/LvglSetupDxe/LvglSetupDxe.inf"
 
@@ -267,6 +272,7 @@ $(MAKE) -C "$(CDK2_ROOT)/BaseTools/cdk2" path-check \
 cd "$(CDK2_ROOT)" && \
 CDK2_BACKEND_HOST_PATH="$$(printf '%s' "$$PATH" | awk -v root="$(CDK2_ROOT)/BaseTools/" 'BEGIN { RS = ":" } index($$0, root "BinWrappers/") != 1 && index($$0, root "Bin/") != 1 { printf "%s%s", sep, $$0; sep = ":" }')" && \
 source edksetup.sh >/dev/null && \
+$(CDK2_BACKEND_ENV) \
 PATH="$(CDK2_BASETOOLS_BIN):$(CDK2_PYTHON_WRAPPER_ROOT):$(CDK2_REJECT_WRAPPER_ROOT):$$CDK2_BACKEND_HOST_PATH" \
 $(CDK2_BACKEND_BUILD_COMMAND) $(foreach arch,$(CDK2_BACKEND_ARCHES),-a $(arch)) -b $(CDK2_TARGET) -t $(CDK2_BACKEND_TOOLCHAIN) \
   -p "$(CDK2_BACKEND_DESCRIPTOR)" $(CDK2_DEFINES) \
@@ -420,7 +426,7 @@ if test "$(CDK2_EFFECTIVE_LVGL)" = "y"; then \
   for object in $(CDK2_BACKEND_LVGL_FILES); do \
     test -f "$(CDK2_ROOT)/$$object" || { \
       echo "missing LVGL module file: $$object" >&2; \
-      echo "run: git submodule update --init --checkout 3rdparty/LvglPkg" >&2; \
+      echo "run: git submodule update --init --checkout --recursive 3rdparty/LvglPkg" >&2; \
       exit 1; \
     }; \
   done; \

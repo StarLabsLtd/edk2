@@ -36,13 +36,22 @@ config CDK2_SETUP_UI
     depends on CDK2_CONSOLE
     help
       Include the CFR, UiApp, setup browser, and boot-manager UI modules.
-      Enable this only for payloads that intentionally use the HII setup
-      browser. Payloads with a native setup surface should leave this off.
+      Enable this only for payloads that intentionally expose firmware setup.
+      LVGL still uses SetupBrowserDxe for IFR parsing and variable routing,
+      but it replaces the legacy text display engine.
 
 config CDK2_LVGL
     bool "Use LVGL setup renderer"
     default n
-    depends on CDK2_SETUP_UI && CDK2_GRAPHICS
+    depends on CDK2_PAYLOAD && CDK2_CONSOLE && CDK2_PCI
+    select CDK2_SETUP_UI
+    select CDK2_GRAPHICS
+    select CDK2_USB
+    help
+      Render setup through the LVGL display engine. USB HID keyboard input
+      continues through SimpleTextInputEx, while mouse input requires the
+      USB AbsolutePointer mouse driver selected by the cdk2 module inventory.
+      Serial/debug UART remains a separate CDK2_SERIAL mode.
 
 config CDK2_CONNECT_ALL_DEVICES
     bool "Connect every device before boot"
@@ -149,7 +158,7 @@ config CDK2_SD
 config CDK2_PS2_MOUSE
     bool "Include PS/2 mouse support"
     default y
-    depends on CDK2_CONSOLE && CDK2_PCI
+    depends on CDK2_CONSOLE && CDK2_PCI && !CDK2_LVGL
     select CDK2_SIO_BUS
 
 config CDK2_SIO_BUS

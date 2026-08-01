@@ -186,6 +186,21 @@ endif
 
 $(eval $(call CDK2_REQUIRE_PARENT,SMM,SMMSTORE,SMM_SUPPORT))
 
+ifeq ($(CDK2_EFFECTIVE_LVGL),y)
+ifneq ($(CDK2_EFFECTIVE_SETUP_UI),y)
+$(error cdk2 LVGL setup requires SETUP_UI_ENABLE=TRUE)
+endif
+ifneq ($(CDK2_EFFECTIVE_GRAPHICS),y)
+$(error cdk2 LVGL setup requires GRAPHICS_ENABLE=TRUE)
+endif
+ifneq ($(CDK2_EFFECTIVE_USB),y)
+$(error cdk2 LVGL setup requires USB_ENABLE=TRUE for USB HID keyboard and AbsolutePointer mouse input)
+endif
+ifeq ($(CDK2_EFFECTIVE_PS2_MOUSE),y)
+$(error cdk2 LVGL setup requires AbsolutePointer mouse input; PS/2 mouse only provides SimplePointer here)
+endif
+endif
+
 CDK2_REQUIRED_MODULES := \
     UefiPayloadPkg/cdk2/backend/edk2/entry/UefiPayloadEntry.inf \
     MdeModulePkg/Core/Dxe/DxeMain.inf \

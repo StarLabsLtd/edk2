@@ -293,6 +293,7 @@ class Edk2BackendDiscoverTests(unittest.TestCase):
                 CONFIG_CDK2_PCI := y
                 CONFIG_CDK2_CONSOLE := y
                 CONFIG_CDK2_GRAPHICS := y
+                CONFIG_CDK2_USB := y
                 CONFIG_CDK2_SETUP_UI := y
                 CONFIG_CDK2_BOOT_TIMEOUT := 0
                 CDK2_EXTRA_DEFINES := -D LVGL_ENABLE=TRUE
@@ -341,6 +342,7 @@ class Edk2BackendDiscoverTests(unittest.TestCase):
                 CONFIG_CDK2_PCI := y
                 CONFIG_CDK2_CONSOLE := y
                 CONFIG_CDK2_GRAPHICS := y
+                CONFIG_CDK2_USB := y
                 CONFIG_CDK2_SETUP_UI := y
                 CONFIG_CDK2_BOOT_TIMEOUT := 0
                 CDK2_EXTRA_DEFINES := -D LVGL_ENABLE=TRUE
@@ -665,7 +667,7 @@ class Edk2BackendDiscoverTests(unittest.TestCase):
             result.stderr,
         )
         self.assertIn(
-            "git submodule update --init --checkout 3rdparty/LvglPkg",
+            "git submodule update --init --checkout --recursive 3rdparty/LvglPkg",
             result.stderr,
         )
 
@@ -857,6 +859,9 @@ class Edk2BackendPs2KeyboardTests(unittest.TestCase):
             "\n".join(
                 [
                     "CONFIG_CDK2_PCI := y",
+                    "CONFIG_CDK2_GRAPHICS := y",
+                    "CONFIG_CDK2_USB := y",
+                    "CONFIG_CDK2_PS2_MOUSE := n",
                     "CONFIG_CDK2_SETUP_UI := y",
                 ]
             ),
@@ -879,6 +884,8 @@ class Edk2BackendPs2KeyboardTests(unittest.TestCase):
             "\n".join(
                 [
                     "CONFIG_CDK2_PCI := y",
+                    "CONFIG_CDK2_USB := y",
+                    "CONFIG_CDK2_PS2_MOUSE := n",
                     "CONFIG_CDK2_GRAPHICS := y",
                     "CONFIG_CDK2_SETUP_UI := y",
                     "CONFIG_CDK2_LVGL := y",
@@ -896,6 +903,27 @@ class Edk2BackendPs2KeyboardTests(unittest.TestCase):
         self.assertNotIn(
             "MdeModulePkg/Universal/DisplayEngineDxe/DisplayEngineDxe.inf",
             result.stdout,
+        )
+
+    def test_lvgl_rejects_ps2_mouse_simple_pointer_path(self) -> None:
+        result = self._run_inspect(
+            "\n".join(
+                [
+                    "CONFIG_CDK2_PCI := y",
+                    "CONFIG_CDK2_USB := y",
+                    "CONFIG_CDK2_GRAPHICS := y",
+                    "CONFIG_CDK2_SETUP_UI := y",
+                    "CONFIG_CDK2_LVGL := y",
+                    "CONFIG_CDK2_PS2_MOUSE := y",
+                ]
+            )
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(
+            "cdk2 LVGL setup requires AbsolutePointer mouse input; "
+            "PS/2 mouse only provides SimplePointer here",
+            result.stderr,
         )
 
     def test_lvgl_override_requires_setup_ui(self) -> None:
