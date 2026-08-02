@@ -329,12 +329,13 @@ INF SecurityPkg/Tcg/Opal/OpalPassword/OpalPasswordDxe.inf
 !endif
 !endif
 !if $(CDK2_FLAT_DXE_FV) == FALSE || $(SETUP_UI_ENABLE) == TRUE
+!if $(LVGL_ENABLE) == FALSE
+INF MdeModulePkg/Universal/DisplayEngineDxe/DisplayEngineDxe.inf
+!endif
+!endif
 !if $(LVGL_ENABLE) == TRUE
 INF 3rdparty/LvglPkg/LvglDisplayEngineDxe/LvglDisplayEngineDxe.inf
 INF 3rdparty/LvglPkg/LvglSetupDxe/LvglSetupDxe.inf
-!else
-INF MdeModulePkg/Universal/DisplayEngineDxe/DisplayEngineDxe.inf
-!endif
 !endif
 INF MdeModulePkg/Universal/EbcDxe/EbcDxe.inf
 INF UefiPayloadPkg/BlSupportDxe/BlSupportDxe.inf

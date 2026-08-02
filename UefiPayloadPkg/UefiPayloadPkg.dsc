@@ -1346,12 +1346,13 @@
   MdeModulePkg/Universal/SetupBrowserDxe/SetupBrowserDxe.inf
   MdeModulePkg/Universal/PlatformDriOverrideDxe/PlatformDriOverrideDxe.inf
   UefiPayloadPkg/UserAuthPkg/UserAuthenticationDxe/UserAuthenticationDxe.inf
+!if $(LVGL_ENABLE) == FALSE
+  MdeModulePkg/Universal/DisplayEngineDxe/DisplayEngineDxe.inf
+!endif
+!endif
 !if $(LVGL_ENABLE) == TRUE
   3rdparty/LvglPkg/LvglDisplayEngineDxe/LvglDisplayEngineDxe.inf
   3rdparty/LvglPkg/LvglSetupDxe/LvglSetupDxe.inf
-!else
-  MdeModulePkg/Universal/DisplayEngineDxe/DisplayEngineDxe.inf
-!endif
 !endif
   MdeModulePkg/Universal/EbcDxe/EbcDxe.inf
 

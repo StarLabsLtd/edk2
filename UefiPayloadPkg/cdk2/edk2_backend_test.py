@@ -821,6 +821,10 @@ class Edk2BackendPs2KeyboardTests(unittest.TestCase):
             result.stdout,
         )
         self.assertNotIn(
+            "MdeModulePkg/Universal/PlatformDriOverrideDxe/PlatformDriOverrideDxe.inf",
+            result.stdout,
+        )
+        self.assertNotIn(
             "UefiPayloadPkg/UserAuthPkg/UserAuthenticationDxe/UserAuthenticationDxe.inf",
             result.stdout,
         )
@@ -849,12 +853,16 @@ class Edk2BackendPs2KeyboardTests(unittest.TestCase):
             result.stdout,
         )
         self.assertIn(
+            "MdeModulePkg/Universal/PlatformDriOverrideDxe/PlatformDriOverrideDxe.inf",
+            result.stdout,
+        )
+        self.assertIn(
             "MdeModulePkg/Universal/DisplayEngineDxe/DisplayEngineDxe.inf",
             result.stdout,
         )
         self.assertIn("-D SETUP_UI_ENABLE=TRUE", result.stdout)
 
-    def test_lvgl_override_is_setup_ui_opt_in(self) -> None:
+    def test_lvgl_override_uses_compact_modules_without_setup_ui(self) -> None:
         result = self._run_inspect(
             "\n".join(
                 [
@@ -862,24 +870,51 @@ class Edk2BackendPs2KeyboardTests(unittest.TestCase):
                     "CONFIG_CDK2_GRAPHICS := y",
                     "CONFIG_CDK2_USB := y",
                     "CONFIG_CDK2_PS2_MOUSE := n",
-                    "CONFIG_CDK2_SETUP_UI := y",
+                    "CONFIG_CDK2_SETUP_UI := n",
                 ]
             ),
             extra_defines="-D LVGL_ENABLE=TRUE",
         )
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("MdeModulePkg/Universal/HiiDatabaseDxe/HiiDatabaseDxe.inf", result.stdout)
         self.assertIn(
             "3rdparty/LvglPkg/LvglDisplayEngineDxe/LvglDisplayEngineDxe.inf",
             result.stdout,
         )
         self.assertIn("3rdparty/LvglPkg/LvglSetupDxe/LvglSetupDxe.inf", result.stdout)
+        self.assertIn("MdeModulePkg/Bus/Usb/UsbKbDxe/UsbKbDxe.inf", result.stdout)
+        self.assertIn(
+            "MdeModulePkg/Bus/Usb/UsbMouseAbsolutePointerDxe/UsbMouseAbsolutePointerDxe.inf",
+            result.stdout,
+        )
+        self.assertNotIn("UefiPayloadPkg/CfrSetupMenuDxe/CfrSetupMenuDxe.inf", result.stdout)
+        self.assertNotIn("MdeModulePkg/Application/UiApp/UiApp.inf", result.stdout)
+        self.assertNotIn(
+            "MdeModulePkg/Application/BootManagerMenuApp/BootManagerMenuApp.inf",
+            result.stdout,
+        )
+        self.assertNotIn(
+            "MdeModulePkg/Universal/SetupBrowserDxe/SetupBrowserDxe.inf",
+            result.stdout,
+        )
+        self.assertNotIn(
+            "MdeModulePkg/Universal/PlatformDriOverrideDxe/PlatformDriOverrideDxe.inf",
+            result.stdout,
+        )
+        self.assertNotIn(
+            "UefiPayloadPkg/UserAuthPkg/UserAuthenticationDxe/UserAuthenticationDxe.inf",
+            result.stdout,
+        )
         self.assertNotIn(
             "MdeModulePkg/Universal/DisplayEngineDxe/DisplayEngineDxe.inf",
             result.stdout,
         )
+        self.assertNotIn("MdeModulePkg/Bus/Usb/UsbMouseDxe/UsbMouseDxe.inf", result.stdout)
+        self.assertIn("-D SETUP_UI_ENABLE=FALSE", result.stdout)
+        self.assertIn("-D LVGL_ENABLE=TRUE", result.stdout)
 
-    def test_lvgl_kconfig_selects_renderer_modules(self) -> None:
+    def test_lvgl_kconfig_selects_compact_renderer_and_hid_modules(self) -> None:
         result = self._run_inspect(
             "\n".join(
                 [
@@ -887,23 +922,49 @@ class Edk2BackendPs2KeyboardTests(unittest.TestCase):
                     "CONFIG_CDK2_USB := y",
                     "CONFIG_CDK2_PS2_MOUSE := n",
                     "CONFIG_CDK2_GRAPHICS := y",
-                    "CONFIG_CDK2_SETUP_UI := y",
+                    "CONFIG_CDK2_SETUP_UI := n",
                     "CONFIG_CDK2_LVGL := y",
                 ]
             )
         )
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("MdeModulePkg/Universal/HiiDatabaseDxe/HiiDatabaseDxe.inf", result.stdout)
         self.assertIn("-D LVGL_ENABLE=TRUE", result.stdout)
+        self.assertIn("-D SETUP_UI_ENABLE=FALSE", result.stdout)
         self.assertIn(
             "3rdparty/LvglPkg/LvglDisplayEngineDxe/LvglDisplayEngineDxe.inf",
             result.stdout,
         )
         self.assertIn("3rdparty/LvglPkg/LvglSetupDxe/LvglSetupDxe.inf", result.stdout)
+        self.assertIn("MdeModulePkg/Bus/Usb/UsbKbDxe/UsbKbDxe.inf", result.stdout)
+        self.assertIn(
+            "MdeModulePkg/Bus/Usb/UsbMouseAbsolutePointerDxe/UsbMouseAbsolutePointerDxe.inf",
+            result.stdout,
+        )
+        self.assertNotIn("UefiPayloadPkg/CfrSetupMenuDxe/CfrSetupMenuDxe.inf", result.stdout)
+        self.assertNotIn("MdeModulePkg/Application/UiApp/UiApp.inf", result.stdout)
+        self.assertNotIn(
+            "MdeModulePkg/Application/BootManagerMenuApp/BootManagerMenuApp.inf",
+            result.stdout,
+        )
+        self.assertNotIn(
+            "MdeModulePkg/Universal/SetupBrowserDxe/SetupBrowserDxe.inf",
+            result.stdout,
+        )
+        self.assertNotIn(
+            "MdeModulePkg/Universal/PlatformDriOverrideDxe/PlatformDriOverrideDxe.inf",
+            result.stdout,
+        )
+        self.assertNotIn(
+            "UefiPayloadPkg/UserAuthPkg/UserAuthenticationDxe/UserAuthenticationDxe.inf",
+            result.stdout,
+        )
         self.assertNotIn(
             "MdeModulePkg/Universal/DisplayEngineDxe/DisplayEngineDxe.inf",
             result.stdout,
         )
+        self.assertNotIn("MdeModulePkg/Bus/Usb/UsbMouseDxe/UsbMouseDxe.inf", result.stdout)
 
     def test_lvgl_rejects_ps2_mouse_simple_pointer_path(self) -> None:
         result = self._run_inspect(
@@ -912,7 +973,7 @@ class Edk2BackendPs2KeyboardTests(unittest.TestCase):
                     "CONFIG_CDK2_PCI := y",
                     "CONFIG_CDK2_USB := y",
                     "CONFIG_CDK2_GRAPHICS := y",
-                    "CONFIG_CDK2_SETUP_UI := y",
+                    "CONFIG_CDK2_SETUP_UI := n",
                     "CONFIG_CDK2_LVGL := y",
                     "CONFIG_CDK2_PS2_MOUSE := y",
                 ]
@@ -926,11 +987,14 @@ class Edk2BackendPs2KeyboardTests(unittest.TestCase):
             result.stderr,
         )
 
-    def test_lvgl_override_requires_setup_ui(self) -> None:
+    def test_lvgl_override_still_requires_usb_hid(self) -> None:
         result = self._run_inspect(
             "\n".join(
                 [
                     "CONFIG_CDK2_PCI := y",
+                    "CONFIG_CDK2_GRAPHICS := y",
+                    "CONFIG_CDK2_USB := n",
+                    "CONFIG_CDK2_PS2_MOUSE := n",
                     "CONFIG_CDK2_SETUP_UI := n",
                 ]
             ),
@@ -939,7 +1003,8 @@ class Edk2BackendPs2KeyboardTests(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(
-            "cdk2 define LVGL_ENABLE=TRUE requires SETUP_UI_ENABLE=TRUE",
+            "cdk2 LVGL setup requires USB_ENABLE=TRUE for USB HID keyboard "
+            "and AbsolutePointer mouse input",
             result.stderr,
         )
 
