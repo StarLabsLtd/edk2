@@ -145,6 +145,13 @@ MalformedRestoreMetadataIsRejected (
   Status           = CoDReadBootNextRestore (&Restore, &Present, &Attributes, &DataSize, Data);
   UT_ASSERT_STATUS_EQUAL (Status, EFI_COMPROMISED_DATA);
 
+  Status = CoDBuildBootNextRestore (TRUE, EFI_VARIABLE_NON_VOLATILE, sizeof (Data), Data, &Restore);
+  UT_ASSERT_NOT_EFI_ERROR (Status);
+  Restore.Data[Restore.DataSize] = 0x5A;
+  DataSize                       = sizeof (Data);
+  Status                         = CoDReadBootNextRestore (&Restore, &Present, &Attributes, &DataSize, Data);
+  UT_ASSERT_STATUS_EQUAL (Status, EFI_COMPROMISED_DATA);
+
   return UNIT_TEST_PASSED;
 }
 

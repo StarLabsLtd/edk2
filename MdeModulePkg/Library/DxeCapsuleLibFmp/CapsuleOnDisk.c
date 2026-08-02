@@ -2187,6 +2187,29 @@ CoDDeleteBootNextRestoreState (
 
 STATIC
 EFI_STATUS
+CoDRetireInvalidBootNextRestore (
+  IN EFI_STATUS  InvalidStatus
+  )
+{
+  EFI_STATUS  Status;
+
+  DEBUG ((
+    DEBUG_ERROR,
+    "%a(): retiring invalid BootNext restore state: %r\n",
+    __func__,
+    InvalidStatus
+    ));
+
+  Status = CoDDeleteBootNextVariable ();
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  return CoDDeleteBootNextRestoreState ();
+}
+
+STATIC
+EFI_STATUS
 CoDRestoreBootNextVariable (
   VOID
   )
@@ -2211,14 +2234,18 @@ CoDRestoreBootNextVariable (
                              );
   if (Status == EFI_NOT_FOUND) {
     return CoDDeleteBootNextVariable ();
+  } else if (Status == EFI_BUFFER_TOO_SMALL) {
+    return CoDRetireInvalidBootNextRestore (EFI_COMPROMISED_DATA);
   }
 
   if (EFI_ERROR (Status)) {
     return Status;
   }
 
-  if (RestoreSize != sizeof (Restore)) {
-    return EFI_COMPROMISED_DATA;
+  if ((RestoreSize != sizeof (Restore)) ||
+      (RestoreAttributes != COD_BOOT_NEXT_RESTORE_VAR_ATTRS))
+  {
+    return CoDRetireInvalidBootNextRestore (EFI_COMPROMISED_DATA);
   }
 
   BootNextDataSize = sizeof (BootNextData);
@@ -2230,7 +2257,7 @@ CoDRestoreBootNextVariable (
                        BootNextData
                        );
   if (EFI_ERROR (Status)) {
-    return Status;
+    return CoDRetireInvalidBootNextRestore (Status);
   }
 
   if (BootNextPresent) {

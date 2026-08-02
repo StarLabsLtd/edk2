@@ -826,6 +826,11 @@ SaveBootNextRestoreState (
   UINTN                  DataSize;
   UINT32                 Attributes;
 
+  Status = DeleteBootNextRestoreState ();
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
   DataSize   = sizeof (BootNextData);
   Attributes = 0;
   Status     = gRT->GetVariable (
@@ -854,7 +859,7 @@ SaveBootNextRestoreState (
   return gRT->SetVariable (
                 COD_BOOT_NEXT_RESTORE_VAR_NAME,
                 &gEfiCapsuleVendorGuid,
-                EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS | EFI_VARIABLE_NON_VOLATILE,
+                COD_BOOT_NEXT_RESTORE_VAR_ATTRS,
                 sizeof (Restore),
                 &Restore
                 );

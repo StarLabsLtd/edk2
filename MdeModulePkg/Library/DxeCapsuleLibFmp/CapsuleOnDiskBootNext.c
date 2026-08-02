@@ -10,6 +10,24 @@
 
 #include "CapsuleOnDiskBootNext.h"
 
+STATIC
+BOOLEAN
+CoDDataRangeIsZero (
+  IN CONST UINT8  *Data,
+  IN UINTN        DataSize
+  )
+{
+  UINTN  Index;
+
+  for (Index = 0; Index < DataSize; Index++) {
+    if (Data[Index] != 0) {
+      return FALSE;
+    }
+  }
+
+  return TRUE;
+}
+
 EFI_STATUS
 CoDBuildBootNextRestore (
   IN  BOOLEAN                Present,
@@ -65,6 +83,17 @@ CoDReadBootNextRestore (
       (Restore->Reserved != 0) ||
       (Restore->DataSize > COD_BOOT_NEXT_RESTORE_DATA_MAX_SIZE) ||
       (!Restore->Present && ((Restore->Attributes != 0) || (Restore->DataSize != 0))))
+  {
+    return EFI_COMPROMISED_DATA;
+  }
+
+  *Present    = FALSE;
+  *Attributes = 0;
+
+  if (!CoDDataRangeIsZero (
+         &Restore->Data[Restore->DataSize],
+         COD_BOOT_NEXT_RESTORE_DATA_MAX_SIZE - Restore->DataSize
+         ))
   {
     return EFI_COMPROMISED_DATA;
   }
