@@ -255,15 +255,19 @@ CDK2_GRAPHICS_MODULES := \
     MdeModulePkg/Universal/Console/GraphicsConsoleDxe/GraphicsConsoleDxe.inf \
     UefiPayloadPkg/GraphicsOutputDxe/GraphicsOutputDxe.inf
 
-CDK2_SETUP_UI_MODULES := \
-    UefiPayloadPkg/CfrSetupMenuDxe/CfrSetupMenuDxe.inf \
+CDK2_BOOT_MANAGER_UI_MODULES := \
     MdeModulePkg/Application/UiApp/UiApp.inf \
     MdeModulePkg/Application/BootManagerMenuApp/BootManagerMenuApp.inf \
-    MdeModulePkg/Universal/SetupBrowserDxe/SetupBrowserDxe.inf \
+    MdeModulePkg/Universal/SetupBrowserDxe/SetupBrowserDxe.inf
+
+CDK2_SETUP_UI_MODULES := \
+    UefiPayloadPkg/CfrSetupMenuDxe/CfrSetupMenuDxe.inf \
     MdeModulePkg/Universal/PlatformDriOverrideDxe/PlatformDriOverrideDxe.inf \
-    UefiPayloadPkg/UserAuthPkg/UserAuthenticationDxe/UserAuthenticationDxe.inf
+    UefiPayloadPkg/UserAuthPkg/UserAuthenticationDxe/UserAuthenticationDxe.inf \
+    $(CDK2_BOOT_MANAGER_UI_MODULES)
 
 CDK2_LVGL_MODULES := \
+    $(CDK2_BOOT_MANAGER_UI_MODULES) \
     3rdparty/LvglPkg/LvglDisplayEngineDxe/LvglDisplayEngineDxe.inf \
     3rdparty/LvglPkg/LvglSetupDxe/LvglSetupDxe.inf
 

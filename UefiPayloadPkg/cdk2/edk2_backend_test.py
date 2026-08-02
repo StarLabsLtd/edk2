@@ -862,7 +862,7 @@ class Edk2BackendPs2KeyboardTests(unittest.TestCase):
         )
         self.assertIn("-D SETUP_UI_ENABLE=TRUE", result.stdout)
 
-    def test_lvgl_override_uses_compact_modules_without_setup_ui(self) -> None:
+    def test_lvgl_override_keeps_boot_manager_without_setup_pages(self) -> None:
         result = self._run_inspect(
             "\n".join(
                 [
@@ -888,16 +888,16 @@ class Edk2BackendPs2KeyboardTests(unittest.TestCase):
             "MdeModulePkg/Bus/Usb/UsbMouseAbsolutePointerDxe/UsbMouseAbsolutePointerDxe.inf",
             result.stdout,
         )
-        self.assertNotIn("UefiPayloadPkg/CfrSetupMenuDxe/CfrSetupMenuDxe.inf", result.stdout)
-        self.assertNotIn("MdeModulePkg/Application/UiApp/UiApp.inf", result.stdout)
-        self.assertNotIn(
+        self.assertIn("MdeModulePkg/Application/UiApp/UiApp.inf", result.stdout)
+        self.assertIn(
             "MdeModulePkg/Application/BootManagerMenuApp/BootManagerMenuApp.inf",
             result.stdout,
         )
-        self.assertNotIn(
+        self.assertIn(
             "MdeModulePkg/Universal/SetupBrowserDxe/SetupBrowserDxe.inf",
             result.stdout,
         )
+        self.assertNotIn("UefiPayloadPkg/CfrSetupMenuDxe/CfrSetupMenuDxe.inf", result.stdout)
         self.assertNotIn(
             "MdeModulePkg/Universal/PlatformDriOverrideDxe/PlatformDriOverrideDxe.inf",
             result.stdout,
@@ -914,7 +914,7 @@ class Edk2BackendPs2KeyboardTests(unittest.TestCase):
         self.assertIn("-D SETUP_UI_ENABLE=FALSE", result.stdout)
         self.assertIn("-D LVGL_ENABLE=TRUE", result.stdout)
 
-    def test_lvgl_kconfig_selects_compact_renderer_and_hid_modules(self) -> None:
+    def test_lvgl_kconfig_selects_boot_manager_renderer_and_hid_modules(self) -> None:
         result = self._run_inspect(
             "\n".join(
                 [
@@ -942,16 +942,16 @@ class Edk2BackendPs2KeyboardTests(unittest.TestCase):
             "MdeModulePkg/Bus/Usb/UsbMouseAbsolutePointerDxe/UsbMouseAbsolutePointerDxe.inf",
             result.stdout,
         )
-        self.assertNotIn("UefiPayloadPkg/CfrSetupMenuDxe/CfrSetupMenuDxe.inf", result.stdout)
-        self.assertNotIn("MdeModulePkg/Application/UiApp/UiApp.inf", result.stdout)
-        self.assertNotIn(
+        self.assertIn("MdeModulePkg/Application/UiApp/UiApp.inf", result.stdout)
+        self.assertIn(
             "MdeModulePkg/Application/BootManagerMenuApp/BootManagerMenuApp.inf",
             result.stdout,
         )
-        self.assertNotIn(
+        self.assertIn(
             "MdeModulePkg/Universal/SetupBrowserDxe/SetupBrowserDxe.inf",
             result.stdout,
         )
+        self.assertNotIn("UefiPayloadPkg/CfrSetupMenuDxe/CfrSetupMenuDxe.inf", result.stdout)
         self.assertNotIn(
             "MdeModulePkg/Universal/PlatformDriOverrideDxe/PlatformDriOverrideDxe.inf",
             result.stdout,

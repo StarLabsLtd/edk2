@@ -1269,6 +1269,8 @@
 !endif
 !if $(CDK2_FLAT_DXE_FV) == FALSE || $(SETUP_UI_ENABLE) == TRUE
   UefiPayloadPkg/CfrSetupMenuDxe/CfrSetupMenuDxe.inf
+!endif
+!if $(CDK2_FLAT_DXE_FV) == FALSE || $(SETUP_UI_ENABLE) == TRUE || $(LVGL_ENABLE) == TRUE
   MdeModulePkg/Application/UiApp/UiApp.inf {
     <LibraryClasses>
       NULL|MdeModulePkg/Library/BootManagerUiLib/BootManagerUiLib.inf
@@ -1342,10 +1344,12 @@
   MdeModulePkg/Universal/MemoryTest/NullMemoryTestDxe/NullMemoryTestDxe.inf
 !endif
   MdeModulePkg/Universal/HiiDatabaseDxe/HiiDatabaseDxe.inf
-!if $(CDK2_FLAT_DXE_FV) == FALSE || $(SETUP_UI_ENABLE) == TRUE
+!if $(CDK2_FLAT_DXE_FV) == FALSE || $(SETUP_UI_ENABLE) == TRUE || $(LVGL_ENABLE) == TRUE
   MdeModulePkg/Universal/SetupBrowserDxe/SetupBrowserDxe.inf
+!if $(CDK2_FLAT_DXE_FV) == FALSE || $(SETUP_UI_ENABLE) == TRUE
   MdeModulePkg/Universal/PlatformDriOverrideDxe/PlatformDriOverrideDxe.inf
   UefiPayloadPkg/UserAuthPkg/UserAuthenticationDxe/UserAuthenticationDxe.inf
+!endif
 !if $(LVGL_ENABLE) == FALSE
   MdeModulePkg/Universal/DisplayEngineDxe/DisplayEngineDxe.inf
 !endif

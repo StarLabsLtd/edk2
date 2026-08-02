@@ -1462,16 +1462,20 @@ PlatformBootManagerBeforeConsole (
     CustomKey.UnicodeChar = CHAR_NULL;
   }
 
-  EfiBootManagerGetBootManagerMenu (&BootOption);
-  EfiBootManagerAddKeyOptionVariable (NULL, (UINT16)BootOption.OptionNumber, 0, &CustomKey, NULL);
-
   //
   // Also add Down key to Boot Manager Menu since some serial terminals don't support F2 key.
   //
   Down.ScanCode    = SCAN_DOWN;
   Down.UnicodeChar = CHAR_NULL;
-  EfiBootManagerGetBootManagerMenu (&BootOption);
-  EfiBootManagerAddKeyOptionVariable (NULL, (UINT16)BootOption.OptionNumber, 0, &Down, NULL);
+
+  Status = EfiBootManagerGetBootManagerMenu (&BootOption);
+  if (!EFI_ERROR (Status)) {
+    EfiBootManagerAddKeyOptionVariable (NULL, (UINT16)BootOption.OptionNumber, 0, &CustomKey, NULL);
+    EfiBootManagerAddKeyOptionVariable (NULL, (UINT16)BootOption.OptionNumber, 0, &Down, NULL);
+    EfiBootManagerFreeLoadOption (&BootOption);
+  } else {
+    DEBUG ((DEBUG_WARN, "[Bds]Boot Manager Menu unavailable; setup hotkeys not registered: %r\n", Status));
+  }
 
   //
   // Process update capsules that don't contain embedded drivers.
