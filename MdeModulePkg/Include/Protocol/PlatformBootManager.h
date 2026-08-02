@@ -28,7 +28,8 @@ typedef struct _EDKII_PLATFORM_BOOT_MANAGER_PROTOCOL EDKII_PLATFORM_BOOT_MANAGER
 //          All future revisions must be backwards compatible.
 //          If a future version is not back wards compatible it is not the same GUID.
 //
-#define EDKII_PLATFORM_BOOT_MANAGER_PROTOCOL_REVISION  0x00000001
+#define EDKII_PLATFORM_BOOT_MANAGER_PROTOCOL_REVISION   0x00000001
+#define EDKII_PLATFORM_BOOT_MANAGER_PROTOCOL_REVISION2  0x00000002
 
 //
 // Function Prototypes
@@ -71,9 +72,25 @@ EFI_STATUS
   OUT       UINTN                        *UpdatedBootOptionsCount
   );
 
+/*
+  This function allows the platform to enforce policy before BDS launches
+  non-recovery executable boot paths. The implementation must not consume or
+  mutate boot wait timeout state.
+
+  @retval EFI_SUCCESS            Platform policy allows boot path execution.
+  @retval EFI_SECURITY_VIOLATION Platform policy blocks boot path execution.
+  @retval Other                  Platform policy blocks boot path execution.
+*/
+typedef
+EFI_STATUS
+(EFIAPI *PLATFORM_BOOT_MANAGER_BEFORE_BOOT)(
+  VOID
+  );
+
 struct _EDKII_PLATFORM_BOOT_MANAGER_PROTOCOL {
   UINT64                                            Revision;
   PLATFORM_BOOT_MANAGER_REFRESH_ALL_BOOT_OPTIONS    RefreshAllBootOptions;
+  PLATFORM_BOOT_MANAGER_BEFORE_BOOT                 BeforeBoot;
 };
 
 extern EFI_GUID  gEdkiiPlatformBootManagerProtocolGuid;

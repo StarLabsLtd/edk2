@@ -82,6 +82,7 @@
   gEfiBdsArchProtocolGuid                       ## PRODUCES
   gEfiSimpleTextInputExProtocolGuid             ## CONSUMES
   gEdkiiVariablePolicyProtocolGuid              ## SOMETIMES_CONSUMES
+  gEdkiiPlatformBootManagerProtocolGuid         ## SOMETIMES_CONSUMES
   gEfiDeferredImageLoadProtocolGuid             ## CONSUMES
 
 [FeaturePcd]

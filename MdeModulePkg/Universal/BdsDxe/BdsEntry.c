@@ -18,6 +18,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include "HwErrRecSupport.h"
 #include <Library/HobLib.h>
 #include <Library/VariablePolicyHelperLib.h>
+#include <Protocol/PlatformBootManager.h>
 
 #define SET_BOOT_OPTION_SUPPORT_KEY_COUNT(a, c)  { \
       (a) = ((a) & ~EFI_BOOT_OPTION_SUPPORT_COUNT) | (((c) << LowBitSet32 (EFI_BOOT_OPTION_SUPPORT_COUNT)) & EFI_BOOT_OPTION_SUPPORT_COUNT); \
@@ -81,6 +82,37 @@ BdsDxeOnConnectConInCallBack (
     // May need platfrom policy to connect keyboard.
     //
     DEBUG ((DEBUG_WARN, "[Bds] Connect ConIn failed - %r!!!\n", Status));
+  }
+}
+
+/**
+  Run the optional platform pre-boot policy before non-recovery executable paths.
+**/
+STATIC
+VOID
+BdsPlatformBeforeBoot (
+  VOID
+  )
+{
+  EDKII_PLATFORM_BOOT_MANAGER_PROTOCOL  *PlatformBootManager;
+  EFI_STATUS                            Status;
+
+  Status = gBS->LocateProtocol (
+                  &gEdkiiPlatformBootManagerProtocolGuid,
+                  NULL,
+                  (VOID **)&PlatformBootManager
+                  );
+  if (EFI_ERROR (Status) ||
+      (PlatformBootManager->Revision < EDKII_PLATFORM_BOOT_MANAGER_PROTOCOL_REVISION2) ||
+      (PlatformBootManager->BeforeBoot == NULL))
+  {
+    return;
+  }
+
+  Status = PlatformBootManager->BeforeBoot ();
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "[Bds]Platform pre-boot policy failed - %r\n", Status));
+    CpuDeadLoop ();
   }
 }
 
@@ -1056,7 +1088,7 @@ BdsEntry (
       }
 
       if (!PlatformRecovery) {
-        PlatformBootManagerAfterBootWait ();
+        BdsPlatformBeforeBoot ();
       }
 
       //
@@ -1078,6 +1110,8 @@ BdsEntry (
   }
 
   if (!PlatformRecovery) {
+    BdsPlatformBeforeBoot ();
+
     //
     // Execute SysPrep####
     //
@@ -1095,6 +1129,7 @@ BdsEntry (
       BdsWait (HotkeyTriggered);
       PERF_INMODULE_END ("BdsWait");
       PlatformBootManagerAfterBootWait ();
+      BdsPlatformBeforeBoot ();
       EfiBootManagerHotkeyBoot ();
     } else {
       //
@@ -1104,6 +1139,8 @@ BdsEntry (
       //
       DEBUG ((DEBUG_INFO, "[Bds]Skipping hotkey boot after OsIndications setup\n"));
     }
+
+    BdsPlatformBeforeBoot ();
 
     DataSize = 0;
     GetEfiGlobalVariable2 (
@@ -1179,6 +1216,8 @@ BdsEntry (
         }
       }
     }
+
+    BdsPlatformBeforeBoot ();
 
     do {
       //

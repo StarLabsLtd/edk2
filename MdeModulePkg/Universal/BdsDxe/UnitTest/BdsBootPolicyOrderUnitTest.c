@@ -108,13 +108,13 @@ ReadBdsEntrySource (
 STATIC
 UNIT_TEST_STATUS
 EFIAPI
-BootFwUiMenuRunsAfterBootWaitPolicy (
+BootFwUiMenuRunsAfterPreBootPolicy (
   IN UNIT_TEST_CONTEXT  Context
   )
 {
   CHAR8  *Source;
   CHAR8  *BootFwUiBlock;
-  CHAR8  *AfterBootWait;
+  CHAR8  *BeforeBoot;
   CHAR8  *BootManagerMenuBoot;
 
   Source = ReadBdsEntrySource ();
@@ -123,12 +123,12 @@ BootFwUiMenuRunsAfterBootWaitPolicy (
   BootFwUiBlock = strstr (Source, "if (BootFwUi) {");
   UT_ASSERT_NOT_NULL (BootFwUiBlock);
 
-  AfterBootWait       = strstr (BootFwUiBlock, "PlatformBootManagerAfterBootWait ();");
+  BeforeBoot          = strstr (BootFwUiBlock, "BdsPlatformBeforeBoot ();");
   BootManagerMenuBoot = strstr (BootFwUiBlock, "EfiBootManagerBoot (&BootManagerMenu);");
 
-  UT_ASSERT_NOT_NULL (AfterBootWait);
+  UT_ASSERT_NOT_NULL (BeforeBoot);
   UT_ASSERT_NOT_NULL (BootManagerMenuBoot);
-  UT_ASSERT_TRUE (AfterBootWait < BootManagerMenuBoot);
+  UT_ASSERT_TRUE (BeforeBoot < BootManagerMenuBoot);
 
   FreePool (Source);
   return UNIT_TEST_PASSED;
@@ -137,13 +137,43 @@ BootFwUiMenuRunsAfterBootWaitPolicy (
 STATIC
 UNIT_TEST_STATUS
 EFIAPI
-HotkeyBootRunsAfterBootWaitPolicy (
+SysPrepRunsAfterPreBootPolicy (
+  IN UNIT_TEST_CONTEXT  Context
+  )
+{
+  CHAR8  *Source;
+  CHAR8  *MainBootBlock;
+  CHAR8  *BeforeBoot;
+  CHAR8  *SysPrepLoadOptions;
+
+  Source = ReadBdsEntrySource ();
+  UT_ASSERT_NOT_NULL (Source);
+
+  MainBootBlock = strstr (Source, "if (!PlatformRecovery) {");
+  UT_ASSERT_NOT_NULL (MainBootBlock);
+
+  BeforeBoot         = strstr (MainBootBlock, "BdsPlatformBeforeBoot ();");
+  SysPrepLoadOptions = strstr (MainBootBlock, "LoadOptionTypeSysPrep");
+
+  UT_ASSERT_NOT_NULL (BeforeBoot);
+  UT_ASSERT_NOT_NULL (SysPrepLoadOptions);
+  UT_ASSERT_TRUE (BeforeBoot < SysPrepLoadOptions);
+
+  FreePool (Source);
+  return UNIT_TEST_PASSED;
+}
+
+STATIC
+UNIT_TEST_STATUS
+EFIAPI
+HotkeyBootRunsAfterPreBootPolicy (
   IN UNIT_TEST_CONTEXT  Context
   )
 {
   CHAR8  *Source;
   CHAR8  *Wait;
   CHAR8  *AfterBootWait;
+  CHAR8  *BeforeBoot;
   CHAR8  *HotkeyBoot;
 
   Source = ReadBdsEntrySource ();
@@ -153,11 +183,80 @@ HotkeyBootRunsAfterBootWaitPolicy (
   UT_ASSERT_NOT_NULL (Wait);
 
   AfterBootWait = strstr (Wait, "PlatformBootManagerAfterBootWait ();");
+  BeforeBoot    = strstr (Wait, "BdsPlatformBeforeBoot ();");
   HotkeyBoot    = strstr (Wait, "EfiBootManagerHotkeyBoot ();");
 
   UT_ASSERT_NOT_NULL (AfterBootWait);
+  UT_ASSERT_NOT_NULL (BeforeBoot);
   UT_ASSERT_NOT_NULL (HotkeyBoot);
   UT_ASSERT_TRUE (AfterBootWait < HotkeyBoot);
+  UT_ASSERT_TRUE (AfterBootWait < BeforeBoot);
+  UT_ASSERT_TRUE (BeforeBoot < HotkeyBoot);
+
+  FreePool (Source);
+  return UNIT_TEST_PASSED;
+}
+
+STATIC
+UNIT_TEST_STATUS
+EFIAPI
+AfterBootWaitRunsOnlyAfterBdsWait (
+  IN UNIT_TEST_CONTEXT  Context
+  )
+{
+  CHAR8  *Source;
+  CHAR8  *Wait;
+  CHAR8  *AfterBootWait;
+
+  Source = ReadBdsEntrySource ();
+  UT_ASSERT_NOT_NULL (Source);
+
+  Wait = strstr (Source, "BdsWait (HotkeyTriggered);");
+  UT_ASSERT_NOT_NULL (Wait);
+
+  AfterBootWait = strstr (Source, "PlatformBootManagerAfterBootWait ();");
+  UT_ASSERT_NOT_NULL (AfterBootWait);
+  UT_ASSERT_TRUE (Wait < AfterBootWait);
+
+  FreePool (Source);
+  return UNIT_TEST_PASSED;
+}
+
+STATIC
+UNIT_TEST_STATUS
+EFIAPI
+BootNextAndBootOrderRevalidateAfterReturn (
+  IN UNIT_TEST_CONTEXT  Context
+  )
+{
+  CHAR8  *Source;
+  CHAR8  *HotkeyBoot;
+  CHAR8  *BeforeBoot;
+  CHAR8  *BootNextBlock;
+  CHAR8  *BeforeBootOrder;
+  CHAR8  *BootNextRead;
+  CHAR8  *BootOrderBoot;
+
+  Source = ReadBdsEntrySource ();
+  UT_ASSERT_NOT_NULL (Source);
+
+  HotkeyBoot = strstr (Source, "EfiBootManagerHotkeyBoot ();");
+  UT_ASSERT_NOT_NULL (HotkeyBoot);
+
+  BeforeBoot    = strstr (HotkeyBoot, "BdsPlatformBeforeBoot ();");
+  BootNextRead  = strstr (HotkeyBoot, "EFI_BOOT_NEXT_VARIABLE_NAME");
+  BootNextBlock = strstr (HotkeyBoot, "if (BootNext != NULL) {");
+  UT_ASSERT_NOT_NULL (BootNextBlock);
+
+  BeforeBootOrder = strstr (BootNextBlock, "BdsPlatformBeforeBoot ();");
+  BootOrderBoot   = strstr (BootNextBlock, "BootBootOptions");
+
+  UT_ASSERT_NOT_NULL (BeforeBoot);
+  UT_ASSERT_NOT_NULL (BeforeBootOrder);
+  UT_ASSERT_NOT_NULL (BootNextRead);
+  UT_ASSERT_NOT_NULL (BootOrderBoot);
+  UT_ASSERT_TRUE (BeforeBoot < BootNextRead);
+  UT_ASSERT_TRUE (BeforeBootOrder < BootOrderBoot);
 
   FreePool (Source);
   return UNIT_TEST_PASSED;
@@ -201,18 +300,45 @@ UnitTestingEntry (
 
   AddTestCase (
     Suite,
-    "Boot Manager Menu runs after boot policy",
+    "Boot Manager Menu runs after pre-boot policy",
     "BootFwUiMenuPolicy",
-    BootFwUiMenuRunsAfterBootWaitPolicy,
+    BootFwUiMenuRunsAfterPreBootPolicy,
     NULL,
     NULL,
     NULL
     );
   AddTestCase (
     Suite,
-    "Hotkey boot runs after boot policy",
+    "SysPrep runs after pre-boot policy",
+    "SysPrepPolicy",
+    SysPrepRunsAfterPreBootPolicy,
+    NULL,
+    NULL,
+    NULL
+    );
+  AddTestCase (
+    Suite,
+    "Hotkey boot runs after pre-boot policy",
     "HotkeyBootPolicy",
-    HotkeyBootRunsAfterBootWaitPolicy,
+    HotkeyBootRunsAfterPreBootPolicy,
+    NULL,
+    NULL,
+    NULL
+    );
+  AddTestCase (
+    Suite,
+    "AfterBootWait remains after BdsWait",
+    "AfterBootWaitAfterBdsWait",
+    AfterBootWaitRunsOnlyAfterBdsWait,
+    NULL,
+    NULL,
+    NULL
+    );
+  AddTestCase (
+    Suite,
+    "BootNext and BootOrder revalidate after returned policy paths",
+    "BootOrderRevalidationPolicy",
+    BootNextAndBootOrderRevalidateAfterReturn,
     NULL,
     NULL,
     NULL
