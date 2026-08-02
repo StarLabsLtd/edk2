@@ -9,8 +9,11 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 
 #include "PlatformBootManager.h"
 #include "PlatformConsole.h"
+#include <Guid/AuthenticatedVariableFormat.h>
 #include <Guid/EventGroup.h>
 #include <Guid/GlobalVariable.h>
+#include <Guid/ImageAuthentication.h>
+#include <Guid/TcgPhysicalPresenceGuid.h>
 #include <IndustryStandard/Pci.h>
 #include <IndustryStandard/Usb.h>
 #include <Library/BmpSupportLib.h>
@@ -19,6 +22,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Protocol/EsrtManagement.h>
 #include <Protocol/FirmwareVolume2.h>
 #include <Protocol/PciIo.h>
+#include <Protocol/Tcg2Protocol.h>
 
 #define PLATFORM_USB_MASS_STORAGE_CLASS  0x08
 #define PLATFORM_REMOVABLE_REFRESH_RETRIES   10
@@ -62,6 +66,179 @@ STATIC EFI_GUID  mLowBatteryLogoFileGuid = {
 
 STATIC BOOLEAN  mLowBatteryBootGuardActive;
 STATIC BOOLEAN  mLowBatteryBootLogoShown;
+
+STATIC
+EFI_STATUS
+Cdk2GetUint8Variable (
+  IN  CHAR16    *Name,
+  IN  EFI_GUID  *Guid,
+  OUT UINT8     *Value
+  )
+{
+  EFI_STATUS  Status;
+  UINT32      Attributes;
+  UINTN       Size;
+
+  Size = sizeof (*Value);
+  Status = gRT->GetVariable (
+                  Name,
+                  Guid,
+                  &Attributes,
+                  &Size,
+                  Value
+                  );
+  if (!EFI_ERROR (Status) && (Size != sizeof (*Value))) {
+    return EFI_SECURITY_VIOLATION;
+  }
+
+  return Status;
+}
+
+STATIC
+BOOLEAN
+Cdk2HasTpm2PhysicalPresenceHob (
+  VOID
+  )
+{
+  EFI_HOB_GUID_TYPE           *GuidHob;
+  TCG_PHYSICAL_PRESENCE_INFO  *PresenceInfo;
+
+  GuidHob = GetFirstGuidHob (&gEfiTcgPhysicalPresenceInfoHobGuid);
+  if (GuidHob == NULL) {
+    return FALSE;
+  }
+
+  if (GET_GUID_HOB_DATA_SIZE (GuidHob) < sizeof (*PresenceInfo)) {
+    return FALSE;
+  }
+
+  PresenceInfo = (TCG_PHYSICAL_PRESENCE_INFO *)GET_GUID_HOB_DATA (GuidHob);
+  if ((PresenceInfo->PpiAddress == 0) ||
+      (PresenceInfo->PpiAddress == MAX_UINT32))
+  {
+    return FALSE;
+  }
+
+  if (PresenceInfo->TpmVersion != UEFIPAYLOAD_TPM_VERSION_2) {
+    return FALSE;
+  }
+
+  if ((PresenceInfo->PpiVersion != UEFIPAYLOAD_TPM_PPI_VERSION_NONE) &&
+      (PresenceInfo->PpiVersion != UEFIPAYLOAD_TPM_PPI_VERSION_1_30))
+  {
+    return FALSE;
+  }
+
+  return TRUE;
+}
+
+STATIC
+EFI_STATUS
+Cdk2ValidateAntiTamperBootPolicy (
+  VOID
+  )
+{
+  EFI_TCG2_BOOT_SERVICE_CAPABILITY  Capability;
+  EFI_TCG2_PROTOCOL                 *Tcg2;
+  EFI_STATUS                        Status;
+  UINT32                            ActivePcrBanks;
+  UINT8                             CustomMode;
+  UINT8                             SecureBoot;
+  UINT8                             SecureBootEnable;
+  UINT8                             SetupMode;
+  UINT8                             VendorKeys;
+
+  if (!FixedPcdGetBool (PcdCdk2AntiTamperBoot)) {
+    return EFI_SUCCESS;
+  }
+
+  Status = Cdk2GetUint8Variable (
+             EFI_SETUP_MODE_NAME,
+             &gEfiGlobalVariableGuid,
+             &SetupMode
+             );
+  if (EFI_ERROR (Status) || (SetupMode != USER_MODE)) {
+    return EFI_SECURITY_VIOLATION;
+  }
+
+  Status = Cdk2GetUint8Variable (
+             EFI_SECURE_BOOT_MODE_NAME,
+             &gEfiGlobalVariableGuid,
+             &SecureBoot
+             );
+  if (EFI_ERROR (Status) || (SecureBoot != SECURE_BOOT_MODE_ENABLE)) {
+    return EFI_SECURITY_VIOLATION;
+  }
+
+  Status = Cdk2GetUint8Variable (
+             EFI_SECURE_BOOT_ENABLE_NAME,
+             &gEfiSecureBootEnableDisableGuid,
+             &SecureBootEnable
+             );
+  if (EFI_ERROR (Status) || (SecureBootEnable != SECURE_BOOT_ENABLE)) {
+    return EFI_SECURITY_VIOLATION;
+  }
+
+  Status = Cdk2GetUint8Variable (
+             EFI_CUSTOM_MODE_NAME,
+             &gEfiCustomModeEnableGuid,
+             &CustomMode
+             );
+  if (EFI_ERROR (Status) || (CustomMode != STANDARD_SECURE_BOOT_MODE)) {
+    return EFI_SECURITY_VIOLATION;
+  }
+
+  Status = Cdk2GetUint8Variable (
+             EFI_VENDOR_KEYS_VARIABLE_NAME,
+             &gEfiGlobalVariableGuid,
+             &VendorKeys
+             );
+  if (EFI_ERROR (Status) || (VendorKeys != 0)) {
+    return EFI_SECURITY_VIOLATION;
+  }
+
+  Status = gBS->LocateProtocol (&gEfiTcg2ProtocolGuid, NULL, (VOID **)&Tcg2);
+  if (EFI_ERROR (Status)) {
+    return EFI_SECURITY_VIOLATION;
+  }
+
+  ZeroMem (&Capability, sizeof (Capability));
+  Capability.Size = sizeof (Capability);
+  Status = Tcg2->GetCapability (Tcg2, &Capability);
+  if (EFI_ERROR (Status) || !Capability.TPMPresentFlag) {
+    return EFI_SECURITY_VIOLATION;
+  }
+
+  Status = Tcg2->GetActivePcrBanks (Tcg2, &ActivePcrBanks);
+  if (EFI_ERROR (Status) || ((ActivePcrBanks & EFI_TCG2_BOOT_HASH_ALG_SHA256) == 0)) {
+    return EFI_SECURITY_VIOLATION;
+  }
+
+  if (FixedPcdGetBool (PcdCdk2AntiTamperRequireTpmPpi) &&
+      !Cdk2HasTpm2PhysicalPresenceHob ())
+  {
+    return EFI_SECURITY_VIOLATION;
+  }
+
+  return EFI_SUCCESS;
+}
+
+STATIC
+VOID
+Cdk2HandleAntiTamperBootFailure (
+  IN EFI_STATUS  Status
+  )
+{
+  DEBUG ((DEBUG_ERROR, "%a: anti-tamper boot policy failed: %r\n", __func__, Status));
+  Print (L"\ncdk2 anti-tamper boot policy failed: %r\n", Status);
+  Print (L"Refusing to boot until Secure Boot and TPM2 policy are restored.\n");
+
+  if (FixedPcdGetBool (PcdCdk2AntiTamperShutdownOnFailure)) {
+    gRT->ResetSystem (EfiResetShutdown, EFI_SECURITY_VIOLATION, 0, NULL);
+  }
+
+  CpuDeadLoop ();
+}
 
 STATIC
 VOID
@@ -1704,7 +1881,14 @@ PlatformBootManagerAfterBootWait (
   VOID
   )
 {
+  EFI_STATUS  Status;
+
   if (!mLowBatteryBootGuardActive) {
+    Status = Cdk2ValidateAntiTamperBootPolicy ();
+    if (EFI_ERROR (Status)) {
+      Cdk2HandleAntiTamperBootFailure (Status);
+    }
+
     return;
   }
 
@@ -1714,6 +1898,11 @@ PlatformBootManagerAfterBootWait (
   mLowBatteryBootLogoShown   = FALSE;
 
   DisplayPlatformBootLogo ();
+
+  Status = Cdk2ValidateAntiTamperBootPolicy ();
+  if (EFI_ERROR (Status)) {
+    Cdk2HandleAntiTamperBootFailure (Status);
+  }
 }
 
 /**

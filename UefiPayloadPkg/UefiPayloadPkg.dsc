@@ -208,6 +208,10 @@
   #
   DEFINE SECURE_BOOT_ENABLE       = FALSE
   DEFINE SECURE_BOOT_SIMPLE_UI    = FALSE
+  DEFINE CDK2_SECURE_BOOT_USER_PHYSICAL_PRESENCE = FALSE
+  DEFINE CDK2_ANTI_TAMPER_BOOT = FALSE
+  DEFINE CDK2_ANTI_TAMPER_REQUIRE_TPM_PPI = TRUE
+  DEFINE CDK2_ANTI_TAMPER_SHUTDOWN_ON_FAILURE = TRUE
 
   #
   # Flat DeviceTree handoff option:
@@ -665,8 +669,8 @@
   SecureBootVariableProvisionLib|SecurityPkg/Library/SecureBootVariableProvisionLib/SecureBootVariableProvisionLib.inf
   PlatformPKProtectionLib|SecurityPkg/Library/PlatformPKProtectionLibVarPolicy/PlatformPKProtectionLibVarPolicy.inf
 
-  # re-use the UserPhysicalPresent() dummy implementation from the ovmf tree
-  PlatformSecureLib|OvmfPkg/Library/PlatformSecureLib/PlatformSecureLib.inf
+  # PcdUserPhysicalPresence controls setup-mediated Secure Boot policy changes.
+  PlatformSecureLib|SecurityPkg/Library/PlatformSecureLibNull/PlatformSecureLibNull.inf
 !else
   AuthVariableLib|MdeModulePkg/Library/AuthVariableLibNull/AuthVariableLibNull.inf
 !endif
@@ -699,8 +703,8 @@
   SecureBootVariableProvisionLib|SecurityPkg/Library/SecureBootVariableProvisionLib/SecureBootVariableProvisionLib.inf
   PlatformPKProtectionLib|SecurityPkg/Library/PlatformPKProtectionLibVarPolicy/PlatformPKProtectionLibVarPolicy.inf
 
-  # re-use the UserPhysicalPresent() dummy implementation from the ovmf tree
-  PlatformSecureLib|OvmfPkg/Library/PlatformSecureLib/PlatformSecureLib.inf
+  # PcdUserPhysicalPresence controls setup-mediated Secure Boot policy changes.
+  PlatformSecureLib|SecurityPkg/Library/PlatformSecureLibNull/PlatformSecureLibNull.inf
 !else
   AuthVariableLib|MdeModulePkg/Library/AuthVariableLibNull/AuthVariableLibNull.inf
 !endif
@@ -739,8 +743,8 @@
   SecureBootVariableProvisionLib|SecurityPkg/Library/SecureBootVariableProvisionLib/SecureBootVariableProvisionLib.inf
   PlatformPKProtectionLib|SecurityPkg/Library/PlatformPKProtectionLibVarPolicy/PlatformPKProtectionLibVarPolicy.inf
 
-  # re-use the UserPhysicalPresent() dummy implementation from the ovmf tree
-  PlatformSecureLib|OvmfPkg/Library/PlatformSecureLib/PlatformSecureLib.inf
+  # PcdUserPhysicalPresence controls setup-mediated Secure Boot policy changes.
+  PlatformSecureLib|SecurityPkg/Library/PlatformSecureLibNull/PlatformSecureLibNull.inf
 !else
   AuthVariableLib|MdeModulePkg/Library/AuthVariableLibNull/AuthVariableLibNull.inf
 !endif
@@ -855,6 +859,9 @@
   gUefiPayloadPkgTokenSpaceGuid.PcdFspGopBasicHiDpiWideAspectCapHeight|$(FSP_GOP_BASIC_HIDPI_WIDE_ASPECT_CAP_HEIGHT)
   gUefiPayloadPkgTokenSpaceGuid.PcdResetShutdownSleepType|7
   gUefiPayloadPkgTokenSpaceGuid.PcdEcAcpiBatteryProfile|$(EC_ACPI_BATTERY_PROFILE)
+  gUefiPayloadPkgTokenSpaceGuid.PcdCdk2AntiTamperBoot|$(CDK2_ANTI_TAMPER_BOOT)
+  gUefiPayloadPkgTokenSpaceGuid.PcdCdk2AntiTamperRequireTpmPpi|$(CDK2_ANTI_TAMPER_REQUIRE_TPM_PPI)
+  gUefiPayloadPkgTokenSpaceGuid.PcdCdk2AntiTamperShutdownOnFailure|$(CDK2_ANTI_TAMPER_SHUTDOWN_ON_FAILURE)
 
   gUefiPayloadPkgTokenSpaceGuid.PcdBootManagerEscape|$(BOOT_MANAGER_ESCAPE)
 
@@ -1099,6 +1106,9 @@
   ## Match the hash algorithms listed in Tcg2Dxe
   gEfiSecurityPkgTokenSpaceGuid.PcdTcg2HashAlgorithmBitmap|0x1F
   gEfiSecurityPkgTokenSpaceGuid.PcdTpmPhysicalPresence|TRUE
+!if $(SECURE_BOOT_ENABLE) == TRUE
+  gEfiSecurityPkgTokenSpaceGuid.PcdUserPhysicalPresence|$(CDK2_SECURE_BOOT_USER_PHYSICAL_PRESENCE)
+!endif
 
 [PcdsDynamicHii]
 !if $(TPM2_ENABLE) == TRUE

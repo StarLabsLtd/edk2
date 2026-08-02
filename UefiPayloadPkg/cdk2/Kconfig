@@ -110,6 +110,42 @@ config CDK2_SECURE_BOOT_CONFIG
     default y
     depends on CDK2_SECURE_BOOT && CDK2_SETUP_UI
 
+config CDK2_SECURE_BOOT_ASSUME_SETUP_PHYSICAL_PRESENCE
+    bool "Treat setup as Secure Boot physical presence"
+    default n
+    depends on CDK2_SECURE_BOOT_CONFIG && !CDK2_EVIL_MAID_PROTECTION
+    help
+      Permit firmware setup to satisfy authenticated-variable physical
+      presence checks. This is useful for development and recovery-oriented
+      builds, but production anti-tamper builds should leave it disabled.
+
+config CDK2_EVIL_MAID_PROTECTION
+    bool "Enable TPM-backed anti-tamper boot policy"
+    default n
+    depends on CDK2_SECURE_BOOT && CDK2_TPM2 && CDK2_SMMSTORE
+    help
+      Require a locked Secure Boot variable state and a usable TPM2 measurement
+      path before boot options are launched. The runtime gate is intended for
+      HEADS-inspired builds where a machine should fail closed when firmware
+      policy or TPM presence cannot be verified.
+
+config CDK2_EVIL_MAID_REQUIRE_TPM_PPI
+    bool "Require TPM physical-presence interface handoff"
+    default y
+    depends on CDK2_EVIL_MAID_PROTECTION
+    help
+      Require coreboot to pass a TPM2 physical-presence interface HOB. This
+      keeps destructive TPM/update operations tied to a platform-owned physical
+      presence path. Disable only for bring-up targets without TPM PPI plumbing.
+
+config CDK2_EVIL_MAID_SHUTDOWN_ON_FAILURE
+    bool "Shut down on anti-tamper boot policy failure"
+    default y
+    depends on CDK2_EVIL_MAID_PROTECTION
+    help
+      Shut the system down instead of dropping into an indefinite firmware loop
+      when the anti-tamper gate rejects the boot.
+
 config CDK2_SMM
     bool "Include SMM payload modules"
     default y

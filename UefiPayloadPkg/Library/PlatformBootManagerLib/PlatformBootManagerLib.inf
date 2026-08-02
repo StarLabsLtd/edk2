@@ -59,7 +59,10 @@
 [Guids]
   gEfiEndOfDxeEventGroupGuid
   gEfiEventReadyToBootGuid
+  gEfiSecureBootEnableDisableGuid
+  gEfiCustomModeEnableGuid
   gEfiGlobalVariableGuid
+  gEfiTcgPhysicalPresenceInfoHobGuid
   gUefiShellFileGuid
 
 [Protocols]
@@ -74,6 +77,7 @@
   gEfiPciRootBridgeIoProtocolGuid
   gEfiPciIoProtocolGuid
   gEfiBatteryStatusProtocolGuid        ## CONSUMES
+  gEfiTcg2ProtocolGuid                 ## CONSUMES
 
 [Pcd]
   gEfiMdePkgTokenSpaceGuid.PcdPlatformBootTimeOut
@@ -85,6 +89,9 @@
   gEfiMdePkgTokenSpaceGuid.PcdUartDefaultParity
   gEfiMdePkgTokenSpaceGuid.PcdUartDefaultStopBits
   gUefiPayloadPkgTokenSpaceGuid.PcdBootManagerEscape
+  gUefiPayloadPkgTokenSpaceGuid.PcdCdk2AntiTamperBoot
+  gUefiPayloadPkgTokenSpaceGuid.PcdCdk2AntiTamperRequireTpmPpi
+  gUefiPayloadPkgTokenSpaceGuid.PcdCdk2AntiTamperShutdownOnFailure
 
 [FeaturePcd]
   gUefiPayloadPkgTokenSpaceGuid.PcdConnectAllDevices

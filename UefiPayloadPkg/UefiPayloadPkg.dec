@@ -178,3 +178,12 @@ gUefiPayloadPkgTokenSpaceGuid.PcdFspGopBasicHiDpiWideAspectCapHeight|9|UINT32|0x
 
 ## Hardware S5 sleep type written to PM1_CNT by ResetShutdown().
 gUefiPayloadPkgTokenSpaceGuid.PcdResetShutdownSleepType|7|UINT16|0x00000039
+
+## Require locked Secure Boot variables and TPM2 measurement support before boot.
+gUefiPayloadPkgTokenSpaceGuid.PcdCdk2AntiTamperBoot|FALSE|BOOLEAN|0x0000003A
+
+## Require a TPM2 physical-presence interface HOB for anti-tamper boot builds.
+gUefiPayloadPkgTokenSpaceGuid.PcdCdk2AntiTamperRequireTpmPpi|TRUE|BOOLEAN|0x0000003B
+
+## Shut down instead of looping forever on anti-tamper policy failure.
+gUefiPayloadPkgTokenSpaceGuid.PcdCdk2AntiTamperShutdownOnFailure|TRUE|BOOLEAN|0x0000003C

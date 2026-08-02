@@ -415,33 +415,52 @@ class Edk2BackendCheckTests(unittest.TestCase):
         path.write_text(text, encoding="utf-8")
         return path
 
-    def _run_check(self, *, secure_boot: bool) -> subprocess.CompletedProcess[str]:
+    def _run_check(self, **config: str) -> subprocess.CompletedProcess[str]:
         root = self.workspace / "root"
         build = self.workspace / "build"
-        config = self._write("build/.config", "CONFIG_CDK2_PAYLOAD=y\n")
+        config_path = self._write("build/.config", "CONFIG_CDK2_PAYLOAD=y\n")
         self._write(f"root/{GOOD_MODULE}", "")
         self._write("root/UefiPayloadPkg/UefiPayloadPkg.dsc", f"{GOOD_MODULE}\n")
 
+        defaults = {
+            "CONFIG_CDK2_CAPSULE": "n",
+            "CONFIG_CDK2_CAPSULE_MAIN_FW_GUID": '""',
+            "CONFIG_CDK2_SECURE_BOOT": "n",
+            "CONFIG_CDK2_SECURE_BOOT_ASSUME_SETUP_PHYSICAL_PRESENCE": "n",
+            "CONFIG_CDK2_EVIL_MAID_PROTECTION": "n",
+            "CONFIG_CDK2_EVIL_MAID_REQUIRE_TPM_PPI": "y",
+            "CONFIG_CDK2_EVIL_MAID_SHUTDOWN_ON_FAILURE": "y",
+            "CONFIG_CDK2_TPM12": "n",
+            "CONFIG_CDK2_TPM2": "y",
+            "CONFIG_CDK2_SMMSTORE": "y",
+            "CONFIG_CDK2_SHELL": "n",
+        }
+        defaults.update(config)
+        assignments = [f"{name} := {value}" for name, value in defaults.items()]
+
         makefile = self._write(
             "Makefile",
-            textwrap.dedent(
-                f"""\
-                SHELL := /bin/bash
-                CONFIG_CDK2_CAPSULE := n
-                CONFIG_CDK2_SECURE_BOOT := {"y" if secure_boot else "n"}
-                CDK2_ROOT := {root}
-                CDK2_DIR := {CDK2_DIR}
-                CDK2_BUILD_DIR := {build}
-                CDK2_CONFIG := {config}
-                include $(CDK2_DIR)/edk2-backend.mk
-                CDK2_RETAINED_MODULES :=
-                CDK2_PAYLOAD_LIBRARIES :=
-                CDK2_SELECTED_MODULES := {GOOD_MODULE}
-
-                .PHONY: check
-                check:
-                \t$(CDK2_BACKEND_CHECK)
-                """
+            "\n".join(
+                [
+                    "SHELL := /bin/bash",
+                    f"CDK2_ROOT := {root}",
+                    f"CDK2_DIR := {CDK2_DIR}",
+                    f"CDK2_BUILD_DIR := {build}",
+                    f"CDK2_CONFIG := {config_path}",
+                    "CDK2_TARGET := RELEASE",
+                    "CDK2_BACKEND_TOOLCHAIN := TEST",
+                    "CDK2_BACKEND_OUTPUT_DIRECTORY := out",
+                    *assignments,
+                    "include $(CDK2_DIR)/edk2-backend.mk",
+                    "CDK2_RETAINED_MODULES :=",
+                    "CDK2_PAYLOAD_LIBRARIES :=",
+                    f"CDK2_SELECTED_MODULES := {GOOD_MODULE}",
+                    "",
+                    ".PHONY: check",
+                    "check:",
+                    "\t$(CDK2_BACKEND_CHECK)",
+                    "",
+                ]
             ),
         )
 
@@ -454,7 +473,7 @@ class Edk2BackendCheckTests(unittest.TestCase):
         )
 
     def test_secure_boot_check_warns_when_object_submodule_is_missing(self) -> None:
-        result = self._run_check(secure_boot=True)
+        result = self._run_check(CONFIG_CDK2_SECURE_BOOT="y")
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn(
@@ -463,10 +482,40 @@ class Edk2BackendCheckTests(unittest.TestCase):
         )
 
     def test_secure_boot_check_is_skipped_when_secure_boot_is_disabled(self) -> None:
-        result = self._run_check(secure_boot=False)
+        result = self._run_check(CONFIG_CDK2_SECURE_BOOT="n")
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertNotIn("secure-boot objects", result.stderr)
+
+    def test_anti_tamper_rejects_tpm12(self) -> None:
+        result = self._run_check(
+            CONFIG_CDK2_SECURE_BOOT="y",
+            CONFIG_CDK2_EVIL_MAID_PROTECTION="y",
+            CONFIG_CDK2_TPM12="y",
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("requires TPM2-only", result.stderr)
+
+    def test_anti_tamper_rejects_builtin_shell(self) -> None:
+        result = self._run_check(
+            CONFIG_CDK2_SECURE_BOOT="y",
+            CONFIG_CDK2_EVIL_MAID_PROTECTION="y",
+            CONFIG_CDK2_SHELL="y",
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("does not allow the built-in UEFI shell", result.stderr)
+
+    def test_anti_tamper_rejects_setup_physical_presence_bypass(self) -> None:
+        result = self._run_check(
+            CONFIG_CDK2_SECURE_BOOT="y",
+            CONFIG_CDK2_EVIL_MAID_PROTECTION="y",
+            CONFIG_CDK2_SECURE_BOOT_ASSUME_SETUP_PHYSICAL_PRESENCE="y",
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("does not allow setup to assert Secure Boot physical presence", result.stderr)
 
 if __name__ == "__main__":
     unittest.main()
