@@ -2412,7 +2412,8 @@ FmpDeviceSetImageWithStatus (
                  &RegionSize
                  );
       if (EFI_ERROR (Status) || (RegionSize == 0) ||
-          (RegionOffset > BaseImageSize) || (RegionSize > (BaseImageSize - RegionOffset)))
+          (RegionOffset > BaseImageSize) ||
+          (RegionSize > (BaseImageSize - RegionOffset)))
       {
         goto InvalidImage;
       }

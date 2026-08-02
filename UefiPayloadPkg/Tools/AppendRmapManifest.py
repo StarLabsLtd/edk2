@@ -11,6 +11,7 @@
 
 import argparse
 import os
+import platform
 import shlex
 import struct
 import sys
@@ -100,10 +101,34 @@ def validate_options(args):
         args.other_public_cert,
         args.trusted_public_cert,
     ]
+    signtool_args = [
+        args.pfx_file,
+        args.subject_name,
+    ]
+    uses_signtool = any(signtool_args)
+    uses_openssl = all(openssl_args)
+    uses_auth_controls = any([
+        args.signing_tool_path,
+        args.hash_algorithm,
+        args.monotonic_count is not None,
+    ])
+
+    if uses_signtool and any(openssl_args):
+        return "signtool and OpenSSL signing options cannot be combined"
+
     if any(openssl_args) and not all(openssl_args):
         return (
             "OpenSSL signing requires --signer-private-cert, "
             "--other-public-cert, and --trusted-public-cert"
+        )
+
+    if uses_signtool and platform.system() != "Windows":
+        return "signtool signing requires Windows"
+
+    if uses_auth_controls and not (uses_signtool or uses_openssl):
+        return (
+            "--signing-tool-path, --hash-algorithm, and "
+            "--monotonic-count require signing credentials"
         )
 
     return None
