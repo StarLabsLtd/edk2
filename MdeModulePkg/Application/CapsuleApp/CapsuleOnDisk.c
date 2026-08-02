@@ -934,11 +934,8 @@ ProcessCapsuleOnDisk (
       return Status;
     }
   } else {
-    Status = DeleteBootNextRestoreState ();
-    if (EFI_ERROR (Status)) {
-      Print (L"CapsuleApp: unable to clear stale BootNext restore state.\n");
-      return Status;
-    }
+    // Keep the restore marker from the first capsule when staging another
+    // capsule before reboot.  BootNext already points at the capsule loader.
   }
 
   Status = SetCapsuleStatusVariable (TRUE);
