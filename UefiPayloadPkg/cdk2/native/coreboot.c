@@ -418,6 +418,10 @@ Cdk2CorebootValidateMemoryPolicySection (
       return EFI_UNSUPPORTED;
     }
 
+    if ((Attributes & ~Capabilities) != 0) {
+      return EFI_COMPROMISED_DATA;
+    }
+
     if ((Entry->owner_flags & ~CB_PRH_MEMORY_OWNER_FLAG_VALID_MASK) != 0 ||
         Entry->reserved != 0)
     {

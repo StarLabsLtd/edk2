@@ -85,7 +85,8 @@ typedef enum {
   TestPrhFramebufferBadMask,
   TestPrhPciBadBar,
   TestPrhPciDuplicate,
-  TestPrhPciOutsideBridge
+  TestPrhPciOutsideBridge,
+  TestPrhMemoryAttributesExceedCapabilities
 } TEST_PRH_FIXTURE;
 
 static void
@@ -328,6 +329,12 @@ BuildPayloadResourceHandoffTable (
     MemoryPolicy[1].owner_flags     = MemoryPolicy[0].owner_flags;
   } else if (Fixture == TestPrhMemoryProtectionNoPaging) {
     MemoryPolicy[0].owner_flags |= CB_PRH_MEMORY_PROTECTION_AUTHORITATIVE;
+  } else if (Fixture == TestPrhMemoryAttributesExceedCapabilities) {
+    PackCbUint64At (
+      &MemoryPolicy[0],
+      OFFSET_OF (struct cb_prh_memory_policy_entry, capabilities),
+      EFI_MEMORY_UC
+      );
   }
 
   PayloadOffset += Sections[0].length;
@@ -815,6 +822,19 @@ main (
                 Handoff.PayloadResourceHandoffStatus == EFI_COMPROMISED_DATA &&
                 Handoff.PayloadResourceHandoff == NULL,
                 "out-of-window payload-resource PCI assignment was accepted"
+                );
+
+  TableSize = BuildPayloadResourceHandoffTable (
+                Storage,
+                sizeof (Storage),
+                TestPrhMemoryAttributesExceedCapabilities
+                );
+  Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);
+  Failures += Expect (Status == EFI_SUCCESS, "impossible payload-resource memory attributes rejected the whole table");
+  Failures += Expect (
+                Handoff.PayloadResourceHandoffStatus == EFI_COMPROMISED_DATA &&
+                Handoff.PayloadResourceHandoff == NULL,
+                "impossible payload-resource memory attributes were accepted"
                 );
 
   TableSize = BuildLegacySerialTable (Storage, sizeof (Storage));
