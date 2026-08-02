@@ -22,6 +22,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Protocol/EsrtManagement.h>
 #include <Protocol/FirmwareVolume2.h>
 #include <Protocol/PciIo.h>
+#include <Protocol/PlatformBootManager.h>
 #include <Protocol/Tcg2Protocol.h>
 
 #define PLATFORM_USB_MASS_STORAGE_CLASS  0x08
@@ -66,6 +67,7 @@ STATIC EFI_GUID  mLowBatteryLogoFileGuid = {
 
 STATIC BOOLEAN  mLowBatteryBootGuardActive;
 STATIC BOOLEAN  mLowBatteryBootLogoShown;
+STATIC EFI_HANDLE  mCdk2PlatformBootManagerHandle;
 
 STATIC
 EFI_STATUS
@@ -238,6 +240,75 @@ Cdk2HandleAntiTamperBootFailure (
   }
 
   CpuDeadLoop ();
+}
+
+STATIC
+EFI_STATUS
+EFIAPI
+Cdk2RefreshAllBootOptions (
+  IN  CONST EFI_BOOT_MANAGER_LOAD_OPTION *BootOptions,
+  IN  CONST UINTN                        BootOptionsCount,
+  OUT       EFI_BOOT_MANAGER_LOAD_OPTION **UpdatedBootOptions,
+  OUT       UINTN                        *UpdatedBootOptionsCount
+  )
+{
+  return EFI_UNSUPPORTED;
+}
+
+STATIC
+EFI_STATUS
+EFIAPI
+Cdk2PlatformBootManagerBeforeBoot (
+  VOID
+  )
+{
+  EFI_STATUS  Status;
+
+  Status = Cdk2ValidateAntiTamperBootPolicy ();
+  if (EFI_ERROR (Status)) {
+    Cdk2HandleAntiTamperBootFailure (Status);
+    return Status;
+  }
+
+  return EFI_SUCCESS;
+}
+
+STATIC EDKII_PLATFORM_BOOT_MANAGER_PROTOCOL  mCdk2PlatformBootManagerProtocol = {
+  EDKII_PLATFORM_BOOT_MANAGER_PROTOCOL_REVISION2,
+  Cdk2RefreshAllBootOptions,
+  Cdk2PlatformBootManagerBeforeBoot
+};
+
+STATIC
+VOID
+Cdk2InstallPlatformBootManagerProtocol (
+  VOID
+  )
+{
+  EFI_STATUS  Status;
+
+  if (mCdk2PlatformBootManagerHandle != NULL) {
+    return;
+  }
+
+  Status = gBS->InstallMultipleProtocolInterfaces (
+                  &mCdk2PlatformBootManagerHandle,
+                  &gEdkiiPlatformBootManagerProtocolGuid,
+                  &mCdk2PlatformBootManagerProtocol,
+                  NULL
+                  );
+  if (EFI_ERROR (Status)) {
+    DEBUG ((
+      DEBUG_ERROR,
+      "%a: failed to install platform boot policy protocol: %r\n",
+      __func__,
+      Status
+      ));
+    mCdk2PlatformBootManagerHandle = NULL;
+    if (FixedPcdGetBool (PcdCdk2AntiTamperBoot)) {
+      Cdk2HandleAntiTamperBootFailure (Status);
+    }
+  }
 }
 
 STATIC
@@ -1618,6 +1689,8 @@ PlatformBootManagerBeforeConsole (
   EDKII_PLATFORM_LOGO_PROTOCOL  *PlatformLogo;
   BOOLEAN                       ConsoleInitialized;
 
+  Cdk2InstallPlatformBootManagerProtocol ();
+
   //
   // Register ENTER as CONTINUE key
   //
@@ -1881,14 +1954,7 @@ PlatformBootManagerAfterBootWait (
   VOID
   )
 {
-  EFI_STATUS  Status;
-
   if (!mLowBatteryBootGuardActive) {
-    Status = Cdk2ValidateAntiTamperBootPolicy ();
-    if (EFI_ERROR (Status)) {
-      Cdk2HandleAntiTamperBootFailure (Status);
-    }
-
     return;
   }
 
@@ -1898,11 +1964,6 @@ PlatformBootManagerAfterBootWait (
   mLowBatteryBootLogoShown   = FALSE;
 
   DisplayPlatformBootLogo ();
-
-  Status = Cdk2ValidateAntiTamperBootPolicy ();
-  if (EFI_ERROR (Status)) {
-    Cdk2HandleAntiTamperBootFailure (Status);
-  }
 }
 
 /**

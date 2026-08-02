@@ -77,7 +77,8 @@
   gEfiPciRootBridgeIoProtocolGuid
   gEfiPciIoProtocolGuid
   gEfiBatteryStatusProtocolGuid        ## CONSUMES
-  gEfiTcg2ProtocolGuid                 ## CONSUMES
+  gEfiTcg2ProtocolGuid                      ## CONSUMES
+  gEdkiiPlatformBootManagerProtocolGuid     ## PRODUCES
 
 [Pcd]
   gEfiMdePkgTokenSpaceGuid.PcdPlatformBootTimeOut
