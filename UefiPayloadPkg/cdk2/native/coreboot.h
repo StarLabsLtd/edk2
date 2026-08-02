@@ -32,6 +32,14 @@
   CDK2_COREBOOT_RECORD_FIELD_END (struct cb_tpm_physical_presence, ppi_version)
 #define CDK2_COREBOOT_ACPI_RSDP_MIN_SIZE \
   CDK2_COREBOOT_RECORD_FIELD_END (struct cb_acpi_rsdp, rsdp_pointer)
+#define CDK2_COREBOOT_PAYLOAD_RESOURCE_HANDOFF_MIN_SIZE \
+  CDK2_COREBOOT_RECORD_FIELD_END (struct cb_payload_resource_handoff, lifetime_flags)
+#define CDK2_COREBOOT_PAYLOAD_RESOURCE_SECTION_MIN_SIZE \
+  (sizeof (struct cb_payload_resource_section))
+#define CDK2_COREBOOT_PRH_FRAMEBUFFER_MIN_SIZE \
+  (sizeof (struct cb_prh_framebuffer_entry))
+
+#define CDK2_COREBOOT_PAYLOAD_RESOURCE_MAX_SECTIONS  64U
 
 typedef struct {
   EFI_PHYSICAL_ADDRESS  Base;
@@ -48,11 +56,19 @@ typedef struct {
   EFI_PHYSICAL_ADDRESS          LargestUsableRamBase;
   UINT64                        LargestUsableRamSize;
   UINT64                        ForwardAddress;
+  EFI_STATUS                    PayloadResourceHandoffStatus;
+  CONST struct cb_payload_resource_handoff *PayloadResourceHandoff;
   CDK2_COREBOOT_MEMORY_RANGE    MemoryRanges[CDK2_COREBOOT_MAX_MEMORY_RANGES];
 } CDK2_COREBOOT_HANDOFF;
 
 UINT16
 Cdk2CorebootChecksum16 (
+  IN CONST VOID  *Buffer,
+  IN UINTN        Length
+  );
+
+UINT32
+Cdk2CorebootCalculateCrc32 (
   IN CONST VOID  *Buffer,
   IN UINTN        Length
   );
@@ -76,6 +92,13 @@ Cdk2CorebootFindRecord (
   IN  UINT32                        Tag,
   IN  UINT32                        MinimumSize,
   OUT CONST VOID                  **Record
+  );
+
+EFI_STATUS
+Cdk2CorebootFindPayloadResourceSection (
+  IN  CONST CDK2_COREBOOT_HANDOFF            *Handoff,
+  IN  UINT16                                  Type,
+  OUT CONST struct cb_payload_resource_section **Section
   );
 
 #endif

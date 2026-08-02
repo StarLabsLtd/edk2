@@ -19,6 +19,7 @@
 #define TEST_HOB_REGION_SIZE  0x04000000U
 #define TEST_TEMP_MAP_LIMIT   0x2000000000ULL
 #define TEST_HOB_ALIGN8(Size)  (((Size) + 7U) & ~(UINTN)7U)
+#define TEST_PRH_UNKNOWN_SECTION  0x7fffU
 
 #if defined (__GNUC__)
 static UINT8  mTransferHobStorage[EFI_PAGE_SIZE] __attribute__ ((aligned (EFI_PAGE_SIZE)));
@@ -64,6 +65,53 @@ Expect (
   }
 
   return 0;
+}
+
+typedef enum {
+  TestPrhValid,
+  TestPrhBadCrc,
+  TestPrhShortHeader,
+  TestPrhSectionOverflow,
+  TestPrhSectionOverlap,
+  TestPrhDuplicateType,
+  TestPrhUnknownMandatory,
+  TestPrhKnownMandatory,
+  TestPrhMemoryZeroLength,
+  TestPrhMemoryWrap,
+  TestPrhMemoryOverlap,
+  TestPrhCacheCountMismatch,
+  TestPrhMissingLifetime,
+  TestPrhMemoryProtectionNoPaging,
+  TestPrhFramebufferBadMask
+} TEST_PRH_FIXTURE;
+
+static void
+PackCbUint64 (
+  struct cbuint64 *Value,
+  UINT64           Data
+  )
+{
+  Value->lo = (UINT32)Data;
+  Value->hi = (UINT32)(Data >> 32);
+}
+
+static void
+PackCbUint64At (
+  VOID    *Base,
+  UINTN    Offset,
+  UINT64   Data
+  )
+{
+  PackCbUint64 ((struct cbuint64 *)((UINT8 *)Base + Offset), Data);
+}
+
+static void
+FinalizePayloadResourceHandoff (
+  struct cb_payload_resource_handoff *Handoff
+  )
+{
+  Handoff->crc32 = 0;
+  Handoff->crc32 = Cdk2CorebootCalculateCrc32 (Handoff, Handoff->size);
 }
 
 static UINTN
@@ -203,6 +251,205 @@ BuildLegacyFramebufferTable (
   return FinalizeTable (Storage, StorageSize, Framebuffer->size, 1);
 }
 
+static UINTN
+BuildPayloadResourceHandoffTable (
+  UINT8             *Storage,
+  UINTN              StorageSize,
+  TEST_PRH_FIXTURE   Fixture
+  )
+{
+  struct cb_payload_resource_handoff   *Prh;
+  struct cb_payload_resource_section   *Sections;
+  struct cb_prh_memory_policy_entry    *MemoryPolicy;
+  struct cb_prh_x86_cache_state        *CacheState;
+  struct cb_prh_x86_variable_mtrr      *VariableMtrr;
+  struct cb_prh_pci_root_bridge_entry  *RootBridge;
+  struct cb_prh_pci_assignment_entry   *PciAssignment;
+  struct cb_prh_framebuffer_entry      *Framebuffer;
+  UINT8                                *Payload;
+  UINTN                                 PayloadOffset;
+  UINT32                                MemoryEntryCount;
+  UINTN                                 SectionCount;
+
+  memset (Storage, 0, StorageSize);
+  Prh = (struct cb_payload_resource_handoff *)(VOID *)(Storage + sizeof (struct cb_header));
+  Prh->tag                   = CB_TAG_PAYLOAD_RESOURCE_HANDOFF;
+  Prh->revision              = CB_PAYLOAD_RESOURCE_HANDOFF_REVISION;
+  Prh->header_length         = sizeof (*Prh);
+  Prh->section_header_length = sizeof (struct cb_payload_resource_section);
+  Prh->producer_stage        = 1;
+  PackCbUint64At (Prh, OFFSET_OF (struct cb_payload_resource_handoff, producer_generation), 1);
+  PackCbUint64At (
+    Prh,
+    OFFSET_OF (struct cb_payload_resource_handoff, lifetime_flags),
+    CB_PRH_LIFETIME_COLD_BOOT | CB_PRH_LIFETIME_EXIT_BOOT_SERVICES
+    );
+
+  SectionCount       = 6;
+  Prh->section_count = (UINT32)SectionCount;
+  Sections           = (struct cb_payload_resource_section *)(VOID *)((UINT8 *)Prh + Prh->header_length);
+  PayloadOffset      = Prh->header_length + SectionCount * Prh->section_header_length;
+  Payload            = (UINT8 *)Prh + PayloadOffset;
+
+  MemoryEntryCount          = (Fixture == TestPrhMemoryOverlap) ? 2U : 1U;
+  Sections[0].type          = CB_PRH_SECTION_MEMORY_POLICY;
+  Sections[0].flags         = CB_PRH_SECTION_FLAG_AUTHORITATIVE;
+  Sections[0].header_length = sizeof (Sections[0]);
+  Sections[0].entry_size    = sizeof (*MemoryPolicy);
+  Sections[0].entry_count   = MemoryEntryCount;
+  Sections[0].offset        = (UINT32)PayloadOffset;
+  Sections[0].length        = MemoryEntryCount * sizeof (*MemoryPolicy);
+  MemoryPolicy              = (struct cb_prh_memory_policy_entry *)(VOID *)Payload;
+  PackCbUint64At (MemoryPolicy, OFFSET_OF (struct cb_prh_memory_policy_entry, base), 0x00100000ULL);
+  PackCbUint64At (MemoryPolicy, OFFSET_OF (struct cb_prh_memory_policy_entry, length), 0x00200000ULL);
+  PackCbUint64At (MemoryPolicy, OFFSET_OF (struct cb_prh_memory_policy_entry, capabilities), EFI_MEMORY_UC | EFI_MEMORY_WC | EFI_MEMORY_WT | EFI_MEMORY_WB);
+  PackCbUint64At (MemoryPolicy, OFFSET_OF (struct cb_prh_memory_policy_entry, attributes), EFI_MEMORY_WB);
+  MemoryPolicy[0].gcd_type        = 1;
+  MemoryPolicy[0].efi_memory_type = EfiConventionalMemory;
+  MemoryPolicy[0].owner_flags     = CB_PRH_MEMORY_CACHE_AUTHORITATIVE |
+                                    CB_PRH_MEMORY_GCD_AUTHORITATIVE |
+                                    CB_PRH_MEMORY_EFI_TYPE_AUTHORITATIVE;
+  if (Fixture == TestPrhMemoryZeroLength) {
+    PackCbUint64At (&MemoryPolicy[0], OFFSET_OF (struct cb_prh_memory_policy_entry, length), 0);
+  } else if (Fixture == TestPrhMemoryWrap) {
+    PackCbUint64At (&MemoryPolicy[0], OFFSET_OF (struct cb_prh_memory_policy_entry, base), MAX_UINT64 - 0xffULL);
+    PackCbUint64At (&MemoryPolicy[0], OFFSET_OF (struct cb_prh_memory_policy_entry, length), 0x200ULL);
+  } else if (Fixture == TestPrhMemoryOverlap) {
+    PackCbUint64At (&MemoryPolicy[1], OFFSET_OF (struct cb_prh_memory_policy_entry, base), 0x00180000ULL);
+    PackCbUint64At (&MemoryPolicy[1], OFFSET_OF (struct cb_prh_memory_policy_entry, length), 0x00100000ULL);
+    PackCbUint64At (&MemoryPolicy[1], OFFSET_OF (struct cb_prh_memory_policy_entry, capabilities), EFI_MEMORY_UC | EFI_MEMORY_WC | EFI_MEMORY_WT | EFI_MEMORY_WB);
+    PackCbUint64At (&MemoryPolicy[1], OFFSET_OF (struct cb_prh_memory_policy_entry, attributes), EFI_MEMORY_WB);
+    MemoryPolicy[1].gcd_type        = 1;
+    MemoryPolicy[1].efi_memory_type = EfiConventionalMemory;
+    MemoryPolicy[1].owner_flags     = MemoryPolicy[0].owner_flags;
+  } else if (Fixture == TestPrhMemoryProtectionNoPaging) {
+    MemoryPolicy[0].owner_flags |= CB_PRH_MEMORY_PROTECTION_AUTHORITATIVE;
+  }
+
+  PayloadOffset += Sections[0].length;
+  Payload        = (UINT8 *)Prh + PayloadOffset;
+
+  Sections[1].type          = CB_PRH_SECTION_X86_CACHE_STATE;
+  Sections[1].flags         = CB_PRH_SECTION_FLAG_AUTHORITATIVE;
+  Sections[1].header_length = sizeof (Sections[1]);
+  Sections[1].entry_size    = sizeof (*VariableMtrr);
+  Sections[1].entry_count   = 1;
+  Sections[1].offset        = (UINT32)PayloadOffset;
+  Sections[1].length        = sizeof (*CacheState) + sizeof (*VariableMtrr);
+  CacheState                = (struct cb_prh_x86_cache_state *)(VOID *)Payload;
+  PackCbUint64At (CacheState, OFFSET_OF (struct cb_prh_x86_cache_state, mtrr_default_type_msr), 0x800ULL | 6U);
+  PackCbUint64At (CacheState, OFFSET_OF (struct cb_prh_x86_cache_state, pat_msr), 0x0007040600070406ULL);
+  PackCbUint64At (CacheState, OFFSET_OF (struct cb_prh_x86_cache_state, fixed_mtrr_crc64), 0x12345678ULL);
+  CacheState->variable_count = (Fixture == TestPrhCacheCountMismatch) ? 2U : 1U;
+  CacheState->flags          = CB_PRH_X86_CACHE_FLAG_BSP_AP_SYNC |
+                               CB_PRH_X86_CACHE_FLAG_FIXED_VALID;
+  VariableMtrr = (struct cb_prh_x86_variable_mtrr *)(VOID *)(CacheState + 1);
+  PackCbUint64At (VariableMtrr, OFFSET_OF (struct cb_prh_x86_variable_mtrr, phys_base_msr), 0x00100000ULL | 6U);
+  PackCbUint64At (VariableMtrr, OFFSET_OF (struct cb_prh_x86_variable_mtrr, phys_mask_msr), 0xffe00000ULL | BIT11);
+
+  PayloadOffset += Sections[1].length;
+  Payload        = (UINT8 *)Prh + PayloadOffset;
+
+  Sections[2].type          = CB_PRH_SECTION_PCI_ROOT_BRIDGES;
+  Sections[2].flags         = CB_PRH_SECTION_FLAG_AUTHORITATIVE;
+  Sections[2].header_length = sizeof (Sections[2]);
+  Sections[2].entry_size    = sizeof (*RootBridge);
+  Sections[2].entry_count   = 1;
+  Sections[2].offset        = (UINT32)PayloadOffset;
+  Sections[2].length        = sizeof (*RootBridge);
+  RootBridge                = (struct cb_prh_pci_root_bridge_entry *)(VOID *)Payload;
+  RootBridge->bus_end       = 0xff;
+  PackCbUint64At (RootBridge, OFFSET_OF (struct cb_prh_pci_root_bridge_entry, io_base), 0x1000);
+  PackCbUint64At (RootBridge, OFFSET_OF (struct cb_prh_pci_root_bridge_entry, io_length), 0xf000);
+  PackCbUint64At (RootBridge, OFFSET_OF (struct cb_prh_pci_root_bridge_entry, mem32_base), 0xe0000000ULL);
+  PackCbUint64At (RootBridge, OFFSET_OF (struct cb_prh_pci_root_bridge_entry, mem32_length), 0x10000000ULL);
+
+  PayloadOffset += Sections[2].length;
+  Payload        = (UINT8 *)Prh + PayloadOffset;
+
+  Sections[3].type          = CB_PRH_SECTION_PCI_ASSIGNMENTS;
+  Sections[3].flags         = CB_PRH_SECTION_FLAG_AUTHORITATIVE;
+  Sections[3].header_length = sizeof (Sections[3]);
+  Sections[3].entry_size    = sizeof (*PciAssignment);
+  Sections[3].entry_count   = 1;
+  Sections[3].offset        = (UINT32)PayloadOffset;
+  Sections[3].length        = sizeof (*PciAssignment);
+  PciAssignment             = (struct cb_prh_pci_assignment_entry *)(VOID *)Payload;
+  PciAssignment->device     = 2;
+  PciAssignment->bar        = 0;
+  PciAssignment->resource_type = CB_PRH_PCI_RESOURCE_MMIO32;
+  PackCbUint64At (PciAssignment, OFFSET_OF (struct cb_prh_pci_assignment_entry, base), 0xe0000000ULL);
+  PackCbUint64At (PciAssignment, OFFSET_OF (struct cb_prh_pci_assignment_entry, length), 0x100000ULL);
+  PackCbUint64At (PciAssignment, OFFSET_OF (struct cb_prh_pci_assignment_entry, attributes), EFI_MEMORY_UC);
+
+  PayloadOffset += Sections[3].length;
+  Payload        = (UINT8 *)Prh + PayloadOffset;
+
+  Sections[4].type          = CB_PRH_SECTION_FRAMEBUFFER;
+  Sections[4].flags         = CB_PRH_SECTION_FLAG_AUTHORITATIVE;
+  Sections[4].header_length = sizeof (Sections[4]);
+  Sections[4].entry_size    = sizeof (*Framebuffer);
+  Sections[4].entry_count   = 1;
+  Sections[4].offset        = (UINT32)PayloadOffset;
+  Sections[4].length        = sizeof (*Framebuffer);
+  Framebuffer               = (struct cb_prh_framebuffer_entry *)(VOID *)Payload;
+  PackCbUint64At (Framebuffer, OFFSET_OF (struct cb_prh_framebuffer_entry, physical_address), 0xfd000000ULL);
+  PackCbUint64At (Framebuffer, OFFSET_OF (struct cb_prh_framebuffer_entry, size), 4096ULL * 768U);
+  Framebuffer->x_resolution       = 1024;
+  Framebuffer->y_resolution       = 768;
+  Framebuffer->bytes_per_line     = 4096;
+  Framebuffer->bits_per_pixel     = 32;
+  Framebuffer->red_mask_pos       = (Fixture == TestPrhFramebufferBadMask) ? 31 : 16;
+  Framebuffer->red_mask_size      = 8;
+  Framebuffer->green_mask_pos     = 8;
+  Framebuffer->green_mask_size    = 8;
+  Framebuffer->blue_mask_pos      = 0;
+  Framebuffer->blue_mask_size     = 8;
+  Framebuffer->reserved_mask_pos  = 24;
+  Framebuffer->reserved_mask_size = 8;
+  Framebuffer->owner_flags        = CB_PRH_FRAMEBUFFER_GEOMETRY_AUTHORITATIVE |
+                                    CB_PRH_FRAMEBUFFER_MEMORY_DELEGATED;
+
+  PayloadOffset += Sections[4].length;
+  Payload        = (UINT8 *)Prh + PayloadOffset;
+
+  Sections[5].type          = TEST_PRH_UNKNOWN_SECTION;
+  Sections[5].flags         = (Fixture == TestPrhUnknownMandatory) ? CB_PRH_SECTION_FLAG_MANDATORY : 0;
+  Sections[5].header_length = sizeof (Sections[5]);
+  Sections[5].entry_size    = sizeof (UINT32);
+  Sections[5].entry_count   = 1;
+  Sections[5].offset        = (UINT32)PayloadOffset;
+  Sections[5].length        = sizeof (UINT32);
+  *(UINT32 *)(VOID *)Payload = 0xa5a5a5a5U;
+
+  PayloadOffset += Sections[5].length;
+  Prh->size      = (UINT32)PayloadOffset;
+
+  if (Fixture == TestPrhShortHeader) {
+    Prh->header_length = sizeof (struct cb_record);
+  } else if (Fixture == TestPrhSectionOverflow) {
+    Sections[0].offset = Prh->size - 4U;
+    Sections[0].length = 8U;
+  } else if (Fixture == TestPrhSectionOverlap) {
+    Sections[5].offset = Sections[3].offset;
+    Sections[5].length = sizeof (UINT32);
+  } else if (Fixture == TestPrhDuplicateType) {
+    Sections[1].type = Sections[0].type;
+  } else if (Fixture == TestPrhKnownMandatory) {
+    Sections[5].type  = CB_PRH_SECTION_BOOT_INTENT;
+    Sections[5].flags = CB_PRH_SECTION_FLAG_MANDATORY;
+  } else if (Fixture == TestPrhMissingLifetime) {
+    PackCbUint64At (Prh, OFFSET_OF (struct cb_payload_resource_handoff, lifetime_flags), 0);
+  }
+
+  FinalizePayloadResourceHandoff (Prh);
+  if (Fixture == TestPrhBadCrc) {
+    Prh->crc32 ^= 1U;
+  }
+
+  return FinalizeTable (Storage, StorageSize, Prh->size, 1);
+}
+
 int
 main (
   void
@@ -229,6 +476,7 @@ main (
   UINTN                       CpuCount;
   UINTN                       GuidCount;
   UINTN                       ApiGuidCount;
+  UINTN                       PayloadResourceGuidCount;
   UINTN                       WalkerCount;
   UINTN                       CodeAllocationCount;
   UINTN                       ModuleCount;
@@ -242,10 +490,12 @@ main (
   UINTN                       HobMemBase;
   UINTN                       TransactionFreeTopOffset;
   CONST VOID                 *Record;
+  CONST struct cb_payload_resource_section *PrhSection;
   CONST struct cb_serial      *Serial;
   CONST struct cb_framebuffer *Framebuffer;
   EFI_HOB_RESOURCE_DESCRIPTOR *Resource;
   EFI_GUID                    TestGuid;
+  EFI_GUID                    PayloadResourceGuid;
   EFI_GUID                    StackGuid;
   EFI_GUID                    ModuleGuid;
   EFI_GUID                    DxeCoreGuid;
@@ -260,6 +510,7 @@ main (
   int                         Failures;
 
   Failures = 0;
+  PayloadResourceGuid = (EFI_GUID){ 0xc263a6a9, 0x6938, 0x495e, { 0x95, 0xb6, 0x6a, 0x1a, 0x0b, 0x6b, 0xa8, 0x8e } };
   TableSize = BuildMemoryTable (Storage, sizeof (Storage));
   Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);
   Failures += Expect (Status == EFI_SUCCESS, "valid table rejected");
@@ -268,6 +519,13 @@ main (
   Failures += Expect (Handoff.UsableRamCount == 1, "usable RAM count is wrong");
   Failures += Expect (Handoff.LargestUsableRamBase == 0x00100000, "usable RAM base is wrong");
   Failures += Expect (Handoff.LargestUsableRamSize == 0x00300000, "usable RAM size is wrong");
+  Failures += Expect (Handoff.PayloadResourceHandoffStatus == EFI_NOT_FOUND, "absent payload-resource record status is wrong");
+  Status = Cdk2CorebootFindPayloadResourceSection (
+             &Handoff,
+             CB_PRH_SECTION_MEMORY_POLICY,
+             &PrhSection
+             );
+  Failures += Expect (Status == EFI_NOT_FOUND, "absent payload-resource section did not fall back");
 
   Status = Cdk2CorebootFindRecord (
              &Handoff,
@@ -283,6 +541,242 @@ main (
              &Record
              );
   Failures += Expect (Status == EFI_COMPROMISED_DATA, "short record was accepted");
+
+  TableSize = BuildPayloadResourceHandoffTable (Storage, sizeof (Storage), TestPrhValid);
+  Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);
+  Failures += Expect (Status == EFI_SUCCESS, "valid payload-resource table rejected");
+  Failures += Expect (
+                Handoff.PayloadResourceHandoffStatus == EFI_SUCCESS &&
+                Handoff.PayloadResourceHandoff != NULL,
+                "valid payload-resource record was not accepted"
+                );
+  Status = Cdk2CorebootFindPayloadResourceSection (
+             &Handoff,
+             CB_PRH_SECTION_MEMORY_POLICY,
+             &PrhSection
+             );
+  Failures += Expect (
+                Status == EFI_SUCCESS &&
+                PrhSection != NULL &&
+                PrhSection->entry_count == 1,
+                "payload-resource memory policy section lookup failed"
+                );
+  Status = Cdk2CorebootFindPayloadResourceSection (
+             &Handoff,
+             CB_PRH_SECTION_FRAMEBUFFER,
+             &PrhSection
+             );
+  Failures += Expect (
+                Status == EFI_SUCCESS &&
+                PrhSection != NULL &&
+                PrhSection->entry_count == 1,
+                "payload-resource framebuffer section lookup failed"
+                );
+  Status = Cdk2CorebootFindPayloadResourceSection (
+             &Handoff,
+             TEST_PRH_UNKNOWN_SECTION,
+             &PrhSection
+             );
+  Failures += Expect (Status == EFI_SUCCESS && PrhSection != NULL, "skippable unknown payload-resource section rejected");
+  Status = Cdk2CorebootFindPayloadResourceSection (
+             &Handoff,
+             CB_PRH_SECTION_RUNTIME_POLICY,
+             &PrhSection
+             );
+  Failures += Expect (Status == EFI_NOT_FOUND, "missing payload-resource section was found");
+
+  Status = Cdk2CorebootBuildHobs (
+             &Handoff,
+             HobStorage,
+             HobStorage + sizeof (HobStorage),
+             HobStorage,
+             HobStorage + sizeof (HobStorage),
+             FALSE,
+             &HobInfo
+             );
+  Failures += Expect (Status == EFI_SUCCESS, "payload-resource HOB construction failed");
+  PayloadResourceGuidCount = 0;
+  HobCursor = (UINTN)(VOID *)HobInfo;
+  while (HobCursor < (UINTN)HobInfo->EfiEndOfHobList) {
+    Hob = (EFI_HOB_GENERIC_HEADER *)(UINTN)HobCursor;
+    if (Hob->HobType == EFI_HOB_TYPE_GUID_EXTENSION) {
+      EFI_HOB_GUID_TYPE  *GuidHob;
+      UINTN               DataLength;
+
+      GuidHob    = (EFI_HOB_GUID_TYPE *)(VOID *)Hob;
+      DataLength = Hob->HobLength - sizeof (*GuidHob);
+      if (memcmp (&GuidHob->Name, &PayloadResourceGuid, sizeof (PayloadResourceGuid)) == 0) {
+        Failures += Expect (
+                      DataLength >= Handoff.PayloadResourceHandoff->size &&
+                      memcmp (
+                        GuidHob + 1,
+                        Handoff.PayloadResourceHandoff,
+                        Handoff.PayloadResourceHandoff->size
+                        ) == 0,
+                      "payload-resource GUID HOB data is wrong"
+                      );
+        PayloadResourceGuidCount++;
+      }
+    }
+
+    HobCursor += (Hob->HobLength + 7U) & ~(UINTN)7U;
+  }
+
+  Failures += Expect (PayloadResourceGuidCount == 1, "payload-resource GUID HOB count is wrong");
+
+  TableSize = BuildPayloadResourceHandoffTable (Storage, sizeof (Storage), TestPrhBadCrc);
+  Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);
+  Failures += Expect (Status == EFI_SUCCESS, "bad payload-resource CRC rejected the whole table");
+  Failures += Expect (
+                Handoff.PayloadResourceHandoffStatus == EFI_CRC_ERROR &&
+                Handoff.PayloadResourceHandoff == NULL,
+                "bad payload-resource CRC did not disable only the new ABI"
+                );
+  Status = Cdk2CorebootBuildHobs (
+             &Handoff,
+             HobStorage,
+             HobStorage + sizeof (HobStorage),
+             HobStorage,
+             HobStorage + sizeof (HobStorage),
+             FALSE,
+             &HobInfo
+             );
+  Failures += Expect (Status == EFI_SUCCESS, "bad payload-resource HOB fallback failed");
+  PayloadResourceGuidCount = 0;
+  HobCursor = (UINTN)(VOID *)HobInfo;
+  while (HobCursor < (UINTN)HobInfo->EfiEndOfHobList) {
+    Hob = (EFI_HOB_GENERIC_HEADER *)(UINTN)HobCursor;
+    if (Hob->HobType == EFI_HOB_TYPE_GUID_EXTENSION) {
+      EFI_HOB_GUID_TYPE  *GuidHob;
+
+      GuidHob = (EFI_HOB_GUID_TYPE *)(VOID *)Hob;
+      if (memcmp (&GuidHob->Name, &PayloadResourceGuid, sizeof (PayloadResourceGuid)) == 0) {
+        PayloadResourceGuidCount++;
+      }
+    }
+
+    HobCursor += (Hob->HobLength + 7U) & ~(UINTN)7U;
+  }
+
+  Failures += Expect (PayloadResourceGuidCount == 0, "bad payload-resource record published a HOB");
+
+
+  TableSize = BuildPayloadResourceHandoffTable (Storage, sizeof (Storage), TestPrhShortHeader);
+  Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);
+  Failures += Expect (Status == EFI_SUCCESS, "short payload-resource header rejected the whole table");
+  Failures += Expect (
+                Handoff.PayloadResourceHandoffStatus == EFI_COMPROMISED_DATA &&
+                Handoff.PayloadResourceHandoff == NULL,
+                "short payload-resource header was accepted"
+                );
+
+  TableSize = BuildPayloadResourceHandoffTable (Storage, sizeof (Storage), TestPrhSectionOverflow);
+  Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);
+  Failures += Expect (Status == EFI_SUCCESS, "overflowing payload-resource section rejected the whole table");
+  Failures += Expect (
+                Handoff.PayloadResourceHandoffStatus == EFI_COMPROMISED_DATA &&
+                Handoff.PayloadResourceHandoff == NULL,
+                "overflowing payload-resource section was accepted"
+                );
+
+  TableSize = BuildPayloadResourceHandoffTable (Storage, sizeof (Storage), TestPrhUnknownMandatory);
+  Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);
+  Failures += Expect (Status == EFI_SUCCESS, "mandatory unknown payload-resource section rejected the whole table");
+  Failures += Expect (
+                Handoff.PayloadResourceHandoffStatus == EFI_UNSUPPORTED &&
+                Handoff.PayloadResourceHandoff == NULL,
+                "mandatory unknown payload-resource section was accepted"
+                );
+
+  TableSize = BuildPayloadResourceHandoffTable (Storage, sizeof (Storage), TestPrhKnownMandatory);
+  Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);
+  Failures += Expect (Status == EFI_SUCCESS, "deferred payload-resource section rejected the whole table");
+  Failures += Expect (
+                Handoff.PayloadResourceHandoffStatus == EFI_UNSUPPORTED &&
+                Handoff.PayloadResourceHandoff == NULL,
+                "deferred mandatory payload-resource section was accepted"
+                );
+
+  TableSize = BuildPayloadResourceHandoffTable (Storage, sizeof (Storage), TestPrhSectionOverlap);
+  Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);
+  Failures += Expect (Status == EFI_SUCCESS, "overlapping payload-resource sections rejected the whole table");
+  Failures += Expect (
+                Handoff.PayloadResourceHandoffStatus == EFI_COMPROMISED_DATA &&
+                Handoff.PayloadResourceHandoff == NULL,
+                "overlapping payload-resource sections were accepted"
+                );
+
+  TableSize = BuildPayloadResourceHandoffTable (Storage, sizeof (Storage), TestPrhDuplicateType);
+  Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);
+  Failures += Expect (Status == EFI_SUCCESS, "duplicate payload-resource section types rejected the whole table");
+  Failures += Expect (
+                Handoff.PayloadResourceHandoffStatus == EFI_COMPROMISED_DATA &&
+                Handoff.PayloadResourceHandoff == NULL,
+                "duplicate payload-resource section types were accepted"
+                );
+
+  TableSize = BuildPayloadResourceHandoffTable (Storage, sizeof (Storage), TestPrhMemoryZeroLength);
+  Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);
+  Failures += Expect (Status == EFI_SUCCESS, "zero-length payload-resource memory range rejected the whole table");
+  Failures += Expect (
+                Handoff.PayloadResourceHandoffStatus == EFI_COMPROMISED_DATA &&
+                Handoff.PayloadResourceHandoff == NULL,
+                "zero-length payload-resource memory range was accepted"
+                );
+
+  TableSize = BuildPayloadResourceHandoffTable (Storage, sizeof (Storage), TestPrhMemoryWrap);
+  Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);
+  Failures += Expect (Status == EFI_SUCCESS, "wrapping payload-resource memory range rejected the whole table");
+  Failures += Expect (
+                Handoff.PayloadResourceHandoffStatus == EFI_COMPROMISED_DATA &&
+                Handoff.PayloadResourceHandoff == NULL,
+                "wrapping payload-resource memory range was accepted"
+                );
+
+  TableSize = BuildPayloadResourceHandoffTable (Storage, sizeof (Storage), TestPrhMemoryOverlap);
+  Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);
+  Failures += Expect (Status == EFI_SUCCESS, "overlapping payload-resource memory ranges rejected the whole table");
+  Failures += Expect (
+                Handoff.PayloadResourceHandoffStatus == EFI_COMPROMISED_DATA &&
+                Handoff.PayloadResourceHandoff == NULL,
+                "overlapping payload-resource memory ranges were accepted"
+                );
+
+  TableSize = BuildPayloadResourceHandoffTable (Storage, sizeof (Storage), TestPrhCacheCountMismatch);
+  Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);
+  Failures += Expect (Status == EFI_SUCCESS, "bad x86 cache payload rejected the whole table");
+  Failures += Expect (
+                Handoff.PayloadResourceHandoffStatus == EFI_COMPROMISED_DATA &&
+                Handoff.PayloadResourceHandoff == NULL,
+                "bad x86 cache payload was accepted"
+                );
+
+  TableSize = BuildPayloadResourceHandoffTable (Storage, sizeof (Storage), TestPrhMissingLifetime);
+  Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);
+  Failures += Expect (Status == EFI_SUCCESS, "missing payload-resource lifetime rejected the whole table");
+  Failures += Expect (
+                Handoff.PayloadResourceHandoffStatus == EFI_COMPROMISED_DATA &&
+                Handoff.PayloadResourceHandoff == NULL,
+                "missing payload-resource lifetime was accepted"
+                );
+
+  TableSize = BuildPayloadResourceHandoffTable (Storage, sizeof (Storage), TestPrhMemoryProtectionNoPaging);
+  Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);
+  Failures += Expect (Status == EFI_SUCCESS, "payload-resource paging contract gap rejected the whole table");
+  Failures += Expect (
+                Handoff.PayloadResourceHandoffStatus == EFI_UNSUPPORTED &&
+                Handoff.PayloadResourceHandoff == NULL,
+                "payload-resource protection ownership was accepted without paging proof"
+                );
+
+  TableSize = BuildPayloadResourceHandoffTable (Storage, sizeof (Storage), TestPrhFramebufferBadMask);
+  Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);
+  Failures += Expect (Status == EFI_SUCCESS, "bad payload-resource framebuffer rejected the whole table");
+  Failures += Expect (
+                Handoff.PayloadResourceHandoffStatus == EFI_COMPROMISED_DATA &&
+                Handoff.PayloadResourceHandoff == NULL,
+                "bad payload-resource framebuffer was accepted"
+                );
 
   TableSize = BuildLegacySerialTable (Storage, sizeof (Storage));
   Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);

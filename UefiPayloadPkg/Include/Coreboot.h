@@ -349,6 +349,174 @@ struct cb_cfr {
   /* CFR_FORM forms[] */
 };
 
+#define CB_TAG_PAYLOAD_RESOURCE_HANDOFF  0x004b
+
+#define CB_PAYLOAD_RESOURCE_HANDOFF_REVISION  1
+
+#define CB_PRH_SECTION_MEMORY_POLICY       1
+#define CB_PRH_SECTION_X86_CACHE_STATE     2
+#define CB_PRH_SECTION_PCI_ROOT_BRIDGES    3
+#define CB_PRH_SECTION_PCI_ASSIGNMENTS     4
+#define CB_PRH_SECTION_BOOT_INTENT         5
+#define CB_PRH_SECTION_RUNTIME_POLICY      6
+#define CB_PRH_SECTION_FRAMEBUFFER         7
+
+#define CB_PRH_SECTION_FLAG_MANDATORY       0x0001
+#define CB_PRH_SECTION_FLAG_AUTHORITATIVE   0x0002
+#define CB_PRH_SECTION_FLAG_VALID_MASK      \
+  (CB_PRH_SECTION_FLAG_MANDATORY | CB_PRH_SECTION_FLAG_AUTHORITATIVE)
+
+#define CB_PRH_LIFETIME_COLD_BOOT           0x0000000000000001ULL
+#define CB_PRH_LIFETIME_S3_RESUME           0x0000000000000002ULL
+#define CB_PRH_LIFETIME_END_OF_DXE          0x0000000000000004ULL
+#define CB_PRH_LIFETIME_EXIT_BOOT_SERVICES  0x0000000000000008ULL
+#define CB_PRH_LIFETIME_RUNTIME             0x0000000000000010ULL
+#define CB_PRH_LIFETIME_VALID_UNTIL_MASK    \
+  (CB_PRH_LIFETIME_END_OF_DXE | CB_PRH_LIFETIME_EXIT_BOOT_SERVICES | \
+   CB_PRH_LIFETIME_RUNTIME)
+#define CB_PRH_LIFETIME_VALID_MASK          \
+  (CB_PRH_LIFETIME_COLD_BOOT | CB_PRH_LIFETIME_S3_RESUME | \
+   CB_PRH_LIFETIME_VALID_UNTIL_MASK)
+
+#define CB_PRH_GCD_MEMORY_TYPE_NON_EXISTENT  0
+#define CB_PRH_GCD_MEMORY_TYPE_RESERVED      1
+#define CB_PRH_GCD_MEMORY_TYPE_SYSTEM        2
+#define CB_PRH_GCD_MEMORY_TYPE_MMIO          3
+#define CB_PRH_GCD_MEMORY_TYPE_PERSISTENT    4
+#define CB_PRH_GCD_MEMORY_TYPE_RELIABLE      5
+#define CB_PRH_GCD_MEMORY_TYPE_UNACCEPTED    6
+
+#define CB_PRH_MEMORY_CACHE_AUTHORITATIVE       0x00000001
+#define CB_PRH_MEMORY_PROTECTION_AUTHORITATIVE  0x00000002
+#define CB_PRH_MEMORY_GCD_AUTHORITATIVE         0x00000004
+#define CB_PRH_MEMORY_EFI_TYPE_AUTHORITATIVE    0x00000008
+#define CB_PRH_MEMORY_DELEGATED_TO_PAYLOAD      0x80000000
+#define CB_PRH_MEMORY_OWNER_FLAG_VALID_MASK     \
+  (CB_PRH_MEMORY_CACHE_AUTHORITATIVE | \
+   CB_PRH_MEMORY_PROTECTION_AUTHORITATIVE | \
+   CB_PRH_MEMORY_GCD_AUTHORITATIVE | \
+   CB_PRH_MEMORY_EFI_TYPE_AUTHORITATIVE | \
+   CB_PRH_MEMORY_DELEGATED_TO_PAYLOAD)
+
+#define CB_PRH_X86_CACHE_FLAG_BSP_AP_SYNC       0x00000001
+#define CB_PRH_X86_CACHE_FLAG_S3_VALID          0x00000002
+#define CB_PRH_X86_CACHE_FLAG_FIXED_VALID       0x00000004
+#define CB_PRH_X86_CACHE_FLAG_VALID_MASK        \
+  (CB_PRH_X86_CACHE_FLAG_BSP_AP_SYNC | \
+   CB_PRH_X86_CACHE_FLAG_S3_VALID | \
+   CB_PRH_X86_CACHE_FLAG_FIXED_VALID)
+
+#define CB_PRH_PCI_RESOURCE_IO              1
+#define CB_PRH_PCI_RESOURCE_MMIO32          2
+#define CB_PRH_PCI_RESOURCE_MMIO64          3
+#define CB_PRH_PCI_RESOURCE_PREFETCH_MMIO32 4
+#define CB_PRH_PCI_RESOURCE_PREFETCH_MMIO64 5
+
+#define CB_PRH_FRAMEBUFFER_GEOMETRY_AUTHORITATIVE  0x00000001
+#define CB_PRH_FRAMEBUFFER_MEMORY_DELEGATED        0x80000000
+#define CB_PRH_FRAMEBUFFER_OWNER_FLAG_VALID_MASK   \
+  (CB_PRH_FRAMEBUFFER_GEOMETRY_AUTHORITATIVE | \
+   CB_PRH_FRAMEBUFFER_MEMORY_DELEGATED)
+
+struct cb_payload_resource_section {
+  UINT16 type;
+  UINT16 flags;
+  UINT16 header_length;
+  UINT16 entry_size;
+  UINT32 entry_count;
+  UINT32 offset;
+  UINT32 length;
+} __attribute__ ((packed));
+
+struct cb_payload_resource_handoff {
+  UINT32                         tag;
+  UINT32                         size;
+  UINT16                         revision;
+  UINT16                         header_length;
+  UINT16                         section_header_length;
+  UINT16                         flags;
+  UINT32                         crc32;
+  UINT32                         section_count;
+  UINT32                         producer_stage;
+  struct cbuint64                producer_generation;
+  struct cbuint64                lifetime_flags;
+  struct cb_payload_resource_section sections[0];
+} __attribute__ ((packed));
+
+struct cb_prh_memory_policy_entry {
+  struct cbuint64 base;
+  struct cbuint64 length;
+  struct cbuint64 capabilities;
+  struct cbuint64 attributes;
+  UINT32          gcd_type;
+  UINT32          efi_memory_type;
+  UINT32          owner_flags;
+  UINT32          reserved;
+} __attribute__ ((packed));
+
+struct cb_prh_x86_cache_state {
+  struct cbuint64 mtrr_default_type_msr;
+  struct cbuint64 pat_msr;
+  struct cbuint64 fixed_mtrr_crc64;
+  UINT32          variable_count;
+  UINT32          flags;
+  /* struct cb_prh_x86_variable_mtrr variable[] */
+} __attribute__ ((packed));
+
+struct cb_prh_x86_variable_mtrr {
+  struct cbuint64 phys_base_msr;
+  struct cbuint64 phys_mask_msr;
+} __attribute__ ((packed));
+
+struct cb_prh_pci_root_bridge_entry {
+  UINT16          segment;
+  UINT8           bus_start;
+  UINT8           bus_end;
+  UINT32          flags;
+  struct cbuint64 io_base;
+  struct cbuint64 io_length;
+  struct cbuint64 mem32_base;
+  struct cbuint64 mem32_length;
+  struct cbuint64 mem64_base;
+  struct cbuint64 mem64_length;
+  struct cbuint64 pref_mem32_base;
+  struct cbuint64 pref_mem32_length;
+  struct cbuint64 pref_mem64_base;
+  struct cbuint64 pref_mem64_length;
+} __attribute__ ((packed));
+
+struct cb_prh_pci_assignment_entry {
+  UINT16          segment;
+  UINT8           bus;
+  UINT8           device;
+  UINT8           function;
+  UINT8           bar;
+  UINT8           resource_type;
+  UINT8           flags;
+  struct cbuint64 base;
+  struct cbuint64 length;
+  struct cbuint64 attributes;
+} __attribute__ ((packed));
+
+struct cb_prh_framebuffer_entry {
+  struct cbuint64 physical_address;
+  struct cbuint64 size;
+  UINT32          x_resolution;
+  UINT32          y_resolution;
+  UINT32          bytes_per_line;
+  UINT8           bits_per_pixel;
+  UINT8           red_mask_pos;
+  UINT8           red_mask_size;
+  UINT8           green_mask_pos;
+  UINT8           green_mask_size;
+  UINT8           blue_mask_pos;
+  UINT8           blue_mask_size;
+  UINT8           reserved_mask_pos;
+  UINT8           reserved_mask_size;
+  UINT8           reserved[3];
+  UINT32          owner_flags;
+} __attribute__ ((packed));
+
 /* Helpful macros */
 
 #define MEM_RANGE_COUNT(_rec) \

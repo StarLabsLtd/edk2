@@ -21,6 +21,9 @@
 
 #define CDK2_COREBOOT_1MB_MASK  0xfffffULL
 
+STATIC CONST EFI_GUID  mCdk2PayloadResourceHandoffHobGuid =
+  { 0xc263a6a9, 0x6938, 0x495e, { 0x95, 0xb6, 0x6a, 0x1a, 0x0b, 0x6b, 0xa8, 0x8e } };
+
 STATIC
 BOOLEAN
 Cdk2CorebootAlignUp8 (
@@ -754,6 +757,53 @@ Cdk2CorebootAppendAllocation (
 
 STATIC
 EFI_STATUS
+Cdk2CorebootAppendPayloadResourceHandoffHob (
+  IN OUT UINTN                         *Cursor,
+  IN     UINTN                          Limit,
+  IN     CONST CDK2_COREBOOT_HANDOFF   *Coreboot
+  )
+{
+  EFI_HOB_GUID_TYPE                       *GuidHob;
+  CONST struct cb_payload_resource_handoff *PayloadResource;
+  UINTN                                    Length;
+  UINTN                                    Index;
+  UINT8                                   *Destination;
+  CONST UINT8                             *Source;
+
+  if (Coreboot->PayloadResourceHandoffStatus != EFI_SUCCESS ||
+      Coreboot->PayloadResourceHandoff == NULL)
+  {
+    return EFI_SUCCESS;
+  }
+
+  PayloadResource = Coreboot->PayloadResourceHandoff;
+  if (PayloadResource->size > MAX_UINT16 - sizeof (*GuidHob)) {
+    return EFI_SUCCESS;
+  }
+
+  Length = sizeof (*GuidHob) + PayloadResource->size;
+  GuidHob = (EFI_HOB_GUID_TYPE *)Cdk2CorebootAppendHob (
+                                  Cursor,
+                                  Limit,
+                                  EFI_HOB_TYPE_GUID_EXTENSION,
+                                  Length
+                                  );
+  if (GuidHob == NULL) {
+    return EFI_OUT_OF_RESOURCES;
+  }
+
+  GuidHob->Name = mCdk2PayloadResourceHandoffHobGuid;
+  Destination   = (UINT8 *)(VOID *)(GuidHob + 1);
+  Source        = (CONST UINT8 *)PayloadResource;
+  for (Index = 0; Index < PayloadResource->size; Index++) {
+    Destination[Index] = Source[Index];
+  }
+
+  return EFI_SUCCESS;
+}
+
+STATIC
+EFI_STATUS
 Cdk2CorebootResolveBootMode (
   IN  CONST CDK2_COREBOOT_HANDOFF  *Coreboot,
   IN  BOOLEAN                      CapsuleSupportEnabled,
@@ -925,6 +975,15 @@ Cdk2CorebootBuildHobs (
     if (EFI_ERROR (Status)) {
       return Status;
     }
+  }
+
+  Status = Cdk2CorebootAppendPayloadResourceHandoffHob (
+             &Cursor,
+             FreeMemoryTop,
+             Coreboot
+             );
+  if (EFI_ERROR (Status)) {
+    return Status;
   }
 
   End = (EFI_HOB_GENERIC_HEADER *)Cdk2CorebootAppendHob (
