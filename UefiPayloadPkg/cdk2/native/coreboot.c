@@ -13,6 +13,9 @@
    EFI_MEMORY_MORE_RELIABLE | EFI_MEMORY_SP | EFI_MEMORY_CPU_CRYPTO | \
    EFI_MEMORY_HOT_PLUGGABLE | EFI_MEMORY_RUNTIME)
 
+#define CDK2_COREBOOT_4GB       0x100000000ULL
+#define CDK2_COREBOOT_PCI_MAX_BAR  6U
+
 STATIC
 UINT64
 Cdk2CorebootUnpack64 (
@@ -134,6 +137,15 @@ Cdk2CorebootU32RangeWithin (
 }
 
 STATIC
+BOOLEAN
+Cdk2CorebootIsPowerOfTwo64 (
+  IN UINT64  Value
+  )
+{
+  return (Value != 0) && ((Value & (Value - 1U)) == 0);
+}
+
+STATIC
 UINTN
 Cdk2CorebootBitCount64 (
   IN UINT64  Value
@@ -164,6 +176,47 @@ Cdk2CorebootU64RangeEnd (
 
   *End = Base + Length;
   return TRUE;
+}
+
+STATIC
+BOOLEAN
+Cdk2CorebootU64RangeWithin (
+  IN UINT64  Base,
+  IN UINT64  Length,
+  IN UINT64  ContainerBase,
+  IN UINT64  ContainerLength
+  )
+{
+  UINT64  End;
+  UINT64  ContainerEnd;
+
+  if (!Cdk2CorebootU64RangeEnd (Base, Length, &End) ||
+      !Cdk2CorebootU64RangeEnd (ContainerBase, ContainerLength, &ContainerEnd))
+  {
+    return FALSE;
+  }
+
+  return (Base >= ContainerBase) && (End <= ContainerEnd);
+}
+
+STATIC
+BOOLEAN
+Cdk2CorebootU64RangeBelow4GB (
+  IN UINT64  Base,
+  IN UINT64  Length
+  )
+{
+  UINT64  End;
+
+  if (Length == 0) {
+    return TRUE;
+  }
+
+  if (!Cdk2CorebootU64RangeEnd (Base, Length, &End)) {
+    return FALSE;
+  }
+
+  return (Base < CDK2_COREBOOT_4GB) && (End <= CDK2_COREBOOT_4GB);
 }
 
 STATIC
@@ -511,19 +564,41 @@ Cdk2CorebootValidatePciRootBridgesSection (
 }
 
 STATIC
+BOOLEAN
+Cdk2CorebootPciResourceMmio32 (
+  IN UINT8  ResourceType
+  )
+{
+  return (ResourceType == CB_PRH_PCI_RESOURCE_MMIO32) ||
+         (ResourceType == CB_PRH_PCI_RESOURCE_PREFETCH_MMIO32);
+}
+
+STATIC
+BOOLEAN
+Cdk2CorebootPciResourceMemory (
+  IN UINT8  ResourceType
+  )
+{
+  return ResourceType != CB_PRH_PCI_RESOURCE_IO;
+}
+
+STATIC
 EFI_STATUS
 Cdk2CorebootValidatePciAssignmentsSection (
   IN CONST struct cb_payload_resource_handoff *Record,
   IN CONST struct cb_payload_resource_section *Section
   )
 {
-  CONST UINT8                         *Base;
+  CONST UINT8                              *Base;
   CONST struct cb_prh_pci_assignment_entry *Entry;
-  UINT64                               ResourceBase;
-  UINT64                               ResourceLength;
-  UINT64                               ResourceEnd;
-  UINTN                                Index;
-  EFI_STATUS                           Status;
+  CONST struct cb_prh_pci_assignment_entry *OtherEntry;
+  UINT64                                    ResourceBase;
+  UINT64                                    ResourceLength;
+  UINT64                                    ResourceEnd;
+  UINT64                                    ResourceAttributes;
+  UINTN                                     Index;
+  UINTN                                     OtherIndex;
+  EFI_STATUS                                Status;
 
   Status = Cdk2CorebootValidatePayloadResourceFixedEntries (
              Section,
@@ -538,6 +613,7 @@ Cdk2CorebootValidatePciAssignmentsSection (
   for (Index = 0; Index < Section->entry_count; Index++) {
     Entry = (CONST struct cb_prh_pci_assignment_entry *)(CONST VOID *)(Base + Index * Section->entry_size);
     if (Entry->device > 31 || Entry->function > 7 ||
+        Entry->bar >= CDK2_COREBOOT_PCI_MAX_BAR ||
         Entry->resource_type < CB_PRH_PCI_RESOURCE_IO ||
         Entry->resource_type > CB_PRH_PCI_RESOURCE_PREFETCH_MMIO64)
     {
@@ -548,9 +624,47 @@ Cdk2CorebootValidatePciAssignmentsSection (
       return EFI_UNSUPPORTED;
     }
 
+    for (OtherIndex = 0; OtherIndex < Index; OtherIndex++) {
+      OtherEntry = (CONST struct cb_prh_pci_assignment_entry *)(CONST VOID *)(
+                                                                      Base + OtherIndex * Section->entry_size
+                                                                      );
+      if ((Entry->segment == OtherEntry->segment) &&
+          (Entry->bus == OtherEntry->bus) &&
+          (Entry->device == OtherEntry->device) &&
+          (Entry->function == OtherEntry->function) &&
+          (Entry->bar == OtherEntry->bar))
+      {
+        return EFI_COMPROMISED_DATA;
+      }
+    }
+
     ResourceBase   = Cdk2CorebootUnpack64At (Entry, OFFSET_OF (struct cb_prh_pci_assignment_entry, base));
     ResourceLength = Cdk2CorebootUnpack64At (Entry, OFFSET_OF (struct cb_prh_pci_assignment_entry, length));
     if (!Cdk2CorebootU64RangeEnd (ResourceBase, ResourceLength, &ResourceEnd)) {
+      return EFI_COMPROMISED_DATA;
+    }
+
+    if (!Cdk2CorebootIsPowerOfTwo64 (ResourceLength) ||
+        ((ResourceBase & (ResourceLength - 1U)) != 0))
+    {
+      return EFI_COMPROMISED_DATA;
+    }
+
+    if (Cdk2CorebootPciResourceMmio32 (Entry->resource_type) &&
+        !Cdk2CorebootU64RangeBelow4GB (ResourceBase, ResourceLength))
+    {
+      return EFI_COMPROMISED_DATA;
+    }
+
+    ResourceAttributes = Cdk2CorebootUnpack64At (
+                           Entry,
+                           OFFSET_OF (struct cb_prh_pci_assignment_entry, attributes)
+                           );
+    if (Cdk2CorebootPciResourceMemory (Entry->resource_type)) {
+      if ((ResourceAttributes & ~CDK2_COREBOOT_PRH_MEMORY_ATTRIBUTE_MASK) != 0) {
+        return EFI_UNSUPPORTED;
+      }
+    } else if (ResourceAttributes != 0) {
       return EFI_COMPROMISED_DATA;
     }
   }
@@ -654,6 +768,148 @@ Cdk2CorebootValidateFramebufferSection (
 }
 
 STATIC
+BOOLEAN
+Cdk2CorebootPciAssignmentFitsBridgeWindow (
+  IN CONST struct cb_prh_pci_root_bridge_entry *Bridge,
+  IN UINT8                                      ResourceType,
+  IN UINT64                                     ResourceBase,
+  IN UINT64                                     ResourceLength
+  )
+{
+  UINT64  WindowBase;
+  UINT64  WindowLength;
+
+  switch (ResourceType) {
+    case CB_PRH_PCI_RESOURCE_IO:
+      WindowBase   = Cdk2CorebootUnpack64At (Bridge, OFFSET_OF (struct cb_prh_pci_root_bridge_entry, io_base));
+      WindowLength = Cdk2CorebootUnpack64At (Bridge, OFFSET_OF (struct cb_prh_pci_root_bridge_entry, io_length));
+      break;
+
+    case CB_PRH_PCI_RESOURCE_MMIO32:
+      WindowBase   = Cdk2CorebootUnpack64At (Bridge, OFFSET_OF (struct cb_prh_pci_root_bridge_entry, mem32_base));
+      WindowLength = Cdk2CorebootUnpack64At (Bridge, OFFSET_OF (struct cb_prh_pci_root_bridge_entry, mem32_length));
+      break;
+
+    case CB_PRH_PCI_RESOURCE_MMIO64:
+      WindowBase   = Cdk2CorebootUnpack64At (Bridge, OFFSET_OF (struct cb_prh_pci_root_bridge_entry, mem64_base));
+      WindowLength = Cdk2CorebootUnpack64At (Bridge, OFFSET_OF (struct cb_prh_pci_root_bridge_entry, mem64_length));
+      break;
+
+    case CB_PRH_PCI_RESOURCE_PREFETCH_MMIO32:
+      WindowBase = Cdk2CorebootUnpack64At (
+                     Bridge,
+                     OFFSET_OF (struct cb_prh_pci_root_bridge_entry, pref_mem32_base)
+                     );
+      WindowLength = Cdk2CorebootUnpack64At (
+                       Bridge,
+                       OFFSET_OF (struct cb_prh_pci_root_bridge_entry, pref_mem32_length)
+                       );
+      break;
+
+    case CB_PRH_PCI_RESOURCE_PREFETCH_MMIO64:
+      WindowBase = Cdk2CorebootUnpack64At (
+                     Bridge,
+                     OFFSET_OF (struct cb_prh_pci_root_bridge_entry, pref_mem64_base)
+                     );
+      WindowLength = Cdk2CorebootUnpack64At (
+                       Bridge,
+                       OFFSET_OF (struct cb_prh_pci_root_bridge_entry, pref_mem64_length)
+                       );
+      break;
+
+    default:
+      return FALSE;
+  }
+
+  return Cdk2CorebootU64RangeWithin (
+           ResourceBase,
+           ResourceLength,
+           WindowBase,
+           WindowLength
+           );
+}
+
+STATIC
+BOOLEAN
+Cdk2CorebootPciAssignmentHasOwningBridge (
+  IN CONST struct cb_payload_resource_handoff *Record,
+  IN CONST struct cb_payload_resource_section *RootBridgeSection,
+  IN CONST struct cb_prh_pci_assignment_entry *Assignment
+  )
+{
+  CONST UINT8                              *Base;
+  CONST struct cb_prh_pci_root_bridge_entry *Bridge;
+  UINT64                                    ResourceBase;
+  UINT64                                    ResourceLength;
+  UINTN                                     Index;
+
+  ResourceBase = Cdk2CorebootUnpack64At (
+                   Assignment,
+                   OFFSET_OF (struct cb_prh_pci_assignment_entry, base)
+                   );
+  ResourceLength = Cdk2CorebootUnpack64At (
+                     Assignment,
+                     OFFSET_OF (struct cb_prh_pci_assignment_entry, length)
+                     );
+
+  Base = (CONST UINT8 *)Record + RootBridgeSection->offset;
+  for (Index = 0; Index < RootBridgeSection->entry_count; Index++) {
+    Bridge = (CONST struct cb_prh_pci_root_bridge_entry *)(CONST VOID *)(
+                                                               Base + Index * RootBridgeSection->entry_size
+                                                               );
+    if ((Assignment->segment == Bridge->segment) &&
+        (Assignment->bus >= Bridge->bus_start) &&
+        (Assignment->bus <= Bridge->bus_end) &&
+        Cdk2CorebootPciAssignmentFitsBridgeWindow (
+          Bridge,
+          Assignment->resource_type,
+          ResourceBase,
+          ResourceLength
+          ))
+    {
+      return TRUE;
+    }
+  }
+
+  return FALSE;
+}
+
+STATIC
+EFI_STATUS
+Cdk2CorebootValidatePciAssignmentsAgainstRootBridges (
+  IN CONST struct cb_payload_resource_handoff *Record,
+  IN CONST struct cb_payload_resource_section *RootBridgeSection,
+  IN CONST struct cb_payload_resource_section *AssignmentSection
+  )
+{
+  CONST UINT8                              *Base;
+  CONST struct cb_prh_pci_assignment_entry *Assignment;
+  UINTN                                     Index;
+
+  if ((AssignmentSection->flags & CB_PRH_SECTION_FLAG_AUTHORITATIVE) == 0) {
+    return EFI_SUCCESS;
+  }
+
+  if ((RootBridgeSection == NULL) ||
+      ((RootBridgeSection->flags & CB_PRH_SECTION_FLAG_AUTHORITATIVE) == 0))
+  {
+    return EFI_UNSUPPORTED;
+  }
+
+  Base = (CONST UINT8 *)Record + AssignmentSection->offset;
+  for (Index = 0; Index < AssignmentSection->entry_count; Index++) {
+    Assignment = (CONST struct cb_prh_pci_assignment_entry *)(CONST VOID *)(
+                                                           Base + Index * AssignmentSection->entry_size
+                                                           );
+    if (!Cdk2CorebootPciAssignmentHasOwningBridge (Record, RootBridgeSection, Assignment)) {
+      return EFI_COMPROMISED_DATA;
+    }
+  }
+
+  return EFI_SUCCESS;
+}
+
+STATIC
 EFI_STATUS
 Cdk2CorebootValidatePayloadResourceCrossSectionRules (
   IN CONST struct cb_payload_resource_handoff *Record
@@ -661,6 +917,8 @@ Cdk2CorebootValidatePayloadResourceCrossSectionRules (
 {
   CONST struct cb_payload_resource_section *Section;
   CONST struct cb_payload_resource_section *X86CacheSection;
+  CONST struct cb_payload_resource_section *PciRootBridgeSection;
+  CONST struct cb_payload_resource_section *PciAssignmentSection;
   CONST struct cb_prh_memory_policy_entry  *MemoryEntry;
   CONST struct cb_prh_x86_cache_state      *CacheState;
   CONST UINT8                              *SectionBase;
@@ -669,9 +927,9 @@ Cdk2CorebootValidatePayloadResourceCrossSectionRules (
   BOOLEAN                                   CacheAuthoritativeMemory;
   BOOLEAN                                   ProtectionAuthoritativeMemory;
   BOOLEAN                                   PciAssignmentAuthoritative;
-  BOOLEAN                                   PciRootBridgeAuthoritative;
   UINTN                                     Index;
   UINTN                                     EntryIndex;
+  EFI_STATUS                                Status;
 
   LifetimeFlags = Cdk2CorebootPayloadResourceLifetime (Record);
   if ((LifetimeFlags & ~CB_PRH_LIFETIME_VALID_MASK) != 0) {
@@ -682,7 +940,6 @@ Cdk2CorebootValidatePayloadResourceCrossSectionRules (
   CacheAuthoritativeMemory      = FALSE;
   ProtectionAuthoritativeMemory = FALSE;
   PciAssignmentAuthoritative    = FALSE;
-  PciRootBridgeAuthoritative    = FALSE;
   for (Index = 0; Index < Record->section_count; Index++) {
     Section = (CONST struct cb_payload_resource_section *)(CONST VOID *)(
                                                             (CONST UINT8 *)Record +
@@ -708,10 +965,6 @@ Cdk2CorebootValidatePayloadResourceCrossSectionRules (
           ProtectionAuthoritativeMemory = TRUE;
         }
       }
-    } else if (Section->type == CB_PRH_SECTION_PCI_ROOT_BRIDGES &&
-               (Section->flags & CB_PRH_SECTION_FLAG_AUTHORITATIVE) != 0)
-    {
-      PciRootBridgeAuthoritative = TRUE;
     } else if (Section->type == CB_PRH_SECTION_PCI_ASSIGNMENTS &&
                (Section->flags & CB_PRH_SECTION_FLAG_AUTHORITATIVE) != 0)
     {
@@ -762,8 +1015,23 @@ Cdk2CorebootValidatePayloadResourceCrossSectionRules (
     return EFI_UNSUPPORTED;
   }
 
-  if (PciAssignmentAuthoritative && !PciRootBridgeAuthoritative) {
-    return EFI_UNSUPPORTED;
+  if (PciAssignmentAuthoritative) {
+    PciAssignmentSection = Cdk2CorebootPayloadResourceFindSection (
+                              Record,
+                              CB_PRH_SECTION_PCI_ASSIGNMENTS
+                              );
+    PciRootBridgeSection = Cdk2CorebootPayloadResourceFindSection (
+                             Record,
+                             CB_PRH_SECTION_PCI_ROOT_BRIDGES
+                             );
+    Status = Cdk2CorebootValidatePciAssignmentsAgainstRootBridges (
+               Record,
+               PciRootBridgeSection,
+               PciAssignmentSection
+               );
+    if (EFI_ERROR (Status)) {
+      return Status;
+    }
   }
 
   return EFI_SUCCESS;

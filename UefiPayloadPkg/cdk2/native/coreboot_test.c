@@ -82,7 +82,10 @@ typedef enum {
   TestPrhCacheCountMismatch,
   TestPrhMissingLifetime,
   TestPrhMemoryProtectionNoPaging,
-  TestPrhFramebufferBadMask
+  TestPrhFramebufferBadMask,
+  TestPrhPciBadBar,
+  TestPrhPciDuplicate,
+  TestPrhPciOutsideBridge
 } TEST_PRH_FIXTURE;
 
 static void
@@ -269,6 +272,7 @@ BuildPayloadResourceHandoffTable (
   UINT8                                *Payload;
   UINTN                                 PayloadOffset;
   UINT32                                MemoryEntryCount;
+  UINT32                                PciAssignmentCount;
   UINTN                                 SectionCount;
 
   memset (Storage, 0, StorageSize);
@@ -371,9 +375,10 @@ BuildPayloadResourceHandoffTable (
   Sections[3].flags         = CB_PRH_SECTION_FLAG_AUTHORITATIVE;
   Sections[3].header_length = sizeof (Sections[3]);
   Sections[3].entry_size    = sizeof (*PciAssignment);
-  Sections[3].entry_count   = 1;
+  PciAssignmentCount        = (Fixture == TestPrhPciDuplicate) ? 2U : 1U;
+  Sections[3].entry_count   = PciAssignmentCount;
   Sections[3].offset        = (UINT32)PayloadOffset;
-  Sections[3].length        = sizeof (*PciAssignment);
+  Sections[3].length        = PciAssignmentCount * sizeof (*PciAssignment);
   PciAssignment             = (struct cb_prh_pci_assignment_entry *)(VOID *)Payload;
   PciAssignment->device     = 2;
   PciAssignment->bar        = 0;
@@ -381,6 +386,13 @@ BuildPayloadResourceHandoffTable (
   PackCbUint64At (PciAssignment, OFFSET_OF (struct cb_prh_pci_assignment_entry, base), 0xe0000000ULL);
   PackCbUint64At (PciAssignment, OFFSET_OF (struct cb_prh_pci_assignment_entry, length), 0x100000ULL);
   PackCbUint64At (PciAssignment, OFFSET_OF (struct cb_prh_pci_assignment_entry, attributes), EFI_MEMORY_UC);
+  if (Fixture == TestPrhPciBadBar) {
+    PciAssignment->bar = 6;
+  } else if (Fixture == TestPrhPciOutsideBridge) {
+    PackCbUint64At (PciAssignment, OFFSET_OF (struct cb_prh_pci_assignment_entry, base), 0xd0000000ULL);
+  } else if (Fixture == TestPrhPciDuplicate) {
+    PciAssignment[1] = PciAssignment[0];
+  }
 
   PayloadOffset += Sections[3].length;
   Payload        = (UINT8 *)Prh + PayloadOffset;
@@ -776,6 +788,33 @@ main (
                 Handoff.PayloadResourceHandoffStatus == EFI_COMPROMISED_DATA &&
                 Handoff.PayloadResourceHandoff == NULL,
                 "bad payload-resource framebuffer was accepted"
+                );
+
+  TableSize = BuildPayloadResourceHandoffTable (Storage, sizeof (Storage), TestPrhPciBadBar);
+  Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);
+  Failures += Expect (Status == EFI_SUCCESS, "bad payload-resource PCI BAR rejected the whole table");
+  Failures += Expect (
+                Handoff.PayloadResourceHandoffStatus == EFI_COMPROMISED_DATA &&
+                Handoff.PayloadResourceHandoff == NULL,
+                "bad payload-resource PCI BAR was accepted"
+                );
+
+  TableSize = BuildPayloadResourceHandoffTable (Storage, sizeof (Storage), TestPrhPciDuplicate);
+  Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);
+  Failures += Expect (Status == EFI_SUCCESS, "duplicate payload-resource PCI BAR rejected the whole table");
+  Failures += Expect (
+                Handoff.PayloadResourceHandoffStatus == EFI_COMPROMISED_DATA &&
+                Handoff.PayloadResourceHandoff == NULL,
+                "duplicate payload-resource PCI BAR was accepted"
+                );
+
+  TableSize = BuildPayloadResourceHandoffTable (Storage, sizeof (Storage), TestPrhPciOutsideBridge);
+  Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);
+  Failures += Expect (Status == EFI_SUCCESS, "out-of-window payload-resource PCI assignment rejected the whole table");
+  Failures += Expect (
+                Handoff.PayloadResourceHandoffStatus == EFI_COMPROMISED_DATA &&
+                Handoff.PayloadResourceHandoff == NULL,
+                "out-of-window payload-resource PCI assignment was accepted"
                 );
 
   TableSize = BuildLegacySerialTable (Storage, sizeof (Storage));
