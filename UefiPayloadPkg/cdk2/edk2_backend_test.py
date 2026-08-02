@@ -400,5 +400,73 @@ class Edk2BackendPs2KeyboardTests(unittest.TestCase):
         self.assertIn("-D SECURE_BOOT_ENABLE=TRUE", result.stdout)
 
 
+
+class Edk2BackendCheckTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.workspace = Path(self.tmp.name)
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def _write(self, relpath: str, text: str) -> Path:
+        path = self.workspace / relpath
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    def _run_check(self, *, secure_boot: bool) -> subprocess.CompletedProcess[str]:
+        root = self.workspace / "root"
+        build = self.workspace / "build"
+        config = self._write("build/.config", "CONFIG_CDK2_PAYLOAD=y\n")
+        self._write(f"root/{GOOD_MODULE}", "")
+        self._write("root/UefiPayloadPkg/UefiPayloadPkg.dsc", f"{GOOD_MODULE}\n")
+
+        makefile = self._write(
+            "Makefile",
+            textwrap.dedent(
+                f"""\
+                SHELL := /bin/bash
+                CONFIG_CDK2_CAPSULE := n
+                CONFIG_CDK2_SECURE_BOOT := {"y" if secure_boot else "n"}
+                CDK2_ROOT := {root}
+                CDK2_DIR := {CDK2_DIR}
+                CDK2_BUILD_DIR := {build}
+                CDK2_CONFIG := {config}
+                include $(CDK2_DIR)/edk2-backend.mk
+                CDK2_RETAINED_MODULES :=
+                CDK2_PAYLOAD_LIBRARIES :=
+                CDK2_SELECTED_MODULES := {GOOD_MODULE}
+
+                .PHONY: check
+                check:
+                \t$(CDK2_BACKEND_CHECK)
+                """
+            ),
+        )
+
+        return subprocess.run(
+            ["make", "--no-print-directory", "-f", str(makefile), "check"],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+    def test_secure_boot_check_warns_when_object_submodule_is_missing(self) -> None:
+        result = self._run_check(secure_boot=True)
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(
+            "WARNING: Microsoft secure-boot objects submodule is missing",
+            result.stderr,
+        )
+
+    def test_secure_boot_check_is_skipped_when_secure_boot_is_disabled(self) -> None:
+        result = self._run_check(secure_boot=False)
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("secure-boot objects", result.stderr)
+
 if __name__ == "__main__":
     unittest.main()

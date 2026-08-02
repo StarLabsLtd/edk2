@@ -211,7 +211,7 @@ class Settings(CiBuildSettingsManager, UpdateSettingsManager, SetupSettingsManag
         rs.append(RequiredSubmodule(
             "3rdparty/LvglPkg", True))
         rs.append(RequiredSubmodule(
-            "3rdparty/secureboot_objects", True))
+            "3rdparty/secureboot_objects", False))
         return rs
 
     def GetName(self):

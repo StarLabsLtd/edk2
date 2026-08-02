@@ -182,6 +182,9 @@ CDK2_BACKEND_SECURE_BOOT_CERT_GUIDS := \
   "CCE7D8E7-AAE8-4697-B5C0-EF35A92A059F UefiPayloadPkg/UefiPayloadPkg.fdf:MicrosoftKek2023" \
   "F5A81B7B-419A-4A92-8212-1C369BCBE2CB UefiPayloadPkg/UefiPayloadPkg.fdf:MicrosoftOptionRomDb2023" \
   "701649DD-8739-40B9-BBDB-9CA434FDCD3B UefiPayloadPkg/UefiPayloadPkg.fdf:MicrosoftOemPk2023"
+CDK2_SECURE_BOOT_OBJECTS_DIR := $(CDK2_ROOT)/3rdparty/secureboot_objects
+CDK2_SECURE_BOOT_OBJECTS_REMOTE := https://github.com/microsoft/secureboot_objects.git
+CDK2_SECURE_BOOT_OBJECTS_REMOTE_TIMEOUT ?= 5
 
 $(CDK2_BACKEND_METADATA): $(CDK2_MANIFEST) \
 		$(CDK2_BACKEND_METADATA_TOOL) $(CDK2_BACKEND_SELECTED_MODULE_FILES) \
@@ -341,10 +344,48 @@ $(CDK2_NATIVE_PACKER) --output "$(CDK2_OUTPUT)" \
   --size 0xa00000
 endef
 
+define CDK2_CHECK_SECURE_BOOT_OBJECTS
+if test "$(CDK2_EFFECTIVE_SECURE_BOOT)" = "y"; then \
+  objects_dir="$(CDK2_SECURE_BOOT_OBJECTS_DIR)"; \
+  if ! test -e "$$objects_dir/.git"; then \
+    printf '\n*** WARNING: Microsoft secure-boot objects submodule is missing. ***\n\n' >&2; \
+  else \
+    current_revision=$$(git -C "$$objects_dir" rev-parse HEAD 2>/dev/null || true); \
+    remote_revision=""; \
+    remote_check_reported=""; \
+    if command -v timeout >/dev/null 2>&1; then \
+      remote_output=$$(timeout "$(CDK2_SECURE_BOOT_OBJECTS_REMOTE_TIMEOUT)" git ls-remote "$(CDK2_SECURE_BOOT_OBJECTS_REMOTE)" HEAD 2>/dev/null); \
+      remote_status=$$?; \
+      if test "$$remote_status" = "0"; then \
+        remote_revision=$$(printf '%s\n' "$$remote_output" | awk '{print $$1}'); \
+      elif test "$$remote_status" = "124"; then \
+        remote_check_reported="1"; \
+        printf '\n*** WARNING: timed out checking Microsoft secure-boot object freshness. ***\n\n' >&2; \
+      fi; \
+    else \
+      remote_check_reported="1"; \
+      printf '\n*** WARNING: skipping Microsoft secure-boot object freshness check; timeout utility is unavailable. ***\n\n' >&2; \
+    fi; \
+    if test -z "$$current_revision"; then \
+      printf '\n*** WARNING: unable to check Microsoft secure-boot object freshness. ***\n\n' >&2; \
+    elif test -z "$$remote_revision"; then \
+      if test -z "$$remote_check_reported"; then \
+        printf '\n*** WARNING: unable to check Microsoft secure-boot object freshness. ***\n\n' >&2; \
+      fi; \
+    elif test "$$current_revision" != "$$remote_revision"; then \
+      printf '\n*** WARNING: Microsoft secure-boot objects are stale. ***\n' >&2; \
+      printf '*** local:  %s ***\n' "$$current_revision" >&2; \
+      printf '*** remote: %s ***\n\n' "$$remote_revision" >&2; \
+    fi; \
+  fi; \
+fi
+endef
+
 define CDK2_BACKEND_CHECK
 if test "$(CDK2_EFFECTIVE_CAPSULE)" = "y" && test -z "$(strip $(CDK2_EFFECTIVE_CAPSULE_MAIN_FW_GUID))"; then \
   echo "CONFIG_CDK2_CAPSULE requires CONFIG_CDK2_CAPSULE_MAIN_FW_GUID or a CAPSULE_MAIN_FW_GUID override" >&2; exit 1; \
 fi
+$(CDK2_CHECK_SECURE_BOOT_OBJECTS)
 for module in $(CDK2_RETAINED_MODULES) $(CDK2_PAYLOAD_LIBRARIES); do \
   test -f "$(CDK2_ROOT)/$$module" || { echo "missing backend module: $$module" >&2; exit 1; }; \
 done
