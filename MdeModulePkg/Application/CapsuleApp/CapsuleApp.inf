@@ -30,6 +30,8 @@
   CapsuleDump.c
   CapsuleOnDisk.c
   AppSupport.c
+  ../../Library/DxeCapsuleLibFmp/CapsuleOnDiskBootNext.c
+  ../../Library/DxeCapsuleLibFmp/CapsuleOnDiskBootNext.h
 
 [Packages]
   MdePkg/MdePkg.dec
@@ -41,7 +43,8 @@
   gEfiFmpCapsuleGuid                     ## CONSUMES   ## GUID
   gWindowsUxCapsuleGuid                  ## CONSUMES   ## GUID
   gEfiSystemResourceTableGuid            ## CONSUMES   ## GUID
-  gEfiCapsuleVendorGuid                  ## SOMETIMES_CONSUMES ## Variable:L"CapsuleUpdateData"
+  gEfiCapsuleVendorGuid                  ## SOMETIMES_CONSUMES ## Variable:L"CapsuleUpdateData", L"CodBootNextRestore"
+                                          ## SOMETIMES_PRODUCES ## Variable:L"CodBootNextRestore"
   gEfiPartTypeSystemPartGuid             ## SOMETIMES_CONSUMES ## GUID
 
 [Protocols]
@@ -53,6 +56,7 @@
 
 [LibraryClasses]
   BaseLib
+  BaseMemoryLib
   UefiApplicationEntryPoint
   DebugLib
   MemoryAllocationLib

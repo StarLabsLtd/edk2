@@ -32,6 +32,8 @@
   DxeCapsuleReportLib.c
   CapsuleOnDisk.c
   CapsuleOnDisk.h
+  CapsuleOnDiskBootNext.c
+  CapsuleOnDiskBootNext.h
 
 [Packages]
   MdePkg/MdePkg.dec
@@ -90,7 +92,8 @@
   ## SOMETIMES_CONSUMES ## Variable:L"CapsuleMax"
   ## SOMETIMES_PRODUCES ## Variable:L"CapsuleMax"
   gEfiCapsuleReportGuid
-  gEfiCapsuleVendorGuid                   ## SOMETIMES_CONSUMES ## Variable:L"CapsuleUpdateData", L"CodRelocationInfo"
+  gEfiCapsuleVendorGuid                   ## SOMETIMES_CONSUMES ## Variable:L"CapsuleUpdateData", L"CodRelocationInfo", L"CodBootNextRestore"
+                                           ## SOMETIMES_PRODUCES ## Variable:L"CodBootNextRestore"
   gEfiEndOfDxeEventGroupGuid              ## CONSUMES ## Event
   gEfiPartTypeSystemPartGuid              ## SOMETIMES_CONSUMES
   ## SOMETIMES_CONSUMES ## Variable:L"OsIndications"

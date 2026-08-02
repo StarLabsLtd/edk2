@@ -8,6 +8,8 @@
 
 #include "CapsuleApp.h"
 
+#include "../../Library/DxeCapsuleLibFmp/CapsuleOnDiskBootNext.h"
+
 EFI_GUID  mCapsuleOnDiskBootOptionGuid = {
   0x4CC29BB7, 0x2413, 0x40A2, { 0xB0, 0x6D, 0x25, 0x3E, 0x37, 0x10, 0xF5, 0x32 }
 };
@@ -593,6 +595,7 @@ WriteUpdateFile (
   UINTN              FileSize;
   UINTN              Index;
 
+  Root       = NULL;
   DirHandle  = NULL;
   FileHandle = NULL;
   Index      = 0;
@@ -614,16 +617,21 @@ WriteUpdateFile (
     Status = Root->Open (Root, &DirHandle, L"\\EFI", EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_CREATE, EFI_FILE_DIRECTORY);
     if (EFI_ERROR (Status)) {
       Print (L"Unable to create %s directory\n", L"\\EFI");
-      return EFI_NOT_FOUND;
+      Status = EFI_NOT_FOUND;
+      goto Done;
     }
   }
+
+  FileHandleClose (DirHandle);
+  DirHandle = NULL;
 
   Status = Root->Open (Root, &DirHandle, EFI_CAPSULE_FILE_DIRECTORY, EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE, 0);
   if (EFI_ERROR (Status)) {
     Status = Root->Open (Root, &DirHandle, EFI_CAPSULE_FILE_DIRECTORY, EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_CREATE, EFI_FILE_DIRECTORY);
     if (EFI_ERROR (Status)) {
       Print (L"Unable to create %s directory\n", EFI_CAPSULE_FILE_DIRECTORY);
-      return EFI_NOT_FOUND;
+      Status = EFI_NOT_FOUND;
+      goto Done;
     }
   }
 
@@ -636,7 +644,8 @@ WriteUpdateFile (
     Status = DirHandle->Open (DirHandle, &FileHandle, FileName[Index], EFI_FILE_MODE_CREATE | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_READ, 0);
     if (EFI_ERROR (Status)) {
       Print (L"Unable to create %s file\n", FileName[Index]);
-      return EFI_NOT_FOUND;
+      Status = EFI_NOT_FOUND;
+      goto Done;
     }
 
     //
@@ -644,9 +653,9 @@ WriteUpdateFile (
     //
     Status = FileHandleGetSize (FileHandle, &FileInfo);
     if (EFI_ERROR (Status)) {
-      FileHandleClose (FileHandle);
       Print (L"Error Reading %s\n", FileName[Index]);
-      return EFI_DEVICE_ERROR;
+      Status = EFI_DEVICE_ERROR;
+      goto Done;
     }
 
     //
@@ -660,8 +669,7 @@ WriteUpdateFile (
       Status   = FileHandleSetSize (FileHandle, FileInfo);
       if (EFI_ERROR (Status)) {
         Print (L"Error Deleting %s\n", FileName[Index]);
-        FileHandleClose (FileHandle);
-        return Status;
+        goto Done;
       }
     }
 
@@ -671,16 +679,38 @@ WriteUpdateFile (
     Filebuffer = Buffer[Index];
     FileSize   = BufferSize[Index];
     Status     = FileHandleWrite (FileHandle, &FileSize, Filebuffer);
-    if (EFI_ERROR (Status)) {
+    if (EFI_ERROR (Status) || (FileSize != BufferSize[Index])) {
+      if (!EFI_ERROR (Status)) {
+        Status = EFI_DEVICE_ERROR;
+      }
+
       Print (L"Unable to write Capsule Update to %s, Status = %r\n", FileName[Index], Status);
-      return EFI_NOT_FOUND;
+      FileHandle->Delete (FileHandle);
+      FileHandle = NULL;
+      goto Done;
     }
 
     Print (L"Succeed to write %s\n", FileName[Index]);
     FileHandleClose (FileHandle);
+    FileHandle = NULL;
   }
 
-  return EFI_SUCCESS;
+  Status = EFI_SUCCESS;
+
+Done:
+  if (FileHandle != NULL) {
+    FileHandleClose (FileHandle);
+  }
+
+  if (DirHandle != NULL) {
+    FileHandleClose (DirHandle);
+  }
+
+  if (Root != NULL) {
+    FileHandleClose (Root);
+  }
+
+  return Status;
 }
 
 /**
@@ -766,6 +796,70 @@ IsCapsuleOnDiskSupported (
   return FALSE;
 }
 
+STATIC
+EFI_STATUS
+DeleteBootNextRestoreState (
+  VOID
+  )
+{
+  EFI_STATUS  Status;
+
+  Status = gRT->SetVariable (
+                  COD_BOOT_NEXT_RESTORE_VAR_NAME,
+                  &gEfiCapsuleVendorGuid,
+                  0,
+                  0,
+                  NULL
+                  );
+  return (Status == EFI_NOT_FOUND) ? EFI_SUCCESS : Status;
+}
+
+STATIC
+EFI_STATUS
+SaveBootNextRestoreState (
+  VOID
+  )
+{
+  EFI_STATUS             Status;
+  COD_BOOT_NEXT_RESTORE  Restore;
+  UINT8                  BootNextData[COD_BOOT_NEXT_RESTORE_DATA_MAX_SIZE];
+  UINTN                  DataSize;
+  UINT32                 Attributes;
+
+  DataSize   = sizeof (BootNextData);
+  Attributes = 0;
+  Status     = gRT->GetVariable (
+                      EFI_BOOT_NEXT_VARIABLE_NAME,
+                      &gEfiGlobalVariableGuid,
+                      &Attributes,
+                      &DataSize,
+                      BootNextData
+                      );
+  if (Status == EFI_NOT_FOUND) {
+    Status = CoDBuildBootNextRestore (FALSE, 0, 0, NULL, &Restore);
+  } else if (Status == EFI_BUFFER_TOO_SMALL) {
+    Print (L"CapsuleApp: existing BootNext variable is too large to save.\n");
+    return EFI_BAD_BUFFER_SIZE;
+  } else if (EFI_ERROR (Status)) {
+    Print (L"CapsuleApp: unable to read existing BootNext variable - %r\n", Status);
+    return Status;
+  } else {
+    Status = CoDBuildBootNextRestore (TRUE, Attributes, DataSize, BootNextData, &Restore);
+  }
+
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  return gRT->SetVariable (
+                COD_BOOT_NEXT_RESTORE_VAR_NAME,
+                &gEfiCapsuleVendorGuid,
+                EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS | EFI_VARIABLE_NON_VOLATILE,
+                sizeof (Restore),
+                &Restore
+                );
+}
+
 /**
   Process Capsule On Disk.
 
@@ -833,9 +927,27 @@ ProcessCapsuleOnDisk (
   //
   // Set variable then reset
   //
+  if (UpdateBootNext) {
+    Status = SaveBootNextRestoreState ();
+    if (EFI_ERROR (Status)) {
+      Print (L"CapsuleApp: unable to save BootNext restore state.\n");
+      return Status;
+    }
+  } else {
+    Status = DeleteBootNextRestoreState ();
+    if (EFI_ERROR (Status)) {
+      Print (L"CapsuleApp: unable to clear stale BootNext restore state.\n");
+      return Status;
+    }
+  }
+
   Status = SetCapsuleStatusVariable (TRUE);
   if (EFI_ERROR (Status)) {
     Print (L"CapsuleApp: unable to set OSIndication variable.\n");
+    if (UpdateBootNext) {
+      DeleteBootNextRestoreState ();
+    }
+
     return Status;
   }
 
@@ -849,6 +961,8 @@ ProcessCapsuleOnDisk (
                     );
     if (EFI_ERROR (Status)) {
       Print (L"CapsuleApp: unable to set BootNext variable.\n");
+      SetCapsuleStatusVariable (FALSE);
+      DeleteBootNextRestoreState ();
       return Status;
     }
   }

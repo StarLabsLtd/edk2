@@ -1,0 +1,30 @@
+## @file
+# Host tests for Capsule On Disk BootNext restore metadata.
+#
+# Copyright (c) 2026, Star Labs Systems. All rights reserved.<BR>
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION                    = 0x00010006
+  BASE_NAME                      = CapsuleOnDiskBootNextUnitTestHost
+  FILE_GUID                      = F58299DB-02D9-47F7-92FE-3F07C47DD931
+  MODULE_TYPE                    = HOST_APPLICATION
+  VERSION_STRING                 = 1.0
+
+[Sources]
+  CapsuleOnDiskBootNext.c
+  CapsuleOnDiskBootNext.h
+  CapsuleOnDiskBootNextUnitTest.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  UnitTestFrameworkPkg/UnitTestFrameworkPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  MemoryAllocationLib
+  UnitTestLib

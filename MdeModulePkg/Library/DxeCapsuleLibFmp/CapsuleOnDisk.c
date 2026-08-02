@@ -7,6 +7,7 @@
 **/
 
 #include "CapsuleOnDisk.h"
+#include "CapsuleOnDiskBootNext.h"
 
 #include <Library/HobLib.h>
 
@@ -2148,8 +2149,111 @@ CoDCheckCapsuleOnDiskFlag (
   return FALSE;
 }
 
+STATIC
+EFI_STATUS
+CoDDeleteBootNextVariable (
+  VOID
+  )
+{
+  EFI_STATUS  Status;
+
+  Status = gRT->SetVariable (
+                  EFI_BOOT_NEXT_VARIABLE_NAME,
+                  &gEfiGlobalVariableGuid,
+                  0,
+                  0,
+                  NULL
+                  );
+  return (Status == EFI_NOT_FOUND) ? EFI_SUCCESS : Status;
+}
+
+STATIC
+EFI_STATUS
+CoDDeleteBootNextRestoreState (
+  VOID
+  )
+{
+  EFI_STATUS  Status;
+
+  Status = gRT->SetVariable (
+                  COD_BOOT_NEXT_RESTORE_VAR_NAME,
+                  &gEfiCapsuleVendorGuid,
+                  0,
+                  0,
+                  NULL
+                  );
+  return (Status == EFI_NOT_FOUND) ? EFI_SUCCESS : Status;
+}
+
+STATIC
+EFI_STATUS
+CoDRestoreBootNextVariable (
+  VOID
+  )
+{
+  EFI_STATUS             Status;
+  COD_BOOT_NEXT_RESTORE  Restore;
+  UINT8                  BootNextData[COD_BOOT_NEXT_RESTORE_DATA_MAX_SIZE];
+  UINTN                  RestoreSize;
+  UINTN                  BootNextDataSize;
+  UINT32                 RestoreAttributes;
+  UINT32                 BootNextAttributes;
+  BOOLEAN                BootNextPresent;
+
+  RestoreSize       = sizeof (Restore);
+  RestoreAttributes = 0;
+  Status            = gRT->GetVariable (
+                             COD_BOOT_NEXT_RESTORE_VAR_NAME,
+                             &gEfiCapsuleVendorGuid,
+                             &RestoreAttributes,
+                             &RestoreSize,
+                             &Restore
+                             );
+  if (Status == EFI_NOT_FOUND) {
+    return CoDDeleteBootNextVariable ();
+  }
+
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  if (RestoreSize != sizeof (Restore)) {
+    return EFI_COMPROMISED_DATA;
+  }
+
+  BootNextDataSize = sizeof (BootNextData);
+  Status           = CoDReadBootNextRestore (
+                       &Restore,
+                       &BootNextPresent,
+                       &BootNextAttributes,
+                       &BootNextDataSize,
+                       BootNextData
+                       );
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  if (BootNextPresent) {
+    Status = gRT->SetVariable (
+                    EFI_BOOT_NEXT_VARIABLE_NAME,
+                    &gEfiGlobalVariableGuid,
+                    BootNextAttributes,
+                    BootNextDataSize,
+                    BootNextData
+                    );
+  } else {
+    Status = CoDDeleteBootNextVariable ();
+  }
+
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  return CoDDeleteBootNextRestoreState ();
+}
+
 /**
-  This routine is called to clear CapsuleOnDisk flags including OsIndications and BootNext variable.
+  This routine is called to clear CapsuleOnDisk flags including OsIndications and restore or clear BootNext variable.
 
   @retval EFI_SUCCESS   All Capsule On Disk flags are cleared
 
@@ -2194,17 +2298,7 @@ CoDClearCapsuleOnDiskFlag (
     return Status;
   }
 
-  //
-  // Delete BootNext variable. Capsule Process may reset system, so can't rely on Bds to clear this variable
-  //
-  Status = gRT->SetVariable (
-                  EFI_BOOT_NEXT_VARIABLE_NAME,
-                  &gEfiGlobalVariableGuid,
-                  0,
-                  0,
-                  NULL
-                  );
-  return (Status == EFI_NOT_FOUND) ? EFI_SUCCESS : Status;
+  return CoDRestoreBootNextVariable ();
 }
 
 /**
@@ -2692,7 +2786,7 @@ BuildGather:
   Function will stall 100ms between each retry.
 
   Side Effects:
-    Capsule Delivery Supported Flag in OsIndication variable and BootNext variable will be cleared.
+    Capsule Delivery Supported Flag in OsIndication variable will be cleared and BootNext will be restored or cleared.
     Solution B: Content corruption. Block IO write directly touches low level write. Orignal partitions, file
   systems of the relocation device will be corrupted.
 
