@@ -1055,6 +1055,10 @@ BdsEntry (
         BdsDxeOnConnectConInCallBack (NULL, NULL);
       }
 
+      if (!PlatformRecovery) {
+        PlatformBootManagerAfterBootWait ();
+      }
+
       //
       // A hotkey notification can leave the same key queued for ReadKeyStroke().
       // Consume it before Enter can immediately select Continue in Front Page.
@@ -1090,6 +1094,7 @@ BdsEntry (
       PERF_INMODULE_BEGIN ("BdsWait");
       BdsWait (HotkeyTriggered);
       PERF_INMODULE_END ("BdsWait");
+      PlatformBootManagerAfterBootWait ();
       EfiBootManagerHotkeyBoot ();
     } else {
       //
@@ -1137,8 +1142,6 @@ BdsEntry (
       FreePool (BootNext);
       BootNext = NULL;
     }
-
-    PlatformBootManagerAfterBootWait ();
 
     if (BootNext != NULL) {
       //
