@@ -86,7 +86,20 @@ typedef enum {
   TestPrhPciBadBar,
   TestPrhPciDuplicate,
   TestPrhPciOutsideBridge,
-  TestPrhMemoryAttributesExceedCapabilities
+  TestPrhMemoryAttributesExceedCapabilities,
+  TestPrhUnsupportedRevision,
+  TestPrhUnsupportedFlags,
+  TestPrhUnknownLifetimeBit,
+  TestPrhMemoryUnsupportedAttributes,
+  TestPrhMemoryBadGcdType,
+  TestPrhMemoryMultipleCacheAttributes,
+  TestPrhCacheS3WithoutLifetime,
+  TestPrhS3MissingGeneration,
+  TestPrhS3CacheNotValid,
+  TestPrhPciAssignmentWithoutAuthoritativeRoot,
+  TestPrhPciMmio32Above4GB,
+  TestPrhPciIoAttributes,
+  TestPrhRuntimePolicyReserved
 } TEST_PRH_FIXTURE;
 
 static void
@@ -335,6 +348,20 @@ BuildPayloadResourceHandoffTable (
       OFFSET_OF (struct cb_prh_memory_policy_entry, capabilities),
       EFI_MEMORY_UC
       );
+  } else if (Fixture == TestPrhMemoryUnsupportedAttributes) {
+    PackCbUint64At (
+      &MemoryPolicy[0],
+      OFFSET_OF (struct cb_prh_memory_policy_entry, capabilities),
+      0x4000000000000000ULL
+      );
+  } else if (Fixture == TestPrhMemoryBadGcdType) {
+    MemoryPolicy[0].gcd_type = CB_PRH_GCD_MEMORY_TYPE_UNACCEPTED + 1U;
+  } else if (Fixture == TestPrhMemoryMultipleCacheAttributes) {
+    PackCbUint64At (
+      &MemoryPolicy[0],
+      OFFSET_OF (struct cb_prh_memory_policy_entry, attributes),
+      EFI_MEMORY_UC | EFI_MEMORY_WB
+      );
   }
 
   PayloadOffset += Sections[0].length;
@@ -354,6 +381,10 @@ BuildPayloadResourceHandoffTable (
   CacheState->variable_count = (Fixture == TestPrhCacheCountMismatch) ? 2U : 1U;
   CacheState->flags          = CB_PRH_X86_CACHE_FLAG_BSP_AP_SYNC |
                                CB_PRH_X86_CACHE_FLAG_FIXED_VALID;
+  if (Fixture == TestPrhCacheS3WithoutLifetime) {
+    CacheState->flags |= CB_PRH_X86_CACHE_FLAG_S3_VALID;
+  }
+
   VariableMtrr = (struct cb_prh_x86_variable_mtrr *)(VOID *)(CacheState + 1);
   PackCbUint64At (VariableMtrr, OFFSET_OF (struct cb_prh_x86_variable_mtrr, phys_base_msr), 0x00100000ULL | 6U);
   PackCbUint64At (VariableMtrr, OFFSET_OF (struct cb_prh_x86_variable_mtrr, phys_mask_msr), 0xffe00000ULL | BIT11);
@@ -368,6 +399,10 @@ BuildPayloadResourceHandoffTable (
   Sections[2].entry_count   = 1;
   Sections[2].offset        = (UINT32)PayloadOffset;
   Sections[2].length        = sizeof (*RootBridge);
+  if (Fixture == TestPrhPciAssignmentWithoutAuthoritativeRoot) {
+    Sections[2].flags = 0;
+  }
+
   RootBridge                = (struct cb_prh_pci_root_bridge_entry *)(VOID *)Payload;
   RootBridge->bus_end       = 0xff;
   PackCbUint64At (RootBridge, OFFSET_OF (struct cb_prh_pci_root_bridge_entry, io_base), 0x1000);
@@ -399,6 +434,12 @@ BuildPayloadResourceHandoffTable (
     PackCbUint64At (PciAssignment, OFFSET_OF (struct cb_prh_pci_assignment_entry, base), 0xd0000000ULL);
   } else if (Fixture == TestPrhPciDuplicate) {
     PciAssignment[1] = PciAssignment[0];
+  } else if (Fixture == TestPrhPciMmio32Above4GB) {
+    PackCbUint64At (PciAssignment, OFFSET_OF (struct cb_prh_pci_assignment_entry, base), 0x100000000ULL);
+  } else if (Fixture == TestPrhPciIoAttributes) {
+    PciAssignment->resource_type = CB_PRH_PCI_RESOURCE_IO;
+    PackCbUint64At (PciAssignment, OFFSET_OF (struct cb_prh_pci_assignment_entry, base), 0x1000ULL);
+    PackCbUint64At (PciAssignment, OFFSET_OF (struct cb_prh_pci_assignment_entry, length), 0x100ULL);
   }
 
   PayloadOffset += Sections[3].length;
@@ -459,6 +500,34 @@ BuildPayloadResourceHandoffTable (
     Sections[5].flags = CB_PRH_SECTION_FLAG_MANDATORY;
   } else if (Fixture == TestPrhMissingLifetime) {
     PackCbUint64At (Prh, OFFSET_OF (struct cb_payload_resource_handoff, lifetime_flags), 0);
+  } else if (Fixture == TestPrhUnsupportedRevision) {
+    Prh->revision = CB_PAYLOAD_RESOURCE_HANDOFF_REVISION + 1U;
+  } else if (Fixture == TestPrhUnsupportedFlags) {
+    Prh->flags = 1;
+  } else if (Fixture == TestPrhUnknownLifetimeBit) {
+    PackCbUint64At (
+      Prh,
+      OFFSET_OF (struct cb_payload_resource_handoff, lifetime_flags),
+      CB_PRH_LIFETIME_COLD_BOOT | CB_PRH_LIFETIME_EXIT_BOOT_SERVICES |
+      0x8000000000000000ULL
+      );
+  } else if (Fixture == TestPrhS3MissingGeneration) {
+    PackCbUint64At (Prh, OFFSET_OF (struct cb_payload_resource_handoff, producer_generation), 0);
+    PackCbUint64At (
+      Prh,
+      OFFSET_OF (struct cb_payload_resource_handoff, lifetime_flags),
+      CB_PRH_LIFETIME_COLD_BOOT | CB_PRH_LIFETIME_S3_RESUME |
+      CB_PRH_LIFETIME_EXIT_BOOT_SERVICES
+      );
+  } else if (Fixture == TestPrhS3CacheNotValid) {
+    PackCbUint64At (
+      Prh,
+      OFFSET_OF (struct cb_payload_resource_handoff, lifetime_flags),
+      CB_PRH_LIFETIME_COLD_BOOT | CB_PRH_LIFETIME_S3_RESUME |
+      CB_PRH_LIFETIME_EXIT_BOOT_SERVICES
+      );
+  } else if (Fixture == TestPrhRuntimePolicyReserved) {
+    Sections[5].type = CB_PRH_SECTION_RUNTIME_POLICY;
   }
 
   FinalizePayloadResourceHandoff (Prh);
@@ -835,6 +904,127 @@ main (
                 Handoff.PayloadResourceHandoffStatus == EFI_COMPROMISED_DATA &&
                 Handoff.PayloadResourceHandoff == NULL,
                 "impossible payload-resource memory attributes were accepted"
+                );
+
+  TableSize = BuildPayloadResourceHandoffTable (Storage, sizeof (Storage), TestPrhUnsupportedRevision);
+  Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);
+  Failures += Expect (Status == EFI_SUCCESS, "future payload-resource revision rejected the whole table");
+  Failures += Expect (
+                Handoff.PayloadResourceHandoffStatus == EFI_UNSUPPORTED &&
+                Handoff.PayloadResourceHandoff == NULL,
+                "future payload-resource revision was accepted"
+                );
+
+  TableSize = BuildPayloadResourceHandoffTable (Storage, sizeof (Storage), TestPrhUnsupportedFlags);
+  Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);
+  Failures += Expect (Status == EFI_SUCCESS, "unknown payload-resource flags rejected the whole table");
+  Failures += Expect (
+                Handoff.PayloadResourceHandoffStatus == EFI_UNSUPPORTED &&
+                Handoff.PayloadResourceHandoff == NULL,
+                "unknown payload-resource flags were accepted"
+                );
+
+  TableSize = BuildPayloadResourceHandoffTable (Storage, sizeof (Storage), TestPrhUnknownLifetimeBit);
+  Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);
+  Failures += Expect (Status == EFI_SUCCESS, "unknown payload-resource lifetime bit rejected the whole table");
+  Failures += Expect (
+                Handoff.PayloadResourceHandoffStatus == EFI_UNSUPPORTED &&
+                Handoff.PayloadResourceHandoff == NULL,
+                "unknown payload-resource lifetime bit was accepted"
+                );
+
+  TableSize = BuildPayloadResourceHandoffTable (Storage, sizeof (Storage), TestPrhMemoryUnsupportedAttributes);
+  Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);
+  Failures += Expect (Status == EFI_SUCCESS, "unsupported payload-resource memory attributes rejected the whole table");
+  Failures += Expect (
+                Handoff.PayloadResourceHandoffStatus == EFI_UNSUPPORTED &&
+                Handoff.PayloadResourceHandoff == NULL,
+                "unsupported payload-resource memory attributes were accepted"
+                );
+
+  TableSize = BuildPayloadResourceHandoffTable (Storage, sizeof (Storage), TestPrhMemoryBadGcdType);
+  Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);
+  Failures += Expect (Status == EFI_SUCCESS, "unsupported payload-resource GCD type rejected the whole table");
+  Failures += Expect (
+                Handoff.PayloadResourceHandoffStatus == EFI_UNSUPPORTED &&
+                Handoff.PayloadResourceHandoff == NULL,
+                "unsupported payload-resource GCD type was accepted"
+                );
+
+  TableSize = BuildPayloadResourceHandoffTable (Storage, sizeof (Storage), TestPrhMemoryMultipleCacheAttributes);
+  Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);
+  Failures += Expect (Status == EFI_SUCCESS, "ambiguous payload-resource cache attributes rejected the whole table");
+  Failures += Expect (
+                Handoff.PayloadResourceHandoffStatus == EFI_COMPROMISED_DATA &&
+                Handoff.PayloadResourceHandoff == NULL,
+                "ambiguous payload-resource cache attributes were accepted"
+                );
+
+  TableSize = BuildPayloadResourceHandoffTable (Storage, sizeof (Storage), TestPrhCacheS3WithoutLifetime);
+  Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);
+  Failures += Expect (Status == EFI_SUCCESS, "S3 cache state without S3 lifetime rejected the whole table");
+  Failures += Expect (
+                Handoff.PayloadResourceHandoffStatus == EFI_COMPROMISED_DATA &&
+                Handoff.PayloadResourceHandoff == NULL,
+                "S3 cache state without S3 lifetime was accepted"
+                );
+
+  TableSize = BuildPayloadResourceHandoffTable (Storage, sizeof (Storage), TestPrhS3MissingGeneration);
+  Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);
+  Failures += Expect (Status == EFI_SUCCESS, "S3 payload-resource without generation rejected the whole table");
+  Failures += Expect (
+                Handoff.PayloadResourceHandoffStatus == EFI_COMPROMISED_DATA &&
+                Handoff.PayloadResourceHandoff == NULL,
+                "S3 payload-resource without generation was accepted"
+                );
+
+  TableSize = BuildPayloadResourceHandoffTable (Storage, sizeof (Storage), TestPrhS3CacheNotValid);
+  Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);
+  Failures += Expect (Status == EFI_SUCCESS, "S3 payload-resource without S3 cache proof rejected the whole table");
+  Failures += Expect (
+                Handoff.PayloadResourceHandoffStatus == EFI_UNSUPPORTED &&
+                Handoff.PayloadResourceHandoff == NULL,
+                "S3 payload-resource without S3 cache proof was accepted"
+                );
+
+  TableSize = BuildPayloadResourceHandoffTable (
+                Storage,
+                sizeof (Storage),
+                TestPrhPciAssignmentWithoutAuthoritativeRoot
+                );
+  Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);
+  Failures += Expect (Status == EFI_SUCCESS, "PCI assignment without authoritative root rejected the whole table");
+  Failures += Expect (
+                Handoff.PayloadResourceHandoffStatus == EFI_UNSUPPORTED &&
+                Handoff.PayloadResourceHandoff == NULL,
+                "PCI assignment without authoritative root was accepted"
+                );
+
+  TableSize = BuildPayloadResourceHandoffTable (Storage, sizeof (Storage), TestPrhPciMmio32Above4GB);
+  Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);
+  Failures += Expect (Status == EFI_SUCCESS, "above-4GB payload-resource PCI MMIO32 rejected the whole table");
+  Failures += Expect (
+                Handoff.PayloadResourceHandoffStatus == EFI_COMPROMISED_DATA &&
+                Handoff.PayloadResourceHandoff == NULL,
+                "above-4GB payload-resource PCI MMIO32 was accepted"
+                );
+
+  TableSize = BuildPayloadResourceHandoffTable (Storage, sizeof (Storage), TestPrhPciIoAttributes);
+  Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);
+  Failures += Expect (Status == EFI_SUCCESS, "payload-resource PCI I/O attributes rejected the whole table");
+  Failures += Expect (
+                Handoff.PayloadResourceHandoffStatus == EFI_COMPROMISED_DATA &&
+                Handoff.PayloadResourceHandoff == NULL,
+                "payload-resource PCI I/O attributes were accepted"
+                );
+
+  TableSize = BuildPayloadResourceHandoffTable (Storage, sizeof (Storage), TestPrhRuntimePolicyReserved);
+  Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);
+  Failures += Expect (Status == EFI_SUCCESS, "reserved payload-resource runtime policy rejected the whole table");
+  Failures += Expect (
+                Handoff.PayloadResourceHandoffStatus == EFI_UNSUPPORTED &&
+                Handoff.PayloadResourceHandoff == NULL,
+                "reserved payload-resource runtime policy was accepted"
                 );
 
   TableSize = BuildLegacySerialTable (Storage, sizeof (Storage));
