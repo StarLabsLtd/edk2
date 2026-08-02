@@ -15,8 +15,10 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Guid/ImageAuthentication.h>
 #include <Guid/TcgPhysicalPresenceGuid.h>
 #include <IndustryStandard/Pci.h>
+#include <IndustryStandard/QemuTpm.h>
 #include <IndustryStandard/Usb.h>
 #include <Library/BmpSupportLib.h>
+#include <Library/DxeServicesTableLib.h>
 #include <Library/Tcg2PhysicalPresenceLib.h>
 #include <Protocol/BatteryStatus.h>
 #include <Protocol/EsrtManagement.h>
@@ -98,6 +100,37 @@ Cdk2GetUint8Variable (
 
 STATIC
 BOOLEAN
+Cdk2IsTpmPpiAddressUsable (
+  IN CONST TCG_PHYSICAL_PRESENCE_INFO  *PresenceInfo
+  )
+{
+  EFI_GCD_MEMORY_SPACE_DESCRIPTOR  Descriptor;
+  EFI_PHYSICAL_ADDRESS             PpiAddress;
+  EFI_PHYSICAL_ADDRESS             PpiEnd;
+  EFI_STATUS                       Status;
+
+  PpiAddress = PresenceInfo->PpiAddress;
+  PpiEnd     = PpiAddress + sizeof (QEMU_TPM_PPI) - 1;
+  if ((PpiAddress > PpiEnd) ||
+      ((PpiAddress & ~(EFI_PHYSICAL_ADDRESS)EFI_PAGE_MASK) !=
+       (PpiEnd & ~(EFI_PHYSICAL_ADDRESS)EFI_PAGE_MASK)))
+  {
+    return FALSE;
+  }
+
+  Status = gDS->GetMemorySpaceDescriptor (PpiAddress, &Descriptor);
+  if (EFI_ERROR (Status)) {
+    return (BOOLEAN)(Status == EFI_NOT_FOUND);
+  }
+
+  return (BOOLEAN)(
+                  (Descriptor.GcdMemoryType == EfiGcdMemoryTypeReserved) ||
+                  (Descriptor.GcdMemoryType == EfiGcdMemoryTypeSystemMemory)
+                  );
+}
+
+STATIC
+BOOLEAN
 Cdk2HasTpm2PhysicalPresenceHob (
   VOID
   )
@@ -118,6 +151,10 @@ Cdk2HasTpm2PhysicalPresenceHob (
   if ((PresenceInfo->PpiAddress == 0) ||
       (PresenceInfo->PpiAddress == MAX_UINT32))
   {
+    return FALSE;
+  }
+
+  if (!Cdk2IsTpmPpiAddressUsable (PresenceInfo)) {
     return FALSE;
   }
 

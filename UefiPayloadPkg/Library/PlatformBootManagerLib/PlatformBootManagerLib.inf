@@ -30,6 +30,7 @@
 [Packages]
   MdePkg/MdePkg.dec
   MdeModulePkg/MdeModulePkg.dec
+  OvmfPkg/OvmfPkg.dec
   SecurityPkg/SecurityPkg.dec
   UefiPayloadPkg/UefiPayloadPkg.dec
   ShellPkg/ShellPkg.dec
@@ -38,6 +39,7 @@
 [LibraryClasses]
   BaseLib
   BmpSupportLib
+  DxeServicesTableLib
   UefiBootServicesTableLib
   UefiRuntimeServicesTableLib
   UefiLib

@@ -1268,6 +1268,7 @@ BdsEntry (
       //
       // When platform recovery is not enabled, still boot to platform default file path.
       //
+      BdsPlatformBeforeBoot ();
       PlatformDefaultBootOptionValid = EfiBootManagerProcessLoadOption (&PlatformDefaultBootOption) == EFI_SUCCESS;
     }
   }

@@ -387,6 +387,38 @@ BootNextAndBootOrderRevalidateAfterReturn (
 }
 
 STATIC
+UNIT_TEST_STATUS
+EFIAPI
+DefaultRemovableFallbackRunsAfterPreBootPolicy (
+  IN UNIT_TEST_CONTEXT  Context
+  )
+{
+  CHAR8  *Source;
+  CHAR8  *DefaultFallback;
+  CHAR8  *BeforeBoot;
+  CHAR8  *DefaultBoot;
+
+  Source = ReadBdsEntrySource ();
+  UT_ASSERT_NOT_NULL (Source);
+
+  DefaultFallback = strstr (Source, "} else if (PlatformDefaultBootOptionValid) {");
+  UT_ASSERT_NOT_NULL (DefaultFallback);
+
+  BeforeBoot = strstr (DefaultFallback, "BdsPlatformBeforeBoot ();");
+  DefaultBoot = strstr (
+                  DefaultFallback,
+                  "EfiBootManagerProcessLoadOption (&PlatformDefaultBootOption)"
+                  );
+
+  UT_ASSERT_NOT_NULL (BeforeBoot);
+  UT_ASSERT_NOT_NULL (DefaultBoot);
+  UT_ASSERT_TRUE (BeforeBoot < DefaultBoot);
+
+  FreePool (Source);
+  return UNIT_TEST_PASSED;
+}
+
+STATIC
 EFI_STATUS
 EFIAPI
 UnitTestingEntry (
@@ -472,6 +504,15 @@ UnitTestingEntry (
     "BootNext and BootOrder revalidate after returned policy paths",
     "BootOrderRevalidationPolicy",
     BootNextAndBootOrderRevalidateAfterReturn,
+    NULL,
+    NULL,
+    NULL
+    );
+  AddTestCase (
+    Suite,
+    "Default removable fallback runs after pre-boot policy",
+    "DefaultRemovableFallbackPolicy",
+    DefaultRemovableFallbackRunsAfterPreBootPolicy,
     NULL,
     NULL,
     NULL
