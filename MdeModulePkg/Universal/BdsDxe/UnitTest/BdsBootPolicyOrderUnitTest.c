@@ -113,6 +113,8 @@ BootFwUiMenuRunsAfterPreBootPolicy (
   )
 {
   CHAR8  *Source;
+  CHAR8  *RecoveryPrecedence;
+  CHAR8  *SuppressBootFwUi;
   CHAR8  *BootFwUiBlock;
   CHAR8  *BeforeBoot;
   CHAR8  *BootManagerMenuBoot;
@@ -120,15 +122,77 @@ BootFwUiMenuRunsAfterPreBootPolicy (
   Source = ReadBdsEntrySource ();
   UT_ASSERT_NOT_NULL (Source);
 
-  BootFwUiBlock = strstr (Source, "if (BootFwUi) {");
-  UT_ASSERT_NOT_NULL (BootFwUiBlock);
+  RecoveryPrecedence = strstr (Source, "if (BootFwUi && PlatformRecovery) {");
+  UT_ASSERT_NOT_NULL (RecoveryPrecedence);
 
-  BeforeBoot          = strstr (BootFwUiBlock, "BdsPlatformBeforeBoot ();");
-  BootManagerMenuBoot = strstr (BootFwUiBlock, "EfiBootManagerBoot (&BootManagerMenu);");
+  SuppressBootFwUi = strstr (RecoveryPrecedence, "BootFwUi = FALSE;");
+  UT_ASSERT_NOT_NULL (SuppressBootFwUi);
+
+  BootFwUiBlock = strstr (SuppressBootFwUi, "if (BootFwUi) {");
+  UT_ASSERT_NOT_NULL (BootFwUiBlock);
+  UT_ASSERT_TRUE (SuppressBootFwUi < BootFwUiBlock);
+
+  BeforeBoot = strstr (BootFwUiBlock, "BdsPlatformBeforeBoot ();");
+  BootManagerMenuBoot = strstr (
+                          BootFwUiBlock,
+                          "EfiBootManagerBoot (&BootManagerMenu);"
+                          );
 
   UT_ASSERT_NOT_NULL (BeforeBoot);
   UT_ASSERT_NOT_NULL (BootManagerMenuBoot);
   UT_ASSERT_TRUE (BeforeBoot < BootManagerMenuBoot);
+
+  FreePool (Source);
+  return UNIT_TEST_PASSED;
+}
+
+STATIC
+UNIT_TEST_STATUS
+EFIAPI
+DriverRunsAfterPreBootPolicy (
+  IN UNIT_TEST_CONTEXT  Context
+  )
+{
+  CHAR8  *Source;
+  CHAR8  *BeforeConsole;
+  CHAR8  *DriverLoadOptions;
+  CHAR8  *DriverProcessOptions;
+  CHAR8  *ProcessLoadOptions;
+  CHAR8  *ActiveCheck;
+  CHAR8  *RecoveryCheck;
+  CHAR8  *BeforeBoot;
+  CHAR8  *ProcessLoadOption;
+
+  Source = ReadBdsEntrySource ();
+  UT_ASSERT_NOT_NULL (Source);
+
+  BeforeConsole = strstr (Source, "PlatformBootManagerBeforeConsole ();");
+  UT_ASSERT_NOT_NULL (BeforeConsole);
+
+  DriverLoadOptions = strstr (BeforeConsole, "LoadOptionTypeDriver");
+  UT_ASSERT_NOT_NULL (DriverLoadOptions);
+
+  DriverProcessOptions = strstr (
+                           DriverLoadOptions,
+                           "ProcessLoadOptions (LoadOptions, LoadOptionCount);"
+                           );
+  UT_ASSERT_NOT_NULL (DriverProcessOptions);
+
+  ProcessLoadOptions = strstr (Source, "ProcessLoadOptions (");
+  UT_ASSERT_NOT_NULL (ProcessLoadOptions);
+
+  ActiveCheck       = strstr (ProcessLoadOptions, "LOAD_OPTION_ACTIVE");
+  RecoveryCheck     = strstr (ProcessLoadOptions, "LoadOptionTypePlatformRecovery");
+  BeforeBoot        = strstr (ProcessLoadOptions, "BdsPlatformBeforeBoot ();");
+  ProcessLoadOption = strstr (ProcessLoadOptions, "EfiBootManagerProcessLoadOption");
+
+  UT_ASSERT_NOT_NULL (ActiveCheck);
+  UT_ASSERT_NOT_NULL (RecoveryCheck);
+  UT_ASSERT_NOT_NULL (BeforeBoot);
+  UT_ASSERT_NOT_NULL (ProcessLoadOption);
+  UT_ASSERT_TRUE (ActiveCheck < BeforeBoot);
+  UT_ASSERT_TRUE (RecoveryCheck < BeforeBoot);
+  UT_ASSERT_TRUE (BeforeBoot < ProcessLoadOption);
 
   FreePool (Source);
   return UNIT_TEST_PASSED;
@@ -143,8 +207,9 @@ SysPrepRunsAfterPreBootPolicy (
 {
   CHAR8  *Source;
   CHAR8  *MainBootBlock;
-  CHAR8  *BeforeBoot;
   CHAR8  *SysPrepLoadOptions;
+  CHAR8  *SysPrepProcessOptions;
+  CHAR8  *HotkeyWait;
 
   Source = ReadBdsEntrySource ();
   UT_ASSERT_NOT_NULL (Source);
@@ -152,12 +217,18 @@ SysPrepRunsAfterPreBootPolicy (
   MainBootBlock = strstr (Source, "if (!PlatformRecovery) {");
   UT_ASSERT_NOT_NULL (MainBootBlock);
 
-  BeforeBoot         = strstr (MainBootBlock, "BdsPlatformBeforeBoot ();");
   SysPrepLoadOptions = strstr (MainBootBlock, "LoadOptionTypeSysPrep");
-
-  UT_ASSERT_NOT_NULL (BeforeBoot);
   UT_ASSERT_NOT_NULL (SysPrepLoadOptions);
-  UT_ASSERT_TRUE (BeforeBoot < SysPrepLoadOptions);
+
+  SysPrepProcessOptions = strstr (
+                            SysPrepLoadOptions,
+                            "ProcessLoadOptions (LoadOptions, LoadOptionCount);"
+                            );
+  HotkeyWait            = strstr (SysPrepLoadOptions, "BdsWait (HotkeyTriggered);");
+
+  UT_ASSERT_NOT_NULL (SysPrepProcessOptions);
+  UT_ASSERT_NOT_NULL (HotkeyWait);
+  UT_ASSERT_TRUE (SysPrepProcessOptions < HotkeyWait);
 
   FreePool (Source);
   return UNIT_TEST_PASSED;
@@ -207,6 +278,7 @@ AfterBootWaitRunsOnlyAfterBdsWait (
   CHAR8  *Source;
   CHAR8  *Wait;
   CHAR8  *AfterBootWait;
+  CHAR8  *SecondAfterBootWait;
 
   Source = ReadBdsEntrySource ();
   UT_ASSERT_NOT_NULL (Source);
@@ -217,6 +289,12 @@ AfterBootWaitRunsOnlyAfterBdsWait (
   AfterBootWait = strstr (Source, "PlatformBootManagerAfterBootWait ();");
   UT_ASSERT_NOT_NULL (AfterBootWait);
   UT_ASSERT_TRUE (Wait < AfterBootWait);
+
+  SecondAfterBootWait = strstr (
+                          AfterBootWait + strlen ("PlatformBootManagerAfterBootWait ();"),
+                          "PlatformBootManagerAfterBootWait ();"
+                          );
+  UT_ASSERT_TRUE (SecondAfterBootWait == NULL);
 
   FreePool (Source);
   return UNIT_TEST_PASSED;
@@ -235,6 +313,14 @@ BootNextAndBootOrderRevalidateAfterReturn (
   CHAR8  *BootNextBlock;
   CHAR8  *BeforeBootOrder;
   CHAR8  *BootNextRead;
+  CHAR8  *BootNextBoot;
+  CHAR8  *BeforeBootNextMenu;
+  CHAR8  *BootNextMenuBoot;
+  CHAR8  *BootBootOptionsBlock;
+  CHAR8  *BeforeBootOrderOption;
+  CHAR8  *BootOrderOptionBoot;
+  CHAR8  *BeforeBootOrderMenu;
+  CHAR8  *BootOrderMenuBoot;
   CHAR8  *BootOrderBoot;
 
   Source = ReadBdsEntrySource ();
@@ -248,15 +334,53 @@ BootNextAndBootOrderRevalidateAfterReturn (
   BootNextBlock = strstr (HotkeyBoot, "if (BootNext != NULL) {");
   UT_ASSERT_NOT_NULL (BootNextBlock);
 
-  BeforeBootOrder = strstr (BootNextBlock, "BdsPlatformBeforeBoot ();");
-  BootOrderBoot   = strstr (BootNextBlock, "BootBootOptions");
+  BootNextBoot = strstr (BootNextBlock, "EfiBootManagerBoot (&LoadOption);");
+  UT_ASSERT_NOT_NULL (BootNextBoot);
+
+  BeforeBootNextMenu = strstr (BootNextBoot, "BdsPlatformBeforeBoot ();");
+  BootNextMenuBoot = strstr (
+                       BootNextBoot,
+                       "EfiBootManagerBoot (&BootManagerMenu);"
+                       );
+  UT_ASSERT_NOT_NULL (BootNextMenuBoot);
+
+  BeforeBootOrder = strstr (BootNextMenuBoot, "BdsPlatformBeforeBoot ();");
+  BootOrderBoot   = strstr (BootNextMenuBoot, "BootBootOptions");
+
+  BootBootOptionsBlock = strstr (Source, "BootBootOptions (");
+  UT_ASSERT_NOT_NULL (BootBootOptionsBlock);
+
+  BeforeBootOrderOption = strstr (
+                            BootBootOptionsBlock,
+                            "BdsPlatformBeforeBoot ();"
+                            );
+  BootOrderOptionBoot = strstr (
+                          BootBootOptionsBlock,
+                          "EfiBootManagerBoot (&BootOptions[Index]);"
+                          );
+  UT_ASSERT_NOT_NULL (BootOrderOptionBoot);
+
+  BeforeBootOrderMenu = strstr (BootOrderOptionBoot, "BdsPlatformBeforeBoot ();");
+  BootOrderMenuBoot = strstr (
+                        BootOrderOptionBoot,
+                        "EfiBootManagerBoot (BootManagerMenu);"
+                        );
 
   UT_ASSERT_NOT_NULL (BeforeBoot);
   UT_ASSERT_NOT_NULL (BeforeBootOrder);
   UT_ASSERT_NOT_NULL (BootNextRead);
+  UT_ASSERT_NOT_NULL (BeforeBootNextMenu);
+  UT_ASSERT_NOT_NULL (BeforeBootOrderOption);
+  UT_ASSERT_NOT_NULL (BeforeBootOrderMenu);
+  UT_ASSERT_NOT_NULL (BootOrderMenuBoot);
   UT_ASSERT_NOT_NULL (BootOrderBoot);
   UT_ASSERT_TRUE (BeforeBoot < BootNextRead);
+  UT_ASSERT_TRUE (BootNextBoot < BeforeBootNextMenu);
+  UT_ASSERT_TRUE (BeforeBootNextMenu < BootNextMenuBoot);
   UT_ASSERT_TRUE (BeforeBootOrder < BootOrderBoot);
+  UT_ASSERT_TRUE (BeforeBootOrderOption < BootOrderOptionBoot);
+  UT_ASSERT_TRUE (BootOrderOptionBoot < BeforeBootOrderMenu);
+  UT_ASSERT_TRUE (BeforeBootOrderMenu < BootOrderMenuBoot);
 
   FreePool (Source);
   return UNIT_TEST_PASSED;
@@ -303,6 +427,15 @@ UnitTestingEntry (
     "Boot Manager Menu runs after pre-boot policy",
     "BootFwUiMenuPolicy",
     BootFwUiMenuRunsAfterPreBootPolicy,
+    NULL,
+    NULL,
+    NULL
+    );
+  AddTestCase (
+    Suite,
+    "Driver options run after pre-boot policy",
+    "DriverPolicy",
+    DriverRunsAfterPreBootPolicy,
     NULL,
     NULL,
     NULL

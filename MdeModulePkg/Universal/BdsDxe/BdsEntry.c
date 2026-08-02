@@ -437,6 +437,7 @@ BootBootOptions (
     // All the driver options should have been processed since
     // now boot will be performed.
     //
+    BdsPlatformBeforeBoot ();
     EfiBootManagerBoot (&BootOptions[Index]);
 
     //
@@ -451,6 +452,7 @@ BootBootOptions (
       // present a boot manager menu to the user.
       //
       if ((BootManagerMenu != NULL) && (BootOptions[Index].Status == EFI_SUCCESS)) {
+        BdsPlatformBeforeBoot ();
         EfiBootManagerBoot (BootManagerMenu);
         break;
       }
@@ -493,6 +495,17 @@ ProcessLoadOptions (
 
     ASSERT (LoadOptionType == LoadOptions[Index].OptionType);
     ASSERT (LoadOptionType != LoadOptionTypeBoot);
+
+    if (((LoadOptions[Index].Attributes & LOAD_OPTION_ACTIVE) != 0) &&
+        (LoadOptionType != LoadOptionTypePlatformRecovery))
+    {
+      //
+      // Driver#### and SysPrep#### are executable policy surfaces. Keep
+      // PlatformRecovery#### outside the normal gate so recovery stays
+      // available when the anti-tamper policy is already broken.
+      //
+      BdsPlatformBeforeBoot ();
+    }
 
     Status = EfiBootManagerProcessLoadOption (&LoadOptions[Index]);
 
@@ -1057,6 +1070,16 @@ BdsEntry (
 
   BootFwUi         = (BOOLEAN)((OsIndication & EFI_OS_INDICATIONS_BOOT_TO_FW_UI) != 0);
   PlatformRecovery = (BOOLEAN)((OsIndication & EFI_OS_INDICATIONS_START_PLATFORM_RECOVERY) != 0);
+
+  if (BootFwUi && PlatformRecovery) {
+    //
+    // Recovery is the security-critical request. Do not enter an interactive
+    // firmware UI before the recovery path when both OS indication bits are set.
+    //
+    DEBUG ((DEBUG_INFO, "[Bds]Platform recovery takes precedence over Boot-to-FW-UI\n"));
+    BootFwUi = FALSE;
+  }
+
   //
   // Clear EFI_OS_INDICATIONS_BOOT_TO_FW_UI to acknowledge OS
   //
@@ -1087,9 +1110,7 @@ BdsEntry (
         BdsDxeOnConnectConInCallBack (NULL, NULL);
       }
 
-      if (!PlatformRecovery) {
-        BdsPlatformBeforeBoot ();
-      }
+      BdsPlatformBeforeBoot ();
 
       //
       // A hotkey notification can leave the same key queued for ReadKeyStroke().
@@ -1110,8 +1131,6 @@ BdsEntry (
   }
 
   if (!PlatformRecovery) {
-    BdsPlatformBeforeBoot ();
-
     //
     // Execute SysPrep####
     //
@@ -1212,6 +1231,7 @@ BdsEntry (
           // Boot to Boot Manager Menu upon EFI_SUCCESS
           // Exception: Do not boot again when the BootNext points to Boot Manager Menu.
           //
+          BdsPlatformBeforeBoot ();
           EfiBootManagerBoot (&BootManagerMenu);
         }
       }
