@@ -542,5 +542,17 @@ class Edk2BackendCheckTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("does not allow setup to assert Secure Boot physical presence", result.stderr)
 
+    def test_linux_efi_description_rejects_apostrophe(self) -> None:
+        result = self._run_check(
+            CONFIG_CDK2_LINUX_EFI_APPLICATION="y",
+            CONFIG_CDK2_LINUX_EFI_APPLICATION_DESCRIPTION='"Bob\'s Linux EFI"',
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(
+            "CONFIG_CDK2_LINUX_EFI_APPLICATION_DESCRIPTION must not contain apostrophes",
+            result.stderr,
+        )
+
 if __name__ == "__main__":
     unittest.main()
