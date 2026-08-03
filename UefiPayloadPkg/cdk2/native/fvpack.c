@@ -317,7 +317,7 @@ RelocatePe (
   size_t         RelocOffset;
   size_t         RelocEnd;
   size_t         BlockOffset;
-  size_t         DataDirectoryOffset;
+  size_t         DataDirectoryOffset = 0;
   size_t         ImageBaseOffset;
   size_t         FixupSize;
   uint32_t       PageRva;

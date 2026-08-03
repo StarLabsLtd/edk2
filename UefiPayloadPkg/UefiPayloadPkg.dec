@@ -162,6 +162,10 @@ gUefiPayloadPkgTokenSpaceGuid.PcdConnectAllDevices|TRUE|BOOLEAN|0x00000035
 
 gUefiPayloadPkgTokenSpaceGuid.PcdCbmemTimestamps|FALSE|BOOLEAN|0x00000036
 
+## Indicates whether cdk2 registers a validated Linux EFI application Boot####
+## option before falling back to the normal platform boot order.
+gUefiPayloadPkgTokenSpaceGuid.PcdLinuxEfiApplicationBoot|FALSE|BOOLEAN|0x0000003D
+
 [PcdsFixedAtBuild]
 ## If PcdFspGopBasicHiDpiSupport is enabled and the physical framebuffer
 ## resolution is greater than both thresholds, the GOP exposes an additional mode
@@ -178,6 +182,13 @@ gUefiPayloadPkgTokenSpaceGuid.PcdFspGopBasicHiDpiWideAspectCapHeight|9|UINT32|0x
 
 ## Hardware S5 sleep type written to PM1_CNT by ResetShutdown().
 gUefiPayloadPkgTokenSpaceGuid.PcdResetShutdownSleepType|7|UINT16|0x00000039
+
+## Absolute UEFI file path for the optional Linux EFI application boot option.
+## The path is rooted at the EFI system partition and must use backslashes.
+gUefiPayloadPkgTokenSpaceGuid.PcdLinuxEfiApplicationPath|L"\\EFI\\Linux\\vmlinuz.efi"|VOID*|0x0000003B
+
+## Description for the optional Linux EFI application boot option.
+gUefiPayloadPkgTokenSpaceGuid.PcdLinuxEfiApplicationDescription|L"Linux EFI Application"|VOID*|0x0000003C
 
 ## Require locked Secure Boot variables and TPM2 measurement support before boot.
 gUefiPayloadPkgTokenSpaceGuid.PcdCdk2AntiTamperBoot|FALSE|BOOLEAN|0x0000003F

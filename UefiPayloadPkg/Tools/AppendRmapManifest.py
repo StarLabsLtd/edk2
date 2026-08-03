@@ -28,6 +28,24 @@ RMAP_VERSION   = 1
 ENTRY_SIZE     = 16
 
 
+def _validate_region_name(name):
+    try:
+        encoded = name.encode('ascii')
+    except UnicodeError:
+        raise ValueError("Region name '{}' is not ASCII".format(name))
+
+    if not encoded:
+        raise ValueError("Region name must not be empty")
+
+    if len(encoded) > ENTRY_SIZE:
+        raise ValueError("Region name '{}' longer than {} bytes".format(name, ENTRY_SIZE))
+
+    if any(byte < 0x21 or byte > 0x7e for byte in encoded):
+        raise ValueError("Region name '{}' contains non-graphic characters".format(name))
+
+    return encoded
+
+
 def build_manifest(region_names):
     """Return the encoded manifest bytes for the given region names."""
     entries = []
@@ -36,14 +54,7 @@ def build_manifest(region_names):
         raise ValueError("Manifest must contain between 1 and 65535 regions")
 
     for name in region_names:
-        try:
-            encoded = name.encode('ascii')
-        except UnicodeError:
-            raise ValueError("Region name '{}' is not ASCII".format(name))
-        if not encoded or any(character <= 0x20 or character > 0x7e for character in encoded):
-            raise ValueError("Region name '{}' contains invalid characters".format(name))
-        if len(encoded) > ENTRY_SIZE:
-            raise ValueError("Region name '{}' longer than {} bytes".format(name, ENTRY_SIZE))
+        encoded = _validate_region_name(name)
         if encoded in encoded_names:
             raise ValueError("Region name '{}' is duplicated".format(name))
         encoded_names.add(encoded)

@@ -25,6 +25,8 @@ CDK2_NATIVE_PE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-pe-test
 CDK2_NATIVE_MODULE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-module-test
 CDK2_NATIVE_ELF_CHECK ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-elfcheck
 CDK2_NATIVE_ELF_CHECK_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-elfcheck-test
+CDK2_NATIVE_LINUX_EFI_BOOT_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-linux-efi-boot-test
+CDK2_NATIVE_LINUX_EFI_BOOT_DIR := $(CDK2_ROOT)/UefiPayloadPkg/Library/PlatformBootManagerLib
 HOSTCC ?= cc
 CDK2_NATIVE_CC ?= $(CC)
 CDK2_NATIVE_HOST_CC ?= $(HOSTCC)
@@ -73,11 +75,12 @@ CDK2_NATIVE_HOST_TOOLS := \
 	$(CDK2_NATIVE_PE_TEST) \
 	$(CDK2_NATIVE_MODULE_TEST) \
 	$(CDK2_NATIVE_ELF_CHECK) \
-	$(CDK2_NATIVE_ELF_CHECK_TEST)
+	$(CDK2_NATIVE_ELF_CHECK_TEST) \
+	$(CDK2_NATIVE_LINUX_EFI_BOOT_TEST)
 CDK2_NATIVE_LINK_FLAGS := -static -no-pie -nostdlib -nostartfiles -nodefaultlibs -Wl,-z,max-page-size=0x1000 -Wl,-z,common-page-size=0x1000 -Wl,-T,"$(CDK2_NATIVE_DIR)/cdk2.ld"
 CDK2_NATIVE_LINK_POST_MAP_FLAGS := -Wl,--gc-sections -Wl,--build-id=none
 
-.PHONY: native-stage native-coreboot-stage native-coreboot-image native-check native-pack native-service-test native-coreboot-test native-fv-test native-fvpack-test native-pe-test native-module-test native-elfcheck-test FORCE
+.PHONY: native-stage native-coreboot-stage native-coreboot-image native-check native-pack native-service-test native-coreboot-test native-fv-test native-fvpack-test native-pe-test native-module-test native-elfcheck-test native-linux-efi-boot-test FORCE
 
 ifeq ($(CONFIG_CDK2_NATIVE_STAGE),y)
 CDK2_NATIVE_STAGE_DEPS := $(CDK2_NATIVE_ELF)
@@ -111,6 +114,7 @@ native-check: $(CDK2_CONFIG_HEADER) $(CDK2_NATIVE_ELF) $(CDK2_NATIVE_OVERRIDE_EL
 	@"$(CDK2_NATIVE_PE_TEST)"
 	@"$(CDK2_NATIVE_MODULE_TEST)"
 	@"$(CDK2_NATIVE_ELF_CHECK_TEST)" "$(CDK2_NATIVE_ELF_CHECK)" "$(CDK2_NATIVE_BUILD_DIR)"
+	@"$(CDK2_NATIVE_LINUX_EFI_BOOT_TEST)"
 	@printf '%s\n' "native cdk2 stage: $(CDK2_NATIVE_ELF)"
 	@printf '%s\n' "native cdk2 FV packer: $(CDK2_NATIVE_PACKER)"
 else
@@ -132,6 +136,7 @@ native-check: $(CDK2_CONFIG_HEADER) $(CDK2_NATIVE_HOST_TOOLS)
 	@"$(CDK2_NATIVE_PE_TEST)"
 	@"$(CDK2_NATIVE_MODULE_TEST)"
 	@"$(CDK2_NATIVE_ELF_CHECK_TEST)" "$(CDK2_NATIVE_ELF_CHECK)" "$(CDK2_NATIVE_BUILD_DIR)"
+	@"$(CDK2_NATIVE_LINUX_EFI_BOOT_TEST)"
 	@printf '%s\n' 'native cdk2 stage: disabled by Kconfig'
 	@printf '%s\n' "native cdk2 FV packer: $(CDK2_NATIVE_PACKER)"
 endif
@@ -159,6 +164,9 @@ native-module-test: $(CDK2_NATIVE_MODULE_TEST)
 
 native-elfcheck-test: $(CDK2_NATIVE_ELF_CHECK) $(CDK2_NATIVE_ELF_CHECK_TEST)
 	@"$(CDK2_NATIVE_ELF_CHECK_TEST)" "$(CDK2_NATIVE_ELF_CHECK)" "$(CDK2_NATIVE_BUILD_DIR)"
+
+native-linux-efi-boot-test: $(CDK2_NATIVE_LINUX_EFI_BOOT_TEST)
+	@"$(CDK2_NATIVE_LINUX_EFI_BOOT_TEST)"
 
 $(CDK2_NATIVE_BUILD_DIR):
 	@mkdir -p "$@"
@@ -243,5 +251,17 @@ $(CDK2_NATIVE_PE_TEST): $(CDK2_NATIVE_DIR)/pe.c $(CDK2_NATIVE_DIR)/pe.h $(CDK2_N
 
 $(CDK2_NATIVE_MODULE_TEST): $(CDK2_NATIVE_DIR)/entry.c $(CDK2_NATIVE_DIR)/entry.h $(CDK2_NATIVE_DIR)/module.h $(CDK2_NATIVE_DIR)/module_test.c $(CDK2_NATIVE_DIR)/context.h $(CDK2_CONFIG_HEADER) | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -MMD -MP -MF "$(CDK2_NATIVE_BUILD_DIR)/module-test.d" -MT "$@" $(CDK2_NATIVE_INCLUDES) -I$(CDK2_NATIVE_DIR) $(CDK2_NATIVE_HOST_LDFLAGS) -o "$@" "$(CDK2_NATIVE_DIR)/entry.c" "$(CDK2_NATIVE_DIR)/module_test.c"
+
+$(CDK2_NATIVE_LINUX_EFI_BOOT_TEST): \
+  $(CDK2_NATIVE_LINUX_EFI_BOOT_DIR)/PlatformLinuxEfiBoot.c \
+  $(CDK2_NATIVE_LINUX_EFI_BOOT_DIR)/PlatformLinuxEfiBoot.h \
+  $(CDK2_NATIVE_LINUX_EFI_BOOT_DIR)/UnitTest/PlatformLinuxEfiBootHostTest.c | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -MMD -MP \
+	  -MF "$(CDK2_NATIVE_BUILD_DIR)/linux-efi-boot-test.d" \
+	  -MT "$@" $(CDK2_NATIVE_INCLUDES) \
+	  -I$(CDK2_NATIVE_LINUX_EFI_BOOT_DIR) $(CDK2_NATIVE_HOST_LDFLAGS) \
+	  -o "$@" \
+	  "$(CDK2_NATIVE_LINUX_EFI_BOOT_DIR)/PlatformLinuxEfiBoot.c" \
+	  "$(CDK2_NATIVE_LINUX_EFI_BOOT_DIR)/UnitTest/PlatformLinuxEfiBootHostTest.c"
 
 -include $(CDK2_NATIVE_DEPFILES)

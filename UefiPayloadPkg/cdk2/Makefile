@@ -30,6 +30,8 @@ CDK2_BACKEND_OUTPUT_DIRECTORY ?= $(patsubst $(CDK2_ROOT)/%,%,$(CDK2_BUILD_DIR))/
 CDK2_BASETOOLS_BUILD_DIR ?= $(abspath $(CDK2_BUILD_DIR)/basetools)
 CDK2_BASETOOLS_OUTPUT_ROOT ?= $(abspath $(CDK2_BASETOOLS_BUILD_DIR)/C)
 CDK2_BASETOOLS_BIN ?= $(CDK2_BASETOOLS_OUTPUT_ROOT)/bin
+CDK2_Q35_LINUX_EFI_DEFCONFIG ?= $(CDK2_DIR)/q35-linux-efi.defconfig
+CDK2_Q35_LINUX_EFI_CHECK_DIR ?= $(CDK2_BUILD_DIR)/q35-linux-efi-check
 CDK2_KCONFIG_ENV = KCONFIG_CONFIG="$(abspath $(CDK2_CONFIG))"
 CDK2_SOURCE_DATE_EPOCH ?= $(shell epoch=$$(git -C "$(CDK2_ROOT)" log -1 --format=%ct -- $(CDK2_BACKEND_SOURCE_DATE_PATHS) 2>/dev/null); test -n "$$epoch" || epoch=0; printf '%s' "$$epoch")
 SOURCE_DATE_EPOCH ?= $(CDK2_SOURCE_DATE_EPOCH)
@@ -37,7 +39,8 @@ export SOURCE_DATE_EPOCH
 CDK2_CONFIG_TARGETS := build build-image check manifest metadata metadata-test modules native-stage \
 	native-coreboot-stage native-coreboot-image native-check native-pack \
 	native-service-test native-coreboot-test native-fv-test native-fvpack-test native-pe-test \
-	native-module-test native-elfcheck-test print
+	native-module-test native-elfcheck-test native-linux-efi-boot-test q35-linux-efi-check \
+	qemu-smmstore-cold-test print
 
 # The coreboot wrapper deliberately clears MAKEOVERRIDES before entering cdk2
 # so compiler variables cannot leak into the native build. Forward cdk2's own
@@ -60,7 +63,8 @@ CDK2_RECURSIVE_ARGS := \
 .PHONY: all build build-image config defconfig olddefconfig menuconfig prepare-kconfig check \
 	manifest metadata metadata-test modules native-stage native-coreboot-stage native-coreboot-image native-check \
 	native-pack native-service-test native-coreboot-test native-fv-test native-fvpack-test \
-	native-pe-test native-module-test native-elfcheck-test print clean
+	native-pe-test native-module-test native-elfcheck-test native-linux-efi-boot-test \
+	q35-linux-efi-check qemu-smmstore-cold-test print clean
 .DELETE_ON_ERROR: $(CDK2_CONFIG) $(CDK2_CONFIG_HEADER) $(CDK2_MANIFEST) $(CDK2_OUTPUT) $(CDK2_LINK_MANIFEST)
 
 all: build
@@ -110,8 +114,15 @@ $(CDK2_CONFIG_HEADER): $(CDK2_CONFIG)
 		awk ' \
 			/^CONFIG_[A-Za-z0-9_]+=y$$/ { print "#define " substr($$1, 1, length($$1) - 2) " 1"; next } \
 			/^CONFIG_[A-Za-z0-9_]+=n$$/ { print "#define " substr($$1, 1, length($$1) - 2) " 0"; next } \
-			/^# CONFIG_[A-Za-z0-9_]+ is not set$$/ { split($$2, name, " "); print "#define " name[1] " 0"; next } \
-			/^CONFIG_[A-Za-z0-9_]+=/ { split($$1, value, "="); print "#define " value[1] " " value[2]; next } \
+			/^# CONFIG_[A-Za-z0-9_]+ is not set$$/ { split($$2, disabled_name, " "); print "#define " disabled_name[1] " 0"; next } \
+			/^CONFIG_[A-Za-z0-9_]+=/ { \
+				config_name=$$0; \
+				sub(/=.*/, "", config_name); \
+				config_value=$$0; \
+				sub(/^[^=]*=/, "", config_value); \
+				print "#define " config_name " " config_value; \
+				next \
+			} \
 		' "$(CDK2_CONFIG)"; \
 		printf '%s\n' '#endif'; \
 	} > "$$tmp"; mv "$$tmp" "$@"
@@ -186,26 +197,64 @@ $(CDK2_MANIFEST): $(CDK2_CONFIG_HEADER) $(CDK2_BACKEND_FILE) $(CDK2_BACKEND_MANI
 modules:
 	@$(CDK2_BACKEND_PRINT_MODULES)
 
+qemu-smmstore-cold-test:
+	@$(PYTHON) "$(CDK2_DIR)/qemu_smmstore_cold_persistence_test.py"; status=$$?; \
+	test "$$status" -eq 0 || test "$$status" -eq 77
+
+q35-linux-efi-check:
+	@rm -rf "$(CDK2_Q35_LINUX_EFI_CHECK_DIR)"
+	@$(MAKE) --no-print-directory -f "$(CDK2_DIR)/Makefile" \
+		CDK2_BUILD_DIR="$(CDK2_Q35_LINUX_EFI_CHECK_DIR)" \
+		CDK2_CONFIG="$(CDK2_Q35_LINUX_EFI_CHECK_DIR)/.config" \
+		CDK2_CONFIG_HEADER="$(CDK2_Q35_LINUX_EFI_CHECK_DIR)/include/cdk2/config.h" \
+		CDK2_CONFIG_READY= \
+		CDK2_DEFCONFIG="$(CDK2_Q35_LINUX_EFI_DEFCONFIG)" config
+	@grep -Fx 'CONFIG_CDK2_LINUX_EFI_APPLICATION=y' \
+		"$(CDK2_Q35_LINUX_EFI_CHECK_DIR)/.config" >/dev/null
+	@grep -Fx 'CONFIG_CDK2_LINUX_EFI_APPLICATION_PATH="\\EFI\\Linux\\bzImage.efi"' \
+		"$(CDK2_Q35_LINUX_EFI_CHECK_DIR)/.config" >/dev/null
+	@grep -Fx 'CONFIG_CDK2_LINUX_EFI_APPLICATION_DESCRIPTION="Q35 Linux EFI"' \
+		"$(CDK2_Q35_LINUX_EFI_CHECK_DIR)/.config" >/dev/null
+	@grep -Fx '#define CONFIG_CDK2_LINUX_EFI_APPLICATION_PATH "\\EFI\\Linux\\bzImage.efi"' \
+		"$(CDK2_Q35_LINUX_EFI_CHECK_DIR)/include/cdk2/config.h" >/dev/null
+	@grep -Fx '#define CONFIG_CDK2_LINUX_EFI_APPLICATION_DESCRIPTION "Q35 Linux EFI"' \
+		"$(CDK2_Q35_LINUX_EFI_CHECK_DIR)/include/cdk2/config.h" >/dev/null
+	@$(MAKE) --no-print-directory -f "$(CDK2_DIR)/Makefile" \
+		CDK2_BUILD_DIR="$(CDK2_Q35_LINUX_EFI_CHECK_DIR)" \
+		CDK2_CONFIG="$(CDK2_Q35_LINUX_EFI_CHECK_DIR)/.config" \
+		CDK2_CONFIG_HEADER="$(CDK2_Q35_LINUX_EFI_CHECK_DIR)/include/cdk2/config.h" \
+		CDK2_CONFIG_READY= \
+		CDK2_DEFCONFIG="$(CDK2_Q35_LINUX_EFI_DEFCONFIG)" print \
+		> "$(CDK2_Q35_LINUX_EFI_CHECK_DIR)/print.txt"
+	@grep -F 'LINUX_EFI_APPLICATION_BOOT=TRUE' \
+		"$(CDK2_Q35_LINUX_EFI_CHECK_DIR)/print.txt" >/dev/null
+	@grep -F 'LINUX_EFI_APPLICATION_PATH=L"\\EFI\\Linux\\bzImage.efi"' \
+		"$(CDK2_Q35_LINUX_EFI_CHECK_DIR)/print.txt" >/dev/null
+	@grep -F 'LINUX_EFI_APPLICATION_DESCRIPTION=L"Q35 Linux EFI"' \
+		"$(CDK2_Q35_LINUX_EFI_CHECK_DIR)/print.txt" >/dev/null
+	@printf '%s\n' "cdk2 Q35 Linux EFI config: $(CDK2_Q35_LINUX_EFI_CHECK_DIR)"
+
 print:
-	@printf 'target=%s\n' '$(CDK2_TARGET)'
-	@printf 'backend=%s\n' '$(CDK2_BACKEND_NAME)'
-	@printf 'backend-file=%s\n' '$(CDK2_BACKEND_FILE)'
-	@printf 'backend-arches=%s\n' '$(CDK2_BACKEND_ARCHES)'
-	@printf 'backend-build-arch=%s\n' '$(CDK2_BACKEND_BUILD_ARCH)'
-	@printf 'config=%s\n' '$(CDK2_CONFIG)'
-	@printf 'config-header=%s\n' '$(CDK2_CONFIG_HEADER)'
-	@printf 'entry-image=%s\n' '$(CDK2_BACKEND_ENTRY_IMAGE)'
-	@printf 'dxe-fv=%s\n' '$(CDK2_BACKEND_DXE_FV)'
-	@printf 'fv-output=%s\n' '$(CDK2_OUTPUT)'
-	@printf 'direct-output=%s\n' '$(CDK2_DIRECT_OUTPUT)'
-	@printf 'descriptor=%s\n' '$(CDK2_BACKEND_DESCRIPTOR)'
-	@printf 'modules=%s\n' '$(CDK2_MANIFEST)'
-	@printf 'metadata=%s\n' '$(CDK2_BACKEND_METADATA)'
-	@printf 'link-manifest=%s\n' '$(CDK2_LINK_MANIFEST)'
-	@printf 'backend-ffs-list=%s\n' '$(CDK2_BACKEND_FFS_LIST)'
-	@printf 'backend-dxe-manifest=%s\n' '$(CDK2_BACKEND_DXE_MANIFEST)'
-	@printf 'source-date-epoch=%s\n' '$(SOURCE_DATE_EPOCH)'
-	@printf 'defines=%s\n' '$(CDK2_DEFINES)'
+	$(info target=$(CDK2_TARGET))
+	$(info backend=$(CDK2_BACKEND_NAME))
+	$(info backend-file=$(CDK2_BACKEND_FILE))
+	$(info backend-arches=$(CDK2_BACKEND_ARCHES))
+	$(info backend-build-arch=$(CDK2_BACKEND_BUILD_ARCH))
+	$(info config=$(CDK2_CONFIG))
+	$(info config-header=$(CDK2_CONFIG_HEADER))
+	$(info entry-image=$(CDK2_BACKEND_ENTRY_IMAGE))
+	$(info dxe-fv=$(CDK2_BACKEND_DXE_FV))
+	$(info fv-output=$(CDK2_OUTPUT))
+	$(info direct-output=$(CDK2_DIRECT_OUTPUT))
+	$(info descriptor=$(CDK2_BACKEND_DESCRIPTOR))
+	$(info modules=$(CDK2_MANIFEST))
+	$(info metadata=$(CDK2_BACKEND_METADATA))
+	$(info link-manifest=$(CDK2_LINK_MANIFEST))
+	$(info backend-ffs-list=$(CDK2_BACKEND_FFS_LIST))
+	$(info backend-dxe-manifest=$(CDK2_BACKEND_DXE_MANIFEST))
+	$(info source-date-epoch=$(SOURCE_DATE_EPOCH))
+	$(info defines=$(CDK2_DEFINES))
+	@true
 
 clean:
 	$(CDK2_BACKEND_CLEAN)

@@ -25,6 +25,31 @@ CAPSULE_GUID = "22222222-3333-4444-5555-666666666666"
 OVERRIDE_CAPSULE_GUID = "33333333-4444-5555-6666-777777777777"
 
 
+class Edk2BackendDscTests(unittest.TestCase):
+    def test_boot_logo_repaint_is_guarded_without_conout(self) -> None:
+        source = (
+            CDK2_DIR.parent
+            / "Library/PlatformBootManagerLib/PlatformBootManager.c"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("PlatformEnableBootLogo", source)
+        self.assertIn(
+            "if ((gST == NULL) ||\n"
+            "      (gST->ConOut == NULL) ||\n"
+            "      (gST->ConsoleOutHandle == NULL))",
+            source,
+        )
+        self.assertEqual(source.count("BootLogoEnableLogo ();"), 1)
+        self.assertIn(
+            "if ((gST != NULL) && (gST->ConOut != NULL)) {\n"
+            "      gST->ConOut->ClearScreen (gST->ConOut);\n"
+            "    }\n"
+            "\n"
+            "    PlatformEnableBootLogo ();",
+            source,
+        )
+
+
 class Edk2BackendDiscoverTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()

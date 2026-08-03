@@ -9,6 +9,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 
 #include "PlatformBootManager.h"
 #include "PlatformConsole.h"
+#include "PlatformLinuxEfiBoot.h"
 #include <Guid/AuthenticatedVariableFormat.h>
 #include <Guid/EventGroup.h>
 #include <Guid/GlobalVariable.h>
@@ -25,6 +26,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Protocol/FirmwareVolume2.h>
 #include <Protocol/PciIo.h>
 #include <Protocol/PlatformBootManager.h>
+#include <Protocol/SimpleFileSystem.h>
 #include <Protocol/Tcg2Protocol.h>
 
 #define PLATFORM_USB_MASS_STORAGE_CLASS  0x08
@@ -35,6 +37,13 @@ typedef struct {
   USB_CLASS_DEVICE_PATH       UsbClass;
   EFI_DEVICE_PATH_PROTOCOL    End;
 } USB_MASS_STORAGE_DEVICE_PATH;
+
+typedef enum {
+  PlatformBootDiscoveryInternalStorage,
+  PlatformBootDiscoveryUsbMassStorage,
+  PlatformBootDiscoveryRemovableMedia,
+  PlatformBootDiscoveryNetwork
+} PLATFORM_BOOT_DISCOVERY_TYPE;
 
 STATIC USB_MASS_STORAGE_DEVICE_PATH  mUsbMassStorageDevicePath = {
   {
@@ -890,6 +899,27 @@ Exit:
 
 STATIC
 VOID
+PlatformEnableBootLogo (
+  VOID
+  )
+{
+  if ((gST == NULL) ||
+      (gST->ConOut == NULL) ||
+      (gST->ConsoleOutHandle == NULL))
+  {
+    DEBUG ((
+      DEBUG_VERBOSE,
+      "%a: boot logo repaint skipped without ConOut\n",
+      __func__
+      ));
+    return;
+  }
+
+  BootLogoEnableLogo ();
+}
+
+STATIC
+VOID
 DisplayLowBatteryBootLogo (
   VOID
   )
@@ -943,7 +973,7 @@ DisplayPlatformBootLogo (
     gST->ConOut->ClearScreen (gST->ConOut);
   }
 
-  BootLogoEnableLogo ();
+  PlatformEnableBootLogo ();
 }
 
 STATIC
@@ -1608,6 +1638,322 @@ PlatformHasUsableStorageBootPath (
 }
 
 STATIC
+EFI_STATUS
+PlatformValidateLinuxEfiApplicationDevicePath (
+  IN EFI_DEVICE_PATH_PROTOCOL  *DevicePath
+  )
+{
+  EFI_STATUS                 Status;
+  EFI_STATUS                 UnloadStatus;
+  EFI_HANDLE                 ImageHandle;
+  EFI_LOADED_IMAGE_PROTOCOL  *LoadedImage;
+
+  if (DevicePath == NULL) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  ImageHandle = NULL;
+  LoadedImage = NULL;
+  Status      = gBS->LoadImage (
+                       TRUE,
+                       gImageHandle,
+                       DevicePath,
+                       NULL,
+                       0,
+                       &ImageHandle
+                       );
+  if (EFI_ERROR (Status)) {
+    if ((Status == EFI_SECURITY_VIOLATION) && (ImageHandle != NULL)) {
+      gBS->UnloadImage (ImageHandle);
+    }
+
+    return Status;
+  }
+
+  Status = gBS->HandleProtocol (
+                  ImageHandle,
+                  &gEfiLoadedImageProtocolGuid,
+                  (VOID **)&LoadedImage
+                  );
+  if (!EFI_ERROR (Status) && (LoadedImage->ImageCodeType != EfiLoaderCode)) {
+    Status = EFI_UNSUPPORTED;
+  }
+
+  UnloadStatus = gBS->UnloadImage (ImageHandle);
+  if (!EFI_ERROR (Status) && EFI_ERROR (UnloadStatus)) {
+    Status = UnloadStatus;
+  }
+
+  return Status;
+}
+
+STATIC
+EFI_STATUS
+PlatformBuildLinuxEfiDevicePathFromBootOption (
+  IN  CONST EFI_BOOT_MANAGER_LOAD_OPTION  *BootOption,
+  IN  CONST CHAR16                        *LinuxPath,
+  OUT EFI_DEVICE_PATH_PROTOCOL            **DevicePath
+  )
+{
+  EFI_STATUS                Status;
+  EFI_DEVICE_PATH_PROTOCOL  *BootDevicePath;
+  EFI_DEVICE_PATH_PROTOCOL  *RemainingDevicePath;
+  EFI_HANDLE                DeviceHandle;
+
+  if ((BootOption == NULL) || (LinuxPath == NULL) || (DevicePath == NULL)) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  *DevicePath = NULL;
+  if (!PlatformBootOptionUsesInternalDisk (BootOption)) {
+    return EFI_NOT_FOUND;
+  }
+
+  BootDevicePath = DuplicateDevicePath (BootOption->FilePath);
+  if (BootDevicePath == NULL) {
+    return EFI_OUT_OF_RESOURCES;
+  }
+
+  Status = EfiBootManagerConnectDevicePath (BootDevicePath, NULL);
+  if (!EFI_ERROR (Status)) {
+    RemainingDevicePath = BootDevicePath;
+    Status = gBS->LocateDevicePath (
+                    &gEfiSimpleFileSystemProtocolGuid,
+                    &RemainingDevicePath,
+                    &DeviceHandle
+                    );
+    if (!EFI_ERROR (Status)) {
+      *DevicePath = FileDevicePath (DeviceHandle, LinuxPath);
+      Status      = (*DevicePath == NULL) ? EFI_OUT_OF_RESOURCES : EFI_SUCCESS;
+    }
+  }
+
+  FreePool (BootDevicePath);
+  return Status;
+}
+
+STATIC
+EFI_STATUS
+PlatformFindLinuxEfiApplicationFromBootOptions (
+  IN  CONST CHAR16              *LinuxPath,
+  OUT EFI_DEVICE_PATH_PROTOCOL  **DevicePath
+  )
+{
+  EFI_STATUS                    Status;
+  EFI_STATUS                    LastStatus;
+  EFI_BOOT_MANAGER_LOAD_OPTION  *BootOptions;
+  EFI_DEVICE_PATH_PROTOCOL      *Candidate;
+  UINTN                         BootOptionCount;
+  UINTN                         Index;
+
+  if ((LinuxPath == NULL) || (DevicePath == NULL)) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  *DevicePath     = NULL;
+  BootOptions     = EfiBootManagerGetLoadOptions (&BootOptionCount, LoadOptionTypeBoot);
+  LastStatus      = EFI_NOT_FOUND;
+
+  for (Index = 0; Index < BootOptionCount; Index++) {
+    if ((BootOptions[Index].Attributes & LOAD_OPTION_ACTIVE) == 0) {
+      continue;
+    }
+
+    Candidate = NULL;
+    Status    = PlatformBuildLinuxEfiDevicePathFromBootOption (
+                  &BootOptions[Index],
+                  LinuxPath,
+                  &Candidate
+                  );
+    if (EFI_ERROR (Status)) {
+      LastStatus = Status;
+      continue;
+    }
+
+    Status = PlatformValidateLinuxEfiApplicationDevicePath (Candidate);
+    if (!EFI_ERROR (Status)) {
+      *DevicePath = Candidate;
+      EfiBootManagerFreeLoadOptions (BootOptions, BootOptionCount);
+      return EFI_SUCCESS;
+    }
+
+    LastStatus = Status;
+    FreePool (Candidate);
+  }
+
+  EfiBootManagerFreeLoadOptions (BootOptions, BootOptionCount);
+  return LastStatus;
+}
+
+STATIC
+EFI_STATUS
+PlatformFindLinuxEfiApplicationFromFileSystems (
+  IN  CONST CHAR16              *LinuxPath,
+  OUT EFI_DEVICE_PATH_PROTOCOL  **DevicePath
+  )
+{
+  EFI_STATUS                Status;
+  EFI_STATUS                LastStatus;
+  EFI_HANDLE                *Handles;
+  EFI_DEVICE_PATH_PROTOCOL  *Candidate;
+  UINTN                     HandleCount;
+  UINTN                     Index;
+
+  if ((LinuxPath == NULL) || (DevicePath == NULL)) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  *DevicePath = NULL;
+  Handles     = NULL;
+  HandleCount = 0;
+  Status      = gBS->LocateHandleBuffer (
+                       ByProtocol,
+                       &gEfiSimpleFileSystemProtocolGuid,
+                       NULL,
+                       &HandleCount,
+                       &Handles
+                       );
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  LastStatus = EFI_NOT_FOUND;
+  for (Index = 0; Index < HandleCount; Index++) {
+    Candidate = FileDevicePath (Handles[Index], LinuxPath);
+    if (Candidate == NULL) {
+      LastStatus = EFI_OUT_OF_RESOURCES;
+      continue;
+    }
+
+    Status = PlatformValidateLinuxEfiApplicationDevicePath (Candidate);
+    if (!EFI_ERROR (Status)) {
+      *DevicePath = Candidate;
+      FreePool (Handles);
+      return EFI_SUCCESS;
+    }
+
+    LastStatus = Status;
+    FreePool (Candidate);
+  }
+
+  FreePool (Handles);
+  return LastStatus;
+}
+
+STATIC
+EFI_STATUS
+PlatformFindLinuxEfiApplicationDevicePath (
+  IN  CONST CHAR16              *LinuxPath,
+  OUT EFI_DEVICE_PATH_PROTOCOL  **DevicePath
+  )
+{
+  EFI_STATUS  Status;
+  EFI_STATUS  BootOptionStatus;
+
+  if ((LinuxPath == NULL) || (DevicePath == NULL)) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  *DevicePath      = NULL;
+  BootOptionStatus = PlatformFindLinuxEfiApplicationFromBootOptions (
+                       LinuxPath,
+                       DevicePath
+                       );
+  if (!EFI_ERROR (BootOptionStatus)) {
+    return EFI_SUCCESS;
+  }
+
+  Status = PlatformFindLinuxEfiApplicationFromFileSystems (
+             LinuxPath,
+             DevicePath
+             );
+  if (!EFI_ERROR (Status)) {
+    return EFI_SUCCESS;
+  }
+
+  return (BootOptionStatus != EFI_NOT_FOUND) ? BootOptionStatus : Status;
+}
+
+STATIC
+VOID
+PlatformRegisterLinuxEfiApplicationBootOption (
+  VOID
+  )
+{
+  EFI_STATUS                    Status;
+  INTN                          OptionIndex;
+  EFI_BOOT_MANAGER_LOAD_OPTION  NewOption;
+  EFI_BOOT_MANAGER_LOAD_OPTION  *BootOptions;
+  EFI_DEVICE_PATH_PROTOCOL      *DevicePath;
+  CONST CHAR16                  *Description;
+  CONST CHAR16                  *LinuxPath;
+  UINTN                         BootOptionCount;
+
+  if (!FeaturePcdGet (PcdLinuxEfiApplicationBoot)) {
+    return;
+  }
+
+  LinuxPath   = (CONST CHAR16 *)PcdGetPtr (PcdLinuxEfiApplicationPath);
+  Description = (CONST CHAR16 *)PcdGetPtr (PcdLinuxEfiApplicationDescription);
+
+  Status = PlatformLinuxEfiBootValidatePath (LinuxPath);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "%a: invalid Linux EFI application path: %r\n", __func__, Status));
+    return;
+  }
+
+  Status = PlatformLinuxEfiBootValidateDescription (Description);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "%a: invalid Linux EFI application description: %r\n", __func__, Status));
+    return;
+  }
+
+  DevicePath = NULL;
+  Status     = PlatformFindLinuxEfiApplicationDevicePath (LinuxPath, &DevicePath);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((
+      DEBUG_INFO,
+      "%a: Linux EFI application %s unavailable: %r; using normal boot fallback\n",
+      __func__,
+      LinuxPath,
+      Status
+      ));
+    return;
+  }
+
+  Status = EfiBootManagerInitializeLoadOption (
+             &NewOption,
+             LoadOptionNumberUnassigned,
+             LoadOptionTypeBoot,
+             LOAD_OPTION_ACTIVE,
+             (CHAR16 *)Description,
+             DevicePath,
+             NULL,
+             0
+             );
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "%a: failed to initialize Linux EFI boot option: %r\n", __func__, Status));
+    FreePool (DevicePath);
+    return;
+  }
+
+  BootOptions = EfiBootManagerGetLoadOptions (&BootOptionCount, LoadOptionTypeBoot);
+  OptionIndex = PlatformFindLoadOption (&NewOption, BootOptions, BootOptionCount);
+  if (OptionIndex == -1) {
+    Status = EfiBootManagerAddLoadOptionVariable (&NewOption, 0);
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_ERROR, "%a: failed to register Linux EFI boot option: %r\n", __func__, Status));
+    } else {
+      DEBUG ((DEBUG_INFO, "%a: registered Linux EFI application boot option %s\n", __func__, LinuxPath));
+    }
+  }
+
+  EfiBootManagerFreeLoadOption (&NewOption);
+  EfiBootManagerFreeLoadOptions (BootOptions, BootOptionCount);
+  FreePool (DevicePath);
+}
+
+STATIC
 BOOLEAN
 PlatformPciControllerIsUsb (
   IN CONST UINT8  ClassCode[3]
@@ -1630,8 +1976,53 @@ PlatformPciControllerIsSdMmc (
 
 STATIC
 BOOLEAN
-PlatformConnectRemovableMedia (
-  VOID
+PlatformPciControllerIsInternalStorage (
+  IN CONST UINT8  ClassCode[3]
+  )
+{
+  if (ClassCode[2] != PCI_CLASS_MASS_STORAGE) {
+    return FALSE;
+  }
+
+  return (BOOLEAN)(
+                  (ClassCode[1] != PCI_CLASS_MASS_STORAGE_FLOPPY) &&
+                  (ClassCode[1] != PCI_CLASS_MASS_STORAGE_IPI)
+                  );
+}
+
+STATIC
+BOOLEAN
+PlatformPciControllerIsNetwork (
+  IN CONST UINT8  ClassCode[3]
+  )
+{
+  return (ClassCode[2] == PCI_CLASS_NETWORK);
+}
+
+STATIC
+CONST CHAR8 *
+PlatformBootDiscoveryName (
+  IN PLATFORM_BOOT_DISCOVERY_TYPE  DiscoveryType
+  )
+{
+  switch (DiscoveryType) {
+    case PlatformBootDiscoveryInternalStorage:
+      return "internal-storage";
+    case PlatformBootDiscoveryUsbMassStorage:
+      return "usb-mass-storage";
+    case PlatformBootDiscoveryRemovableMedia:
+      return "removable-media";
+    case PlatformBootDiscoveryNetwork:
+      return "network";
+    default:
+      return "unknown";
+  }
+}
+
+STATIC
+BOOLEAN
+PlatformConnectPciStorage (
+  IN PLATFORM_BOOT_DISCOVERY_TYPE  DiscoveryType
   )
 {
   EFI_STATUS           Status;
@@ -1640,6 +2031,7 @@ PlatformConnectRemovableMedia (
   UINTN                HandleCount;
   UINTN                Index;
   UINTN                Retry;
+  BOOLEAN              UsableBootPath;
   UINT8                ClassCode[3];
 
   Status = gBS->LocateHandleBuffer (
@@ -1650,9 +2042,21 @@ PlatformConnectRemovableMedia (
                   &Handles
                   );
   if (EFI_ERROR (Status)) {
-    DEBUG ((DEBUG_INFO, "No PCI handles available for removable-media discovery\n"));
+    DEBUG ((
+      DEBUG_INFO,
+      "No PCI handles available for %a discovery\n",
+      PlatformBootDiscoveryName (DiscoveryType)
+      ));
     EfiBootManagerRefreshAllBootOption ();
-    return PlatformHasUsableStorageBootPath ();
+    switch (DiscoveryType) {
+      case PlatformBootDiscoveryInternalStorage:
+        return PlatformHasUsableInternalBootPath ();
+      case PlatformBootDiscoveryUsbMassStorage:
+      case PlatformBootDiscoveryRemovableMedia:
+        return PlatformHasUsableStorageBootPath ();
+      default:
+        return FALSE;
+    }
   }
 
   for (Index = 0; Index < HandleCount; Index++) {
@@ -1666,33 +2070,89 @@ PlatformConnectRemovableMedia (
       continue;
     }
 
-    if (PlatformPciControllerIsUsb (ClassCode)) {
-      DEBUG ((DEBUG_INFO, "Connecting USB mass-storage paths on PCI controller\n"));
+    if (DiscoveryType == PlatformBootDiscoveryInternalStorage) {
+      if (!PlatformPciControllerIsInternalStorage (ClassCode)) {
+        continue;
+      }
+
+      DEBUG ((DEBUG_INFO, "Connecting internal storage paths on PCI controller\n"));
       gBS->ConnectController (
              Handles[Index],
              NULL,
-             (EFI_DEVICE_PATH_PROTOCOL *)&mUsbMassStorageDevicePath,
+             NULL,
              TRUE
              );
       continue;
     }
 
-    if (PlatformPciControllerIsSdMmc (ClassCode)) {
-      DEBUG ((DEBUG_INFO, "Connecting SD/MMC paths on PCI controller\n"));
+    if (DiscoveryType == PlatformBootDiscoveryNetwork) {
+      if (!PlatformPciControllerIsNetwork (ClassCode)) {
+        continue;
+      }
+
+      DEBUG ((DEBUG_INFO, "Connecting network boot paths on PCI controller\n"));
       gBS->ConnectController (
              Handles[Index],
              NULL,
              NULL,
              TRUE
              );
+      continue;
     }
+
+    if ((DiscoveryType == PlatformBootDiscoveryUsbMassStorage) ||
+        (DiscoveryType == PlatformBootDiscoveryRemovableMedia))
+    {
+      if (!PlatformPciControllerIsUsb (ClassCode)) {
+        if (DiscoveryType == PlatformBootDiscoveryUsbMassStorage) {
+          continue;
+        }
+      } else {
+        DEBUG ((DEBUG_INFO, "Connecting USB mass-storage paths on PCI controller\n"));
+        gBS->ConnectController (
+               Handles[Index],
+               NULL,
+               (EFI_DEVICE_PATH_PROTOCOL *)&mUsbMassStorageDevicePath,
+               TRUE
+               );
+        continue;
+      }
+    }
+
+    if (DiscoveryType != PlatformBootDiscoveryRemovableMedia) {
+      continue;
+    }
+
+    if (!PlatformPciControllerIsSdMmc (ClassCode)) {
+      continue;
+    }
+
+    DEBUG ((DEBUG_INFO, "Connecting SD/MMC paths on PCI controller\n"));
+    gBS->ConnectController (
+           Handles[Index],
+           NULL,
+           NULL,
+           TRUE
+           );
   }
 
   FreePool (Handles);
 
+  if (DiscoveryType == PlatformBootDiscoveryNetwork) {
+    EfiBootManagerRefreshAllBootOption ();
+    return TRUE;
+  }
+
   for (Retry = 0; Retry <= PLATFORM_REMOVABLE_REFRESH_RETRIES; Retry++) {
     EfiBootManagerRefreshAllBootOption ();
-    if (PlatformHasUsableStorageBootPath ()) {
+
+    if (DiscoveryType == PlatformBootDiscoveryInternalStorage) {
+      UsableBootPath = PlatformHasUsableInternalBootPath ();
+    } else {
+      UsableBootPath = PlatformHasUsableStorageBootPath ();
+    }
+
+    if (UsableBootPath) {
       return TRUE;
     }
 
@@ -1702,6 +2162,42 @@ PlatformConnectRemovableMedia (
   }
 
   return FALSE;
+}
+
+STATIC
+BOOLEAN
+PlatformConnectInternalStorage (
+  VOID
+  )
+{
+  return PlatformConnectPciStorage (PlatformBootDiscoveryInternalStorage);
+}
+
+STATIC
+BOOLEAN
+PlatformConnectUsbMassStorage (
+  VOID
+  )
+{
+  return PlatformConnectPciStorage (PlatformBootDiscoveryUsbMassStorage);
+}
+
+STATIC
+BOOLEAN
+PlatformConnectRemovableMedia (
+  VOID
+  )
+{
+  return PlatformConnectPciStorage (PlatformBootDiscoveryRemovableMedia);
+}
+
+STATIC
+BOOLEAN
+PlatformConnectNetworkBoot (
+  VOID
+  )
+{
+  return PlatformConnectPciStorage (PlatformBootDiscoveryNetwork);
 }
 
 /**
@@ -1772,7 +2268,7 @@ PlatformBootManagerBeforeConsole (
     Status = gBS->LocateProtocol (&gEdkiiPlatformLogoProtocolGuid, NULL, (VOID **)&PlatformLogo);
     if (!EFI_ERROR (Status) && (gST != NULL) && (gST->ConOut != NULL)) {
       gST->ConOut->ClearScreen (gST->ConOut);
-      BootLogoEnableLogo ();
+      PlatformEnableBootLogo ();
     }
 
     Status = ProcessCapsules ();
@@ -1833,15 +2329,22 @@ PlatformBootManagerAfterConsole (
     } else if (!PlatformHasUsableInternalBootPath ()) {
       DEBUG ((
         DEBUG_INFO,
-        "No usable internal boot path; discovering removable media\n"
+        "No usable internal boot path; discovering internal storage\n"
         ));
-      if (!PlatformConnectRemovableMedia ()) {
+      PlatformConnectInternalStorage ();
+
+      if (!PlatformHasUsableInternalBootPath ()) {
         DEBUG ((
           DEBUG_INFO,
-          "Targeted removable-media discovery produced no usable storage boot path; connecting all devices\n"
+          "No usable internal boot path; discovering USB mass-storage fallback\n"
           ));
-        EfiBootManagerConnectAll ();
-        EfiBootManagerRefreshAllBootOption ();
+        if (!PlatformConnectUsbMassStorage ()) {
+          DEBUG ((DEBUG_INFO, "No usable USB mass-storage boot path; discovering removable media\n"));
+          if (!PlatformConnectRemovableMedia ()) {
+            DEBUG ((DEBUG_INFO, "No usable removable boot path; discovering network boot paths\n"));
+            PlatformConnectNetworkBoot ();
+          }
+        }
       }
     } else {
       DEBUG ((
@@ -1889,6 +2392,8 @@ PlatformBootManagerAfterConsole (
   }
 
   DisplayPlatformBootLogo ();
+
+  PlatformRegisterLinuxEfiApplicationBootOption ();
 
   //
   // Register UEFI Shell
@@ -1975,8 +2480,11 @@ PlatformBootManagerWaitCallback (
 
   /* Clear text from screen once timeout expires */
   if (TimeoutRemain == 0) {
-    gST->ConOut->ClearScreen (gST->ConOut);
-    BootLogoEnableLogo ();
+    if ((gST != NULL) && (gST->ConOut != NULL)) {
+      gST->ConOut->ClearScreen (gST->ConOut);
+    }
+
+    PlatformEnableBootLogo ();
   }
   return;
 }

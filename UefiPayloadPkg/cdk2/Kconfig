@@ -47,6 +47,31 @@ config CDK2_CONNECT_ALL_DEVICES
       default selective policy connects the chosen internal path and falls
       back to removable media discovery only when needed.
 
+config CDK2_LINUX_EFI_APPLICATION
+    bool "Register a Linux EFI application boot option"
+    default n
+    depends on CDK2_STORAGE
+    help
+      Register a Boot#### option for a Linux kernel built as a UEFI
+      application. The image is probed with EFI LoadImage() before the option
+      is added; if the image is absent, not an EFI application, or rejected by
+      policy, cdk2 leaves the normal boot order unchanged.
+
+config CDK2_LINUX_EFI_APPLICATION_PATH
+    string "Linux EFI application path"
+    default "\\EFI\\Linux\\vmlinuz.efi"
+    depends on CDK2_LINUX_EFI_APPLICATION
+    help
+      Absolute path on the EFI system partition. Use UEFI backslashes, not
+      shell-style forward slashes or an FS0: prefix.
+
+config CDK2_LINUX_EFI_APPLICATION_DESCRIPTION
+    string "Linux EFI application boot description"
+    default "Linux EFI Application"
+    depends on CDK2_LINUX_EFI_APPLICATION
+    help
+      Description stored in the generated Boot#### option.
+
 config CDK2_ESRT
     bool "Include ESRT support"
     default y

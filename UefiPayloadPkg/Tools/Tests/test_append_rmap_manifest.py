@@ -39,10 +39,18 @@ class AppendRmapManifestTests(unittest.TestCase):
             AppendRmapManifest.build_manifest(["1234567890ABCDEFG"])
 
     def test_rejects_invalid_names(self):
-        for name in ("", "CORE BOOT", "EC\n"):
+        for name in ("CORE BOOT", "EC\n"):
             with self.subTest(name=name):
-                with self.assertRaisesRegex(ValueError, "invalid characters"):
+                with self.assertRaisesRegex(ValueError, "non-graphic"):
                     AppendRmapManifest.build_manifest([name])
+
+    def test_rejects_empty_name(self):
+        with self.assertRaisesRegex(ValueError, "must not be empty"):
+            AppendRmapManifest.build_manifest([""])
+
+    def test_rejects_non_ascii_name(self):
+        with self.assertRaisesRegex(ValueError, "not ASCII"):
+            AppendRmapManifest.build_manifest(["EC\N{SNOWMAN}"])
 
     def test_rejects_duplicate_names(self):
         with self.assertRaisesRegex(ValueError, "duplicated"):

@@ -26,6 +26,8 @@
   PlatformConsole.h
   PlatformBootManager.c
   PlatformBootManager.h
+  PlatformLinuxEfiBoot.c
+  PlatformLinuxEfiBoot.h
 
 [Packages]
   MdePkg/MdePkg.dec
@@ -81,6 +83,8 @@
   gEfiBatteryStatusProtocolGuid        ## CONSUMES
   gEfiTcg2ProtocolGuid                      ## CONSUMES
   gEdkiiPlatformBootManagerProtocolGuid     ## PRODUCES
+  gEfiLoadedImageProtocolGuid          ## CONSUMES
+  gEfiSimpleFileSystemProtocolGuid     ## CONSUMES
 
 [Pcd]
   gEfiMdePkgTokenSpaceGuid.PcdPlatformBootTimeOut
@@ -95,6 +99,9 @@
   gUefiPayloadPkgTokenSpaceGuid.PcdCdk2AntiTamperBoot
   gUefiPayloadPkgTokenSpaceGuid.PcdCdk2AntiTamperRequireTpmPpi
   gUefiPayloadPkgTokenSpaceGuid.PcdCdk2AntiTamperShutdownOnFailure
+  gUefiPayloadPkgTokenSpaceGuid.PcdLinuxEfiApplicationPath
+  gUefiPayloadPkgTokenSpaceGuid.PcdLinuxEfiApplicationDescription
 
 [FeaturePcd]
   gUefiPayloadPkgTokenSpaceGuid.PcdConnectAllDevices
+  gUefiPayloadPkgTokenSpaceGuid.PcdLinuxEfiApplicationBoot

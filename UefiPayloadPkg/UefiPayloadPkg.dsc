@@ -55,6 +55,9 @@
   DEFINE FSP_GOP_BASIC_HIDPI_WIDE_ASPECT_CAP_WIDTH   = 16
   DEFINE FSP_GOP_BASIC_HIDPI_WIDE_ASPECT_CAP_HEIGHT  = 9
   DEFINE CONNECT_ALL_DEVICES          = TRUE
+  DEFINE LINUX_EFI_APPLICATION_BOOT   = FALSE
+  DEFINE LINUX_EFI_APPLICATION_PATH   = L"\\EFI\\Linux\\vmlinuz.efi"
+  DEFINE LINUX_EFI_APPLICATION_DESCRIPTION = L"Linux EFI Application"
   DEFINE OPAL_PASSWORD_ENABLE         = FALSE
   DEFINE MEMORY_TYPE_EFI_ACPI_RECLAIM_MEMORY = 0x19
   DEFINE MEMORY_TYPE_INFORMATION_BIN_BASE = 0
@@ -808,6 +811,7 @@
   gUefiPayloadPkgTokenSpaceGuid.PcdFspGopBasicHiDpiWideAspectCapSupport|$(FSP_GOP_BASIC_HIDPI_WIDE_ASPECT_CAP_SUPPORT)
   gUefiPayloadPkgTokenSpaceGuid.PcdConnectAllDevices|$(CONNECT_ALL_DEVICES)
   gUefiPayloadPkgTokenSpaceGuid.PcdCbmemTimestamps|$(CBMEM_TIMESTAMPS)
+  gUefiPayloadPkgTokenSpaceGuid.PcdLinuxEfiApplicationBoot|$(LINUX_EFI_APPLICATION_BOOT)
   ## This PCD specified whether ACPI SDT protocol is installed.
   gEfiMdeModulePkgTokenSpaceGuid.PcdInstallAcpiSdtProtocol|TRUE
   gEfiMdeModulePkgTokenSpaceGuid.PcdHiiOsRuntimeSupport|FALSE
@@ -862,6 +866,8 @@
   gUefiPayloadPkgTokenSpaceGuid.PcdCdk2AntiTamperBoot|$(CDK2_ANTI_TAMPER_BOOT)
   gUefiPayloadPkgTokenSpaceGuid.PcdCdk2AntiTamperRequireTpmPpi|$(CDK2_ANTI_TAMPER_REQUIRE_TPM_PPI)
   gUefiPayloadPkgTokenSpaceGuid.PcdCdk2AntiTamperShutdownOnFailure|$(CDK2_ANTI_TAMPER_SHUTDOWN_ON_FAILURE)
+  gUefiPayloadPkgTokenSpaceGuid.PcdLinuxEfiApplicationPath|$(LINUX_EFI_APPLICATION_PATH)
+  gUefiPayloadPkgTokenSpaceGuid.PcdLinuxEfiApplicationDescription|$(LINUX_EFI_APPLICATION_DESCRIPTION)
 
   gUefiPayloadPkgTokenSpaceGuid.PcdBootManagerEscape|$(BOOT_MANAGER_ESCAPE)
 

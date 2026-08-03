@@ -155,6 +155,7 @@ DriverRunsAfterPreBootPolicy (
 {
   CHAR8  *Source;
   CHAR8  *BeforeConsole;
+  CHAR8  *ConnectConsoles;
   CHAR8  *DriverLoadOptions;
   CHAR8  *DriverProcessOptions;
   CHAR8  *ProcessLoadOptions;
@@ -177,6 +178,13 @@ DriverRunsAfterPreBootPolicy (
                            "ProcessLoadOptions (LoadOptions, LoadOptionCount);"
                            );
   UT_ASSERT_NOT_NULL (DriverProcessOptions);
+
+  ConnectConsoles = strstr (
+                      DriverLoadOptions,
+                      "EfiBootManagerConnectAllDefaultConsoles"
+                      );
+  UT_ASSERT_NOT_NULL (ConnectConsoles);
+  UT_ASSERT_TRUE (DriverProcessOptions < ConnectConsoles);
 
   ProcessLoadOptions = strstr (Source, "ProcessLoadOptions (");
   UT_ASSERT_NOT_NULL (ProcessLoadOptions);
