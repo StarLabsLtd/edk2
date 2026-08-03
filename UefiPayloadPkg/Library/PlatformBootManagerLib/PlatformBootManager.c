@@ -12,6 +12,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include "PlatformLinuxEfiBoot.h"
 #include <Guid/AuthenticatedVariableFormat.h>
 #include <Guid/EventGroup.h>
+#include <Guid/FileInfo.h>
 #include <Guid/GlobalVariable.h>
 #include <Guid/ImageAuthentication.h>
 #include <Guid/TcgPhysicalPresenceGuid.h>
@@ -24,10 +25,12 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Protocol/BatteryStatus.h>
 #include <Protocol/EsrtManagement.h>
 #include <Protocol/FirmwareVolume2.h>
+#include <Protocol/LoadedImage.h>
 #include <Protocol/PciIo.h>
 #include <Protocol/PlatformBootManager.h>
 #include <Protocol/SimpleFileSystem.h>
 #include <Protocol/Tcg2Protocol.h>
+#include <Protocol/TcgService.h>
 
 #define PLATFORM_USB_MASS_STORAGE_CLASS  0x08
 #define PLATFORM_REMOVABLE_REFRESH_RETRIES   10
@@ -1638,8 +1641,43 @@ PlatformHasUsableStorageBootPath (
 }
 
 STATIC
+BOOLEAN
+PlatformLinuxEfiPolicyProbeIsSafe (
+  VOID
+  )
+{
+  EFI_STATUS         Status;
+  EFI_TCG_PROTOCOL   *Tcg;
+  EFI_TCG2_PROTOCOL  *Tcg2;
+
+  Tcg2   = NULL;
+  Status = gBS->LocateProtocol (&gEfiTcg2ProtocolGuid, NULL, (VOID **)&Tcg2);
+  if (!EFI_ERROR (Status) && (Tcg2 != NULL)) {
+    DEBUG ((
+      DEBUG_INFO,
+      "%a: TCG2 protocol present; skipping Linux EFI policy probe to avoid measurement side effects\n",
+      __func__
+      ));
+    return FALSE;
+  }
+
+  Tcg    = NULL;
+  Status = gBS->LocateProtocol (&gEfiTcgProtocolGuid, NULL, (VOID **)&Tcg);
+  if (!EFI_ERROR (Status) && (Tcg != NULL)) {
+    DEBUG ((
+      DEBUG_INFO,
+      "%a: TCG protocol present; skipping Linux EFI policy probe to avoid measurement side effects\n",
+      __func__
+      ));
+    return FALSE;
+  }
+
+  return TRUE;
+}
+
+STATIC
 EFI_STATUS
-PlatformValidateLinuxEfiApplicationDevicePath (
+PlatformValidateLinuxEfiApplicationPolicy (
   IN EFI_DEVICE_PATH_PROTOCOL  *DevicePath
   )
 {
@@ -1650,6 +1688,10 @@ PlatformValidateLinuxEfiApplicationDevicePath (
 
   if (DevicePath == NULL) {
     return EFI_INVALID_PARAMETER;
+  }
+
+  if (!PlatformLinuxEfiPolicyProbeIsSafe ()) {
+    return EFI_SECURITY_VIOLATION;
   }
 
   ImageHandle = NULL;
@@ -1684,6 +1726,120 @@ PlatformValidateLinuxEfiApplicationDevicePath (
     Status = UnloadStatus;
   }
 
+  return Status;
+}
+
+STATIC
+EFI_STATUS
+PlatformValidateLinuxEfiApplicationDevicePath (
+  IN EFI_DEVICE_PATH_PROTOCOL  *DevicePath
+  )
+{
+  EFI_STATUS                CloseStatus;
+  EFI_STATUS                Status;
+  EFI_DEVICE_PATH_PROTOCOL  *FilePath;
+  EFI_DEVICE_PATH_PROTOCOL  *FilePathCursor;
+  EFI_FILE_PROTOCOL         *File;
+  EFI_FILE_INFO             *FileInfo;
+  VOID                      *FileBuffer;
+  UINTN                     FileInfoSize;
+  UINTN                     FileSize;
+  UINTN                     ReadSize;
+
+  if (DevicePath == NULL) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  FilePath = DuplicateDevicePath (DevicePath);
+  if (FilePath == NULL) {
+    return EFI_OUT_OF_RESOURCES;
+  }
+
+  FilePathCursor = FilePath;
+  File           = NULL;
+  FileInfo       = NULL;
+  FileBuffer     = NULL;
+
+  Status = EfiOpenFileByDevicePath (
+             &FilePathCursor,
+             &File,
+             EFI_FILE_MODE_READ,
+             0
+             );
+  if (EFI_ERROR (Status)) {
+    goto Done;
+  }
+
+  if (!IsDevicePathEnd (FilePathCursor)) {
+    Status = EFI_UNSUPPORTED;
+    goto Done;
+  }
+
+  FileInfoSize = 0;
+  Status       = File->GetInfo (File, &gEfiFileInfoGuid, &FileInfoSize, NULL);
+  if (Status != EFI_BUFFER_TOO_SMALL) {
+    Status = EFI_ERROR (Status) ? Status : EFI_DEVICE_ERROR;
+    goto Done;
+  }
+
+  FileInfo = AllocatePool (FileInfoSize);
+  if (FileInfo == NULL) {
+    Status = EFI_OUT_OF_RESOURCES;
+    goto Done;
+  }
+
+  Status = File->GetInfo (File, &gEfiFileInfoGuid, &FileInfoSize, FileInfo);
+  if (EFI_ERROR (Status)) {
+    goto Done;
+  }
+
+  if (((FileInfo->Attribute & EFI_FILE_DIRECTORY) != 0) ||
+      (FileInfo->FileSize == 0) ||
+      (FileInfo->FileSize > MAX_UINTN))
+  {
+    Status = EFI_UNSUPPORTED;
+    goto Done;
+  }
+
+  FileSize   = (UINTN)FileInfo->FileSize;
+  FileBuffer = AllocatePool (FileSize);
+  if (FileBuffer == NULL) {
+    Status = EFI_OUT_OF_RESOURCES;
+    goto Done;
+  }
+
+  ReadSize = FileSize;
+  Status   = File->Read (File, &ReadSize, FileBuffer);
+  if (EFI_ERROR (Status)) {
+    goto Done;
+  }
+
+  if (ReadSize != FileSize) {
+    Status = EFI_DEVICE_ERROR;
+    goto Done;
+  }
+
+  Status = PlatformBootImageIsValid (FileBuffer, FileSize) ?
+           PlatformValidateLinuxEfiApplicationPolicy (DevicePath) :
+           EFI_UNSUPPORTED;
+
+Done:
+  if (FileBuffer != NULL) {
+    FreePool (FileBuffer);
+  }
+
+  if (FileInfo != NULL) {
+    FreePool (FileInfo);
+  }
+
+  if (File != NULL) {
+    CloseStatus = File->Close (File);
+    if (!EFI_ERROR (Status) && EFI_ERROR (CloseStatus)) {
+      Status = CloseStatus;
+    }
+  }
+
+  FreePool (FilePath);
   return Status;
 }
 

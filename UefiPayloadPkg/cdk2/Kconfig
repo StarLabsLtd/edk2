@@ -53,9 +53,14 @@ config CDK2_LINUX_EFI_APPLICATION
     depends on CDK2_STORAGE
     help
       Register a Boot#### option for a Linux kernel built as a UEFI
-      application. The image is probed with EFI LoadImage() before the option
-      is added; if the image is absent, not an EFI application, or rejected by
-      policy, cdk2 leaves the normal boot order unchanged.
+      application. The image is checked for a valid EFI application header,
+      then probed with EFI LoadImage() before the option is added so firmware
+      image policy is applied. If the image is absent, not an EFI application,
+      or rejected by policy, cdk2 leaves the normal boot order unchanged.
+
+      If a TCG or TCG2 measured-boot protocol is present, cdk2 leaves the normal
+      boot order unchanged because probing firmware image policy would measure
+      the candidate before it is actually selected for boot.
 
 config CDK2_LINUX_EFI_APPLICATION_PATH
     string "Linux EFI application path"

@@ -65,6 +65,7 @@
   gEfiEventReadyToBootGuid
   gEfiSecureBootEnableDisableGuid
   gEfiCustomModeEnableGuid
+  gEfiFileInfoGuid                           ## SOMETIMES_CONSUMES ## GUID
   gEfiGlobalVariableGuid
   gEfiTcgPhysicalPresenceInfoHobGuid
   gUefiShellFileGuid
@@ -81,6 +82,7 @@
   gEfiPciRootBridgeIoProtocolGuid
   gEfiPciIoProtocolGuid
   gEfiBatteryStatusProtocolGuid        ## CONSUMES
+  gEfiTcgProtocolGuid                       ## SOMETIMES_CONSUMES
   gEfiTcg2ProtocolGuid                      ## CONSUMES
   gEdkiiPlatformBootManagerProtocolGuid     ## PRODUCES
   gEfiLoadedImageProtocolGuid          ## CONSUMES

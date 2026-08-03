@@ -8,7 +8,6 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #pragma once
 
 #include <PiDxe.h>
-#include <Protocol/LoadedImage.h>
 #include <Protocol/GraphicsOutput.h>
 #include <Protocol/HiiFont.h>
 
