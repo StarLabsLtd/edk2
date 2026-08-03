@@ -281,34 +281,6 @@ FmapNameIsValid (
   return FALSE;
 }
 
-STATIC
-BOOLEAN
-RegionManifestNameIsValid (
-  IN CONST CHAR8  Name[REGION_MANIFEST_NAME_LEN]
-  )
-{
-  UINTN    Index;
-  BOOLEAN  SeenTerminator;
-
-  SeenTerminator = FALSE;
-  for (Index = 0; Index < REGION_MANIFEST_NAME_LEN; ++Index) {
-    if (Name[Index] == '\0') {
-      if (Index == 0) {
-        return FALSE;
-      }
-
-      SeenTerminator = TRUE;
-      continue;
-    }
-
-    if (SeenTerminator || !FmapIsGraph (Name[Index])) {
-      return FALSE;
-    }
-  }
-
-  return TRUE;
-}
-
 /**
   This function requests firmware information on the first call, caches it and
   returns on all calls afterwards.
@@ -1673,74 +1645,6 @@ UpdateFlashRangeFromImage (
   return EFI_SUCCESS;
 }
 
-STATIC
-EFI_STATUS
-GetFlashRangeStepCount (
-  IN  UINTN  RangeOffset,
-  IN  UINTN  RangeSize,
-  IN  UINTN  BlockSize,
-  OUT UINTN  *StepCount
-  )
-{
-  UINTN  FirstBlock;
-  UINTN  LastBlock;
-  UINTN  BlockCount;
-
-  if ((BlockSize == 0) || (RangeSize == 0) || (StepCount == NULL)) {
-    return EFI_INVALID_PARAMETER;
-  }
-
-  if (RangeOffset > (MAX_UINTN - (RangeSize - 1))) {
-    return EFI_BAD_BUFFER_SIZE;
-  }
-
-  FirstBlock = RangeOffset / BlockSize;
-  LastBlock  = (RangeOffset + RangeSize - 1) / BlockSize;
-  BlockCount = LastBlock - FirstBlock + 1;
-  if (BlockCount > (MAX_UINTN / 2)) {
-    return EFI_BAD_BUFFER_SIZE;
-  }
-
-  *StepCount = BlockCount * 2;
-  return EFI_SUCCESS;
-}
-
-STATIC
-BOOLEAN
-FlashRangesOverlap (
-  IN UINTN  FirstOffset,
-  IN UINTN  FirstSize,
-  IN UINTN  SecondOffset,
-  IN UINTN  SecondSize
-  )
-{
-  UINTN  FirstEnd;
-  UINTN  SecondEnd;
-
-  if ((FirstSize == 0) || (SecondSize == 0)) {
-    return FALSE;
-  }
-
-  if ((FirstOffset > (MAX_UINTN - FirstSize)) ||
-      (SecondOffset > (MAX_UINTN - SecondSize)))
-  {
-    return TRUE;
-  }
-
-  FirstEnd  = FirstOffset + FirstSize;
-  SecondEnd = SecondOffset + SecondSize;
-  return (FirstOffset < SecondEnd) && (SecondOffset < FirstEnd);
-}
-
-STATIC
-BOOLEAN
-ShouldDisableVariableServices (
-  IN BOOLEAN  VariableStorePreserved
-  )
-{
-  return !VariableStorePreserved;
-}
-
 /**
   This code finds variable in storage blocks (Volatile or Non-Volatile).
 
@@ -2085,18 +1989,6 @@ FmpDeviceSetImageWithStatus (
         DEBUG ((DEBUG_ERROR, "%a(): invalid manifest region '%a'\n", __func__, RegionName));
         return EFI_ABORTED;
       }
-
-      Status = GetFlashRangeStepCount (RegionOffset, RegionSize, BlockSize, &RangeSteps);
-      if (EFI_ERROR (Status) || (TotalSteps > (MAX_UINTN - RangeSteps))) {
-        DEBUG ((DEBUG_ERROR, "%a(): invalid progress range for manifest region\n", __func__));
-        return EFI_ABORTED;
-      }
-
-      TotalSteps += RangeSteps;
-    }
-
-    if (TotalSteps == 0) {
-      return EFI_ABORTED;
     }
   } else {
     //
