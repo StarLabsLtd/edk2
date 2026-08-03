@@ -16,6 +16,7 @@
 #define CDK2_COREBOOT_4GB  0x100000000ULL
 
 #define CDK2_COREBOOT_PCI_MAX_BAR                     6U
+#define CDK2_COREBOOT_PRH_MEMORY_POLICY_MAX_COUNT     1024U
 #define CDK2_COREBOOT_PRH_PCI_ASSIGNMENT_MAX_COUNT    256U
 #define CDK2_COREBOOT_PRH_MEMORY_AUTHORITATIVE_FLAGS  \
   (CB_PRH_MEMORY_CACHE_AUTHORITATIVE |                \
@@ -436,7 +437,6 @@ Cdk2CorebootMemoryPolicyCoversRangeByOwnerFlags (
   UINT64                               EntryBase;
   UINT64                               EntryLength;
   UINT64                               EntryEnd;
-  BOOLEAN                              Advanced;
   UINTN                                Index;
 
   if ((Record == NULL) || (Section == NULL) ||
@@ -451,25 +451,13 @@ Cdk2CorebootMemoryPolicyCoversRangeByOwnerFlags (
 
   SectionBase = (CONST UINT8 *)Record + Section->offset;
   Covered     = Base;
+  Index       = 0;
   while (Covered < RangeEnd) {
-    Advanced = FALSE;
-    for (Index = 0; Index < Section->entry_count; Index++) {
+    for (; Index < Section->entry_count; Index++) {
       Entry = (CONST struct cb_prh_memory_policy_entry *)(CONST VOID *)(
                                                               SectionBase +
                                                               Index * Section->entry_size
                                                               );
-      if (RequireAllOwnerFlags) {
-        if ((Entry->owner_flags & RequiredOwnerFlags) != RequiredOwnerFlags) {
-          continue;
-        }
-      } else if ((Entry->owner_flags & RequiredOwnerFlags) == 0) {
-        continue;
-      }
-
-      if (RequireGcdType && (Entry->gcd_type != GcdType)) {
-        continue;
-      }
-
       EntryBase = Cdk2CorebootUnpack64At (
                     Entry,
                     OFFSET_OF (struct cb_prh_memory_policy_entry, base)
@@ -482,14 +470,32 @@ Cdk2CorebootMemoryPolicyCoversRangeByOwnerFlags (
         return FALSE;
       }
 
-      if ((EntryBase <= Covered) && (EntryEnd > Covered)) {
-        Covered  = (EntryEnd < RangeEnd) ? EntryEnd : RangeEnd;
-        Advanced = TRUE;
-        break;
+      if (EntryEnd <= Covered) {
+        continue;
       }
+
+      if (EntryBase > Covered) {
+        return FALSE;
+      }
+
+      if (RequireAllOwnerFlags) {
+        if ((Entry->owner_flags & RequiredOwnerFlags) != RequiredOwnerFlags) {
+          return FALSE;
+        }
+      } else if ((Entry->owner_flags & RequiredOwnerFlags) == 0) {
+        return FALSE;
+      }
+
+      if (RequireGcdType && (Entry->gcd_type != GcdType)) {
+        return FALSE;
+      }
+
+      Covered = (EntryEnd < RangeEnd) ? EntryEnd : RangeEnd;
+      Index++;
+      break;
     }
 
-    if (!Advanced) {
+    if ((Index == Section->entry_count) && (Covered < RangeEnd)) {
       return FALSE;
     }
   }
@@ -716,6 +722,10 @@ Cdk2CorebootValidateMemoryPolicySection (
              );
   if (EFI_ERROR (Status)) {
     return Status;
+  }
+
+  if (Section->entry_count > CDK2_COREBOOT_PRH_MEMORY_POLICY_MAX_COUNT) {
+    return EFI_COMPROMISED_DATA;
   }
 
   Base        = (CONST UINT8 *)Record + Section->offset;
@@ -1023,6 +1033,136 @@ Cdk2CorebootVariableMtrrDecode (
 
 STATIC
 BOOLEAN
+Cdk2CorebootMergeVariableMtrrTypes (
+  IN  UINT8  First,
+  IN  UINT8  Second,
+  OUT UINT8  *Merged
+  )
+{
+  if (Merged == NULL) {
+    return FALSE;
+  }
+
+  if (First == Second) {
+    *Merged = First;
+    return TRUE;
+  }
+
+  if ((First == CDK2_COREBOOT_MTRR_TYPE_UC) ||
+      (Second == CDK2_COREBOOT_MTRR_TYPE_UC))
+  {
+    *Merged = CDK2_COREBOOT_MTRR_TYPE_UC;
+    return TRUE;
+  }
+
+  if (((First == CDK2_COREBOOT_MTRR_TYPE_WB) &&
+       (Second == CDK2_COREBOOT_MTRR_TYPE_WT)) ||
+      ((First == CDK2_COREBOOT_MTRR_TYPE_WT) &&
+       (Second == CDK2_COREBOOT_MTRR_TYPE_WB)))
+  {
+    *Merged = CDK2_COREBOOT_MTRR_TYPE_WT;
+    return TRUE;
+  }
+
+  return FALSE;
+}
+
+STATIC
+BOOLEAN
+Cdk2CorebootEffectiveMtrrTypeAt (
+  IN CONST struct cb_prh_x86_cache_state       *CacheState,
+  IN CONST struct cb_payload_resource_section  *CacheSection,
+  IN UINT64                                     MtrrAddressMask,
+  IN UINT8                                      DefaultType,
+  IN UINT64                                     Address,
+  IN UINT64                                     Limit,
+  OUT UINT8                                    *EffectiveType,
+  OUT UINT64                                   *NextAddress
+  )
+{
+  CONST struct cb_prh_x86_variable_mtrr  *VariableMtrr;
+  CONST UINT8                            *VariableBase;
+  UINT64                                  VariableBaseAddress;
+  UINT64                                  VariableLength;
+  UINT64                                  VariableEnd;
+  UINT64                                  Next;
+  UINT8                                   CurrentType;
+  UINT8                                   VariableType;
+  BOOLEAN                                 Active;
+  BOOLEAN                                 Matched;
+  UINTN                                   Index;
+
+  if ((CacheState == NULL) || (CacheSection == NULL) ||
+      (EffectiveType == NULL) || (NextAddress == NULL) ||
+      (Address >= Limit))
+  {
+    return FALSE;
+  }
+
+  CurrentType  = DefaultType;
+  Matched      = FALSE;
+  Next         = Limit;
+  VariableBase = (CONST UINT8 *)(CacheState + 1);
+  for (Index = 0; Index < CacheSection->entry_count; Index++) {
+    VariableMtrr = (CONST struct cb_prh_x86_variable_mtrr *)(CONST VOID *)(
+                                                                    VariableBase +
+                                                                    Index * CacheSection->entry_size
+                                                                    );
+    if (!Cdk2CorebootVariableMtrrDecode (
+           VariableMtrr,
+           MtrrAddressMask,
+           &Active,
+           &VariableType,
+           &VariableBaseAddress,
+           &VariableLength
+           ))
+    {
+      return FALSE;
+    }
+
+    if (!Active) {
+      continue;
+    }
+
+    if (!Cdk2CorebootU64RangeEnd (VariableBaseAddress, VariableLength, &VariableEnd)) {
+      return FALSE;
+    }
+
+    if (Address < VariableBaseAddress) {
+      if (VariableBaseAddress < Next) {
+        Next = VariableBaseAddress;
+      }
+
+      continue;
+    }
+
+    if (Address >= VariableEnd) {
+      continue;
+    }
+
+    if (VariableEnd < Next) {
+      Next = VariableEnd;
+    }
+
+    if (!Matched) {
+      CurrentType = VariableType;
+      Matched     = TRUE;
+    } else if (!Cdk2CorebootMergeVariableMtrrTypes (CurrentType, VariableType, &CurrentType)) {
+      return FALSE;
+    }
+  }
+
+  if (Next <= Address) {
+    return FALSE;
+  }
+
+  *EffectiveType = CurrentType;
+  *NextAddress   = Next;
+  return TRUE;
+}
+
+STATIC
+BOOLEAN
 Cdk2CorebootCacheRangeCoveredByMtrr (
   IN CONST struct cb_payload_resource_handoff *Record,
   IN CONST struct cb_payload_resource_section *CacheSection,
@@ -1033,19 +1173,12 @@ Cdk2CorebootCacheRangeCoveredByMtrr (
   )
 {
   CONST struct cb_prh_x86_cache_state    *CacheState;
-  CONST struct cb_prh_x86_variable_mtrr  *VariableMtrr;
-  CONST UINT8                            *VariableBase;
   UINT64                                  DefaultTypeMsr;
   UINT64                                  MtrrAddressMask;
   UINT64                                  RangeEnd;
   UINT64                                  Covered;
-  UINT64                                  VariableBaseAddress;
-  UINT64                                  VariableLength;
-  UINT64                                  VariableEnd;
-  BOOLEAN                                 Active;
-  BOOLEAN                                 Advanced;
-  UINT8                                   VariableType;
-  UINTN                                   Index;
+  UINT64                                  Next;
+  UINT8                                   EffectiveType;
 
   if (!Cdk2CorebootU64RangeEnd (Base, Length, &RangeEnd)) {
     return FALSE;
@@ -1074,82 +1207,27 @@ Cdk2CorebootCacheRangeCoveredByMtrr (
     return FALSE;
   }
 
-  VariableBase = (CONST UINT8 *)(CacheState + 1);
-  for (Index = 0; Index < CacheSection->entry_count; Index++) {
-    VariableMtrr = (CONST struct cb_prh_x86_variable_mtrr *)(CONST VOID *)(
-                                                                    VariableBase +
-                                                                    Index * CacheSection->entry_size
-                                                                    );
-    if (!Cdk2CorebootVariableMtrrDecode (
-           VariableMtrr,
+  Covered = Base;
+  while (Covered < RangeEnd) {
+    if (!Cdk2CorebootEffectiveMtrrTypeAt (
+           CacheState,
+           CacheSection,
            MtrrAddressMask,
-           &Active,
-           &VariableType,
-           &VariableBaseAddress,
-           &VariableLength
+           DefaultType,
+           Covered,
+           RangeEnd,
+           &EffectiveType,
+           &Next
            ))
     {
       return FALSE;
     }
 
-    if (!Active) {
-      continue;
-    }
-
-    if ((VariableType != Type) &&
-        Cdk2CorebootU64RangesOverlap (Base, Length, VariableBaseAddress, VariableLength))
-    {
+    if (EffectiveType != Type) {
       return FALSE;
     }
-  }
 
-  Covered = Base;
-  while (Covered < RangeEnd) {
-    Advanced = FALSE;
-    for (Index = 0; Index < CacheSection->entry_count; Index++) {
-      VariableMtrr = (CONST struct cb_prh_x86_variable_mtrr *)(CONST VOID *)(
-                                                                      VariableBase +
-                                                                      Index * CacheSection->entry_size
-                                                                      );
-      if (!Cdk2CorebootVariableMtrrDecode (
-             VariableMtrr,
-             MtrrAddressMask,
-             &Active,
-             &VariableType,
-             &VariableBaseAddress,
-             &VariableLength
-             ))
-      {
-        return FALSE;
-      }
-
-      if (!Active || VariableType != Type) {
-        continue;
-      }
-
-      if (!Cdk2CorebootU64RangeEnd (VariableBaseAddress, VariableLength, &VariableEnd)) {
-        return FALSE;
-      }
-
-      if ((VariableBaseAddress <= Covered) && (VariableEnd > Covered)) {
-        Covered  = (VariableEnd < RangeEnd) ? VariableEnd : RangeEnd;
-        Advanced = TRUE;
-        break;
-      }
-    }
-
-    if (!Advanced &&
-        (DefaultType == Type) &&
-        (((CacheState->flags & CB_PRH_X86_CACHE_FLAG_FIXED_VALID) == 0) ||
-         (Covered >= CDK2_COREBOOT_1MB)))
-    {
-      Covered  = RangeEnd;
-      Advanced = TRUE;
-    }
-
-    if (!Advanced) {
-      return FALSE;
-    }
+    Covered = Next;
   }
 
   return TRUE;

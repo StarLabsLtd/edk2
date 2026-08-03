@@ -21,6 +21,8 @@
 #define TEST_TEMP_MAP_LIMIT   0x2000000000ULL
 #define TEST_HOB_ALIGN8(Size)  (((Size) + 7U) & ~(UINTN)7U)
 #define TEST_PRH_UNKNOWN_SECTION  0x7fffU
+#define TEST_PRH_COUNT_LIMIT_EXCESS  257U
+#define TEST_PRH_MEMORY_POLICY_LIMIT_EXCESS  1025U
 
 #if defined (__GNUC__)
 static UINT8  mTransferHobStorage[EFI_PAGE_SIZE] __attribute__ ((aligned (EFI_PAGE_SIZE)));
@@ -81,6 +83,7 @@ typedef enum {
   TestPrhMemoryZeroLength,
   TestPrhMemoryWrap,
   TestPrhMemoryOverlap,
+  TestPrhMemoryPolicyLimit,
   TestPrhCacheCountMismatch,
   TestPrhMissingLifetime,
   TestPrhMemoryProtectionNoPaging,
@@ -122,6 +125,7 @@ typedef enum {
   TestPrhCacheExtendedMtrrEntries,
   TestPrhCacheBadDefaultType,
   TestPrhCacheDefaultTypeCoverage,
+  TestPrhCacheOverlapPrecedence,
   TestPrhPciRootMem32Above4GB,
   TestPrhUnknownDuplicateOptional,
   TestPrhMemoryOemOsType,
@@ -349,7 +353,8 @@ BuildPayloadResourceHandoffTable (
   PayloadOffset      = Prh->header_length + SectionCount * Prh->section_header_length;
   Payload            = (UINT8 *)Prh + PayloadOffset;
 
-  MemoryEntryCount          = (Fixture == TestPrhMemorySplitCoverage) ? 3U : 2U;
+  MemoryEntryCount          = (Fixture == TestPrhMemoryPolicyLimit) ? TEST_PRH_MEMORY_POLICY_LIMIT_EXCESS :
+                              ((Fixture == TestPrhMemorySplitCoverage) ? 3U : 2U);
   Sections[0].type          = CB_PRH_SECTION_MEMORY_POLICY;
   Sections[0].flags         = CB_PRH_SECTION_FLAG_AUTHORITATIVE;
   Sections[0].header_length = sizeof (Sections[0]);
@@ -532,6 +537,13 @@ BuildPayloadResourceHandoffTable (
     VariableMtrr = (struct cb_prh_x86_variable_mtrr *)(VOID *)(CacheState + 1);
     PackCbUint64At (CacheState, OFFSET_OF (struct cb_prh_x86_cache_state, mtrr_default_type_msr), 0x806ULL);
     PackCbUint64At (VariableMtrr, OFFSET_OF (struct cb_prh_x86_variable_mtrr, phys_mask_msr), 0);
+  } else if (Fixture == TestPrhCacheOverlapPrecedence) {
+    VariableMtrr = (struct cb_prh_x86_variable_mtrr *)(VOID *)(CacheState + 1);
+    PackCbUint64At (
+      VariableMtrr,
+      OFFSET_OF (struct cb_prh_x86_variable_mtrr, phys_mask_msr),
+      0x000fffff00000000ULL | BIT11
+      );
   } else if (Fixture == TestPrhCacheRangeBeyondPhysicalBits) {
     VariableMtrr = (struct cb_prh_x86_variable_mtrr *)(VOID *)(CacheState + 1);
     PackCbUint64At (CacheState, OFFSET_OF (struct cb_prh_x86_cache_state, mtrr_default_type_msr), 0x806ULL);
@@ -1072,6 +1084,15 @@ main (
                 "default-MTRR payload-resource record was not accepted"
                 );
 
+  TableSize = BuildPayloadResourceHandoffTable (Storage, sizeof (Storage), TestPrhCacheOverlapPrecedence);
+  Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);
+  Failures += Expect (Status == EFI_SUCCESS, "overlapping-MTRR payload-resource table rejected");
+  Failures += Expect (
+                Handoff.PayloadResourceHandoffStatus == EFI_SUCCESS &&
+                Handoff.PayloadResourceHandoff != NULL,
+                "overlapping-MTRR payload-resource record was not accepted"
+                );
+
   TableSize = BuildPayloadResourceHandoffTable (Storage, sizeof (Storage), TestPrhCache4KVariableMtrr);
   Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);
   Failures += Expect (Status == EFI_SUCCESS, "4K-MTRR payload-resource table rejected");
@@ -1319,6 +1340,15 @@ main (
                 Handoff.PayloadResourceHandoffStatus == EFI_COMPROMISED_DATA &&
                 Handoff.PayloadResourceHandoff == NULL,
                 "overlapping payload-resource memory ranges were accepted"
+                );
+
+  TableSize = BuildPayloadResourceHandoffTable (mLargeTestStorage, sizeof (mLargeTestStorage), TestPrhMemoryPolicyLimit);
+  Status = Cdk2CorebootParseTable (mLargeTestStorage, TableSize, &Handoff);
+  Failures += Expect (Status == EFI_SUCCESS, "oversized payload-resource memory policy rejected the whole table");
+  Failures += Expect (
+                Handoff.PayloadResourceHandoffStatus == EFI_COMPROMISED_DATA &&
+                Handoff.PayloadResourceHandoff == NULL,
+                "oversized payload-resource memory policy was accepted"
                 );
 
   TableSize = BuildPayloadResourceHandoffTable (Storage, sizeof (Storage), TestPrhCacheCountMismatch);
