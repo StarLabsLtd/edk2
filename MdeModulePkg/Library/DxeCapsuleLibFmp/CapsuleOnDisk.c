@@ -2704,13 +2704,17 @@ EXIT:
 
   @param[in]    MaxRetry             Max Connection Retry. Stall 100ms between each connection try to ensure
                                      devices like USB can get enumerated.
+  @param[in]    RestoreBootNext      Whether BootNext should be restored before UpdateCapsule().
+  @param[out]   BootNextRestored     Set to TRUE after BootNext is restored.
 
   @retval EFI_SUCCESS   Deliver capsule through Capsule In Ram successfully.
 
 **/
 EFI_STATUS
 RelocateCapsuleToRam (
-  UINTN  MaxRetry
+  IN  UINTN    MaxRetry,
+  IN  BOOLEAN  RestoreBootNext,
+  OUT BOOLEAN  *BootNextRestored
   )
 {
   EFI_STATUS                    Status;
@@ -2727,6 +2731,12 @@ RelocateCapsuleToRam (
   UINTN                         TotalStringSize;
   UINTN                         CapsulesToProcess;
 
+  if (BootNextRestored == NULL) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  *BootNextRestored = FALSE;
+
   CapsuleOnDiskBuf = NULL;
   BlockDescriptors = NULL;
   CapsuleBuffer    = NULL;
@@ -2742,6 +2752,17 @@ RelocateCapsuleToRam (
     DEBUG ((DEBUG_ERROR, "CoDGetAll Status - 0x%x\n", Status));
     CoDFreeImages (CapsuleOnDiskBuf, CapsuleOnDiskNum);
     return EFI_ERROR (Status) ? Status : EFI_NOT_FOUND;
+  }
+
+  if (RestoreBootNext) {
+    Status = CoDRestoreBootNextVariable ();
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_ERROR, "%a(): failed to restore BootNext: %r\n", __func__, Status));
+      CoDFreeImages (CapsuleOnDiskBuf, CapsuleOnDiskNum);
+      return Status;
+    }
+
+    *BootNextRestored = TRUE;
   }
 
   //
@@ -2854,11 +2875,14 @@ CoDRelocateCapsule (
 {
   EFI_STATUS  RestoreStatus;
   EFI_STATUS  Status;
+  BOOLEAN     BootNextRestored;
   BOOLEAN     FlagCleared;
 
   if (!PcdGetBool (PcdCapsuleOnDiskSupport)) {
     return EFI_UNSUPPORTED;
   }
+
+  BootNextRestored = FALSE;
 
   //
   // Clear the CapsuleOnDisk flag before relocation, but keep BootNext pointing
@@ -2875,13 +2899,13 @@ CoDRelocateCapsule (
   //
   if (PcdGetBool (PcdCapsuleInRamSupport)) {
     DEBUG ((DEBUG_INFO, "Capsule In Ram is supported, call gRT->UpdateCapsule().\n"));
-    Status = RelocateCapsuleToRam (MaxRetry);
+    Status = RelocateCapsuleToRam (MaxRetry, FlagCleared, &BootNextRestored);
   } else {
     DEBUG ((DEBUG_INFO, "Reallcoate all Capsule on Disks to %s in RootDir.\n", (CHAR16 *)PcdGetPtr (PcdCoDRelocationFileName)));
     Status = RelocateCapsuleToDisk (MaxRetry);
   }
 
-  if (FlagCleared) {
+  if (FlagCleared && !BootNextRestored) {
     RestoreStatus = CoDRestoreBootNextVariable ();
     if (EFI_ERROR (RestoreStatus)) {
       DEBUG ((DEBUG_ERROR, "%a(): failed to restore BootNext: %r\n", __func__, RestoreStatus));
