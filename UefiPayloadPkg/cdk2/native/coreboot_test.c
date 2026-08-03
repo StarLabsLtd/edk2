@@ -87,6 +87,7 @@ typedef enum {
   TestPrhFramebufferBadMask,
   TestPrhPciBadBar,
   TestPrhPciDuplicate,
+  TestPrhPciAssignmentOverlap,
   TestPrhPciOutsideBridge,
   TestPrhMemoryAttributesExceedCapabilities,
   TestPrhUnsupportedRevision,
@@ -114,6 +115,7 @@ typedef enum {
   TestPrhFramebufferOverlapMask,
   TestPrhFramebufferMaskPastBpp,
   TestPrhFramebufferNoResourceProof,
+  TestPrhFramebufferSystemMemoryPolicy,
   TestPrhCacheCoverageGap,
   TestPrhCacheBadPatSlot,
   TestPrhMemorySplitCoverage,
@@ -126,12 +128,15 @@ typedef enum {
   TestPrhCache4KVariableMtrr,
   TestPrhCachePhysicalAddressBits36,
   TestPrhCacheFixedDefaultRange,
+  TestPrhCacheFixedEnabledWithoutState,
+  TestPrhCacheInactiveBadBase,
   TestPrhCacheBadPatWithoutCachePolicy,
   TestPrhMemoryRuntimeUnaligned,
   TestPrhMemoryGcdCoverage,
   TestPrhMemoryGcdCoverageGap,
   TestPrhMemoryDelegatedCoverage,
-  TestPrhMemoryOemOsMmioType
+  TestPrhMemoryOemOsMmioType,
+  TestPrhCacheRangeBeyondPhysicalBits
 } TEST_PRH_FIXTURE;
 
 static void
@@ -425,6 +430,16 @@ BuildPayloadResourceHandoffTable (
   } else if (Fixture == TestPrhMemoryOemOsMmioType) {
     MemoryPolicy[0].gcd_type        = CB_PRH_GCD_MEMORY_TYPE_MMIO;
     MemoryPolicy[0].efi_memory_type = MEMORY_TYPE_OEM_RESERVED_MIN;
+  } else if (Fixture == TestPrhFramebufferSystemMemoryPolicy) {
+    MemoryPolicy[1].gcd_type        = CB_PRH_GCD_MEMORY_TYPE_SYSTEM;
+    MemoryPolicy[1].efi_memory_type = EfiConventionalMemory;
+  } else if (Fixture == TestPrhCacheRangeBeyondPhysicalBits) {
+    PackCbUint64At (&MemoryPolicy[1], OFFSET_OF (struct cb_prh_memory_policy_entry, base), 0x1000000000ULL);
+    PackCbUint64At (&MemoryPolicy[1], OFFSET_OF (struct cb_prh_memory_policy_entry, length), SIZE_4KB);
+    PackCbUint64At (&MemoryPolicy[1], OFFSET_OF (struct cb_prh_memory_policy_entry, capabilities), EFI_MEMORY_UC | EFI_MEMORY_WB);
+    PackCbUint64At (&MemoryPolicy[1], OFFSET_OF (struct cb_prh_memory_policy_entry, attributes), EFI_MEMORY_WB);
+    MemoryPolicy[1].gcd_type        = CB_PRH_GCD_MEMORY_TYPE_SYSTEM;
+    MemoryPolicy[1].efi_memory_type = EfiConventionalMemory;
   } else if (Fixture == TestPrhMemoryRuntimeUnaligned) {
     PackCbUint64At (
       &MemoryPolicy[0],
@@ -446,7 +461,9 @@ BuildPayloadResourceHandoffTable (
     MemoryPolicy[0].owner_flags = CB_PRH_MEMORY_DELEGATED_TO_PAYLOAD;
   } else if (Fixture == TestPrhCache4KVariableMtrr) {
     PackCbUint64At (&MemoryPolicy[0], OFFSET_OF (struct cb_prh_memory_policy_entry, length), SIZE_4KB);
-  } else if (Fixture == TestPrhCacheFixedDefaultRange) {
+  } else if ((Fixture == TestPrhCacheFixedDefaultRange) ||
+             (Fixture == TestPrhCacheFixedEnabledWithoutState))
+  {
     PackCbUint64At (&MemoryPolicy[0], OFFSET_OF (struct cb_prh_memory_policy_entry, base), 0x00080000ULL);
     PackCbUint64At (&MemoryPolicy[0], OFFSET_OF (struct cb_prh_memory_policy_entry, length), SIZE_4KB);
   } else if (Fixture == TestPrhCacheBadPatWithoutCachePolicy) {
@@ -474,16 +491,22 @@ BuildPayloadResourceHandoffTable (
   PackCbUint64At (CacheState, OFFSET_OF (struct cb_prh_x86_cache_state, pat_msr), 0x0007040600070406ULL);
   PackCbUint64At (CacheState, OFFSET_OF (struct cb_prh_x86_cache_state, fixed_mtrr_crc64), 0x12345678ULL);
   CacheState->variable_count         = (Fixture == TestPrhCacheCountMismatch) ? 3U : 2U;
-  CacheState->physical_address_bits  = (Fixture == TestPrhCachePhysicalAddressBits36) ? 36U : 52U;
+  CacheState->physical_address_bits  = ((Fixture == TestPrhCachePhysicalAddressBits36) ||
+                                        (Fixture == TestPrhCacheRangeBeyondPhysicalBits)) ? 36U : 52U;
   CacheState->flags                  = CB_PRH_X86_CACHE_FLAG_BSP_AP_SYNC |
                                        CB_PRH_X86_CACHE_FLAG_FIXED_VALID;
+  if (Fixture == TestPrhCacheFixedEnabledWithoutState) {
+    CacheState->flags &= ~CB_PRH_X86_CACHE_FLAG_FIXED_VALID;
+  }
+
   if ((Fixture == TestPrhCacheS3WithoutLifetime) ||
       (Fixture == TestPrhS3Unsupported))
   {
     CacheState->flags |= CB_PRH_X86_CACHE_FLAG_S3_VALID;
   }
 
-  VariableMtrrMask = (Fixture == TestPrhCachePhysicalAddressBits36) ?
+  VariableMtrrMask = ((Fixture == TestPrhCachePhysicalAddressBits36) ||
+                      (Fixture == TestPrhCacheRangeBeyondPhysicalBits)) ?
                      0x0000000fffc00000ULL :
                      0x000fffffffc00000ULL;
   VariableMtrr = (struct cb_prh_x86_variable_mtrr *)(VOID *)(CacheState + 1);
@@ -509,6 +532,12 @@ BuildPayloadResourceHandoffTable (
     VariableMtrr = (struct cb_prh_x86_variable_mtrr *)(VOID *)(CacheState + 1);
     PackCbUint64At (CacheState, OFFSET_OF (struct cb_prh_x86_cache_state, mtrr_default_type_msr), 0x806ULL);
     PackCbUint64At (VariableMtrr, OFFSET_OF (struct cb_prh_x86_variable_mtrr, phys_mask_msr), 0);
+  } else if (Fixture == TestPrhCacheRangeBeyondPhysicalBits) {
+    VariableMtrr = (struct cb_prh_x86_variable_mtrr *)(VOID *)(CacheState + 1);
+    PackCbUint64At (CacheState, OFFSET_OF (struct cb_prh_x86_cache_state, mtrr_default_type_msr), 0x806ULL);
+    PackCbUint64At (VariableMtrr, OFFSET_OF (struct cb_prh_x86_variable_mtrr, phys_mask_msr), 0);
+    VariableMtrr = (struct cb_prh_x86_variable_mtrr *)(VOID *)((UINT8 *)VariableMtrr + CacheEntrySize);
+    PackCbUint64At (VariableMtrr, OFFSET_OF (struct cb_prh_x86_variable_mtrr, phys_mask_msr), 0);
   } else if (Fixture == TestPrhCache4KVariableMtrr) {
     VariableMtrr = (struct cb_prh_x86_variable_mtrr *)(VOID *)(CacheState + 1);
     PackCbUint64At (VariableMtrr, OFFSET_OF (struct cb_prh_x86_variable_mtrr, phys_base_msr), 0x00100000ULL | 6U);
@@ -517,9 +546,19 @@ BuildPayloadResourceHandoffTable (
       OFFSET_OF (struct cb_prh_x86_variable_mtrr, phys_mask_msr),
       0x000ffffffffff000ULL | BIT11
       );
-  } else if (Fixture == TestPrhCacheFixedDefaultRange) {
+  } else if ((Fixture == TestPrhCacheFixedDefaultRange) ||
+             (Fixture == TestPrhCacheFixedEnabledWithoutState))
+  {
     VariableMtrr = (struct cb_prh_x86_variable_mtrr *)(VOID *)(CacheState + 1);
-    PackCbUint64At (CacheState, OFFSET_OF (struct cb_prh_x86_cache_state, mtrr_default_type_msr), 0x806ULL);
+    PackCbUint64At (
+      CacheState,
+      OFFSET_OF (struct cb_prh_x86_cache_state, mtrr_default_type_msr),
+      (Fixture == TestPrhCacheFixedEnabledWithoutState) ? 0xc06ULL : 0x806ULL
+    );
+    PackCbUint64At (VariableMtrr, OFFSET_OF (struct cb_prh_x86_variable_mtrr, phys_mask_msr), 0);
+  } else if (Fixture == TestPrhCacheInactiveBadBase) {
+    VariableMtrr = (struct cb_prh_x86_variable_mtrr *)(VOID *)((UINT8 *)(CacheState + 1) + CacheEntrySize);
+    PackCbUint64At (VariableMtrr, OFFSET_OF (struct cb_prh_x86_variable_mtrr, phys_base_msr), 0x100ULL | 6U);
     PackCbUint64At (VariableMtrr, OFFSET_OF (struct cb_prh_x86_variable_mtrr, phys_mask_msr), 0);
   }
 
@@ -560,6 +599,7 @@ BuildPayloadResourceHandoffTable (
   Sections[3].header_length = sizeof (Sections[3]);
   Sections[3].entry_size    = sizeof (*PciAssignment);
   PciAssignmentCount        = ((Fixture == TestPrhPciDuplicate) ||
+                               (Fixture == TestPrhPciAssignmentOverlap) ||
                                (Fixture == TestPrhPciUpperSlotCollision)) ? 2U : 1U;
   if (Fixture == TestPrhPciAssignmentLimit) {
     PciAssignmentCount = 257U;
@@ -581,6 +621,12 @@ BuildPayloadResourceHandoffTable (
     PackCbUint64At (PciAssignment, OFFSET_OF (struct cb_prh_pci_assignment_entry, base), 0xd0000000ULL);
   } else if (Fixture == TestPrhPciDuplicate) {
     PciAssignment[1] = PciAssignment[0];
+  } else if (Fixture == TestPrhPciAssignmentOverlap) {
+    PciAssignment[1]        = PciAssignment[0];
+    PciAssignment[1].device = 3;
+    PciAssignment[1].bar    = 2;
+    PackCbUint64At (&PciAssignment[1], OFFSET_OF (struct cb_prh_pci_assignment_entry, base), 0xfd200000ULL);
+    PackCbUint64At (&PciAssignment[1], OFFSET_OF (struct cb_prh_pci_assignment_entry, length), 0x200000ULL);
   } else if (Fixture == TestPrhPciUpperSlotCollision) {
     PciAssignment->resource_type = CB_PRH_PCI_RESOURCE_MMIO64;
     PciAssignment[1]             = PciAssignment[0];
@@ -638,7 +684,8 @@ BuildPayloadResourceHandoffTable (
     Sections[4].flags        = 0;
     Framebuffer->owner_flags = CB_PRH_FRAMEBUFFER_MEMORY_DELEGATED;
   } else if ((Fixture == TestPrhMemoryGcdCoverage) ||
-             (Fixture == TestPrhMemoryGcdCoverageGap))
+             (Fixture == TestPrhMemoryGcdCoverageGap) ||
+             (Fixture == TestPrhCacheRangeBeyondPhysicalBits))
   {
     Sections[4].flags        = 0;
     Framebuffer->owner_flags = CB_PRH_FRAMEBUFFER_MEMORY_DELEGATED;
@@ -817,6 +864,9 @@ main (
   UINTN                       GuidCount;
   UINTN                       ApiGuidCount;
   UINTN                       PayloadResourceGuidCount;
+  UINTN                       PayloadResourceGuidAddress;
+  UINTN                       TightPayloadResourceGuidCount;
+  UINTN                       TightPayloadResourceFreeTop;
   UINTN                       WalkerCount;
   UINTN                       CodeAllocationCount;
   UINTN                       ModuleCount;
@@ -937,6 +987,7 @@ main (
              );
   Failures += Expect (Status == EFI_SUCCESS, "payload-resource HOB construction failed");
   PayloadResourceGuidCount = 0;
+  PayloadResourceGuidAddress = 0;
   HobCursor = (UINTN)(VOID *)HobInfo;
   while (HobCursor < (UINTN)HobInfo->EfiEndOfHobList) {
     Hob = (EFI_HOB_GENERIC_HEADER *)(UINTN)HobCursor;
@@ -956,6 +1007,7 @@ main (
                         ) == 0,
                       "payload-resource GUID HOB data is wrong"
                       );
+        PayloadResourceGuidAddress = HobCursor;
         PayloadResourceGuidCount++;
       }
     }
@@ -964,6 +1016,43 @@ main (
   }
 
   Failures += Expect (PayloadResourceGuidCount == 1, "payload-resource GUID HOB count is wrong");
+
+  if (PayloadResourceGuidAddress != 0) {
+    TightPayloadResourceFreeTop = PayloadResourceGuidAddress + sizeof (EFI_HOB_GENERIC_HEADER);
+    Status = Cdk2CorebootBuildHobs (
+               &Handoff,
+               HobStorage,
+               HobStorage + sizeof (HobStorage),
+               HobStorage,
+               (VOID *)TightPayloadResourceFreeTop,
+               FALSE,
+               &HobInfo
+               );
+    Failures += Expect (Status == EFI_SUCCESS, "tight payload-resource HOB space failed boot HOB construction");
+
+    TightPayloadResourceGuidCount = 0;
+    HobCursor = (UINTN)(VOID *)HobInfo;
+    while (HobCursor < (UINTN)HobInfo->EfiEndOfHobList) {
+      Hob = (EFI_HOB_GENERIC_HEADER *)(UINTN)HobCursor;
+      if (Hob->HobType == EFI_HOB_TYPE_GUID_EXTENSION) {
+        EFI_HOB_GUID_TYPE  *GuidHob;
+
+        GuidHob = (EFI_HOB_GUID_TYPE *)(VOID *)Hob;
+        if (memcmp (&GuidHob->Name, &PayloadResourceGuid, sizeof (PayloadResourceGuid)) == 0) {
+          TightPayloadResourceGuidCount++;
+        }
+      }
+
+      HobCursor += (Hob->HobLength + 7U) & ~(UINTN)7U;
+    }
+
+    Failures += Expect (
+                  TightPayloadResourceGuidCount == 0,
+                  "tight payload-resource HOB space still published optional GUID HOB"
+                  );
+    Hob = (EFI_HOB_GENERIC_HEADER *)(UINTN)HobInfo->EfiEndOfHobList;
+    Failures += Expect (Hob->HobType == EFI_HOB_TYPE_END_OF_HOB_LIST, "tight payload-resource HOB list has no end marker");
+  }
 
   TableSize = BuildPayloadResourceHandoffTable (Storage, sizeof (Storage), TestPrhCacheExtendedMtrrEntries);
   Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);
@@ -1304,6 +1393,15 @@ main (
                 "unbacked payload-resource framebuffer was accepted"
                 );
 
+  TableSize = BuildPayloadResourceHandoffTable (Storage, sizeof (Storage), TestPrhFramebufferSystemMemoryPolicy);
+  Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);
+  Failures += Expect (Status == EFI_SUCCESS, "system-memory payload-resource framebuffer rejected the whole table");
+  Failures += Expect (
+                Handoff.PayloadResourceHandoffStatus == EFI_UNSUPPORTED &&
+                Handoff.PayloadResourceHandoff == NULL,
+                "system-memory payload-resource framebuffer was accepted"
+                );
+
   TableSize = BuildPayloadResourceHandoffTable (Storage, sizeof (Storage), TestPrhPciBadBar);
   Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);
   Failures += Expect (Status == EFI_SUCCESS, "bad payload-resource PCI BAR rejected the whole table");
@@ -1320,6 +1418,15 @@ main (
                 Handoff.PayloadResourceHandoffStatus == EFI_COMPROMISED_DATA &&
                 Handoff.PayloadResourceHandoff == NULL,
                 "duplicate payload-resource PCI BAR was accepted"
+                );
+
+  TableSize = BuildPayloadResourceHandoffTable (Storage, sizeof (Storage), TestPrhPciAssignmentOverlap);
+  Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);
+  Failures += Expect (Status == EFI_SUCCESS, "overlapping payload-resource PCI assignment rejected the whole table");
+  Failures += Expect (
+                Handoff.PayloadResourceHandoffStatus == EFI_COMPROMISED_DATA &&
+                Handoff.PayloadResourceHandoff == NULL,
+                "overlapping payload-resource PCI assignment was accepted"
                 );
 
   TableSize = BuildPayloadResourceHandoffTable (Storage, sizeof (Storage), TestPrhPciOutsideBridge);
@@ -1504,6 +1611,33 @@ main (
                 Handoff.PayloadResourceHandoffStatus == EFI_COMPROMISED_DATA &&
                 Handoff.PayloadResourceHandoff == NULL,
                 "fixed-range default MTRR was accepted"
+                );
+
+  TableSize = BuildPayloadResourceHandoffTable (Storage, sizeof (Storage), TestPrhCacheFixedEnabledWithoutState);
+  Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);
+  Failures += Expect (Status == EFI_SUCCESS, "fixed-enabled MTRR without state rejected the whole table");
+  Failures += Expect (
+                Handoff.PayloadResourceHandoffStatus == EFI_COMPROMISED_DATA &&
+                Handoff.PayloadResourceHandoff == NULL,
+                "fixed-enabled MTRR without state was accepted"
+                );
+
+  TableSize = BuildPayloadResourceHandoffTable (Storage, sizeof (Storage), TestPrhCacheInactiveBadBase);
+  Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);
+  Failures += Expect (Status == EFI_SUCCESS, "inactive variable MTRR with bad base rejected the whole table");
+  Failures += Expect (
+                Handoff.PayloadResourceHandoffStatus == EFI_COMPROMISED_DATA &&
+                Handoff.PayloadResourceHandoff == NULL,
+                "inactive variable MTRR with bad base was accepted"
+                );
+
+  TableSize = BuildPayloadResourceHandoffTable (Storage, sizeof (Storage), TestPrhCacheRangeBeyondPhysicalBits);
+  Status = Cdk2CorebootParseTable (Storage, TableSize, &Handoff);
+  Failures += Expect (Status == EFI_SUCCESS, "out-of-width default MTRR range rejected the whole table");
+  Failures += Expect (
+                Handoff.PayloadResourceHandoffStatus == EFI_COMPROMISED_DATA &&
+                Handoff.PayloadResourceHandoff == NULL,
+                "out-of-width default MTRR range was accepted"
                 );
 
   TableSize = BuildPayloadResourceHandoffTable (Storage, sizeof (Storage), TestPrhCacheS3WithoutLifetime);

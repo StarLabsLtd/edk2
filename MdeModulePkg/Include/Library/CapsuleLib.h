@@ -182,7 +182,7 @@ CoDFreeImages (
   );
 
 /**
-  This routine is called to clear CapsuleOnDisk flags including OsIndications and BootNext variable.
+  This routine is called to clear CapsuleOnDisk flags including OsIndications and restore or clear BootNext variable.
 
   @retval EFI_SUCCESS   All Capsule On Disk flags are cleared
 
@@ -205,7 +205,8 @@ CoDClearCapsuleOnDiskFlag (
   Function will stall 100ms between each retry.
 
   Side Effects:
-    Capsule Delivery Supported Flag in OsIndication variable and BootNext variable will be cleared.
+    Capsule Delivery Supported Flag in OsIndication variable will be cleared. BootNext will be restored or cleared
+    after capsule discovery.
     Solution B: Content corruption. Block IO write directly touches low level write. Orignal partitions, file
   systems of the relocation device will be corrupted.
 

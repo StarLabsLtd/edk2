@@ -2151,6 +2151,55 @@ CoDCheckCapsuleOnDiskFlag (
 
 STATIC
 EFI_STATUS
+CoDClearCapsuleOnDiskOsIndicationFlag (
+  OUT BOOLEAN  *FlagCleared
+  )
+{
+  EFI_STATUS  Status;
+  UINT64      OsIndication;
+  UINTN       DataSize;
+
+  if (FlagCleared == NULL) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  *FlagCleared = FALSE;
+
+  //
+  // Reset File Capsule Delivery Supported Flag in OsIndication variable
+  //
+  OsIndication = 0;
+  DataSize     = sizeof (UINT64);
+  Status       = gRT->GetVariable (
+                        EFI_OS_INDICATIONS_VARIABLE_NAME,
+                        &gEfiGlobalVariableGuid,
+                        NULL,
+                        &DataSize,
+                        &OsIndication
+                        );
+  if (EFI_ERROR (Status) ||
+      ((OsIndication & EFI_OS_INDICATIONS_FILE_CAPSULE_DELIVERY_SUPPORTED) == 0))
+  {
+    return Status;
+  }
+
+  OsIndication &= ~((UINT64)EFI_OS_INDICATIONS_FILE_CAPSULE_DELIVERY_SUPPORTED);
+  Status        = gRT->SetVariable (
+                         EFI_OS_INDICATIONS_VARIABLE_NAME,
+                         &gEfiGlobalVariableGuid,
+                         EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS | EFI_VARIABLE_NON_VOLATILE,
+                         sizeof (UINT64),
+                         &OsIndication
+                         );
+  if (!EFI_ERROR (Status)) {
+    *FlagCleared = TRUE;
+  }
+
+  return Status;
+}
+
+STATIC
+EFI_STATUS
 CoDDeleteBootNextVariable (
   VOID
   )
@@ -2292,36 +2341,10 @@ CoDClearCapsuleOnDiskFlag (
   )
 {
   EFI_STATUS  Status;
-  UINT64      OsIndication;
-  UINTN       DataSize;
+  BOOLEAN     FlagCleared;
 
-  //
-  // Reset File Capsule Delivery Supported Flag in OsIndication variable
-  //
-  OsIndication = 0;
-  DataSize     = sizeof (UINT64);
-  Status       = gRT->GetVariable (
-                        EFI_OS_INDICATIONS_VARIABLE_NAME,
-                        &gEfiGlobalVariableGuid,
-                        NULL,
-                        &DataSize,
-                        &OsIndication
-                        );
-  if (EFI_ERROR (Status) ||
-      ((OsIndication & EFI_OS_INDICATIONS_FILE_CAPSULE_DELIVERY_SUPPORTED) == 0))
-  {
-    return Status;
-  }
-
-  OsIndication &= ~((UINT64)EFI_OS_INDICATIONS_FILE_CAPSULE_DELIVERY_SUPPORTED);
-  Status        = gRT->SetVariable (
-                         EFI_OS_INDICATIONS_VARIABLE_NAME,
-                         &gEfiGlobalVariableGuid,
-                         EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS | EFI_VARIABLE_NON_VOLATILE,
-                         sizeof (UINT64),
-                         &OsIndication
-                         );
-  if (EFI_ERROR (Status)) {
+  Status = CoDClearCapsuleOnDiskOsIndicationFlag (&FlagCleared);
+  if (EFI_ERROR (Status) || !FlagCleared) {
     return Status;
   }
 
@@ -2829,25 +2852,46 @@ CoDRelocateCapsule (
   UINTN  MaxRetry
   )
 {
+  EFI_STATUS  RestoreStatus;
+  EFI_STATUS  Status;
+  BOOLEAN     FlagCleared;
+
   if (!PcdGetBool (PcdCapsuleOnDiskSupport)) {
     return EFI_UNSUPPORTED;
   }
 
   //
-  // Clear CapsuleOnDisk Flag firstly.
+  // Clear the CapsuleOnDisk flag before relocation, but keep BootNext pointing
+  // at the staged capsule until CoDGetAll() has selected the capsule source.
   //
-  CoDClearCapsuleOnDiskFlag ();
+  Status = CoDClearCapsuleOnDiskOsIndicationFlag (&FlagCleared);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_WARN, "%a(): failed to clear CapsuleOnDisk flag: %r\n", __func__, Status));
+    FlagCleared = FALSE;
+  }
 
   //
   // If Capsule In Ram is supported, delivery capsules through memory
   //
   if (PcdGetBool (PcdCapsuleInRamSupport)) {
     DEBUG ((DEBUG_INFO, "Capsule In Ram is supported, call gRT->UpdateCapsule().\n"));
-    return RelocateCapsuleToRam (MaxRetry);
+    Status = RelocateCapsuleToRam (MaxRetry);
   } else {
     DEBUG ((DEBUG_INFO, "Reallcoate all Capsule on Disks to %s in RootDir.\n", (CHAR16 *)PcdGetPtr (PcdCoDRelocationFileName)));
-    return RelocateCapsuleToDisk (MaxRetry);
+    Status = RelocateCapsuleToDisk (MaxRetry);
   }
+
+  if (FlagCleared) {
+    RestoreStatus = CoDRestoreBootNextVariable ();
+    if (EFI_ERROR (RestoreStatus)) {
+      DEBUG ((DEBUG_ERROR, "%a(): failed to restore BootNext: %r\n", __func__, RestoreStatus));
+      if (!EFI_ERROR (Status)) {
+        Status = RestoreStatus;
+      }
+    }
+  }
+
+  return Status;
 }
 
 /**

@@ -761,6 +761,36 @@ SetCapsuleStatusVariable (
   return Status;
 }
 
+STATIC
+BOOLEAN
+IsCapsuleStatusVariableSet (
+  VOID
+  )
+{
+  EFI_STATUS  Status;
+  UINT64      OsIndication;
+  UINTN       DataSize;
+
+  OsIndication = 0;
+  DataSize     = sizeof (UINT64);
+  Status       = gRT->GetVariable (
+                        L"OsIndications",
+                        &gEfiGlobalVariableGuid,
+                        NULL,
+                        &DataSize,
+                        &OsIndication
+                        );
+  if (EFI_ERROR (Status)) {
+    return FALSE;
+  }
+
+  if ((OsIndication & EFI_OS_INDICATIONS_FILE_CAPSULE_DELIVERY_SUPPORTED) != 0) {
+    return TRUE;
+  }
+
+  return FALSE;
+}
+
 /**
   Check if Capsule On Disk is supported.
 
@@ -817,7 +847,7 @@ DeleteBootNextRestoreState (
 STATIC
 EFI_STATUS
 SaveBootNextRestoreState (
-  VOID
+  OUT BOOLEAN  *RestoreStateCreated
   )
 {
   EFI_STATUS             Status;
@@ -826,8 +856,30 @@ SaveBootNextRestoreState (
   UINTN                  DataSize;
   UINT32                 Attributes;
 
-  Status = DeleteBootNextRestoreState ();
-  if (EFI_ERROR (Status)) {
+  if (RestoreStateCreated == NULL) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  *RestoreStateCreated = FALSE;
+
+  DataSize = 0;
+  Status   = gRT->GetVariable (
+                    COD_BOOT_NEXT_RESTORE_VAR_NAME,
+                    &gEfiCapsuleVendorGuid,
+                    NULL,
+                    &DataSize,
+                    NULL
+                    );
+  if (!EFI_ERROR (Status) || (Status == EFI_BUFFER_TOO_SMALL)) {
+    if (IsCapsuleStatusVariableSet ()) {
+      return EFI_SUCCESS;
+    }
+
+    Status = DeleteBootNextRestoreState ();
+    if (EFI_ERROR (Status)) {
+      return Status;
+    }
+  } else if (Status != EFI_NOT_FOUND) {
     return Status;
   }
 
@@ -856,13 +908,18 @@ SaveBootNextRestoreState (
     return Status;
   }
 
-  return gRT->SetVariable (
-                COD_BOOT_NEXT_RESTORE_VAR_NAME,
-                &gEfiCapsuleVendorGuid,
-                COD_BOOT_NEXT_RESTORE_VAR_ATTRS,
-                sizeof (Restore),
-                &Restore
-                );
+  Status = gRT->SetVariable (
+                  COD_BOOT_NEXT_RESTORE_VAR_NAME,
+                  &gEfiCapsuleVendorGuid,
+                  COD_BOOT_NEXT_RESTORE_VAR_ATTRS,
+                  sizeof (Restore),
+                  &Restore
+                  );
+  if (!EFI_ERROR (Status)) {
+    *RestoreStateCreated = TRUE;
+  }
+
+  return Status;
 }
 
 /**
@@ -891,8 +948,13 @@ ProcessCapsuleOnDisk (
   UINT16                           BootNext;
   EFI_SIMPLE_FILE_SYSTEM_PROTOCOL  *Fs;
   BOOLEAN                          UpdateBootNext;
+  BOOLEAN                          RestoreStateCreated;
+  BOOLEAN                          CapsuleStatusCreated;
   CHAR16                           *FileName[MAX_CAPSULE_NUM];
   UINTN                            Index;
+
+  RestoreStateCreated  = FALSE;
+  CapsuleStatusCreated = FALSE;
 
   //
   // Check if Capsule On Disk is supported
@@ -933,7 +995,7 @@ ProcessCapsuleOnDisk (
   // Set variable then reset
   //
   if (UpdateBootNext) {
-    Status = SaveBootNextRestoreState ();
+    Status = SaveBootNextRestoreState (&RestoreStateCreated);
     if (EFI_ERROR (Status)) {
       Print (L"CapsuleApp: unable to save BootNext restore state.\n");
       return Status;
@@ -943,10 +1005,11 @@ ProcessCapsuleOnDisk (
     // capsule before reboot.  BootNext already points at the capsule loader.
   }
 
+  CapsuleStatusCreated = !IsCapsuleStatusVariableSet ();
   Status = SetCapsuleStatusVariable (TRUE);
   if (EFI_ERROR (Status)) {
     Print (L"CapsuleApp: unable to set OSIndication variable.\n");
-    if (UpdateBootNext) {
+    if (RestoreStateCreated) {
       DeleteBootNextRestoreState ();
     }
 
@@ -963,8 +1026,14 @@ ProcessCapsuleOnDisk (
                     );
     if (EFI_ERROR (Status)) {
       Print (L"CapsuleApp: unable to set BootNext variable.\n");
-      SetCapsuleStatusVariable (FALSE);
-      DeleteBootNextRestoreState ();
+      if (CapsuleStatusCreated) {
+        SetCapsuleStatusVariable (FALSE);
+      }
+
+      if (RestoreStateCreated) {
+        DeleteBootNextRestoreState ();
+      }
+
       return Status;
     }
   }

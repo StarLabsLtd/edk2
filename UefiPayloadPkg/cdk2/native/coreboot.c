@@ -32,6 +32,7 @@
 #define CDK2_COREBOOT_MTRR_TYPE_WP     5U
 #define CDK2_COREBOOT_MTRR_TYPE_WB     6U
 #define CDK2_COREBOOT_MTRR_TYPE_UC_MINUS  7U
+#define CDK2_COREBOOT_MTRR_FIXED_ENABLE             BIT10
 #define CDK2_COREBOOT_MTRR_ENABLE                   BIT11
 #define CDK2_COREBOOT_MTRR_VALID                    BIT11
 #define CDK2_COREBOOT_MTRR_MIN_PHYSICAL_ADDRESS_BITS  32U
@@ -422,6 +423,8 @@ Cdk2CorebootMemoryPolicyCoversRangeByOwnerFlags (
   IN CONST struct cb_payload_resource_section *Section,
   IN UINT32                                    RequiredOwnerFlags,
   IN BOOLEAN                                   RequireAllOwnerFlags,
+  IN BOOLEAN                                   RequireGcdType,
+  IN UINT32                                    GcdType,
   IN UINT64                                    Base,
   IN UINT64                                    Length
   )
@@ -463,6 +466,10 @@ Cdk2CorebootMemoryPolicyCoversRangeByOwnerFlags (
         continue;
       }
 
+      if (RequireGcdType && (Entry->gcd_type != GcdType)) {
+        continue;
+      }
+
       EntryBase = Cdk2CorebootUnpack64At (
                     Entry,
                     OFFSET_OF (struct cb_prh_memory_policy_entry, base)
@@ -492,26 +499,6 @@ Cdk2CorebootMemoryPolicyCoversRangeByOwnerFlags (
 
 STATIC
 BOOLEAN
-Cdk2CorebootMemoryPolicyCoversRange (
-  IN CONST struct cb_payload_resource_handoff *Record,
-  IN CONST struct cb_payload_resource_section *Section,
-  IN UINT32                                    RequiredOwnerFlags,
-  IN UINT64                                    Base,
-  IN UINT64                                    Length
-  )
-{
-  return Cdk2CorebootMemoryPolicyCoversRangeByOwnerFlags (
-           Record,
-           Section,
-           RequiredOwnerFlags,
-           TRUE,
-           Base,
-           Length
-           );
-}
-
-STATIC
-BOOLEAN
 Cdk2CorebootMemoryPolicyCoversRangeWithAnyOwner (
   IN CONST struct cb_payload_resource_handoff *Record,
   IN CONST struct cb_payload_resource_section *Section,
@@ -525,6 +512,31 @@ Cdk2CorebootMemoryPolicyCoversRangeWithAnyOwner (
            Section,
            OwnerFlags,
            FALSE,
+           FALSE,
+           0,
+           Base,
+           Length
+           );
+}
+
+STATIC
+BOOLEAN
+Cdk2CorebootMemoryPolicyCoversRangeWithGcdType (
+  IN CONST struct cb_payload_resource_handoff *Record,
+  IN CONST struct cb_payload_resource_section *Section,
+  IN UINT32                                    RequiredOwnerFlags,
+  IN UINT32                                    GcdType,
+  IN UINT64                                    Base,
+  IN UINT64                                    Length
+  )
+{
+  return Cdk2CorebootMemoryPolicyCoversRangeByOwnerFlags (
+           Record,
+           Section,
+           RequiredOwnerFlags,
+           TRUE,
+           TRUE,
+           GcdType,
            Base,
            Length
            );
@@ -963,6 +975,18 @@ Cdk2CorebootVariableMtrrDecode (
     return FALSE;
   }
 
+  PhysBaseMsr = Cdk2CorebootUnpack64At (
+                  VariableMtrr,
+                  OFFSET_OF (struct cb_prh_x86_variable_mtrr, phys_base_msr)
+                  );
+  MtrrType = (UINT8)(PhysBaseMsr & 0xffU);
+  MtrrBase = PhysBaseMsr & MtrrAddressMask;
+  if (((PhysBaseMsr & ~PhysBaseValidMask) != 0) ||
+      !Cdk2CorebootMtrrTypeValid (MtrrType))
+  {
+    return FALSE;
+  }
+
   if ((PhysMaskMsr & CDK2_COREBOOT_MTRR_VALID) == 0) {
     *Active = FALSE;
     return TRUE;
@@ -975,18 +999,7 @@ Cdk2CorebootVariableMtrrDecode (
   }
 
   MtrrLength = RangeMask + SIZE_4KB;
-  if (!Cdk2CorebootIsPowerOfTwo64 (MtrrLength)) {
-    return FALSE;
-  }
-
-  PhysBaseMsr = Cdk2CorebootUnpack64At (
-                  VariableMtrr,
-                  OFFSET_OF (struct cb_prh_x86_variable_mtrr, phys_base_msr)
-                  );
-  MtrrType = (UINT8)(PhysBaseMsr & 0xffU);
-  MtrrBase = PhysBaseMsr & MtrrAddressMask;
-  if (((PhysBaseMsr & ~PhysBaseValidMask) != 0) ||
-      !Cdk2CorebootMtrrTypeValid (MtrrType) ||
+  if (!Cdk2CorebootIsPowerOfTwo64 (MtrrLength) ||
       ((MtrrBase & (MtrrLength - 1U)) != 0))
   {
     return FALSE;
@@ -1022,6 +1035,7 @@ Cdk2CorebootCacheRangeCoveredByMtrr (
   CONST struct cb_prh_x86_cache_state    *CacheState;
   CONST struct cb_prh_x86_variable_mtrr  *VariableMtrr;
   CONST UINT8                            *VariableBase;
+  UINT64                                  DefaultTypeMsr;
   UINT64                                  MtrrAddressMask;
   UINT64                                  RangeEnd;
   UINT64                                  Covered;
@@ -1045,8 +1059,17 @@ Cdk2CorebootCacheRangeCoveredByMtrr (
     return FALSE;
   }
 
-  if (((CacheState->flags & CB_PRH_X86_CACHE_FLAG_FIXED_VALID) != 0) &&
-      (Base < CDK2_COREBOOT_1MB))
+  if (RangeEnd > MtrrAddressMask + SIZE_4KB) {
+    return FALSE;
+  }
+
+  DefaultTypeMsr = Cdk2CorebootUnpack64At (
+                     CacheState,
+                     OFFSET_OF (struct cb_prh_x86_cache_state, mtrr_default_type_msr)
+                     );
+  if ((Base < CDK2_COREBOOT_1MB) &&
+      (((CacheState->flags & CB_PRH_X86_CACHE_FLAG_FIXED_VALID) != 0) ||
+       ((DefaultTypeMsr & CDK2_COREBOOT_MTRR_FIXED_ENABLE) != 0)))
   {
     return FALSE;
   }
@@ -1333,6 +1356,8 @@ Cdk2CorebootValidatePciAssignmentsSection (
   UINT64                                    ResourceLength;
   UINT64                                    ResourceEnd;
   UINT64                                    ResourceAttributes;
+  UINT64                                    OtherResourceBase;
+  UINT64                                    OtherResourceLength;
   UINTN                                     Index;
   UINTN                                     OtherIndex;
   EFI_STATUS                                Status;
@@ -1413,6 +1438,35 @@ Cdk2CorebootValidatePciAssignmentsSection (
         ((ResourceBase & (ResourceLength - 1U)) != 0))
     {
       return EFI_COMPROMISED_DATA;
+    }
+
+    for (OtherIndex = 0; OtherIndex < Index; OtherIndex++) {
+      OtherEntry = (CONST struct cb_prh_pci_assignment_entry *)(CONST VOID *)(
+                                                                      Base + OtherIndex * Section->entry_size
+                                                                      );
+      if (Cdk2CorebootPciResourceMemory (Entry->resource_type) !=
+          Cdk2CorebootPciResourceMemory (OtherEntry->resource_type))
+      {
+        continue;
+      }
+
+      OtherResourceBase = Cdk2CorebootUnpack64At (
+                            OtherEntry,
+                            OFFSET_OF (struct cb_prh_pci_assignment_entry, base)
+                            );
+      OtherResourceLength = Cdk2CorebootUnpack64At (
+                              OtherEntry,
+                              OFFSET_OF (struct cb_prh_pci_assignment_entry, length)
+                              );
+      if (Cdk2CorebootU64RangesOverlap (
+            ResourceBase,
+            ResourceLength,
+            OtherResourceBase,
+            OtherResourceLength
+            ))
+      {
+        return EFI_COMPROMISED_DATA;
+      }
     }
 
     if (Cdk2CorebootPciResourceMmio32 (Entry->resource_type) &&
@@ -1819,10 +1873,11 @@ Cdk2CorebootValidateFramebufferOwnership (
                         Framebuffer,
                         OFFSET_OF (struct cb_prh_framebuffer_entry, size)
                         );
-    if (!Cdk2CorebootMemoryPolicyCoversRange (
+    if (!Cdk2CorebootMemoryPolicyCoversRangeWithGcdType (
            Record,
            MemorySection,
            CB_PRH_MEMORY_CACHE_AUTHORITATIVE | CB_PRH_MEMORY_GCD_AUTHORITATIVE,
+           CB_PRH_GCD_MEMORY_TYPE_MMIO,
            FramebufferBase,
            FramebufferSize
            ) ||
