@@ -766,6 +766,7 @@ Cdk2CorebootAppendPayloadResourceHandoffHob (
   EFI_HOB_GUID_TYPE                       *GuidHob;
   CONST struct cb_payload_resource_handoff *PayloadResource;
   UINTN                                    Length;
+  UINTN                                    AlignedLength;
   UINTN                                    Index;
   UINT8                                   *Destination;
   CONST UINT8                             *Source;
@@ -782,6 +783,10 @@ Cdk2CorebootAppendPayloadResourceHandoffHob (
   }
 
   Length = sizeof (*GuidHob) + PayloadResource->size;
+  if (!Cdk2CorebootAlignUp8 (Length, &AlignedLength) || AlignedLength > MAX_UINT16) {
+    return EFI_SUCCESS;
+  }
+
   GuidHob = (EFI_HOB_GUID_TYPE *)Cdk2CorebootAppendHob (
                                   Cursor,
                                   Limit,

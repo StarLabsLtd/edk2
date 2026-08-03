@@ -351,7 +351,7 @@ struct cb_cfr {
 
 #define CB_TAG_PAYLOAD_RESOURCE_HANDOFF  0x004b
 
-#define CB_PAYLOAD_RESOURCE_HANDOFF_REVISION  1
+#define CB_PAYLOAD_RESOURCE_HANDOFF_REVISION  2
 
 #define CB_PRH_SECTION_MEMORY_POLICY       1
 #define CB_PRH_SECTION_X86_CACHE_STATE     2
@@ -459,7 +459,9 @@ struct cb_prh_x86_cache_state {
   struct cbuint64 pat_msr;
   struct cbuint64 fixed_mtrr_crc64;
   UINT32          variable_count;
+  UINT32          physical_address_bits;
   UINT32          flags;
+  UINT32          reserved;
   /* struct cb_prh_x86_variable_mtrr variable[] */
 } __attribute__ ((packed));
 

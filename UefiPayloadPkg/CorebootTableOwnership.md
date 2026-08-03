@@ -59,8 +59,13 @@ data disables only the candidate ABI and keeps the legacy coreboot table path
 successful.  The added fixtures cover unsupported PRH revision/flags/lifetime
 bits, unsupported EFI memory bits, invalid GCD type, ambiguous cache
 attributes, S3 cache state without S3 lifetime, S3 lifetime without generation
-or S3 cache proof, PCI assignments without authoritative root windows, MMIO32
-above 4 GiB, I/O attributes, and reserved runtime-policy sections.
+or S3 cache proof, S3 handoffs without a current-generation comparator, cache
+coverage gaps, PAT/MTRR cache-policy mismatches, GCD/EFI type conflicts,
+entry-authoritative non-authoritative memory sections, framebuffer mask and
+backing-resource failures, overlapping PCI root windows, invalid 64-bit BAR
+slot combinations, duplicate/zero PCI assignments, excessive assignment
+counts, MMIO32 above 4 GiB, I/O attributes, oversized PRH GUID-HOB publication,
+and reserved runtime-policy sections.
 
 ## Sources inspected
 
@@ -404,7 +409,8 @@ struct lb_payload_resource_section {
 Required generic rules:
 
 * `tag` and `size` use the normal coreboot table record framing.
-* `revision` starts at 1.  Unknown major revisions are ignored.
+* `revision` starts at 1.  Revision 2 adds the cache-state
+  `physical_address_bits` field.  Unknown major revisions are ignored.
 * `header_length` and every section `header_length` allow forward extension.
 * `crc32` covers the complete record with the `crc32` field treated as zero.
   The algorithm is the non-reflected, MSB-first CRC-32 polynomial
@@ -488,7 +494,9 @@ struct lb_prh_x86_cache_state {
   lb_uint64_t pat_msr;
   lb_uint64_t fixed_mtrr_crc64;
   uint32_t variable_count;
+  uint32_t physical_address_bits;
   uint32_t flags;
+  uint32_t reserved;
   /* struct lb_prh_x86_variable_mtrr variable[]; */
 };
 
@@ -497,6 +505,10 @@ struct lb_prh_x86_variable_mtrr {
   lb_uint64_t phys_mask_msr;
 };
 ```
+
+`physical_address_bits` is the producer CPU physical-address width used when
+encoding the raw variable MTRR mask/base MSRs. Consumers must use it to derive
+the valid MTRR address mask before decoding variable MTRR lengths.
 
 This section is not a request for the payload to program MTRRs.  It is the
 producer-owned proof that the normalized EFI cacheability policy corresponds to
