@@ -2393,7 +2393,9 @@ PlatformBootManagerAfterConsole (
 
   DisplayPlatformBootLogo ();
 
-  PlatformRegisterLinuxEfiApplicationBootOption ();
+  if (GetBootModeHob () != BOOT_ON_S4_RESUME) {
+    PlatformRegisterLinuxEfiApplicationBootOption ();
+  }
 
   //
   // Register UEFI Shell
