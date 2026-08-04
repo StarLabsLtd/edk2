@@ -1705,7 +1705,7 @@ PlatformValidateLinuxEfiApplicationPolicy (
   }
 
   if (!PlatformLinuxEfiPolicyProbeIsSafe ()) {
-    return EFI_SECURITY_VIOLATION;
+    return EFI_NOT_READY;
   }
 
   ImageHandle = NULL;
