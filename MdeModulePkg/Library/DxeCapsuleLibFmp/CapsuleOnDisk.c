@@ -2717,6 +2717,7 @@ RelocateCapsuleToRam (
   OUT BOOLEAN  *BootNextRestored
   )
 {
+  EFI_STATUS                    RestoreStatus;
   EFI_STATUS                    Status;
   UINTN                         CapsuleOnDiskNum;
   IMAGE_INFO                    *CapsuleOnDiskBuf;
@@ -2755,14 +2756,12 @@ RelocateCapsuleToRam (
   }
 
   if (RestoreBootNext) {
-    Status = CoDRestoreBootNextVariable ();
-    if (EFI_ERROR (Status)) {
-      DEBUG ((DEBUG_ERROR, "%a(): failed to restore BootNext: %r\n", __func__, Status));
-      CoDFreeImages (CapsuleOnDiskBuf, CapsuleOnDiskNum);
-      return Status;
+    RestoreStatus = CoDRestoreBootNextVariable ();
+    if (EFI_ERROR (RestoreStatus)) {
+      DEBUG ((DEBUG_ERROR, "%a(): failed to restore BootNext: %r\n", __func__, RestoreStatus));
+    } else {
+      *BootNextRestored = TRUE;
     }
-
-    *BootNextRestored = TRUE;
   }
 
   //
