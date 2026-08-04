@@ -2080,6 +2080,118 @@ PlatformFindLinuxEfiApplicationDevicePath (
 }
 
 STATIC
+BOOLEAN
+PlatformFilePathNodeMatchesLinuxPath (
+  IN CONST EFI_DEVICE_PATH_PROTOCOL  *Node,
+  IN CONST CHAR16                    *LinuxPath
+  )
+{
+  CONST MEDIA_FILEPATH_DEVICE_PATH  *FilePath;
+  UINTN                             PathSize;
+
+  if ((Node == NULL) || (LinuxPath == NULL) ||
+      (DevicePathType (Node) != MEDIA_DEVICE_PATH) ||
+      (DevicePathSubType (Node) != MEDIA_FILEPATH_DP) ||
+      (DevicePathNodeLength (Node) <= OFFSET_OF (MEDIA_FILEPATH_DEVICE_PATH, PathName)))
+  {
+    return FALSE;
+  }
+
+  FilePath = (CONST MEDIA_FILEPATH_DEVICE_PATH *)Node;
+  PathSize = DevicePathNodeLength (Node) - OFFSET_OF (MEDIA_FILEPATH_DEVICE_PATH, PathName);
+  if ((PathSize < sizeof (CHAR16)) ||
+      ((PathSize % sizeof (CHAR16)) != 0) ||
+      (FilePath->PathName[(PathSize / sizeof (CHAR16)) - 1] != L'\0'))
+  {
+    return FALSE;
+  }
+
+  return StrCmp (FilePath->PathName, LinuxPath) == 0;
+}
+
+STATIC
+BOOLEAN
+PlatformBootOptionMatchesLinuxEfiApplication (
+  IN CONST EFI_BOOT_MANAGER_LOAD_OPTION  *BootOption,
+  IN CONST CHAR16                        *Description,
+  IN CONST CHAR16                        *LinuxPath
+  )
+{
+  EFI_DEVICE_PATH_PROTOCOL  *Node;
+
+  if ((BootOption == NULL) ||
+      (BootOption->OptionNumber == LoadOptionNumberUnassigned) ||
+      (BootOption->Description == NULL) ||
+      (BootOption->FilePath == NULL) ||
+      (Description == NULL) ||
+      (LinuxPath == NULL) ||
+      (BootOption->OptionalDataSize != 0) ||
+      (StrCmp (BootOption->Description, Description) != 0))
+  {
+    return FALSE;
+  }
+
+  for (Node = BootOption->FilePath; !IsDevicePathEnd (Node); Node = NextDevicePathNode (Node)) {
+    if (PlatformFilePathNodeMatchesLinuxPath (Node, LinuxPath)) {
+      return TRUE;
+    }
+  }
+
+  return FALSE;
+}
+
+STATIC
+VOID
+PlatformDeleteLinuxEfiApplicationBootOptions (
+  IN CONST CHAR16  *Description,
+  IN CONST CHAR16  *LinuxPath
+  )
+{
+  EFI_STATUS                    Status;
+  EFI_BOOT_MANAGER_LOAD_OPTION  *BootOptions;
+  UINTN                         BootOptionCount;
+  UINTN                         Index;
+
+  BootOptions = EfiBootManagerGetLoadOptions (&BootOptionCount, LoadOptionTypeBoot);
+  for (Index = 0; Index < BootOptionCount; Index++) {
+    if (!PlatformBootOptionMatchesLinuxEfiApplication (&BootOptions[Index], Description, LinuxPath)) {
+      continue;
+    }
+
+    Status = EfiBootManagerDeleteLoadOptionVariable (BootOptions[Index].OptionNumber, LoadOptionTypeBoot);
+    if (EFI_ERROR (Status)) {
+      DEBUG ((
+        DEBUG_ERROR,
+        "%a: failed to delete stale Linux EFI boot option Boot%04x: %r\n",
+        __func__,
+        (UINT16)BootOptions[Index].OptionNumber,
+        Status
+        ));
+    } else {
+      DEBUG ((
+        DEBUG_INFO,
+        "%a: deleted stale Linux EFI boot option Boot%04x\n",
+        __func__,
+        (UINT16)BootOptions[Index].OptionNumber
+        ));
+    }
+  }
+
+  EfiBootManagerFreeLoadOptions (BootOptions, BootOptionCount);
+}
+
+STATIC
+BOOLEAN
+PlatformLinuxEfiStatusAllowsBootOptionCleanup (
+  IN EFI_STATUS  Status
+  )
+{
+  return (Status == EFI_NOT_FOUND) ||
+         (Status == EFI_UNSUPPORTED) ||
+         (Status == EFI_SECURITY_VIOLATION);
+}
+
+STATIC
 VOID
 PlatformRegisterLinuxEfiApplicationBootOption (
   VOID
@@ -2123,6 +2235,10 @@ PlatformRegisterLinuxEfiApplicationBootOption (
       LinuxPath,
       Status
       ));
+    if (PlatformLinuxEfiStatusAllowsBootOptionCleanup (Status)) {
+      PlatformDeleteLinuxEfiApplicationBootOptions (Description, LinuxPath);
+    }
+
     return;
   }
 
