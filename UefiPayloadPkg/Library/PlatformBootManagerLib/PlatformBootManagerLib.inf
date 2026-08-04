@@ -67,6 +67,7 @@
   gEfiCustomModeEnableGuid
   gEfiFileInfoGuid                           ## SOMETIMES_CONSUMES ## GUID
   gEfiGlobalVariableGuid
+  gEfiPartTypeSystemPartGuid                 ## SOMETIMES_CONSUMES ## GUID
   gEfiTcgPhysicalPresenceInfoHobGuid
   gUefiShellFileGuid
 

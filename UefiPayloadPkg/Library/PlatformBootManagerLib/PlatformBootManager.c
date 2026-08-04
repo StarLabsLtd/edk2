@@ -14,6 +14,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Guid/EventGroup.h>
 #include <Guid/FileInfo.h>
 #include <Guid/GlobalVariable.h>
+#include <Guid/Gpt.h>
 #include <Guid/ImageAuthentication.h>
 #include <Guid/TcgPhysicalPresenceGuid.h>
 #include <IndustryStandard/Pci.h>
@@ -1271,19 +1272,19 @@ PlatformRegisterFvBootOption (
 
 STATIC
 BOOLEAN
-PlatformBootOptionUsesInternalDisk (
-  IN CONST EFI_BOOT_MANAGER_LOAD_OPTION  *BootOption
+PlatformDevicePathUsesInternalDisk (
+  IN CONST EFI_DEVICE_PATH_PROTOCOL  *DevicePath
   )
 {
   EFI_DEVICE_PATH_PROTOCOL  *Node;
   BOOLEAN                   HasHardDrive;
 
-  if ((BootOption == NULL) || (BootOption->FilePath == NULL)) {
+  if (DevicePath == NULL) {
     return FALSE;
   }
 
   HasHardDrive = FALSE;
-  for (Node = BootOption->FilePath; !IsDevicePathEnd (Node); Node = NextDevicePathNode (Node)) {
+  for (Node = (EFI_DEVICE_PATH_PROTOCOL *)DevicePath; !IsDevicePathEnd (Node); Node = NextDevicePathNode (Node)) {
     if ((DevicePathType (Node) == MESSAGING_DEVICE_PATH) &&
         ((DevicePathSubType (Node) == MSG_USB_DP) ||
          (DevicePathSubType (Node) == MSG_USB_CLASS_DP) ||
@@ -1300,6 +1301,19 @@ PlatformBootOptionUsesInternalDisk (
   }
 
   return HasHardDrive;
+}
+
+STATIC
+BOOLEAN
+PlatformBootOptionUsesInternalDisk (
+  IN CONST EFI_BOOT_MANAGER_LOAD_OPTION  *BootOption
+  )
+{
+  if ((BootOption == NULL) || (BootOption->FilePath == NULL)) {
+    return FALSE;
+  }
+
+  return PlatformDevicePathUsesInternalDisk (BootOption->FilePath);
 }
 
 STATIC
@@ -1844,6 +1858,34 @@ Done:
 }
 
 STATIC
+BOOLEAN
+PlatformLinuxEfiFileSystemHandleIsInternalEsp (
+  IN EFI_HANDLE  Handle
+  )
+{
+  EFI_STATUS                Status;
+  EFI_DEVICE_PATH_PROTOCOL  *HandleDevicePath;
+  VOID                      *EspInterface;
+
+  if (Handle == NULL) {
+    return FALSE;
+  }
+
+  EspInterface = NULL;
+  Status       = gBS->HandleProtocol (
+                        Handle,
+                        &gEfiPartTypeSystemPartGuid,
+                        &EspInterface
+                        );
+  if (EFI_ERROR (Status)) {
+    return FALSE;
+  }
+
+  HandleDevicePath = DevicePathFromHandle (Handle);
+  return PlatformDevicePathUsesInternalDisk (HandleDevicePath);
+}
+
+STATIC
 EFI_STATUS
 PlatformBuildLinuxEfiDevicePathFromBootOption (
   IN  CONST EFI_BOOT_MANAGER_LOAD_OPTION  *BootOption,
@@ -1879,8 +1921,12 @@ PlatformBuildLinuxEfiDevicePathFromBootOption (
                     &DeviceHandle
                     );
     if (!EFI_ERROR (Status)) {
-      *DevicePath = FileDevicePath (DeviceHandle, LinuxPath);
-      Status      = (*DevicePath == NULL) ? EFI_OUT_OF_RESOURCES : EFI_SUCCESS;
+      if (!PlatformLinuxEfiFileSystemHandleIsInternalEsp (DeviceHandle)) {
+        Status = EFI_NOT_FOUND;
+      } else {
+        *DevicePath = FileDevicePath (DeviceHandle, LinuxPath);
+        Status      = (*DevicePath == NULL) ? EFI_OUT_OF_RESOURCES : EFI_SUCCESS;
+      }
     }
   }
 
@@ -1941,7 +1987,6 @@ PlatformFindLinuxEfiApplicationFromBootOptions (
   return LastStatus;
 }
 
-STATIC
 EFI_STATUS
 PlatformFindLinuxEfiApplicationFromFileSystems (
   IN  CONST CHAR16              *LinuxPath,
@@ -1975,6 +2020,10 @@ PlatformFindLinuxEfiApplicationFromFileSystems (
 
   LastStatus = EFI_NOT_FOUND;
   for (Index = 0; Index < HandleCount; Index++) {
+    if (!PlatformLinuxEfiFileSystemHandleIsInternalEsp (Handles[Index])) {
+      continue;
+    }
+
     Candidate = FileDevicePath (Handles[Index], LinuxPath);
     if (Candidate == NULL) {
       LastStatus = EFI_OUT_OF_RESOURCES;
