@@ -1,0 +1,21 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
+
+#ifndef CDK2_ABI_TPM2_ACPI_H_
+#define CDK2_ABI_TPM2_ACPI_H_
+
+#include <industry_standard/acpi.h>
+
+#define EFI_TPM2_ACPI_TABLE_REVISION_4 4U
+#define EFI_TPM2_ACPI_TABLE_REVISION_5 5U
+
+#define EFI_TPM2_ACPI_TABLE_START_METHOD_SPECIFIC_PARAMETERS_MAX_SIZE_REVISION_4 12U
+#define EFI_TPM2_ACPI_TABLE_START_METHOD_SPECIFIC_PARAMETERS_MAX_SIZE_REVISION_5 16U
+
+typedef struct {
+	EFI_ACPI_DESCRIPTION_HEADER header;
+	UINT32 flags;
+	UINT64 address_of_control_area;
+	UINT32 start_method;
+} __packed EFI_TPM2_ACPI_TABLE;
+
+#endif

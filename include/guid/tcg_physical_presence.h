@@ -1,0 +1,21 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
+
+#ifndef CDK2_ABI_TCG_PHYSICAL_PRESENCE_GUID_H_
+#define CDK2_ABI_TCG_PHYSICAL_PRESENCE_GUID_H_
+
+#include <uefi.h>
+
+typedef struct {
+	UINT32 ppi_address;
+	UINT8 tpm_version;
+	UINT8 ppi_version;
+} TCG_PHYSICAL_PRESENCE_INFO;
+
+#define UEFIPAYLOAD_TPM_VERSION_UNSPEC 0U
+#define UEFIPAYLOAD_TPM_VERSION_1_2    1U
+#define UEFIPAYLOAD_TPM_VERSION_2      2U
+
+#define UEFIPAYLOAD_TPM_PPI_VERSION_NONE  0U
+#define UEFIPAYLOAD_TPM_PPI_VERSION_1_30 1U
+
+#endif

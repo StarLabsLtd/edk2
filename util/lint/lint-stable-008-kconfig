@@ -1,0 +1,14 @@
+#!/usr/bin/env sh
+#
+# SPDX-License-Identifier: GPL-2.0-only
+
+# DESCR: Check that the Kconfig defconfig resolves
+
+tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/cdk2-kconfig.XXXXXX")"
+log="$(mktemp "${TMPDIR:-/tmp}/cdk2-kconfig-log.XXXXXX")"
+trap 'rm -rf "$tmpdir" "$log"' EXIT HUP INT TERM
+
+if ! make --no-print-directory CDK2_BUILD_DIR="$tmpdir" olddefconfig >"$log" 2>&1; then
+	cat "$log"
+	exit 1
+fi

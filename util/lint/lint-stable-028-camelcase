@@ -1,0 +1,76 @@
+#!/usr/bin/env sh
+#
+# SPDX-License-Identifier: GPL-2.0-only
+
+# DESCR: Check native C identifiers for CamelCase
+
+LINTDIR="$(
+  cd -- "$(dirname "$0")" > /dev/null 2>&1 || return
+  pwd -P
+)"
+
+# shellcheck source=helper_functions.sh
+. "${LINTDIR}/helper_functions.sh"
+
+if [ "${IN_GIT_TREE}" -eq 1 ]; then
+	FILELIST="$(${GIT} ls-files --cached --others --exclude-standard)"
+else
+	FILELIST="$(find src include util tests -type f 2>/dev/null | sed 's#^\./##')"
+fi
+
+printf '%s\n' "$FILELIST" | \
+	grep -E '^(src|include|util|tests)/.*\.(c|h|S)$' | \
+	xargs -r perl -0777 -ne '
+		BEGIN {
+			%keywords = map { $_ => 1 } qw(
+				auto break case char const continue default do double else enum extern
+				float for goto if inline int long register restrict return short
+				signed sizeof static struct switch typedef union unsigned void
+				volatile while _Atomic _Bool
+			);
+			%exact = map { $_ => 1 } qw(
+				BOOLEAN CHAR8 CHAR16 CONST DIR EOF EFIAPI FILE FALSE IN NULL
+				OPTIONAL OUT STATIC STDERR_FILENO STDIN_FILENO STDOUT_FILENO
+				TRUE VOID
+			);
+			@prefix = qw(
+				Elf32_ Elf64_
+			);
+		}
+
+		sub keep_newlines {
+			my ($text) = @_;
+			$text =~ s/[^\n]/ /g;
+			return $text;
+		}
+
+		sub allowed_identifier {
+			my ($token) = @_;
+			return 1 if $keywords{$token};
+			return 1 if $exact{$token};
+			return 1 if $token =~ /^__/;
+			for my $prefix (@prefix) {
+				return 1 if index($token, $prefix) == 0;
+			}
+			return 0;
+		}
+
+		my $file = $ARGV;
+		my $code = $_;
+
+		$code =~ s{/\*.*?\*/}{keep_newlines($&)}gse;
+		$code =~ s{//[^\n]*}{ }g;
+		$code =~ s{"(?:\\.|[^"\\])*"}{ }g;
+		$code =~ s{'\''(?:\\.|[^'\''\\])*'\''}{ }g;
+
+		my $line_number = 0;
+		for my $line (split /\n/, $code, -1) {
+			$line_number++;
+			while ($line =~ /\b([A-Za-z_][A-Za-z0-9_]*)\b/g) {
+				my $token = $1;
+				next unless $token =~ /[a-z]/ && $token =~ /[A-Z]/;
+				next if allowed_identifier($token);
+				print "$file:$line_number: CamelCase identifier: $token\n";
+			}
+		}
+	'

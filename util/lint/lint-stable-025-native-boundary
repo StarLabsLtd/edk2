@@ -1,0 +1,45 @@
+#!/usr/bin/env sh
+#
+# SPDX-License-Identifier: GPL-2.0-only
+
+# DESCR: Check that cdk2 stays inside the native coreboot boundary
+
+LINTDIR="$(
+  cd -- "$(dirname "$0")" > /dev/null 2>&1 || return
+  pwd -P
+)"
+
+# shellcheck source=helper_functions.sh
+. "${LINTDIR}/helper_functions.sh"
+
+if [ "${IN_GIT_TREE}" -eq 1 ]; then
+	FILELIST="$(${GIT} ls-files --cached --others --exclude-standard)"
+else
+	FILELIST="$(find . -type f | sed 's#^\./##' | grep -Ev '^(Build|build|out)/')"
+fi
+
+printf '%s\n' "$FILELIST" | \
+	grep -E '(^|/)[A-Z][A-Za-z0-9_.-]*' | \
+	grep -Ev '^(Kconfig|Makefile|README.md|src/boot/Makefile)$' | \
+	sed -e 's,^,Uppercase path not allowed in native cdk2 tree: ,'
+
+printf '%s\n' "$FILELIST" | \
+	grep -Ei '\.(inf|dsc|fdf|dec|py)$' | \
+	sed -e 's,^,Package metadata or .py file not allowed: ,'
+
+SEARCH_DIRS="Kconfig Makefile defconfig src include util tests .checkpatch.conf"
+
+${GREP_FILES} -nI -E '(^|[^A-Za-z0-9_])(Pcd|PCD|BaseTools|UefiPayloadPkg|MdePkg|MdeModulePkg)([^A-Za-z0-9_]|$)' \
+	$SEARCH_DIRS 2>/dev/null | \
+	grep -v '^util/lint/lint-stable-025-native-boundary:' | \
+	sed -e 's,^,Disallowed package boundary reference: ,'
+
+${GREP_FILES} -nI -E '([Ee][Dd][Kk][[:space:]_-]*2|EDK[[:space:]_-]*II)' \
+	$SEARCH_DIRS 2>/dev/null | \
+	grep -v '^util/lint/lint-stable-025-native-boundary:' | \
+	sed -e 's,^,Disallowed legacy-package text reference: ,'
+
+${GREP_FILES} -nI -E '(Guid|IndustryStandard|Library|Pi|UniversalPayload)/|C[o]reboot\.h|Uefi\.h|Cdk2PlatformLib' \
+	$SEARCH_DIRS 2>/dev/null | \
+	grep -v '^util/lint/lint-stable-025-native-boundary:' | \
+	sed -e 's,^,EDK-style include path reference: ,'
