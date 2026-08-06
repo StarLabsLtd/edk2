@@ -9,6 +9,7 @@
 #include "EcAcpiBatteryStatusDxe.h"
 #include <Library/DebugLib.h>
 #include <Library/IoLib.h>
+#include <Library/UefiBootServicesTableLib.h>
 
 //
 // Merlin EC RAM Battery Offsets
@@ -21,7 +22,14 @@
 #define MERLIN_ECRAM_BATTERY_STATE             0x8c  // Battery state register
   #define MERLIN_BATTERY_CHARGING              BIT1  // Battery is charging
   #define MERLIN_BATTERY_CRITICAL              BIT2  // Battery is critical
+#define MERLIN_ECRAM_BATTERY_FULL_CHARGE_CAP   0x88  // 2 bytes
+#define MERLIN_ECRAM_BATTERY_REMAINING_CAP     0x8f  // 2 bytes
 #define MERLIN_ECRAM_BATTERY_REL_STATE_OF_CHRG 0x93  // 2 bytes
+#define MERLIN_BATTERY_WORD_UNKNOWN            0xffff
+#define MERLIN_BATTERY_CACHE_WAIT_US           (3 * 1000 * 1000)
+#define MERLIN_BATTERY_CACHE_POLL_US           (100 * 1000)
+
+STATIC BOOLEAN  mMerlinBatteryInitialReadDone;
 
 /**
   Read a byte from Merlin EC RAM.
@@ -105,6 +113,96 @@ MerlinEcReadWord (
   return EFI_SUCCESS;
 }
 
+STATIC
+EFI_STATUS
+ReadMerlinBatteryPercentage (
+  OUT UINT8   *BatteryPercentage,
+  OUT UINT16  *RelativeStateOfCharge,
+  OUT UINT16  *RemainingCapacity,
+  OUT UINT16  *FullChargeCapacity
+  )
+{
+  EFI_STATUS  Status;
+  UINT32      Percentage;
+
+  *BatteryPercentage     = BATTERY_PERCENT_UNKNOWN;
+  *RelativeStateOfCharge = MERLIN_BATTERY_WORD_UNKNOWN;
+  *RemainingCapacity     = MERLIN_BATTERY_WORD_UNKNOWN;
+  *FullChargeCapacity    = MERLIN_BATTERY_WORD_UNKNOWN;
+
+  Status = MerlinEcReadWord (MERLIN_ECRAM_BATTERY_REL_STATE_OF_CHRG, RelativeStateOfCharge);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_WARN, "EcAcpiBattery: Failed to read battery percentage: %r\n", Status));
+    return Status;
+  } else if (*RelativeStateOfCharge <= 100) {
+    *BatteryPercentage = (UINT8)*RelativeStateOfCharge;
+    return EFI_SUCCESS;
+  }
+
+  Status = MerlinEcReadWord (MERLIN_ECRAM_BATTERY_REMAINING_CAP, RemainingCapacity);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_WARN, "EcAcpiBattery: Failed to read battery remaining capacity: %r\n", Status));
+    return Status;
+  }
+
+  Status = MerlinEcReadWord (MERLIN_ECRAM_BATTERY_FULL_CHARGE_CAP, FullChargeCapacity);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_WARN, "EcAcpiBattery: Failed to read battery full charge capacity: %r\n", Status));
+    return Status;
+  }
+
+  if ((*RemainingCapacity == MERLIN_BATTERY_WORD_UNKNOWN) ||
+      (*FullChargeCapacity == MERLIN_BATTERY_WORD_UNKNOWN) ||
+      (*FullChargeCapacity == 0))
+  {
+    return EFI_NOT_READY;
+  }
+
+  Percentage = ((UINT32)*RemainingCapacity * 100) / *FullChargeCapacity;
+  if (Percentage > 100) {
+    Percentage = 100;
+  }
+
+  *BatteryPercentage = (UINT8)Percentage;
+  return EFI_SUCCESS;
+}
+
+STATIC
+VOID
+WaitForMerlinBatteryPercentage (
+  OUT UINT8   *BatteryPercentage,
+  OUT UINT16  *RelativeStateOfCharge,
+  OUT UINT16  *RemainingCapacity,
+  OUT UINT16  *FullChargeCapacity
+  )
+{
+  EFI_STATUS  Status;
+  UINTN       ElapsedUs;
+
+  for (ElapsedUs = 0; ; ElapsedUs += MERLIN_BATTERY_CACHE_POLL_US) {
+    Status = ReadMerlinBatteryPercentage (
+               BatteryPercentage,
+               RelativeStateOfCharge,
+               RemainingCapacity,
+               FullChargeCapacity
+               );
+    if (!EFI_ERROR (Status)) {
+      break;
+    }
+
+    if ((Status != EFI_NOT_READY) ||
+        mMerlinBatteryInitialReadDone ||
+        (ElapsedUs >= MERLIN_BATTERY_CACHE_WAIT_US))
+    {
+      break;
+    }
+
+    gBS->Stall (MERLIN_BATTERY_CACHE_POLL_US);
+  }
+
+  mMerlinBatteryInitialReadDone = TRUE;
+}
+
 /**
   Check if Merlin EC is present by reading a known register.
 
@@ -155,6 +253,8 @@ GetMerlinBatteryInfo (
   UINT8       PowerState;
   UINT8       BatteryState;
   UINT16      RelativeStateOfCharge;
+  UINT16      RemainingCapacity;
+  UINT16      FullChargeCapacity;
 
   if (mEcBatteryPrivate == NULL || !mEcBatteryPrivate->EcPresent) {
     return EFI_UNSUPPORTED;
@@ -175,7 +275,8 @@ GetMerlinBatteryInfo (
 
   if (!*BatteryPresent) {
     *BatteryCharging   = FALSE;
-    *BatteryPercentage = 0xFF;
+    *BatteryPercentage = BATTERY_PERCENT_UNKNOWN;
+    mMerlinBatteryInitialReadDone = FALSE;
     DEBUG ((DEBUG_INFO, "EcAcpiBattery: [Merlin] No battery present (power_state=0x%02x)\n", PowerState));
     return EFI_UNSUPPORTED;
   }
@@ -187,30 +288,27 @@ GetMerlinBatteryInfo (
     return Status;
   }
 
-  // Read relative state of charge (percentage)
-  Status = MerlinEcReadWord (MERLIN_ECRAM_BATTERY_REL_STATE_OF_CHRG, &RelativeStateOfCharge);
-  if (EFI_ERROR (Status)) {
-    DEBUG ((DEBUG_WARN, "EcAcpiBattery: Failed to read battery percentage: %r\n", Status));
-    RelativeStateOfCharge = BATTERY_PERCENT_UNKNOWN;
-  }
-
-  // Validate percentage value
-  if (RelativeStateOfCharge <= 100) {
-    *BatteryPercentage = (UINT8)RelativeStateOfCharge;
-  } else {
-    *BatteryPercentage = 0xFF;
-  }
+  WaitForMerlinBatteryPercentage (
+    BatteryPercentage,
+    &RelativeStateOfCharge,
+    &RemainingCapacity,
+    &FullChargeCapacity
+    );
 
   *BatteryCharging = ((BatteryState & MERLIN_BATTERY_CHARGING) != 0);
 
   DEBUG ((
     DEBUG_INFO,
-    "EcAcpiBattery: [Merlin] Battery %d%%, Present=%d, Charging=%d (power_state=0x%02x, battery_state=0x%02x)\n",
+    "EcAcpiBattery: [Merlin] Battery %d%%, Present=%d, Charging=%d "
+    "(power_state=0x%02x, battery_state=0x%02x, rsoc=%u, remaining=%u, full=%u)\n",
     *BatteryPercentage,
     *BatteryPresent,
     *BatteryCharging,
     PowerState,
-    BatteryState
+    BatteryState,
+    RelativeStateOfCharge,
+    RemainingCapacity,
+    FullChargeCapacity
     ));
 
   return EFI_SUCCESS;
