@@ -64,7 +64,7 @@ CDK2_RECURSIVE_ARGS := \
 	native-coreboot-image native-check native-pack native-service-test native-coreboot-test \
 	native-fv-test native-fvpack-test native-pe-test native-module-test \
 	native-elfcheck-test manifest-check print lint lint-stable lint-extended test-lint \
-	jenkins what-jenkins-does clean FORCE
+	jenkins what-jenkins-does retained-fv-check clean FORCE
 .DELETE_ON_ERROR: $(CDK2_CONFIG) $(CDK2_CONFIG_HEADER) $(CDK2_MANIFEST)
 
 all: build
@@ -81,7 +81,7 @@ lint-extended:
 
 test-lint: lint
 
-what-jenkins-does: lint check manifest-check
+what-jenkins-does: lint check manifest-check retained-fv-check
 	@set -e; log="$$(mktemp "$${TMPDIR:-/tmp}/cdk2-build-image.XXXXXX")"; \
 	if $(MAKE) --no-print-directory $(CDK2_RECURSIVE_ARGS) -f "$(CDK2_ROOT)/Makefile" build-image >"$$log" 2>&1; then \
 		cat "$$log"; \
@@ -99,6 +99,23 @@ what-jenkins-does: lint check manifest-check
 	printf '%s\n' 'build-image: expected native-boundary failure confirmed'
 
 jenkins: what-jenkins-does
+
+retained-fv-check:
+	@awk -F '\t' '\
+		/^# baseline-retained=/ { split($$0, field, "="); baseline = field[2] + 0; next } \
+		/^# retained=/ { split($$0, field, "="); declared = field[2] + 0; next } \
+		/^#/ || /^$$/ { next } \
+		NF != 3 { print "malformed retained-FV entry at line " NR > "/dev/stderr"; failed = 1; next } \
+		$$1 !~ /^(retain|native|remove)$$/ { print "invalid retained-FV status at line " NR > "/dev/stderr"; failed = 1 } \
+		seen[$$3]++ { print "duplicate retained-FV module: " $$3 > "/dev/stderr"; failed = 1 } \
+		previous != "" && $$3 < previous { print "retained-FV modules are not sorted at line " NR > "/dev/stderr"; failed = 1 } \
+		{ previous = $$3; if ($$1 == "retain") retained++ } \
+		END { \
+			if (baseline == 0) { print "missing retained-FV baseline" > "/dev/stderr"; failed = 1 } \
+			if (retained != declared) { print "declared retained-FV count does not match inventory" > "/dev/stderr"; failed = 1 } \
+			if (retained > baseline) { print "retained-FV count increased above baseline" > "/dev/stderr"; failed = 1 } \
+			exit failed \
+		}' migration/retained-fv.tsv
 
 prepare-kconfig:
 	@mkdir -p "$(CDK2_KCONFIG_WORKDIR)"
