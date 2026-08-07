@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: BSD-2-Clause-Patent */
 
 /*
- * A source-built Generic Memory Test Protocol implementation.  Coreboot has
+ * A source-built Generic Memory Test Protocol implementation.  coreboot has
  * already initialized DRAM, so this driver promotes PI GCD ranges marked
  * present and initialized and reports completion without destructive testing.
  */
@@ -78,16 +78,16 @@ struct gcd_memory_descriptor {
 	void *device_handle;
 };
 
-typedef uint64_t (__attribute__((ms_abi)) *add_memory_space_fn)(
+typedef uint64_t (__ms_abi *add_memory_space_fn)(
 	enum gcd_memory_type type, uint64_t base, uint64_t length, uint64_t capabilities);
-typedef uint64_t (__attribute__((ms_abi)) *remove_memory_space_fn)(uint64_t base,
+typedef uint64_t (__ms_abi *remove_memory_space_fn)(uint64_t base,
 	uint64_t length);
-typedef uint64_t (__attribute__((ms_abi)) *get_memory_descriptor_fn)(
+typedef uint64_t (__ms_abi *get_memory_descriptor_fn)(
 	uint64_t base, struct gcd_memory_descriptor *descriptor);
-typedef uint64_t (__attribute__((ms_abi)) *get_memory_map_fn)(
+typedef uint64_t (__ms_abi *get_memory_map_fn)(
 	size_t *count, struct gcd_memory_descriptor **map);
-typedef uint64_t (__attribute__((ms_abi)) *free_pool_fn)(void *buffer);
-typedef uint64_t (__attribute__((ms_abi)) *install_protocol_fn)(
+typedef uint64_t (__ms_abi *free_pool_fn)(void *buffer);
+typedef uint64_t (__ms_abi *install_protocol_fn)(
 	void **handle, const struct guid *protocol, uint32_t interface_type, void *interface);
 
 struct dxe_services {
@@ -150,7 +150,7 @@ static uint64_t promote_memory(const struct gcd_memory_descriptor *descriptor,
 			EFI_MEMORY_TESTED | EFI_MEMORY_RUNTIME));
 }
 
-static uint64_t __attribute__((ms_abi)) initialize_memory_test(
+static uint64_t __ms_abi initialize_memory_test(
 	struct cdk2_generic_memory_test *unused, uint32_t level, uint8_t *soft_ecc)
 {
 	struct gcd_memory_descriptor *map;
@@ -188,7 +188,7 @@ static uint64_t __attribute__((ms_abi)) initialize_memory_test(
 	return status;
 }
 
-static uint64_t __attribute__((ms_abi)) perform_memory_test(
+static uint64_t __ms_abi perform_memory_test(
 	struct cdk2_generic_memory_test *unused, uint64_t *tested, uint64_t *total,
 	uint8_t *error, uint8_t abort)
 {
@@ -202,14 +202,14 @@ static uint64_t __attribute__((ms_abi)) perform_memory_test(
 	return EFI_NOT_FOUND;
 }
 
-static uint64_t __attribute__((ms_abi)) finish_memory_test(
+static uint64_t __ms_abi finish_memory_test(
 	struct cdk2_generic_memory_test *unused)
 {
 	(void)unused;
 	return EFI_SUCCESS;
 }
 
-static uint64_t __attribute__((ms_abi)) test_compatible_range(
+static uint64_t __ms_abi test_compatible_range(
 	struct cdk2_generic_memory_test *unused, uint64_t start, uint64_t length)
 {
 	uint64_t end;
@@ -254,7 +254,7 @@ static struct cdk2_generic_memory_test memory_test = {
 	.test_compatible_range = test_compatible_range,
 };
 
-uint64_t __attribute__((ms_abi))
+uint64_t __ms_abi
 cdk2_null_memory_test_entry(void *image_handle, struct system_table *system_table)
 {
 	size_t index;

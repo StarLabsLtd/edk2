@@ -12,7 +12,7 @@ static unsigned int add_calls;
 static unsigned int remove_calls;
 static unsigned int free_calls;
 
-static uint64_t __attribute__((ms_abi)) mock_add(enum gcd_memory_type type,
+static uint64_t __ms_abi mock_add(enum gcd_memory_type type,
 	uint64_t base, uint64_t length, uint64_t capabilities)
 {
 	(void)capabilities;
@@ -22,7 +22,7 @@ static uint64_t __attribute__((ms_abi)) mock_add(enum gcd_memory_type type,
 	return EFI_SUCCESS;
 }
 
-static uint64_t __attribute__((ms_abi)) mock_remove(uint64_t base, uint64_t length)
+static uint64_t __ms_abi mock_remove(uint64_t base, uint64_t length)
 {
 	if (base != 0x100000 || length != 0x200000)
 		return EFI_INVALID_PARAMETER;
@@ -30,7 +30,7 @@ static uint64_t __attribute__((ms_abi)) mock_remove(uint64_t base, uint64_t leng
 	return EFI_SUCCESS;
 }
 
-static uint64_t __attribute__((ms_abi)) mock_get_descriptor(
+static uint64_t __ms_abi mock_get_descriptor(
 	uint64_t base, struct gcd_memory_descriptor *descriptor)
 {
 	if (base >= 0x300000)
@@ -39,7 +39,7 @@ static uint64_t __attribute__((ms_abi)) mock_get_descriptor(
 	return EFI_SUCCESS;
 }
 
-static uint64_t __attribute__((ms_abi)) mock_get_map(
+static uint64_t __ms_abi mock_get_map(
 	size_t *count, struct gcd_memory_descriptor **map)
 {
 	*count = 3;
@@ -47,7 +47,7 @@ static uint64_t __attribute__((ms_abi)) mock_get_map(
 	return EFI_SUCCESS;
 }
 
-static uint64_t __attribute__((ms_abi)) mock_free(void *buffer)
+static uint64_t __ms_abi mock_free(void *buffer)
 {
 	if (buffer != descriptors)
 		return EFI_INVALID_PARAMETER;
@@ -55,7 +55,7 @@ static uint64_t __attribute__((ms_abi)) mock_free(void *buffer)
 	return EFI_SUCCESS;
 }
 
-static uint64_t __attribute__((ms_abi)) mock_install(void **handle,
+static uint64_t __ms_abi mock_install(void **handle,
 	const struct guid *guid, uint32_t interface_type, void *interface)
 {
 	if (interface_type != 0)

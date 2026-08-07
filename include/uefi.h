@@ -75,6 +75,9 @@ typedef EFI_GUID GUID;
 #ifndef __weak
 #define __weak __attribute__((__weak__))
 #endif
+#ifndef __ms_abi
+#define __ms_abi __attribute__((ms_abi))
+#endif
 #else
 #ifndef __aligned
 #define __aligned(x)
@@ -93,6 +96,9 @@ typedef EFI_GUID GUID;
 #endif
 #ifndef __weak
 #define __weak
+#endif
+#ifndef __ms_abi
+#define __ms_abi
 #endif
 #endif
 
