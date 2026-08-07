@@ -155,7 +155,7 @@ int main(int argc, char **argv)
 	FILE *file;
 
 	if (argc != 7 && argc != 8) {
-		fprintf(stderr, "usage: %s GUID UI VERSION SIZE PE OUTPUT [DEPEX]\n", argv[0]);
+		fprintf(stderr, "usage: %s GUID UI VERSION SIZE PE OUTPUT [DEPEX|-]\n", argv[0]);
 		return EXIT_FAILURE;
 	}
 	parse_guid(argv[1], guid);
@@ -165,7 +165,9 @@ int main(int argc, char **argv)
 	pe = read_file(argv[5], &pe_size, "cannot read input PE");
 	if (pe_size < 2 || pe[0] != 'M' || pe[1] != 'Z')
 		fail("input is not a PE/COFF image");
-	if (argc == 8) {
+	if (argc == 8 && strcmp(argv[7], "-") == 0) {
+		depex_size = 0;
+	} else if (argc == 8) {
 		depex = read_file(argv[7], &depex_size, "cannot read DEPEX section");
 		if (depex_size < 4 || get24(depex) != depex_size ||
 		    depex[3] != SECTION_DXE_DEPEX)
@@ -182,7 +184,9 @@ int main(int argc, char **argv)
 	output[23] = 0;
 
 	offset = FFS_HEADER_SIZE;
-	if (depex != NULL) {
+	if (depex_size == 0) {
+		/* Some UEFI drivers are deliberately admitted without a DEPEX. */
+	} else if (depex != NULL) {
 		memcpy(output + offset, depex, depex_size);
 	} else {
 		put24(output + offset, 6);

@@ -33,6 +33,21 @@ static int run(const char *tool, const char *pe, const char *output,
 	return !WIFEXITED(status) || WEXITSTATUS(status) != 0;
 }
 
+static int run_without_depex(const char *tool, const char *pe, const char *output)
+{
+	pid_t child = fork();
+	int status;
+
+	if (child == 0) {
+		execl(tool, tool, "cd3bafb6-50fb-4fe8-8e4e-ab74d2c1a600",
+		      "EnglishDxe", "1.0", "130", pe, output, "-", NULL);
+		_exit(127);
+	}
+	if (child < 0 || waitpid(child, &status, 0) != child)
+		return 1;
+	return !WIFEXITED(status) || WEXITSTATUS(status) != 0;
+}
+
 int main(int argc, char **argv)
 {
 	static const uint8_t pe[16] = { 'M', 'Z' };
@@ -60,6 +75,13 @@ int main(int argc, char **argv)
 		return 1;
 	if (memcmp(output + 24, depex, sizeof(depex)) != 0 ||
 	    output[48 + 3] != 0x10 || memcmp(output + 52, pe, sizeof(pe)) != 0)
+		return 1;
+	if (run_without_depex(argv[1], pe_path, output_path))
+		return 1;
+	file = fopen(output_path, "rb");
+	if (file == NULL || fread(output, 1, sizeof(output), file) != sizeof(output) ||
+	    fclose(file) != 0 || output[24 + 3] != 0x10 ||
+	    memcmp(output + 28, pe, sizeof(pe)) != 0)
 		return 1;
 	depex_path[strlen(depex_path) - 1] = 'x';
 	if (write_file(depex_path, depex, sizeof(depex) - 1) ||
