@@ -16,7 +16,7 @@
 #include <industry_standard/tpm2_acpi.h>
 #include <industry_standard/uefi_tcg_platform.h>
 #include <library/hob_lib.h>
-#include <universal_payload/smbios_table.h>
+#include <cdk2/hob_payload.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -1166,7 +1166,7 @@ int main(void)
 	struct test_mcfg_table mcfg;
 	ACPI_BOARD_INFO board_info;
 	struct test_tpm2_table tpm2_table;
-	UNIVERSAL_PAYLOAD_SMBIOS_TABLE *smbios_table;
+	CDK2_SMBIOS_TABLE_HOB *smbios_table;
 	UINT8 test_data[4];
 	struct cdk2_native_context transfer_context;
 	EFI_HOB_HANDOFF_INFO_TABLE *transfer_hob;
@@ -2374,9 +2374,9 @@ int main(void)
 					hob->hob_length >= sizeof(*guid_hob) +
 								   sizeof(*smbios_table),
 					"SMBIOS 2 HOB is too short");
-				smbios_table = (UNIVERSAL_PAYLOAD_SMBIOS_TABLE *)(void *)(guid_hob + 1);
+				smbios_table = (CDK2_SMBIOS_TABLE_HOB *)(void *)(guid_hob + 1);
 				failures += expect(
-					smbios_table->sm_bios_entry_point ==
+					smbios_table->smbios_entry_point ==
 						(EFI_PHYSICAL_ADDRESS)(UINTN)smbios2_entry,
 					"SMBIOS 2 entry point address is wrong");
 				smbios2_guid_count++;
@@ -2422,9 +2422,9 @@ int main(void)
 					hob->hob_length >= sizeof(*guid_hob) +
 								   sizeof(*smbios_table),
 					"SMBIOS 3 HOB is too short");
-				smbios_table = (UNIVERSAL_PAYLOAD_SMBIOS_TABLE *)(void *)(guid_hob + 1);
+				smbios_table = (CDK2_SMBIOS_TABLE_HOB *)(void *)(guid_hob + 1);
 				failures += expect(
-					smbios_table->sm_bios_entry_point ==
+					smbios_table->smbios_entry_point ==
 						(EFI_PHYSICAL_ADDRESS)(UINTN)smbios3_entry,
 					"SMBIOS 3 entry point address is wrong");
 				smbios3_guid_count++;

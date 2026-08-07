@@ -7,7 +7,7 @@ assembly, linker scripts, and host utilities only.
 The native build currently covers:
 
 - coreboot table parsing
-- UPL HOB construction helpers
+- coreboot-table HOB construction helpers
 - PE/COFF and FV validation helpers
 - x86 entry/linker output
 - host tests for the native parser, services, PE, FV, module table, and ELF

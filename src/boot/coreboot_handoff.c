@@ -18,9 +18,7 @@
 #include <industry_standard/tpm2_acpi.h>
 #include <industry_standard/uefi_tcg_platform.h>
 #include <guid/tcg_physical_presence.h>
-#include <universal_payload/acpi_table.h>
-#include <universal_payload/serial_port_info.h>
-#include <universal_payload/smbios_table.h>
+#include <cdk2/hob_payload.h>
 #include <cdk2/config.h>
 
 #include "coreboot_hobs.h"
@@ -549,14 +547,14 @@ static UINTN cdk2_coreboot_string_record_length(const struct cb_string *string)
 static EFI_STATUS cdk2_coreboot_append_acpi_table_hob(EFI_HOB_HANDOFF_INFO_TABLE *handoff,
 						      EFI_PHYSICAL_ADDRESS rsdp_base)
 {
-	UNIVERSAL_PAYLOAD_ACPI_TABLE acpi_table;
+	CDK2_ACPI_TABLE_HOB acpi_table;
 
 	if (rsdp_base == 0) {
 		return EFI_INVALID_PARAMETER;
 	}
 
-	acpi_table = (UNIVERSAL_PAYLOAD_ACPI_TABLE){0};
-	acpi_table.header.revision = UNIVERSAL_PAYLOAD_ACPI_TABLE_REVISION;
+	acpi_table = (CDK2_ACPI_TABLE_HOB){0};
+	acpi_table.header.revision = CDK2_ACPI_TABLE_HOB_REVISION;
 	acpi_table.header.length = sizeof(acpi_table);
 	acpi_table.rsdp = rsdp_base;
 
@@ -1055,7 +1053,7 @@ static EFI_STATUS cdk2_coreboot_find_cbmem_entry(const struct cdk2_coreboot_hand
 static EFI_STATUS cdk2_coreboot_append_smbios_hob(EFI_HOB_HANDOFF_INFO_TABLE *handoff,
 						  const struct cdk2_coreboot_handoff *coreboot)
 {
-	UNIVERSAL_PAYLOAD_SMBIOS_TABLE smbios_table;
+	CDK2_SMBIOS_TABLE_HOB smbios_table;
 	const EFI_GUID *smbios_guid;
 	EFI_PHYSICAL_ADDRESS smbios_base;
 	UINT32 smbios_size;
@@ -1072,10 +1070,10 @@ static EFI_STATUS cdk2_coreboot_append_smbios_hob(EFI_HOB_HANDOFF_INFO_TABLE *ha
 		return status;
 	}
 
-	smbios_table = (UNIVERSAL_PAYLOAD_SMBIOS_TABLE){0};
-	smbios_table.header.revision = UNIVERSAL_PAYLOAD_SMBIOS_TABLE_REVISION;
+	smbios_table = (CDK2_SMBIOS_TABLE_HOB){0};
+	smbios_table.header.revision = CDK2_SMBIOS_TABLE_HOB_REVISION;
 	smbios_table.header.length = sizeof(smbios_table);
-	smbios_table.sm_bios_entry_point = smbios_base;
+	smbios_table.smbios_entry_point = smbios_base;
 	if (smbios_size >= sizeof(m_cdk2_smbios3_anchor) &&
 	    cdk2_coreboot_bytes_equal((const void *)(UINTN)smbios_base, m_cdk2_smbios3_anchor,
 				      sizeof(m_cdk2_smbios3_anchor))) {
@@ -1672,7 +1670,7 @@ static EFI_STATUS EFIAPI cdk2_coreboot_build_platform_hobs(struct cdk2_native_co
 	const struct cb_tpm_physical_presence *tpm_ppi;
 	const struct cb_string *version;
 	const struct cb_string *extra_version;
-	UNIVERSAL_PAYLOAD_SERIAL_PORT_INFO serial_info;
+	CDK2_SERIAL_PORT_HOB serial_info;
 	SERIAL_PORT_INFO legacy_serial_info;
 	EFI_PEI_GRAPHICS_INFO_HOB graphics_info;
 	EFI_HOB_HANDOFF_INFO_TABLE *hob;
@@ -1759,8 +1757,8 @@ static EFI_STATUS EFIAPI cdk2_coreboot_build_platform_hobs(struct cdk2_native_co
 					   CDK2_COREBOOT_SERIAL_MIN_SIZE, &record);
 	if (!EFI_ERROR(status)) {
 		serial = (const struct cb_serial *)record;
-		serial_info = (UNIVERSAL_PAYLOAD_SERIAL_PORT_INFO){0};
-		serial_info.header.revision = UNIVERSAL_PAYLOAD_SERIAL_PORT_INFO_REVISION;
+		serial_info = (CDK2_SERIAL_PORT_HOB){0};
+		serial_info.header.revision = CDK2_SERIAL_PORT_HOB_REVISION;
 		serial_info.header.length = sizeof(serial_info);
 		serial_info.use_mmio = (serial->type == CB_SERIAL_TYPE_IO_MAPPED) ? FALSE : TRUE;
 		serial_info.register_stride = (UINT8)serial->regwidth;

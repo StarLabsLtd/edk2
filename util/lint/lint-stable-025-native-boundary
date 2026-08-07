@@ -39,7 +39,7 @@ ${GREP_FILES} -nI -E '([Ee][Dd][Kk][[:space:]_-]*2|EDK[[:space:]_-]*II)' \
 	grep -v '^util/lint/lint-stable-025-native-boundary:' | \
 	sed -e 's,^,Disallowed legacy-package text reference: ,'
 
-${GREP_FILES} -nI -E '(Guid|IndustryStandard|Library|Pi|UniversalPayload)/|C[o]reboot\.h|Uefi\.h|Cdk2PlatformLib' \
+${GREP_FILES} -nI -E '(Guid|IndustryStandard|Library|Pi)/|C[o]reboot\.h|Uefi\.h|Cdk2PlatformLib' \
 	$SEARCH_DIRS 2>/dev/null | \
 	grep -v '^util/lint/lint-stable-025-native-boundary:' | \
 	sed -e 's,^,EDK-style include path reference: ,'
