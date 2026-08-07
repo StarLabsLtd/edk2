@@ -1,9 +1,8 @@
 /* SPDX-License-Identifier: BSD-2-Clause-Patent */
 
 /*
- * Native form of MdeModulePkg/Universal/Metronome/Metronome.c and
- * UefiPayloadPkg/Library/AcpiTimerLib/AcpiTimerLib.c.  The original sources
- * are Copyright (c) 2008-2018 and 2014, Intel Corporation.
+ * Native form of the pre-standalone Metronome and ACPI timer implementations.
+ * The original sources are Copyright (c) 2008-2018 and 2014, Intel Corporation.
  */
 
 #include <cdk2/metronome.h>
@@ -11,8 +10,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define EFI_SUCCESS 0ULL
-#define EFI_NOT_FOUND (1ULL << 63 | 14ULL)
 #define HOB_TYPE_GUID_EXTENSION 0x0004U
 #define HOB_TYPE_END_OF_HOB_LIST 0xffffU
 #define ACPI_TIMER_FREQUENCY 3579545ULL
@@ -76,7 +73,7 @@ struct acpi_board_info {
 	uint64_t pm_timer_reg_base;
 };
 
-typedef uint64_t (__attribute__((ms_abi)) *install_multiple_protocols_fn)(
+typedef uint64_t (EFIAPI *install_multiple_protocols_fn)(
 	void **handle, const struct guid *protocol, void *interface, ...);
 
 struct boot_services_install_view {
@@ -135,7 +132,7 @@ static void delay_ticks(uint32_t timer_ticks)
 		__asm__ volatile("pause");
 }
 
-uint64_t __attribute__((ms_abi))
+uint64_t EFIAPI
 cdk2_metronome_wait_for_tick(struct cdk2_metronome *unused, uint32_t ticks)
 {
 	uint64_t nanoseconds = (uint64_t)ticks * 100ULL;
@@ -182,7 +179,7 @@ static const struct acpi_board_info *find_acpi_board_info(void *hob_list)
 	return NULL;
 }
 
-uint64_t __attribute__((ms_abi))
+uint64_t EFIAPI
 cdk2_metronome_entry(void *image_handle, struct system_table *system_table)
 {
 	const struct acpi_board_info *board_info;

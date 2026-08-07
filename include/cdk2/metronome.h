@@ -4,10 +4,11 @@
 #define CDK2_METRONOME_H_
 
 #include <stdint.h>
+#include <uefi.h>
 
 struct cdk2_metronome;
 
-typedef uint64_t (__attribute__((ms_abi)) *cdk2_wait_for_tick_fn)(
+typedef uint64_t (EFIAPI *cdk2_wait_for_tick_fn)(
 	struct cdk2_metronome *metronome, uint32_t ticks);
 
 struct cdk2_metronome {
@@ -15,7 +16,7 @@ struct cdk2_metronome {
 	uint32_t tick_period;
 };
 
-uint64_t __attribute__((ms_abi))
+uint64_t EFIAPI
 cdk2_metronome_wait_for_tick(struct cdk2_metronome *metronome, uint32_t ticks);
 
 #endif
