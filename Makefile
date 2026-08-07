@@ -24,6 +24,8 @@ CDK2_KCONFIG_RUSTCCFG ?= $(CDK2_BUILD_DIR)/include/generated/rustc_cfg
 CDK2_KCONFIG_SPLITCONFIG ?= $(CDK2_BUILD_DIR)/config/
 CDK2_MANIFEST ?= $(CDK2_BUILD_DIR)/cdk2-native-sources.txt
 CDK2_PAYLOAD_FV ?=
+COREBOOT_CONFIG ?=
+COREBOOT_OUTPUT_DIR ?=
 override CDK2_NATIVE_DIR := $(CDK2_ROOT)/src/boot
 CDK2_NATIVE_SOURCE_DATE_PATHS := Kconfig Makefile defconfig src include util tests configs
 CDK2_SOURCE_DATE_EPOCH ?= $(shell epoch=$$(git -C "$(CDK2_ROOT)" log -1 --format=%ct -- $(CDK2_NATIVE_SOURCE_DATE_PATHS) 2>/dev/null); test -n "$$epoch" || epoch=0; printf '%s' "$$epoch")
@@ -64,7 +66,7 @@ CDK2_RECURSIVE_ARGS := \
 	native-coreboot-image native-check native-pack native-service-test native-coreboot-test \
 	native-fv-test native-fvpack-test native-pe-test native-module-test \
 	native-elfcheck-test manifest-check print lint lint-stable lint-extended test-lint \
-	jenkins what-jenkins-does retained-fv-check clean FORCE
+	jenkins what-jenkins-does retained-fv-check coreboot-stage clean FORCE
 .DELETE_ON_ERROR: $(CDK2_CONFIG) $(CDK2_CONFIG_HEADER) $(CDK2_MANIFEST)
 
 all: build
@@ -99,6 +101,40 @@ what-jenkins-does: lint check manifest-check retained-fv-check
 	printf '%s\n' 'build-image: expected native-boundary failure confirmed'
 
 jenkins: what-jenkins-does
+
+coreboot-stage:
+	@test -n "$(COREBOOT_CONFIG)" || { \
+		printf '%s\n' 'COREBOOT_CONFIG is required' >&2; \
+		exit 1; \
+	}
+	@test -f "$(COREBOOT_CONFIG)" || { \
+		printf '%s\n' 'COREBOOT_CONFIG does not exist: $(COREBOOT_CONFIG)' >&2; \
+		exit 1; \
+	}
+	@test -n "$(COREBOOT_OUTPUT_DIR)" || { \
+		printf '%s\n' 'COREBOOT_OUTPUT_DIR is required' >&2; \
+		exit 1; \
+	}
+	@mkdir -p "$(abspath $(COREBOOT_OUTPUT_DIR))"
+	@awk '/^CONFIG_CDK2_[A-Za-z0-9_]+=/ || /^# CONFIG_CDK2_[A-Za-z0-9_]+ is not set$$/' \
+		"$(abspath $(COREBOOT_CONFIG))" > "$(abspath $(COREBOOT_OUTPUT_DIR))/.config.tmp"
+	@test -s "$(abspath $(COREBOOT_OUTPUT_DIR))/.config.tmp" || { \
+		rm -f "$(abspath $(COREBOOT_OUTPUT_DIR))/.config.tmp"; \
+		printf '%s\n' 'COREBOOT_CONFIG contains no CONFIG_CDK2 options' >&2; \
+		exit 1; \
+	}
+	@mv "$(abspath $(COREBOOT_OUTPUT_DIR))/.config.tmp" \
+		"$(abspath $(COREBOOT_OUTPUT_DIR))/.config"
+	@$(MAKE) --no-print-directory -f "$(CDK2_ROOT)/Makefile" \
+		CDK2_BUILD_DIR="$(abspath $(COREBOOT_OUTPUT_DIR))" \
+		CDK2_CONFIG="$(abspath $(COREBOOT_OUTPUT_DIR))/.config" \
+		CDK2_KCONFIG_TOOL="$(CDK2_KCONFIG_TOOL)" \
+		$(if $(HOSTCC),HOSTCC="$(HOSTCC)") \
+		$(if $(CC),CC="$(CC)") \
+		$(if $(OBJCOPY),CDK2_NATIVE_OBJCOPY="$(OBJCOPY)") \
+		$(if $(NM),CDK2_NATIVE_NM="$(NM)") \
+		native-coreboot-stage
+	@printf '%s\n' "$(abspath $(COREBOOT_OUTPUT_DIR))/native/cdk2-coreboot-stage.elf"
 
 retained-fv-check:
 	@awk -F '\t' '\
