@@ -42,7 +42,8 @@ CDK2_KCONFIG_ENV = \
 CDK2_CONFIG_TARGETS := build check manifest modules native-stage \
 	native-coreboot-stage native-coreboot-image native-check native-pack native-service-test \
 	native-coreboot-test native-fv-test native-fvpack-test native-pe-test \
-	native-fvinfo native-fvinfo-test native-module-test native-elfcheck-test \
+	native-fvinfo native-fvinfo-test native-null-memory-test-fv \
+	native-null-memory-test-test native-module-test native-elfcheck-test \
 	native-ffsbuild-test native-security-stub-test native-security-stub-fv manifest-check print
 
 CDK2_RECURSIVE_ARGS := \
@@ -67,7 +68,8 @@ CDK2_RECURSIVE_ARGS := \
 	native-coreboot-image native-check native-pack native-service-test native-coreboot-test \
 	native-fv-test native-fvpack-test native-pe-test native-module-test \
 	native-fvinfo native-fvinfo-test native-ffsbuild-test native-security-stub-test \
-	native-security-stub-fv native-elfcheck-test manifest-check print lint \
+	native-security-stub-fv native-null-memory-test-fv native-null-memory-test-test \
+	native-elfcheck-test manifest-check print lint \
 	lint-stable lint-extended test-lint \
 	jenkins what-jenkins-does retained-fv-check coreboot-stage clean FORCE
 .DELETE_ON_ERROR: $(CDK2_CONFIG) $(CDK2_CONFIG_HEADER) $(CDK2_MANIFEST)

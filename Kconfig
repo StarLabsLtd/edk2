@@ -151,6 +151,14 @@ config CDK2_NATIVE_SECURITY_STUB
 	  Build SecurityStubDxe from CDK2-owned source for deterministic
 	  replacement in the retained migration firmware volume.
 
+config CDK2_NULL_MEMORY_TEST
+	bool "Build the native null memory-test driver"
+	default y
+	depends on CDK2_PAYLOAD
+	help
+	  Install the Generic Memory Test Protocol and promote initialized coreboot
+	  memory without running a destructive firmware memory test.
+
 config CDK2_BUILD_DEBUG
 	bool "Build a debug payload"
 	default n
