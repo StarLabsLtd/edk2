@@ -11,9 +11,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define EFI_SUCCESS 0ULL
-#define EFI_INVALID_PARAMETER (1ULL << 63 | 2ULL)
-#define EFI_NOT_FOUND (1ULL << 63 | 14ULL)
 #define EFI_MEMORY_PRESENT 0x0100000000000000ULL
 #define EFI_MEMORY_INITIALIZED 0x0200000000000000ULL
 #define EFI_MEMORY_TESTED 0x0400000000000000ULL
@@ -78,16 +75,16 @@ struct gcd_memory_descriptor {
 	void *device_handle;
 };
 
-typedef uint64_t (__ms_abi *add_memory_space_fn)(
+typedef uint64_t (__ms_abi * add_memory_space_fn)(
 	enum gcd_memory_type type, uint64_t base, uint64_t length, uint64_t capabilities);
-typedef uint64_t (__ms_abi *remove_memory_space_fn)(uint64_t base,
+typedef uint64_t (__ms_abi * remove_memory_space_fn)(uint64_t base,
 	uint64_t length);
-typedef uint64_t (__ms_abi *get_memory_descriptor_fn)(
+typedef uint64_t (__ms_abi * get_memory_descriptor_fn)(
 	uint64_t base, struct gcd_memory_descriptor *descriptor);
-typedef uint64_t (__ms_abi *get_memory_map_fn)(
+typedef uint64_t (__ms_abi * get_memory_map_fn)(
 	size_t *count, struct gcd_memory_descriptor **map);
-typedef uint64_t (__ms_abi *free_pool_fn)(void *buffer);
-typedef uint64_t (__ms_abi *install_protocol_fn)(
+typedef uint64_t (__ms_abi * free_pool_fn)(void *buffer);
+typedef uint64_t (__ms_abi * install_protocol_fn)(
 	void **handle, const struct guid *protocol, uint32_t interface_type, void *interface);
 
 struct dxe_services {
