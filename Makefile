@@ -174,6 +174,26 @@ retained-fv-check:
 			if (retained > baseline) { print "retained-FV count increased above baseline" > "/dev/stderr"; failed = 1 } \
 			exit failed \
 		}' migration/retained-fv.tsv
+	@awk -F '\t' '\
+		FNR == NR { \
+			if ($$0 !~ /^#/ && $$0 != "" && $$1 == "retain") expected[$$3] = 1; \
+			next; \
+		} \
+		/^#/ || /^$$/ { next } \
+		NF != 2 { print "malformed readiness entry at line " FNR > "/dev/stderr"; failed = 1; next } \
+		$$1 !~ /^(intentional-dependency|hardware-gated|subsystem-sized|unsafe-standalone)$$/ { \
+			print "invalid readiness class at line " FNR > "/dev/stderr"; failed = 1 \
+		} \
+		seen[$$2]++ { print "duplicate readiness module: " $$2 > "/dev/stderr"; failed = 1 } \
+		!($$2 in expected) { print "readiness entry is not retained: " $$2 > "/dev/stderr"; failed = 1 } \
+		{ classified[$$2] = 1 } \
+		END { \
+			for (module in expected) \
+				if (!(module in classified)) { \
+					print "retained module lacks readiness class: " module > "/dev/stderr"; failed = 1 \
+				} \
+			exit failed \
+		}' migration/retained-fv.tsv migration/retained-readiness.tsv
 
 prepare-kconfig:
 	@mkdir -p "$(CDK2_KCONFIG_WORKDIR)"

@@ -26,6 +26,10 @@ Removal decisions and their QEMU evidence are recorded in
 candidates by replacing selected FFS GUIDs with same-size pad files. This keeps
 the remaining binary layout stable while proving that a module is unnecessary.
 
+`retained-readiness.tsv` classifies every remaining opaque module and is
+checked against this inventory by `make retained-fv-check`. See
+`hardware-readiness.md` for the closure and hardware handoff criteria.
+
 Build the native inventory tool and inspect an FV without EDK2 or BaseTools:
 
 ```
