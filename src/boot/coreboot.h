@@ -10,6 +10,8 @@
 #include <uefi.h>
 #include <coreboot_tables.h>
 
+#include "coreboot_checksum.h"
+
 #define CDK2_COREBOOT_MAX_TABLE_BYTES   (1024U * 1024U)
 #define CDK2_COREBOOT_MAX_RECORDS       256U
 #define CDK2_COREBOOT_MAX_MEMORY_RANGES 128U
@@ -66,12 +68,6 @@ struct cdk2_coreboot_test_cbmem_result {
 	UINT32 size;
 };
 #endif
-
-UINT16
-cdk2_coreboot_checksum16(const void *buffer, UINTN length);
-
-UINT32
-cdk2_coreboot_calculate_crc32(const void *buffer, UINTN length);
 
 EFI_STATUS
 cdk2_coreboot_parse_table(const void *table, UINTN table_size,
