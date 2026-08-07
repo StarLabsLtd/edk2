@@ -73,7 +73,7 @@ struct acpi_board_info {
 	uint64_t pm_timer_reg_base;
 };
 
-typedef uint64_t (EFIAPI *install_multiple_protocols_fn)(
+typedef uint64_t (CDK2_MS_ABI *install_multiple_protocols_fn)(
 	void **handle, const struct guid *protocol, void *interface, ...);
 
 struct boot_services_install_view {
@@ -132,7 +132,7 @@ static void delay_ticks(uint32_t timer_ticks)
 		__asm__ volatile("pause");
 }
 
-uint64_t EFIAPI
+uint64_t CDK2_MS_ABI
 cdk2_metronome_wait_for_tick(struct cdk2_metronome *unused, uint32_t ticks)
 {
 	uint64_t nanoseconds = (uint64_t)ticks * 100ULL;
@@ -179,7 +179,7 @@ static const struct acpi_board_info *find_acpi_board_info(void *hob_list)
 	return NULL;
 }
 
-uint64_t EFIAPI
+uint64_t CDK2_MS_ABI
 cdk2_metronome_entry(void *image_handle, struct system_table *system_table)
 {
 	const struct acpi_board_info *board_info;

@@ -45,6 +45,11 @@ typedef EFI_GUID GUID;
 #endif
 
 #define EFIAPI
+#if defined(__x86_64__)
+#define CDK2_MS_ABI __attribute__((ms_abi))
+#else
+#define CDK2_MS_ABI
+#endif
 #define IN
 #define OUT
 #define OPTIONAL

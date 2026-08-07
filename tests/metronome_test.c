@@ -18,7 +18,7 @@ uint32_t cdk2_metronome_test_io_read32(uint16_t port)
 	return timer_value++;
 }
 
-static uint64_t EFIAPI mock_install(void **handle, const struct guid *guid,
+static uint64_t CDK2_MS_ABI mock_install(void **handle, const struct guid *guid,
 						     void *interface, ...)
 {
 	*handle = (void *)1;
