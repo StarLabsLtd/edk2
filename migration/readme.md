@@ -36,3 +36,12 @@ build/cdk2/native/cdk2-fvinfo path/to/payload.fv
 The tab-separated output records each top-level FFS GUID, byte offset, byte
 size, file type, and its UI section name when present. The parser rejects
 truncated or inconsistent FV, FFS, extended-size, and section boundaries.
+
+## Deferred platform inputs
+
+`LocalApicTimerDxe` cannot be replaced safely until the coreboot handoff gives
+the payload an explicit local-APIC timer frequency. The retained driver obtains
+`PcdFSBClock` dynamically; substituting a QEMU-specific constant would make
+firmware event timing silently platform-dependent. Its admitted FFS is GUID
+`52fe8196-f9de-4d07-b22f-51f77a0e7c41`, offset `0x80880`, size `0x607a`, and
+has a CPU-architecture plus PCD-protocol DEPEX.

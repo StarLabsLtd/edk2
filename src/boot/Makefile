@@ -87,6 +87,11 @@ CDK2_NATIVE_ENGLISH_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/english.o
 CDK2_NATIVE_ENGLISH_PE ?= $(CDK2_NATIVE_BUILD_DIR)/EnglishDxe.efi
 CDK2_NATIVE_ENGLISH_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/EnglishDxe.ffs
 CDK2_NATIVE_ENGLISH_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-english.fv
+CDK2_NATIVE_DISK_IO_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-disk-io-test
+CDK2_NATIVE_DISK_IO_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/disk-io.o
+CDK2_NATIVE_DISK_IO_PE ?= $(CDK2_NATIVE_BUILD_DIR)/DiskIoDxe.efi
+CDK2_NATIVE_DISK_IO_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/DiskIoDxe.ffs
+CDK2_NATIVE_DISK_IO_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-disk-io.fv
 HOSTCC ?= cc
 CDK2_NATIVE_CC ?= $(CC)
 CDK2_NATIVE_HOST_CC ?= $(HOSTCC)
@@ -155,11 +160,12 @@ CDK2_NATIVE_HOST_TOOLS := \
 	$(CDK2_NATIVE_NULL_MEMORY_TEST) \
 	$(CDK2_NATIVE_CPU_IO2_TEST) \
 	$(CDK2_NATIVE_MONO_TEST) \
-	$(CDK2_NATIVE_ENGLISH_TEST)
+	$(CDK2_NATIVE_ENGLISH_TEST) \
+	$(CDK2_NATIVE_DISK_IO_TEST)
 CDK2_NATIVE_LINK_FLAGS := -static -no-pie -nostdlib -nostartfiles -nodefaultlibs -Wl,-z,max-page-size=0x1000 -Wl,-z,common-page-size=0x1000 -Wl,-T,"$(CDK2_NATIVE_DIR)/cdk2.ld"
 CDK2_NATIVE_LINK_POST_MAP_FLAGS := -Wl,--gc-sections -Wl,--build-id=none
 
-.PHONY: native-stage native-coreboot-stage native-coreboot-image native-metronome-fv native-security-stub-fv native-null-memory-test-fv native-null-memory-test-test native-watchdog-fv native-monotonic-counter-fv native-status-code-router-fv native-status-code-router-test native-status-code-handler-fv native-status-code-handler-test native-cpu-io2-fv native-cpu-io2-test native-english-test native-english-fv native-check native-pack native-service-test native-coreboot-test native-fv-test native-fvpack-test native-fvinfo native-fvinfo-test native-ffsbuild-test native-pe-test native-module-test native-security-stub-test native-elfcheck-test FORCE
+.PHONY: native-stage native-coreboot-stage native-coreboot-image native-metronome-fv native-security-stub-fv native-null-memory-test-fv native-null-memory-test-test native-watchdog-fv native-monotonic-counter-fv native-status-code-router-fv native-status-code-router-test native-status-code-handler-fv native-status-code-handler-test native-cpu-io2-fv native-cpu-io2-test native-english-test native-english-fv native-disk-io-fv native-disk-io-test native-check native-pack native-service-test native-coreboot-test native-fv-test native-fvpack-test native-fvinfo native-fvinfo-test native-ffsbuild-test native-pe-test native-module-test native-security-stub-test native-elfcheck-test FORCE
 
 ifeq ($(CONFIG_CDK2_NATIVE_STAGE),y)
 CDK2_NATIVE_STAGE_DEPS := $(CDK2_NATIVE_ELF)
@@ -208,6 +214,7 @@ native-check: $(CDK2_CONFIG_HEADER) $(CDK2_NATIVE_ELF) $(CDK2_NATIVE_OVERRIDE_EL
 	@"$(CDK2_NATIVE_NULL_MEMORY_TEST)"
 	@"$(CDK2_NATIVE_MONO_TEST)"
 	@"$(CDK2_NATIVE_ENGLISH_TEST)"
+	@"$(CDK2_NATIVE_DISK_IO_TEST)"
 	@"$(CDK2_NATIVE_ELF_CHECK_TEST)" "$(CDK2_NATIVE_ELF_CHECK)" "$(CDK2_NATIVE_BUILD_DIR)"
 	@printf '%s\n' "native cdk2 stage: $(CDK2_NATIVE_ELF)"
 	@printf '%s\n' "native cdk2 FV packer: $(CDK2_NATIVE_PACKER)"
@@ -283,6 +290,11 @@ native-status-code-handler-fv: $(CDK2_NATIVE_STATUS_CODE_HANDLER_FV)
 
 native-status-code-handler-test: $(CDK2_NATIVE_STATUS_CODE_HANDLER_TEST)
 	@"$(CDK2_NATIVE_STATUS_CODE_HANDLER_TEST)"
+native-disk-io-test: $(CDK2_NATIVE_DISK_IO_TEST)
+	@"$<"
+
+native-disk-io-fv: $(CDK2_NATIVE_DISK_IO_FV)
+	@printf '%s\n' "native DiskIo FV: $(CDK2_NATIVE_DISK_IO_FV)"
 
 native-pe-test: $(CDK2_NATIVE_PE_TEST)
 	@"$(CDK2_NATIVE_PE_TEST)"
@@ -617,6 +629,31 @@ else
 CDK2_NATIVE_PRE_ENGLISH_FV := $(CDK2_NATIVE_MONO_FV)
 endif
 
+ifeq ($(CONFIG_CDK2_NATIVE_DISK_IO),y)
+CDK2_NATIVE_FINAL_FV := $(CDK2_NATIVE_DISK_IO_FV)
+
+$(CDK2_NATIVE_DISK_IO_OBJ): $(CDK2_DIR)/src/modules/disk_io/disk_io.c $(CDK2_DIR)/include/cdk2/disk_io.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
+		-mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args \
+		$(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+
+$(CDK2_NATIVE_DISK_IO_PE): $(CDK2_NATIVE_DISK_IO_OBJ) $(CDK2_DIR)/src/modules/disk_io/disk_io.ld $(CDK2_NATIVE_PERELOCCHECK)
+	@$(LD) -mi386pep --subsystem 11 --entry cdk2_disk_io_entry --image-base 0 \
+		--section-alignment 0x1000 --file-alignment 0x1000 --build-id=none \
+		--no-insert-timestamp -s --nxcompat -T "$(CDK2_DIR)/src/modules/disk_io/disk_io.ld" -o "$@" "$<"
+	@"$(CDK2_NATIVE_PERELOCCHECK)" "$@"
+
+$(CDK2_NATIVE_DISK_IO_FFS): $(CDK2_NATIVE_DISK_IO_PE) $(CDK2_NATIVE_FFSBUILD)
+	@"$(CDK2_NATIVE_FFSBUILD)" 6b38f7b4-ad98-40e9-9093-aca2b5a253c4 \
+		DiskIoDxe 1.0 0x8042 "$<" "$@"
+
+$(CDK2_NATIVE_DISK_IO_FV): $(CDK2_NATIVE_ENGLISH_FV) $(CDK2_NATIVE_DISK_IO_FFS) $(CDK2_NATIVE_FVREPLACE)
+	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_ENGLISH_FV)" 0x2f7420 \
+		"$(CDK2_NATIVE_DISK_IO_FFS)" "$@"
+else
+CDK2_NATIVE_FINAL_FV := $(CDK2_NATIVE_ENGLISH_FV)
+endif
+
 ifeq ($(CONFIG_CDK2_NATIVE_ENGLISH),y)
 $(CDK2_NATIVE_ENGLISH_OBJ): $(CDK2_DIR)/src/modules/english/english.c $(CDK2_DIR)/include/cdk2/english.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
@@ -641,7 +678,7 @@ $(CDK2_NATIVE_ENGLISH_FV): $(CDK2_NATIVE_PRE_ENGLISH_FV)
 	@cp "$<" "$@"
 endif
 
-$(CDK2_NATIVE_FV_BLOB_OBJ): $(CDK2_NATIVE_ENGLISH_FV) | $(CDK2_NATIVE_BUILD_DIR)
+$(CDK2_NATIVE_FV_BLOB_OBJ): $(CDK2_NATIVE_FINAL_FV) | $(CDK2_NATIVE_BUILD_DIR)
 	@cd "$(dir $<)" && $(CDK2_NATIVE_OBJCOPY) -I binary -O elf64-x86-64 -B i386:x86-64 --rename-section .data=.cdk2.fv,alloc,load,readonly,data,contents "$(notdir $<)" "$(abspath $@)"
 
 $(CDK2_NATIVE_COREBOOT_IMAGE): $(CDK2_NATIVE_COREBOOT_OBJS) $(CDK2_NATIVE_FV_BLOB_OBJ) $(CDK2_NATIVE_DIR)/cdk2.ld
@@ -649,6 +686,9 @@ $(CDK2_NATIVE_COREBOOT_IMAGE): $(CDK2_NATIVE_COREBOOT_OBJS) $(CDK2_NATIVE_FV_BLO
 endif
 
 $(CDK2_NATIVE_CPU_IO2_TEST): $(CDK2_DIR)/tests/cpu_io2_test.c $(CDK2_DIR)/src/modules/cpu_io2/cpu_io2.c $(CDK2_DIR)/include/cdk2/cpu_io2.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$<"
+
+$(CDK2_NATIVE_DISK_IO_TEST): $(CDK2_DIR)/tests/disk_io_test.c $(CDK2_DIR)/src/modules/disk_io/disk_io.c $(CDK2_DIR)/include/cdk2/disk_io.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$<"
 
 FORCE:

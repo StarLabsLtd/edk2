@@ -204,6 +204,14 @@ config CDK2_NATIVE_STATUS_CODE_HANDLER
 	  serial and memory sinks disabled. Debug builds retain their configured
 	  handler until native diagnostic sinks are available.
 
+config CDK2_NATIVE_DISK_IO
+	bool "Build native Disk I/O services"
+	default y
+	depends on CDK2_NATIVE_STAGE && CDK2_STORAGE
+	help
+	  Provide Disk I/O and Disk I/O 2 on Block I/O controllers. Version 2
+	  requests use the standard completion token with a blocking backend.
+
 config CDK2_BUILD_DEBUG
 	bool "Build a debug payload"
 	default n
