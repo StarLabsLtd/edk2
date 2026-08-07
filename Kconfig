@@ -172,6 +172,14 @@ config CDK2_NATIVE_MONOTONIC_COUNTER
 	default y
 	depends on CDK2_NATIVE_STAGE
 
+config CDK2_NATIVE_STATUS_CODE_ROUTER
+	bool "Build the native report-status-code router"
+	default y
+	depends on CDK2_NATIVE_STAGE
+	help
+	  Build the runtime status-code and handler protocols used by native
+	  diagnostic consumers.
+
 config CDK2_BUILD_DEBUG
 	bool "Build a debug payload"
 	default n

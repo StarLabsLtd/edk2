@@ -35,6 +35,12 @@ CDK2_NATIVE_WATCHDOG_PE ?= $(CDK2_NATIVE_BUILD_DIR)/watchdog.efi
 CDK2_NATIVE_WATCHDOG_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/watchdog.ffs
 CDK2_NATIVE_WATCHDOG_DEPEX ?= $(CDK2_NATIVE_BUILD_DIR)/watchdog.depex
 CDK2_NATIVE_WATCHDOG_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-watchdog.fv
+CDK2_NATIVE_STATUS_CODE_ROUTER_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-status-code-router-test
+CDK2_NATIVE_STATUS_CODE_ROUTER_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/status-code-router.o
+CDK2_NATIVE_STATUS_CODE_ROUTER_PE ?= $(CDK2_NATIVE_BUILD_DIR)/status-code-router.efi
+CDK2_NATIVE_STATUS_CODE_ROUTER_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/status-code-router.ffs
+CDK2_NATIVE_STATUS_CODE_ROUTER_DEPEX ?= $(CDK2_NATIVE_BUILD_DIR)/status-code-router.depex
+CDK2_NATIVE_STATUS_CODE_ROUTER_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-status-code-router.fv
 CDK2_NATIVE_SERVICE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-services-test
 CDK2_NATIVE_COREBOOT_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-coreboot-test
 CDK2_NATIVE_FV_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-fv-test
@@ -117,6 +123,7 @@ CDK2_NATIVE_HOST_TOOLS := \
 	$(CDK2_NATIVE_PERELOCCHECK) \
 	$(CDK2_NATIVE_METRONOME_TEST) \
 	$(CDK2_NATIVE_WATCHDOG_TEST) \
+	$(CDK2_NATIVE_STATUS_CODE_ROUTER_TEST) \
 	$(CDK2_NATIVE_SERVICE_TEST) \
 	$(CDK2_NATIVE_COREBOOT_TEST) \
 	$(CDK2_NATIVE_FV_TEST) \
@@ -132,7 +139,7 @@ CDK2_NATIVE_HOST_TOOLS := \
 CDK2_NATIVE_LINK_FLAGS := -static -no-pie -nostdlib -nostartfiles -nodefaultlibs -Wl,-z,max-page-size=0x1000 -Wl,-z,common-page-size=0x1000 -Wl,-T,"$(CDK2_NATIVE_DIR)/cdk2.ld"
 CDK2_NATIVE_LINK_POST_MAP_FLAGS := -Wl,--gc-sections -Wl,--build-id=none
 
-.PHONY: native-stage native-coreboot-stage native-coreboot-image native-metronome-fv native-security-stub-fv native-null-memory-test-fv native-null-memory-test-test native-watchdog-fv native-check native-pack native-service-test native-coreboot-test native-fv-test native-fvpack-test native-fvinfo native-fvinfo-test native-ffsbuild-test native-pe-test native-module-test native-security-stub-test native-elfcheck-test FORCE
+.PHONY: native-stage native-coreboot-stage native-coreboot-image native-metronome-fv native-security-stub-fv native-null-memory-test-fv native-null-memory-test-test native-watchdog-fv native-status-code-router-fv native-status-code-router-test native-check native-pack native-service-test native-coreboot-test native-fv-test native-fvpack-test native-fvinfo native-fvinfo-test native-ffsbuild-test native-pe-test native-module-test native-security-stub-test native-elfcheck-test FORCE
 
 ifeq ($(CONFIG_CDK2_NATIVE_STAGE),y)
 CDK2_NATIVE_STAGE_DEPS := $(CDK2_NATIVE_ELF)
@@ -173,6 +180,7 @@ native-check: $(CDK2_CONFIG_HEADER) $(CDK2_NATIVE_ELF) $(CDK2_NATIVE_OVERRIDE_EL
 	@"$(CDK2_NATIVE_FFSBUILD_TEST)" "$(CDK2_NATIVE_FFSBUILD)" "$(CDK2_NATIVE_BUILD_DIR)"
 	@"$(CDK2_NATIVE_METRONOME_TEST)"
 	@"$(CDK2_NATIVE_WATCHDOG_TEST)"
+	@"$(CDK2_NATIVE_STATUS_CODE_ROUTER_TEST)"
 	@"$(CDK2_NATIVE_PE_TEST)"
 	@"$(CDK2_NATIVE_MODULE_TEST)"
 	@"$(CDK2_NATIVE_SECURITY_STUB_TEST)"
@@ -197,6 +205,7 @@ native-check: $(CDK2_CONFIG_HEADER) $(CDK2_NATIVE_HOST_TOOLS)
 	@"$(CDK2_NATIVE_FVINFO_TEST)" "$(CDK2_NATIVE_FVINFO)" "$(CDK2_NATIVE_BUILD_DIR)"
 	@"$(CDK2_NATIVE_FFSBUILD_TEST)" "$(CDK2_NATIVE_FFSBUILD)" "$(CDK2_NATIVE_BUILD_DIR)"
 	@"$(CDK2_NATIVE_WATCHDOG_TEST)"
+	@"$(CDK2_NATIVE_STATUS_CODE_ROUTER_TEST)"
 	@"$(CDK2_NATIVE_PE_TEST)"
 	@"$(CDK2_NATIVE_MODULE_TEST)"
 	@"$(CDK2_NATIVE_ELF_CHECK_TEST)" "$(CDK2_NATIVE_ELF_CHECK)" "$(CDK2_NATIVE_BUILD_DIR)"
@@ -233,6 +242,12 @@ native-ffsbuild-test: $(CDK2_NATIVE_FFSBUILD_TEST) $(CDK2_NATIVE_FFSBUILD)
 
 native-watchdog-fv: $(CDK2_NATIVE_WATCHDOG_FV)
 	@printf '%s\n' "native WatchdogTimer FV: $(CDK2_NATIVE_WATCHDOG_FV)"
+
+native-status-code-router-fv: $(CDK2_NATIVE_STATUS_CODE_ROUTER_FV)
+	@printf '%s\n' "native status-code router FV: $(CDK2_NATIVE_STATUS_CODE_ROUTER_FV)"
+
+native-status-code-router-test: $(CDK2_NATIVE_STATUS_CODE_ROUTER_TEST)
+	@"$(CDK2_NATIVE_STATUS_CODE_ROUTER_TEST)"
 
 native-pe-test: $(CDK2_NATIVE_PE_TEST)
 	@"$(CDK2_NATIVE_PE_TEST)"
@@ -424,7 +439,7 @@ $(CDK2_NATIVE_METRONOME_FV): $(CDK2_PAYLOAD_FV) $(CDK2_NATIVE_METRONOME_FFS) $(C
 		"$(CDK2_NATIVE_METRONOME_FFS)" "$@"
 
 ifeq ($(CONFIG_CDK2_NATIVE_WATCHDOG),y)
-CDK2_NATIVE_COMPOSED_FV := $(CDK2_NATIVE_WATCHDOG_FV)
+CDK2_NATIVE_PRE_STATUS_CODE_ROUTER_FV := $(CDK2_NATIVE_WATCHDOG_FV)
 
 $(CDK2_NATIVE_WATCHDOG_OBJ): $(CDK2_DIR)/src/modules/watchdog/watchdog.c $(CDK2_DIR)/include/cdk2/watchdog.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_CC) $(filter-out -ffunction-sections -fdata-sections,$(CDK2_NATIVE_CFLAGS)) \
@@ -447,7 +462,35 @@ $(CDK2_NATIVE_WATCHDOG_FV): $(CDK2_NATIVE_NULL_MEMORY_TEST_FV) $(CDK2_NATIVE_WAT
 	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_NULL_MEMORY_TEST_FV)" 0x9eaf0 \
 		"$(CDK2_NATIVE_WATCHDOG_FFS)" "$@"
 else
-CDK2_NATIVE_COMPOSED_FV := $(CDK2_NATIVE_NULL_MEMORY_TEST_FV)
+CDK2_NATIVE_PRE_STATUS_CODE_ROUTER_FV := $(CDK2_NATIVE_NULL_MEMORY_TEST_FV)
+endif
+
+ifeq ($(CONFIG_CDK2_NATIVE_STATUS_CODE_ROUTER),y)
+CDK2_NATIVE_COMPOSED_FV := $(CDK2_NATIVE_STATUS_CODE_ROUTER_FV)
+
+$(CDK2_NATIVE_STATUS_CODE_ROUTER_OBJ): $(CDK2_DIR)/src/modules/status_code_router/status_code_router.c $(CDK2_DIR)/include/cdk2/status_code_router.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -ffunction-sections -fdata-sections,$(CDK2_NATIVE_CFLAGS)) \
+		-fno-ident -fcf-protection=none -mcmodel=large $(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+
+$(CDK2_NATIVE_STATUS_CODE_ROUTER_PE): $(CDK2_NATIVE_STATUS_CODE_ROUTER_OBJ) $(CDK2_DIR)/src/modules/status_code_router/status_code_router.ld $(CDK2_NATIVE_PERELOCCHECK)
+	@$(CDK2_NATIVE_LD) -mi386pep --subsystem 12 --entry cdk2_status_code_router_entry --image-base 0 \
+		--section-alignment 0x1000 --file-alignment 0x1000 --build-id=none \
+		--no-insert-timestamp -s -T "$(CDK2_DIR)/src/modules/status_code_router/status_code_router.ld" -o "$@" "$<"
+	@"$(CDK2_NATIVE_PERELOCCHECK)" "$@"
+
+$(CDK2_NATIVE_STATUS_CODE_ROUTER_DEPEX): | $(CDK2_NATIVE_BUILD_DIR)
+	@printf '\026\000\000\023\002\366\360\243\023\112\046\360\076\362\340\336\305\022\064\057\064\010' > "$@"
+
+$(CDK2_NATIVE_STATUS_CODE_ROUTER_FFS): $(CDK2_NATIVE_STATUS_CODE_ROUTER_PE) $(CDK2_NATIVE_STATUS_CODE_ROUTER_DEPEX) $(CDK2_NATIVE_FFSBUILD)
+	@"$(CDK2_NATIVE_FFSBUILD)" d93ce3d8-a7eb-4730-8c8e-cc466a9ecc3c \
+		ReportStatusCodeRouterRuntimeDxe 1.0 0x608a "$<" "$@" \
+		"$(CDK2_NATIVE_STATUS_CODE_ROUTER_DEPEX)"
+
+$(CDK2_NATIVE_STATUS_CODE_ROUTER_FV): $(CDK2_NATIVE_PRE_STATUS_CODE_ROUTER_FV) $(CDK2_NATIVE_STATUS_CODE_ROUTER_FFS) $(CDK2_NATIVE_FVREPLACE)
+	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_PRE_STATUS_CODE_ROUTER_FV)" 0x4d630 \
+		"$(CDK2_NATIVE_STATUS_CODE_ROUTER_FFS)" "$@"
+else
+CDK2_NATIVE_COMPOSED_FV := $(CDK2_NATIVE_PRE_STATUS_CODE_ROUTER_FV)
 endif
 
 $(CDK2_NATIVE_MONO_OBJ): $(CDK2_DIR)/src/modules/monotonic_counter/monotonic_counter.c | $(CDK2_NATIVE_BUILD_DIR)
@@ -505,6 +548,9 @@ $(CDK2_NATIVE_METRONOME_TEST): $(CDK2_DIR)/tests/metronome_test.c $(CDK2_DIR)/sr
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$<"
 
 $(CDK2_NATIVE_WATCHDOG_TEST): $(CDK2_DIR)/tests/watchdog_test.c $(CDK2_DIR)/src/modules/watchdog/watchdog.c $(CDK2_DIR)/include/cdk2/watchdog.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$<"
+
+$(CDK2_NATIVE_STATUS_CODE_ROUTER_TEST): $(CDK2_DIR)/tests/status_code_router_test.c $(CDK2_DIR)/src/modules/status_code_router/status_code_router.c $(CDK2_DIR)/include/cdk2/status_code_router.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$<"
 
 $(CDK2_NATIVE_PE_TEST): $(CDK2_NATIVE_DIR)/pe.c $(CDK2_NATIVE_DIR)/pe.h $(CDK2_NATIVE_DIR)/pe_test.c $(CDK2_DIR)/include/industry_standard/pe_image.h | $(CDK2_NATIVE_BUILD_DIR)
