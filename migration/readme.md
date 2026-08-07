@@ -25,3 +25,14 @@ Removal decisions and their QEMU evidence are recorded in
 `obsolete-modules.md`. `cdk2-fvpack --prune-dxe-fv` creates deterministic test
 candidates by replacing selected FFS GUIDs with same-size pad files. This keeps
 the remaining binary layout stable while proving that a module is unnecessary.
+
+Build the native inventory tool and inspect an FV without EDK2 or BaseTools:
+
+```
+make native-fvinfo
+build/cdk2/native/cdk2-fvinfo path/to/payload.fv
+```
+
+The tab-separated output records each top-level FFS GUID, byte offset, byte
+size, file type, and its UI section name when present. The parser rejects
+truncated or inconsistent FV, FFS, extended-size, and section boundaries.
