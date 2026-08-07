@@ -1,5 +1,5 @@
 # baseline-retained=72
-# retained=63
+# retained=62
 # status	wave	module
 retain	boot	FatPkg/EnhancedFatDxe/Fat
 retain	storage	MdeModulePkg/Bus/Ata/AtaAtapiPassThru/AtaAtapiPassThru
@@ -35,7 +35,7 @@ retain	console	MdeModulePkg/Universal/Console/TerminalDxe/TerminalDxe
 retain	foundation	MdeModulePkg/Universal/DevicePathDxe/DevicePathDxe
 retain	storage	MdeModulePkg/Universal/Disk/DiskIoDxe/DiskIoDxe
 retain	storage	MdeModulePkg/Universal/Disk/PartitionDxe/PartitionDxe
-retain	storage	MdeModulePkg/Universal/Disk/UnicodeCollation/EnglishDxe/EnglishDxe
+native	storage	MdeModulePkg/Universal/Disk/UnicodeCollation/EnglishDxe/EnglishDxe
 remove	remove	MdeModulePkg/Universal/EbcDxe/EbcDxe
 retain	update	MdeModulePkg/Universal/EsrtDxe/EsrtDxe
 retain	variables	MdeModulePkg/Universal/FaultTolerantWriteDxe/FaultTolerantWriteDxe

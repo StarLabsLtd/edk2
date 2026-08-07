@@ -47,7 +47,8 @@ CDK2_CONFIG_TARGETS := build check manifest modules native-stage \
 	native-ffsbuild-test native-security-stub-test native-security-stub-fv \
 	native-metronome-fv native-watchdog-fv native-monotonic-counter-test \
 	native-monotonic-counter-fv native-status-code-router-fv \
-	native-status-code-router-test native-cpu-io2-test native-cpu-io2-fv manifest-check print
+	native-status-code-router-test native-cpu-io2-test native-cpu-io2-fv \
+	native-english-test native-english-fv manifest-check print
 
 CDK2_RECURSIVE_ARGS := \
 	CDK2_DIR="$(CDK2_DIR)" \
@@ -76,6 +77,7 @@ CDK2_RECURSIVE_ARGS := \
 	native-monotonic-counter-test native-monotonic-counter-fv \
 	native-status-code-router-fv native-status-code-router-test \
 	native-cpu-io2-test native-cpu-io2-fv \
+	native-english-test native-english-fv \
 	native-elfcheck-test manifest-check print lint \
 	lint-stable lint-extended test-lint \
 	jenkins what-jenkins-does retained-fv-check coreboot-stage clean FORCE

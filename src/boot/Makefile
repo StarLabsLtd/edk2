@@ -76,6 +76,11 @@ CDK2_NATIVE_CPU_IO2_PE ?= $(CDK2_NATIVE_BUILD_DIR)/CpuIo2Dxe.efi
 CDK2_NATIVE_CPU_IO2_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/CpuIo2Dxe.ffs
 CDK2_NATIVE_CPU_IO2_DEPEX ?= $(CDK2_NATIVE_BUILD_DIR)/CpuIo2Dxe.depex
 CDK2_NATIVE_CPU_IO2_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-cpu-io2.fv
+CDK2_NATIVE_ENGLISH_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-english-test
+CDK2_NATIVE_ENGLISH_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/english.o
+CDK2_NATIVE_ENGLISH_PE ?= $(CDK2_NATIVE_BUILD_DIR)/EnglishDxe.efi
+CDK2_NATIVE_ENGLISH_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/EnglishDxe.ffs
+CDK2_NATIVE_ENGLISH_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-english.fv
 HOSTCC ?= cc
 CDK2_NATIVE_CC ?= $(CC)
 CDK2_NATIVE_HOST_CC ?= $(HOSTCC)
@@ -142,11 +147,12 @@ CDK2_NATIVE_HOST_TOOLS := \
 	$(CDK2_NATIVE_SECURITY_STUB_TEST) \
 	$(CDK2_NATIVE_NULL_MEMORY_TEST) \
 	$(CDK2_NATIVE_CPU_IO2_TEST) \
-	$(CDK2_NATIVE_MONO_TEST)
+	$(CDK2_NATIVE_MONO_TEST) \
+	$(CDK2_NATIVE_ENGLISH_TEST)
 CDK2_NATIVE_LINK_FLAGS := -static -no-pie -nostdlib -nostartfiles -nodefaultlibs -Wl,-z,max-page-size=0x1000 -Wl,-z,common-page-size=0x1000 -Wl,-T,"$(CDK2_NATIVE_DIR)/cdk2.ld"
 CDK2_NATIVE_LINK_POST_MAP_FLAGS := -Wl,--gc-sections -Wl,--build-id=none
 
-.PHONY: native-stage native-coreboot-stage native-coreboot-image native-metronome-fv native-security-stub-fv native-null-memory-test-fv native-null-memory-test-test native-watchdog-fv native-monotonic-counter-fv native-status-code-router-fv native-status-code-router-test native-cpu-io2-fv native-cpu-io2-test native-check native-pack native-service-test native-coreboot-test native-fv-test native-fvpack-test native-fvinfo native-fvinfo-test native-ffsbuild-test native-pe-test native-module-test native-security-stub-test native-elfcheck-test FORCE
+.PHONY: native-stage native-coreboot-stage native-coreboot-image native-metronome-fv native-security-stub-fv native-null-memory-test-fv native-null-memory-test-test native-watchdog-fv native-monotonic-counter-fv native-status-code-router-fv native-status-code-router-test native-cpu-io2-fv native-cpu-io2-test native-english-test native-english-fv native-check native-pack native-service-test native-coreboot-test native-fv-test native-fvpack-test native-fvinfo native-fvinfo-test native-ffsbuild-test native-pe-test native-module-test native-security-stub-test native-elfcheck-test FORCE
 
 ifeq ($(CONFIG_CDK2_NATIVE_STAGE),y)
 CDK2_NATIVE_STAGE_DEPS := $(CDK2_NATIVE_ELF)
@@ -156,7 +162,7 @@ native-coreboot-stage: $(CDK2_NATIVE_COREBOOT_ELF)
 ifneq ($(strip $(CDK2_PAYLOAD_FV)),)
 native-coreboot-image: $(CDK2_NATIVE_COREBOOT_IMAGE) $(CDK2_NATIVE_FV_TEST) \
 		$(CDK2_NATIVE_ELF_CHECK)
-	@"$(CDK2_NATIVE_FV_TEST)" "$(CDK2_NATIVE_MONO_FV)"
+	@"$(CDK2_NATIVE_FV_TEST)" "$(CDK2_NATIVE_ENGLISH_FV)"
 	@"$(CDK2_NATIVE_ELF_CHECK)" --entry cdk2_coreboot_entry32 --require-fv "$<"
 else
 native-coreboot-image:
@@ -193,6 +199,7 @@ native-check: $(CDK2_CONFIG_HEADER) $(CDK2_NATIVE_ELF) $(CDK2_NATIVE_OVERRIDE_EL
 	@"$(CDK2_NATIVE_SECURITY_STUB_TEST)"
 	@"$(CDK2_NATIVE_NULL_MEMORY_TEST)"
 	@"$(CDK2_NATIVE_MONO_TEST)"
+	@"$(CDK2_NATIVE_ENGLISH_TEST)"
 	@"$(CDK2_NATIVE_ELF_CHECK_TEST)" "$(CDK2_NATIVE_ELF_CHECK)" "$(CDK2_NATIVE_BUILD_DIR)"
 	@printf '%s\n' "native cdk2 stage: $(CDK2_NATIVE_ELF)"
 	@printf '%s\n' "native cdk2 FV packer: $(CDK2_NATIVE_PACKER)"
@@ -276,6 +283,12 @@ native-monotonic-counter-test: $(CDK2_NATIVE_MONO_TEST)
 
 native-monotonic-counter-fv: $(CDK2_NATIVE_MONO_FV)
 	@printf '%s\n' "native monotonic-counter FV: $(CDK2_NATIVE_MONO_FV)"
+
+native-english-test: $(CDK2_NATIVE_ENGLISH_TEST)
+	@"$(CDK2_NATIVE_ENGLISH_TEST)"
+
+native-english-fv: $(CDK2_NATIVE_ENGLISH_FV)
+	@printf '%s\n' "native EnglishDxe FV: $(CDK2_NATIVE_ENGLISH_FV)"
 
 ifeq ($(CONFIG_CDK2_NATIVE_SECURITY_STUB),y)
 native-security-stub-fv: $(CDK2_NATIVE_SECURITY_STUB_FV)
@@ -411,6 +424,9 @@ $(CDK2_NATIVE_NULL_MEMORY_TEST): $(CDK2_DIR)/tests/null_memory_test_test.c $(CDK
 $(CDK2_NATIVE_MONO_TEST): $(CDK2_DIR)/tests/monotonic_counter_test.c $(CDK2_DIR)/src/modules/monotonic_counter/monotonic_counter.c | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$<"
 
+$(CDK2_NATIVE_ENGLISH_TEST): $(CDK2_DIR)/tests/english_test.c $(CDK2_DIR)/src/modules/english/english.c $(CDK2_DIR)/include/cdk2/english.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$<"
+
 $(CDK2_NATIVE_ELF_CHECK): $(CDK2_UTIL_DIR)/elfcheck.c | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_HOST_LDFLAGS) -o "$@" "$<"
 
@@ -531,7 +547,7 @@ $(CDK2_NATIVE_MONO_FV): $(CDK2_NATIVE_COMPOSED_FV) $(CDK2_NATIVE_MONO_FFS) $(CDK
 	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_COMPOSED_FV)" 0x9aa48 "$(CDK2_NATIVE_MONO_FFS)" "$@"
 
 ifeq ($(CONFIG_CDK2_NATIVE_CPU_IO2),y)
-CDK2_NATIVE_FINAL_FV := $(CDK2_NATIVE_CPU_IO2_FV)
+CDK2_NATIVE_PRE_ENGLISH_FV := $(CDK2_NATIVE_CPU_IO2_FV)
 
 $(CDK2_NATIVE_CPU_IO2_OBJ): $(CDK2_DIR)/src/modules/cpu_io2/cpu_io2.c $(CDK2_DIR)/include/cdk2/cpu_io2.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
@@ -555,10 +571,34 @@ $(CDK2_NATIVE_CPU_IO2_FV): $(CDK2_NATIVE_MONO_FV) $(CDK2_NATIVE_CPU_IO2_FFS) $(C
 	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_MONO_FV)" 0x11c160 \
 		"$(CDK2_NATIVE_CPU_IO2_FFS)" "$@"
 else
-CDK2_NATIVE_FINAL_FV := $(CDK2_NATIVE_MONO_FV)
+CDK2_NATIVE_PRE_ENGLISH_FV := $(CDK2_NATIVE_MONO_FV)
 endif
 
-$(CDK2_NATIVE_FV_BLOB_OBJ): $(CDK2_NATIVE_FINAL_FV) | $(CDK2_NATIVE_BUILD_DIR)
+ifeq ($(CONFIG_CDK2_NATIVE_ENGLISH),y)
+$(CDK2_NATIVE_ENGLISH_OBJ): $(CDK2_DIR)/src/modules/english/english.c $(CDK2_DIR)/include/cdk2/english.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
+		-mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args \
+		$(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+
+$(CDK2_NATIVE_ENGLISH_PE): $(CDK2_NATIVE_ENGLISH_OBJ) $(CDK2_DIR)/src/modules/english/english.ld $(CDK2_NATIVE_PERELOCCHECK)
+	@$(LD) -mi386pep --subsystem 11 --entry cdk2_english_entry --image-base 0 \
+		--section-alignment 0x1000 --file-alignment 0x1000 --build-id=none \
+		--no-insert-timestamp -s --nxcompat -T "$(CDK2_DIR)/src/modules/english/english.ld" -o "$@" "$<"
+	@"$(CDK2_NATIVE_PERELOCCHECK)" "$@"
+
+$(CDK2_NATIVE_ENGLISH_FFS): $(CDK2_NATIVE_ENGLISH_PE) $(CDK2_NATIVE_FFSBUILD)
+	@"$(CDK2_NATIVE_FFSBUILD)" cd3bafb6-50fb-4fe8-8e4e-ab74d2c1a600 \
+		EnglishDxe 1.0 0x5046 "$<" "$@" -
+
+$(CDK2_NATIVE_ENGLISH_FV): $(CDK2_NATIVE_PRE_ENGLISH_FV) $(CDK2_NATIVE_ENGLISH_FFS) $(CDK2_NATIVE_FVREPLACE)
+	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_PRE_ENGLISH_FV)" 0x3094b8 \
+		"$(CDK2_NATIVE_ENGLISH_FFS)" "$@"
+else
+$(CDK2_NATIVE_ENGLISH_FV): $(CDK2_NATIVE_PRE_ENGLISH_FV)
+	@cp "$<" "$@"
+endif
+
+$(CDK2_NATIVE_FV_BLOB_OBJ): $(CDK2_NATIVE_ENGLISH_FV) | $(CDK2_NATIVE_BUILD_DIR)
 	@cd "$(dir $<)" && $(CDK2_NATIVE_OBJCOPY) -I binary -O elf64-x86-64 -B i386:x86-64 --rename-section .data=.cdk2.fv,alloc,load,readonly,data,contents "$(notdir $<)" "$(abspath $@)"
 
 $(CDK2_NATIVE_COREBOOT_IMAGE): $(CDK2_NATIVE_COREBOOT_OBJS) $(CDK2_NATIVE_FV_BLOB_OBJ) $(CDK2_NATIVE_DIR)/cdk2.ld
