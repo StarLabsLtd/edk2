@@ -212,6 +212,14 @@ config CDK2_NATIVE_DISK_IO
 	  Provide Disk I/O and Disk I/O 2 on Block I/O controllers. Version 2
 	  requests use the standard completion token with a blocking backend.
 
+config CDK2_NATIVE_SERIAL_IO
+	bool "Build native serial I/O services"
+	default y
+	depends on CDK2_NATIVE_STAGE
+	help
+	  Publish the PI Serial I/O protocol over the UART described by the
+	  coreboot-derived serial-port HOB.
+
 config CDK2_BUILD_DEBUG
 	bool "Build a debug payload"
 	default n
