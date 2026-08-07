@@ -180,6 +180,13 @@ config CDK2_NATIVE_STATUS_CODE_ROUTER
 	  Build the runtime status-code and handler protocols used by native
 	  diagnostic consumers.
 
+config CDK2_NATIVE_CPU_IO2
+	bool "Build native CPU I/O 2 services"
+	default y
+	depends on CDK2_NATIVE_STAGE
+	help
+	  Replace CpuIo2Dxe with CDK2-owned MMIO and x86 port-I/O services.
+
 config CDK2_BUILD_DEBUG
 	bool "Build a debug payload"
 	default n
