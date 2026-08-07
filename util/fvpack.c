@@ -57,6 +57,11 @@ struct fvpack_ffs_inputs {
 	bool ordered;
 };
 
+struct fvpack_guid_list {
+	uint8_t *items;
+	size_t count;
+};
+
 static const uint8_t m_ffs_pad_guid[16] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
 					0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
@@ -73,6 +78,9 @@ static const uint8_t m_dxe_volume_file_guid[16] = {
 	0x93, 0xFD, 0x35, 0x4E, 0x72, 0x9C, 0x15, 0x4C,
 	0x8C, 0x4B, 0xE7, 0x7F, 0x1D, 0xB2, 0xD7, 0x93
 };
+
+static bool is_erased(const uint8_t *data, size_t size);
+static size_t get_ffs_start_offset(const struct fvpack_blob *volume);
 
 static void fail(const char *message)
 {
@@ -878,6 +886,122 @@ static struct fvpack_blob make_pad(size_t size, const uint8_t *extension)
 	return result;
 }
 
+static bool guid_list_contains(const struct fvpack_guid_list *list, const uint8_t *guid)
+{
+	size_t index;
+
+	for (index = 0; index < list->count; index++) {
+		if (memcmp(list->items + (index * 16), guid, 16) == 0) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+static void append_guid(struct fvpack_guid_list *list, const char *text)
+{
+	uint8_t guid[16];
+	uint8_t *items;
+
+	parse_guid(text, guid);
+	if (guid_list_contains(list, guid)) {
+		fail("duplicate FFS removal GUID");
+	}
+
+	items = realloc(list->items, (list->count + 1) * 16);
+	if (items == NULL) {
+		fail("out of memory reading FFS removal GUIDs");
+	}
+
+	list->items = items;
+	memcpy(list->items + (list->count * 16), guid, 16);
+	list->count++;
+}
+
+static struct fvpack_blob prune_dxe_volume(const struct fvpack_blob *reference,
+					   const struct fvpack_guid_list *remove)
+{
+	struct fvpack_blob result;
+	struct fvpack_blob padding;
+	bool *removed;
+	size_t volume_size;
+	size_t file_offset;
+	size_t file_size;
+	size_t remove_index;
+	uint8_t file_type;
+	bool has_dxe_core;
+
+	if (remove->count == 0) {
+		fail("DXE FV pruning requires at least one removal GUID");
+	}
+
+	file_offset = get_ffs_start_offset(reference);
+	volume_size = (size_t)get64(reference->data + 0x20);
+	result.size = volume_size;
+	result.data = allocate(result.size);
+	memcpy(result.data, reference->data, result.size);
+	removed = calloc(remove->count, sizeof(*removed));
+	if (removed == NULL) {
+		fail("out of memory tracking FFS removals");
+	}
+
+	has_dxe_core = false;
+	while (file_offset <= volume_size - FFS_HEADER_SIZE) {
+		uint8_t *file;
+
+		file = result.data + file_offset;
+		if (is_erased(file, FFS_HEADER_SIZE)) {
+			break;
+		}
+
+		file_size = get24(file + 20);
+		file_type = file[18];
+		if ((file_size < FFS_HEADER_SIZE) || (file_size > volume_size - file_offset)) {
+			fail("DXE FV contains an invalid FFS file");
+		}
+
+		if (file_type == FFS_TYPE_DXE_CORE) {
+			has_dxe_core = true;
+		}
+
+		for (remove_index = 0; remove_index < remove->count; remove_index++) {
+			if (memcmp(file, remove->items + (remove_index * 16), 16) != 0) {
+				continue;
+			}
+
+			if (removed[remove_index]) {
+				fail("DXE FV contains a duplicate removal GUID");
+			}
+
+			if ((file_type == FFS_PAD_TYPE) || (file_type == FFS_TYPE_DXE_CORE)) {
+				fail("refusing to remove a pad file or DXE core");
+			}
+
+			padding = make_pad(file_size, NULL);
+			memcpy(file, padding.data, padding.size);
+			free(padding.data);
+			removed[remove_index] = true;
+			break;
+		}
+
+		file_offset = align_up(file_offset + file_size, 8);
+	}
+
+	if (!has_dxe_core) {
+		fail("DXE FV does not contain a DXE core");
+	}
+
+	for (remove_index = 0; remove_index < remove->count; remove_index++) {
+		if (!removed[remove_index]) {
+			fail("FFS removal GUID is not present in the DXE FV");
+		}
+	}
+
+	free(removed);
+	return result;
+}
+
 static size_t make_section_prefix(size_t file_offset, size_t section_alignment)
 {
 	size_t raw_section_size;
@@ -1464,6 +1588,8 @@ static void print_usage(const char *program)
 	fputs("[--dxe-ffs-list FILE] [--flatten-dxe]) [--size BYTES]\n", stderr);
 	fprintf(stderr, "       %s --verify-dxe-manifest --dxe-manifest FILE ", program);
 	fputs("--reference-dxe-fv FILE\n", stderr);
+	fprintf(stderr, "       %s --prune-dxe-fv --dxe-fv FILE --output FILE ", program);
+	fputs("--remove-guid GUID [--remove-guid GUID ...]\n", stderr);
 }
 
 int main(int argc, char **argv)
@@ -1476,12 +1602,14 @@ int main(int argc, char **argv)
 	const char *reference_dxe_path;
 	bool flatten_dxe;
 	bool verify_dxe_manifest;
+	bool prune_dxe_fv;
 	size_t volume_size;
 	int index;
 	struct fvpack_blob entry;
 	struct fvpack_blob dxe;
 	struct fvpack_blob volume;
 	struct fvpack_ffs_inputs dxe_inputs;
+	struct fvpack_guid_list remove_guids;
 
 	output_path = NULL;
 	entry_path = NULL;
@@ -1491,6 +1619,7 @@ int main(int argc, char **argv)
 	reference_dxe_path = NULL;
 	flatten_dxe = false;
 	verify_dxe_manifest = false;
+	prune_dxe_fv = false;
 	volume_size = FV_SIZE_DEFAULT;
 	entry.data = NULL;
 	entry.size = 0;
@@ -1501,6 +1630,8 @@ int main(int argc, char **argv)
 	dxe_inputs.items = NULL;
 	dxe_inputs.count = 0;
 	dxe_inputs.ordered = false;
+	remove_guids.items = NULL;
+	remove_guids.count = 0;
 	for (index = 1; index < argc; index++) {
 		if ((strcmp(argv[index], "--output") == 0) && (index + 1 < argc)) {
 			output_path = argv[++index];
@@ -1517,6 +1648,11 @@ int main(int argc, char **argv)
 			reference_dxe_path = argv[++index];
 		} else if (strcmp(argv[index], "--verify-dxe-manifest") == 0) {
 			verify_dxe_manifest = true;
+		} else if (strcmp(argv[index], "--prune-dxe-fv") == 0) {
+			prune_dxe_fv = true;
+		} else if ((strcmp(argv[index], "--remove-guid") == 0) &&
+			   (index + 1 < argc)) {
+			append_guid(&remove_guids, argv[++index]);
 		} else if (strcmp(argv[index], "--flatten-dxe") == 0) {
 			flatten_dxe = true;
 		} else if ((strcmp(argv[index], "--size") == 0) && (index + 1 < argc)) {
@@ -1535,6 +1671,31 @@ int main(int argc, char **argv)
 
 	if ((dxe_manifest_path != NULL) && (dxe_ffs_list_path != NULL)) {
 		print_usage(argv[0]);
+		return EXIT_FAILURE;
+	}
+
+	if (prune_dxe_fv) {
+		struct fvpack_blob pruned_dxe;
+
+		if ((output_path == NULL) || (dxe_path == NULL) || (entry_path != NULL) ||
+		    (dxe_manifest_path != NULL) || (dxe_ffs_list_path != NULL) || flatten_dxe ||
+		    verify_dxe_manifest) {
+			print_usage(argv[0]);
+			return EXIT_FAILURE;
+		}
+
+		dxe = read_file(dxe_path);
+		pruned_dxe = prune_dxe_volume(&dxe, &remove_guids);
+		write_file(output_path, pruned_dxe.data, pruned_dxe.size);
+		free(pruned_dxe.data);
+		free(dxe.data);
+		free(remove_guids.items);
+		return EXIT_SUCCESS;
+	}
+
+	if (remove_guids.count != 0) {
+		print_usage(argv[0]);
+		free(remove_guids.items);
 		return EXIT_FAILURE;
 	}
 
@@ -1592,5 +1753,6 @@ int main(int argc, char **argv)
 	free(dxe.data);
 	free(volume.data);
 	free_ffs_inputs(&dxe_inputs);
+	free(remove_guids.items);
 	return EXIT_SUCCESS;
 }

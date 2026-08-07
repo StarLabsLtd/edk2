@@ -1,5 +1,5 @@
 # baseline-retained=72
-# retained=72
+# retained=70
 # status	wave	module
 retain	boot	FatPkg/EnhancedFatDxe/Fat
 retain	storage	MdeModulePkg/Bus/Ata/AtaAtapiPassThru/AtaAtapiPassThru
@@ -36,7 +36,7 @@ retain	foundation	MdeModulePkg/Universal/DevicePathDxe/DevicePathDxe
 retain	storage	MdeModulePkg/Universal/Disk/DiskIoDxe/DiskIoDxe
 retain	storage	MdeModulePkg/Universal/Disk/PartitionDxe/PartitionDxe
 retain	storage	MdeModulePkg/Universal/Disk/UnicodeCollation/EnglishDxe/EnglishDxe
-retain	remove	MdeModulePkg/Universal/EbcDxe/EbcDxe
+remove	remove	MdeModulePkg/Universal/EbcDxe/EbcDxe
 retain	update	MdeModulePkg/Universal/EsrtDxe/EsrtDxe
 retain	variables	MdeModulePkg/Universal/FaultTolerantWriteDxe/FaultTolerantWriteDxe
 retain	ui	MdeModulePkg/Universal/HiiDatabaseDxe/HiiDatabaseDxe
@@ -44,7 +44,7 @@ retain	boot	MdeModulePkg/Universal/MemoryTest/NullMemoryTestDxe/NullMemoryTestDx
 retain	foundation	MdeModulePkg/Universal/Metronome/Metronome
 retain	runtime	MdeModulePkg/Universal/MonotonicCounterRuntimeDxe/MonotonicCounterRuntimeDxe
 retain	remove	MdeModulePkg/Universal/PCD/Dxe/Pcd
-retain	remove	MdeModulePkg/Universal/PlatformDriOverrideDxe/PlatformDriOverrideDxe
+remove	remove	MdeModulePkg/Universal/PlatformDriOverrideDxe/PlatformDriOverrideDxe
 retain	debug	MdeModulePkg/Universal/ReportStatusCodeRouter/RuntimeDxe/ReportStatusCodeRouterRuntimeDxe
 retain	runtime	MdeModulePkg/Universal/ResetSystemRuntimeDxe/ResetSystemRuntimeDxe
 retain	security	MdeModulePkg/Universal/SecurityStubDxe/SecurityStubDxe

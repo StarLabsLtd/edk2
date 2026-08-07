@@ -20,3 +20,8 @@ The table is sorted by module path. Its status column accepts:
 `make retained-fv-check` rejects malformed entries, duplicate paths, an
 increase above the admitted baseline, or a mismatch between the declared and
 actual retained counts.
+
+Removal decisions and their QEMU evidence are recorded in
+`obsolete-modules.md`. `cdk2-fvpack --prune-dxe-fv` creates deterministic test
+candidates by replacing selected FFS GUIDs with same-size pad files. This keeps
+the remaining binary layout stable while proving that a module is unnecessary.

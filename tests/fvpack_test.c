@@ -594,6 +594,53 @@ static int run_manifest_verifier(const char *packer, const char *dxe_path,
 	return 0;
 }
 
+static int run_pruner(const char *packer, const char *output_path, const char *dxe_path,
+		      const UINT8 *guid, int duplicate, int expect_success)
+{
+	char guid_string[37];
+	pid_t child;
+	int status;
+	int succeeded;
+
+	if (guid_text(guid, guid_string, sizeof(guid_string)) != 0) {
+		return 1;
+	}
+
+	child = fork();
+	if (child == 0) {
+		if (duplicate) {
+			execl(packer, packer, "--prune-dxe-fv", "--dxe-fv", dxe_path,
+			      "--output", output_path, "--remove-guid", guid_string,
+			      "--remove-guid", guid_string, (char *)NULL);
+		} else {
+			execl(packer, packer, "--prune-dxe-fv", "--dxe-fv", dxe_path,
+			      "--output", output_path, "--remove-guid", guid_string,
+			      (char *)NULL);
+		}
+		_exit(127);
+	}
+
+	if (child < 0) {
+		fprintf(stderr, "cdk2 fvpack test: cannot fork: %s\n", strerror(errno));
+		return 1;
+	}
+
+	if (waitpid(child, &status, 0) < 0) {
+		fprintf(stderr, "cdk2 fvpack test: cannot wait for pruner: %s\n",
+			strerror(errno));
+		return 1;
+	}
+
+	succeeded = WIFEXITED(status) && (WEXITSTATUS(status) == 0);
+	if (succeeded != expect_success) {
+		fprintf(stderr, "cdk2 fvpack test: DXE FV pruner %s unexpectedly\n",
+			succeeded ? "succeeded" : "failed");
+		return 1;
+	}
+
+	return 0;
+}
+
 static int
 find_packed_entry_image_base(const UINT8 *volume, size_t volume_size, UINT64 *image_base,
 			     UINT64 *expected_base)
@@ -875,6 +922,49 @@ int main(int argument_count, char **arguments)
 		if (count < 0 || (size_t)count >= sizeof(ffs_list_text)) {
 			failures += expect(0, "FFS list path is too long");
 		}
+	}
+
+	if (failures == 0) {
+		dxe_size = build_dxe_volume_with_ffs(dxe, sizeof(dxe), selected_ffs,
+						    selected_ffs_size);
+		if ((dxe_size != 0) &&
+		    (0x48U + selected_ffs_size + stale_ffs_size <= dxe_size)) {
+			memcpy(dxe + 0x48U + selected_ffs_size, stale_ffs, stale_ffs_size);
+		} else {
+			failures += expect(0, "cannot build prune test DXE FV");
+		}
+	}
+
+	if (failures == 0) {
+		failures += write_binary_file(dxe_path, dxe, dxe_size);
+		failures += run_pruner(arguments[1], output_path, dxe_path, stale_guid, 0, 1);
+	}
+
+	if (failures == 0) {
+		free(packed);
+		packed = read_binary_file(output_path, &packed_size);
+		failures += expect(packed != NULL, "cannot read pruned DXE FV");
+	}
+
+	if (failures == 0) {
+		UINTN removed_offset;
+		UINTN index;
+
+		removed_offset = 0x48U + selected_ffs_size;
+		failures += expect(packed_size == dxe_size, "pruning changed the DXE FV size");
+		failures += expect(memcmp(packed + 0x48U, selected_ffs, selected_ffs_size) == 0,
+				   "pruning changed an unselected FFS file");
+		failures += expect(packed[removed_offset + 18] == EFI_FV_FILETYPE_FFS_PAD,
+				   "pruned FFS file was not replaced by padding");
+		for (index = 0; index < 16; index++) {
+			failures += expect(packed[removed_offset + index] == 0xff,
+					   "pruned FFS padding has a non-pad GUID");
+		}
+	}
+
+	if (failures == 0) {
+		failures += run_pruner(arguments[1], output_path, dxe_path, stale_guid, 1, 0);
+		failures += run_pruner(arguments[1], output_path, dxe_path, dxe_core_guid, 0, 0);
 	}
 
 	if (failures == 0) {
