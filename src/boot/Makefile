@@ -57,6 +57,13 @@ CDK2_NATIVE_NULL_MEMORY_TEST_PE ?= $(CDK2_NATIVE_BUILD_DIR)/null-memory-test.efi
 CDK2_NATIVE_NULL_MEMORY_TEST_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/null-memory-test.ffs
 CDK2_NATIVE_NULL_MEMORY_TEST_DEPEX ?= $(CDK2_NATIVE_BUILD_DIR)/null-memory-test.depex
 CDK2_NATIVE_NULL_MEMORY_TEST_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-null-memory-test.fv
+CDK2_NATIVE_MONO_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-monotonic-counter-test
+CDK2_NATIVE_MONO_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/monotonic-counter.o
+CDK2_NATIVE_MONO_PE ?= $(CDK2_NATIVE_BUILD_DIR)/MonotonicCounterRuntimeDxe.efi
+CDK2_NATIVE_MONO_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/MonotonicCounterRuntimeDxe.ffs
+CDK2_NATIVE_MONO_DEPEX_TOOL ?= $(CDK2_NATIVE_BUILD_DIR)/monotonic-counter-depex
+CDK2_NATIVE_MONO_DEPEX ?= $(CDK2_NATIVE_BUILD_DIR)/MonotonicCounterRuntimeDxe.depex
+CDK2_NATIVE_MONO_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-monotonic.fv
 HOSTCC ?= cc
 CDK2_NATIVE_CC ?= $(CC)
 CDK2_NATIVE_HOST_CC ?= $(HOSTCC)
@@ -120,7 +127,8 @@ CDK2_NATIVE_HOST_TOOLS := \
 	$(CDK2_NATIVE_ELF_CHECK) \
 	$(CDK2_NATIVE_ELF_CHECK_TEST) \
 	$(CDK2_NATIVE_SECURITY_STUB_TEST) \
-	$(CDK2_NATIVE_NULL_MEMORY_TEST)
+	$(CDK2_NATIVE_NULL_MEMORY_TEST) \
+	$(CDK2_NATIVE_MONO_TEST)
 CDK2_NATIVE_LINK_FLAGS := -static -no-pie -nostdlib -nostartfiles -nodefaultlibs -Wl,-z,max-page-size=0x1000 -Wl,-z,common-page-size=0x1000 -Wl,-T,"$(CDK2_NATIVE_DIR)/cdk2.ld"
 CDK2_NATIVE_LINK_POST_MAP_FLAGS := -Wl,--gc-sections -Wl,--build-id=none
 
@@ -134,7 +142,7 @@ native-coreboot-stage: $(CDK2_NATIVE_COREBOOT_ELF)
 ifneq ($(strip $(CDK2_PAYLOAD_FV)),)
 native-coreboot-image: $(CDK2_NATIVE_COREBOOT_IMAGE) $(CDK2_NATIVE_FV_TEST) \
 		$(CDK2_NATIVE_ELF_CHECK)
-	@"$(CDK2_NATIVE_FV_TEST)" "$(CDK2_NATIVE_COMPOSED_FV)"
+	@"$(CDK2_NATIVE_FV_TEST)" "$(CDK2_NATIVE_MONO_FV)"
 	@"$(CDK2_NATIVE_ELF_CHECK)" --entry cdk2_coreboot_entry32 --require-fv "$<"
 else
 native-coreboot-image:
@@ -169,6 +177,7 @@ native-check: $(CDK2_CONFIG_HEADER) $(CDK2_NATIVE_ELF) $(CDK2_NATIVE_OVERRIDE_EL
 	@"$(CDK2_NATIVE_MODULE_TEST)"
 	@"$(CDK2_NATIVE_SECURITY_STUB_TEST)"
 	@"$(CDK2_NATIVE_NULL_MEMORY_TEST)"
+	@"$(CDK2_NATIVE_MONO_TEST)"
 	@"$(CDK2_NATIVE_ELF_CHECK_TEST)" "$(CDK2_NATIVE_ELF_CHECK)" "$(CDK2_NATIVE_BUILD_DIR)"
 	@printf '%s\n' "native cdk2 stage: $(CDK2_NATIVE_ELF)"
 	@printf '%s\n' "native cdk2 FV packer: $(CDK2_NATIVE_PACKER)"
@@ -233,6 +242,12 @@ native-module-test: $(CDK2_NATIVE_MODULE_TEST)
 
 native-security-stub-test: $(CDK2_NATIVE_SECURITY_STUB_TEST)
 	@"$(CDK2_NATIVE_SECURITY_STUB_TEST)"
+
+native-monotonic-counter-test: $(CDK2_NATIVE_MONO_TEST)
+	@"$(CDK2_NATIVE_MONO_TEST)"
+
+native-monotonic-counter-fv: $(CDK2_NATIVE_MONO_FV)
+	@printf '%s\n' "native monotonic-counter FV: $(CDK2_NATIVE_MONO_FV)"
 
 ifeq ($(CONFIG_CDK2_NATIVE_SECURITY_STUB),y)
 native-security-stub-fv: $(CDK2_NATIVE_SECURITY_STUB_FV)
@@ -365,6 +380,9 @@ $(CDK2_NATIVE_SECURITY_STUB_TEST): $(CDK2_DIR)/tests/security_stub_test.c $(CDK2
 $(CDK2_NATIVE_NULL_MEMORY_TEST): $(CDK2_DIR)/tests/null_memory_test_test.c $(CDK2_DIR)/src/modules/null_memory_test/null_memory_test.c $(CDK2_DIR)/include/cdk2/null_memory_test.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$<"
 
+$(CDK2_NATIVE_MONO_TEST): $(CDK2_DIR)/tests/monotonic_counter_test.c $(CDK2_DIR)/src/modules/monotonic_counter/monotonic_counter.c | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$<"
+
 $(CDK2_NATIVE_ELF_CHECK): $(CDK2_UTIL_DIR)/elfcheck.c | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_HOST_LDFLAGS) -o "$@" "$<"
 
@@ -432,7 +450,31 @@ else
 CDK2_NATIVE_COMPOSED_FV := $(CDK2_NATIVE_NULL_MEMORY_TEST_FV)
 endif
 
-$(CDK2_NATIVE_FV_BLOB_OBJ): $(CDK2_NATIVE_COMPOSED_FV) | $(CDK2_NATIVE_BUILD_DIR)
+$(CDK2_NATIVE_MONO_OBJ): $(CDK2_DIR)/src/modules/monotonic_counter/monotonic_counter.c | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
+		-mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args \
+		$(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+
+$(CDK2_NATIVE_MONO_PE): $(CDK2_NATIVE_MONO_OBJ) $(CDK2_DIR)/src/modules/monotonic_counter/monotonic_counter.ld $(CDK2_NATIVE_PERELOCCHECK)
+	@$(LD) -mi386pep --subsystem 12 --entry monotonic_counter_entry --image-base 0 \
+		--section-alignment 0x1000 --file-alignment 0x1000 --build-id=none \
+		--no-insert-timestamp -s --nxcompat -T "$(CDK2_DIR)/src/modules/monotonic_counter/monotonic_counter.ld" -o "$@" "$<"
+	@"$(CDK2_NATIVE_PERELOCCHECK)" "$@"
+
+$(CDK2_NATIVE_MONO_DEPEX_TOOL): $(CDK2_DIR)/src/modules/monotonic_counter/depex.c | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -o "$@" "$<"
+
+$(CDK2_NATIVE_MONO_DEPEX): $(CDK2_NATIVE_MONO_DEPEX_TOOL)
+	@"$<" "$@"
+
+$(CDK2_NATIVE_MONO_FFS): $(CDK2_NATIVE_MONO_PE) $(CDK2_NATIVE_MONO_DEPEX) $(CDK2_NATIVE_FFSBUILD)
+	@"$(CDK2_NATIVE_FFSBUILD)" ad608272-d07f-4964-801e-7bd3b7888652 \
+		MonotonicCounterRuntimeDxe 1.0 0x40a2 "$<" "$@" "$(CDK2_NATIVE_MONO_DEPEX)"
+
+$(CDK2_NATIVE_MONO_FV): $(CDK2_NATIVE_COMPOSED_FV) $(CDK2_NATIVE_MONO_FFS) $(CDK2_NATIVE_FVREPLACE)
+	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_COMPOSED_FV)" 0x9aa48 "$(CDK2_NATIVE_MONO_FFS)" "$@"
+
+$(CDK2_NATIVE_FV_BLOB_OBJ): $(CDK2_NATIVE_MONO_FV) | $(CDK2_NATIVE_BUILD_DIR)
 	@cd "$(dir $<)" && $(CDK2_NATIVE_OBJCOPY) -I binary -O elf64-x86-64 -B i386:x86-64 --rename-section .data=.cdk2.fv,alloc,load,readonly,data,contents "$(notdir $<)" "$(abspath $@)"
 
 $(CDK2_NATIVE_COREBOOT_IMAGE): $(CDK2_NATIVE_COREBOOT_OBJS) $(CDK2_NATIVE_FV_BLOB_OBJ) $(CDK2_NATIVE_DIR)/cdk2.ld

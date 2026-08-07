@@ -167,6 +167,11 @@ config CDK2_NATIVE_WATCHDOG
 	  Replace the retained WatchdogTimerDxe file with CDK2's source-built
 	  architectural watchdog protocol driver.
 
+config CDK2_NATIVE_MONOTONIC_COUNTER
+	bool "Build native monotonic-counter services"
+	default y
+	depends on CDK2_NATIVE_STAGE
+
 config CDK2_BUILD_DEBUG
 	bool "Build a debug payload"
 	default n
