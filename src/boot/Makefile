@@ -29,6 +29,12 @@ CDK2_NATIVE_METRONOME_PE ?= $(CDK2_NATIVE_BUILD_DIR)/metronome.efi
 CDK2_NATIVE_METRONOME_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/metronome.ffs
 CDK2_NATIVE_METRONOME_DEPEX ?= $(CDK2_NATIVE_BUILD_DIR)/metronome.depex
 CDK2_NATIVE_METRONOME_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-metronome.fv
+CDK2_NATIVE_WATCHDOG_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-watchdog-test
+CDK2_NATIVE_WATCHDOG_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/watchdog.o
+CDK2_NATIVE_WATCHDOG_PE ?= $(CDK2_NATIVE_BUILD_DIR)/watchdog.efi
+CDK2_NATIVE_WATCHDOG_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/watchdog.ffs
+CDK2_NATIVE_WATCHDOG_DEPEX ?= $(CDK2_NATIVE_BUILD_DIR)/watchdog.depex
+CDK2_NATIVE_WATCHDOG_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-watchdog.fv
 CDK2_NATIVE_SERVICE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-services-test
 CDK2_NATIVE_COREBOOT_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-coreboot-test
 CDK2_NATIVE_FV_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-fv-test
@@ -103,6 +109,7 @@ CDK2_NATIVE_HOST_TOOLS := \
 	$(CDK2_NATIVE_FVREPLACE) \
 	$(CDK2_NATIVE_PERELOCCHECK) \
 	$(CDK2_NATIVE_METRONOME_TEST) \
+	$(CDK2_NATIVE_WATCHDOG_TEST) \
 	$(CDK2_NATIVE_SERVICE_TEST) \
 	$(CDK2_NATIVE_COREBOOT_TEST) \
 	$(CDK2_NATIVE_FV_TEST) \
@@ -117,7 +124,7 @@ CDK2_NATIVE_HOST_TOOLS := \
 CDK2_NATIVE_LINK_FLAGS := -static -no-pie -nostdlib -nostartfiles -nodefaultlibs -Wl,-z,max-page-size=0x1000 -Wl,-z,common-page-size=0x1000 -Wl,-T,"$(CDK2_NATIVE_DIR)/cdk2.ld"
 CDK2_NATIVE_LINK_POST_MAP_FLAGS := -Wl,--gc-sections -Wl,--build-id=none
 
-.PHONY: native-stage native-coreboot-stage native-coreboot-image native-metronome-fv native-security-stub-fv native-null-memory-test-fv native-null-memory-test-test native-check native-pack native-service-test native-coreboot-test native-fv-test native-fvpack-test native-fvinfo native-fvinfo-test native-ffsbuild-test native-pe-test native-module-test native-security-stub-test native-elfcheck-test FORCE
+.PHONY: native-stage native-coreboot-stage native-coreboot-image native-metronome-fv native-security-stub-fv native-null-memory-test-fv native-null-memory-test-test native-watchdog-fv native-check native-pack native-service-test native-coreboot-test native-fv-test native-fvpack-test native-fvinfo native-fvinfo-test native-ffsbuild-test native-pe-test native-module-test native-security-stub-test native-elfcheck-test FORCE
 
 ifeq ($(CONFIG_CDK2_NATIVE_STAGE),y)
 CDK2_NATIVE_STAGE_DEPS := $(CDK2_NATIVE_ELF)
@@ -127,7 +134,7 @@ native-coreboot-stage: $(CDK2_NATIVE_COREBOOT_ELF)
 ifneq ($(strip $(CDK2_PAYLOAD_FV)),)
 native-coreboot-image: $(CDK2_NATIVE_COREBOOT_IMAGE) $(CDK2_NATIVE_FV_TEST) \
 		$(CDK2_NATIVE_ELF_CHECK)
-	@"$(CDK2_NATIVE_FV_TEST)" "$(CDK2_NATIVE_NULL_MEMORY_TEST_FV)"
+	@"$(CDK2_NATIVE_FV_TEST)" "$(CDK2_NATIVE_COMPOSED_FV)"
 	@"$(CDK2_NATIVE_ELF_CHECK)" --entry cdk2_coreboot_entry32 --require-fv "$<"
 else
 native-coreboot-image:
@@ -157,6 +164,7 @@ native-check: $(CDK2_CONFIG_HEADER) $(CDK2_NATIVE_ELF) $(CDK2_NATIVE_OVERRIDE_EL
 	@"$(CDK2_NATIVE_FVINFO_TEST)" "$(CDK2_NATIVE_FVINFO)" "$(CDK2_NATIVE_BUILD_DIR)"
 	@"$(CDK2_NATIVE_FFSBUILD_TEST)" "$(CDK2_NATIVE_FFSBUILD)" "$(CDK2_NATIVE_BUILD_DIR)"
 	@"$(CDK2_NATIVE_METRONOME_TEST)"
+	@"$(CDK2_NATIVE_WATCHDOG_TEST)"
 	@"$(CDK2_NATIVE_PE_TEST)"
 	@"$(CDK2_NATIVE_MODULE_TEST)"
 	@"$(CDK2_NATIVE_SECURITY_STUB_TEST)"
@@ -179,6 +187,7 @@ native-check: $(CDK2_CONFIG_HEADER) $(CDK2_NATIVE_HOST_TOOLS)
 	@"$(CDK2_NATIVE_FVPACK_TEST)" "$(CDK2_NATIVE_PACKER)" "$(CDK2_NATIVE_BUILD_DIR)"
 	@"$(CDK2_NATIVE_FVINFO_TEST)" "$(CDK2_NATIVE_FVINFO)" "$(CDK2_NATIVE_BUILD_DIR)"
 	@"$(CDK2_NATIVE_FFSBUILD_TEST)" "$(CDK2_NATIVE_FFSBUILD)" "$(CDK2_NATIVE_BUILD_DIR)"
+	@"$(CDK2_NATIVE_WATCHDOG_TEST)"
 	@"$(CDK2_NATIVE_PE_TEST)"
 	@"$(CDK2_NATIVE_MODULE_TEST)"
 	@"$(CDK2_NATIVE_ELF_CHECK_TEST)" "$(CDK2_NATIVE_ELF_CHECK)" "$(CDK2_NATIVE_BUILD_DIR)"
@@ -212,6 +221,9 @@ native-metronome-fv: $(CDK2_NATIVE_METRONOME_FV)
 
 native-ffsbuild-test: $(CDK2_NATIVE_FFSBUILD_TEST) $(CDK2_NATIVE_FFSBUILD)
 	@"$(CDK2_NATIVE_FFSBUILD_TEST)" "$(CDK2_NATIVE_FFSBUILD)" "$(CDK2_NATIVE_BUILD_DIR)"
+
+native-watchdog-fv: $(CDK2_NATIVE_WATCHDOG_FV)
+	@printf '%s\n' "native WatchdogTimer FV: $(CDK2_NATIVE_WATCHDOG_FV)"
 
 native-pe-test: $(CDK2_NATIVE_PE_TEST)
 	@"$(CDK2_NATIVE_PE_TEST)"
@@ -393,7 +405,34 @@ $(CDK2_NATIVE_METRONOME_FV): $(CDK2_PAYLOAD_FV) $(CDK2_NATIVE_METRONOME_FFS) $(C
 	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_PAYLOAD_FV)" 0x757a8 \
 		"$(CDK2_NATIVE_METRONOME_FFS)" "$@"
 
-$(CDK2_NATIVE_FV_BLOB_OBJ): $(CDK2_NATIVE_NULL_MEMORY_TEST_FV) | $(CDK2_NATIVE_BUILD_DIR)
+ifeq ($(CONFIG_CDK2_NATIVE_WATCHDOG),y)
+CDK2_NATIVE_COMPOSED_FV := $(CDK2_NATIVE_WATCHDOG_FV)
+
+$(CDK2_NATIVE_WATCHDOG_OBJ): $(CDK2_DIR)/src/modules/watchdog/watchdog.c $(CDK2_DIR)/include/cdk2/watchdog.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -ffunction-sections -fdata-sections,$(CDK2_NATIVE_CFLAGS)) \
+		-fno-ident -fcf-protection=none -mcmodel=large $(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+
+$(CDK2_NATIVE_WATCHDOG_PE): $(CDK2_NATIVE_WATCHDOG_OBJ) $(CDK2_DIR)/src/modules/watchdog/watchdog.ld $(CDK2_NATIVE_PERELOCCHECK)
+	@$(LD) -mi386pep --subsystem 11 --entry cdk2_watchdog_entry --image-base 0 \
+		--section-alignment 0x1000 --file-alignment 0x1000 --build-id=none \
+		--no-insert-timestamp -s -T "$(CDK2_DIR)/src/modules/watchdog/watchdog.ld" -o "$@" "$<"
+	@"$(CDK2_NATIVE_PERELOCCHECK)" "$@"
+
+$(CDK2_NATIVE_WATCHDOG_DEPEX): | $(CDK2_NATIVE_BUILD_DIR)
+	@printf '\050\000\000\023\002\263\314\272\046\102\157\324\021\274\347\000\200\307\074\210\201\002\366\360\243\023\112\046\360\076\362\340\336\305\022\064\057\064\003\010' > "$@"
+
+$(CDK2_NATIVE_WATCHDOG_FFS): $(CDK2_NATIVE_WATCHDOG_PE) $(CDK2_NATIVE_WATCHDOG_DEPEX) $(CDK2_NATIVE_FFSBUILD)
+	@"$(CDK2_NATIVE_FFSBUILD)" f099d67f-71ae-4c36-b2a3-dceb0eb2b7d8 \
+		WatchdogTimer 1.0 0x5072 "$<" "$@" "$(CDK2_NATIVE_WATCHDOG_DEPEX)"
+
+$(CDK2_NATIVE_WATCHDOG_FV): $(CDK2_NATIVE_NULL_MEMORY_TEST_FV) $(CDK2_NATIVE_WATCHDOG_FFS) $(CDK2_NATIVE_FVREPLACE)
+	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_NULL_MEMORY_TEST_FV)" 0x9eaf0 \
+		"$(CDK2_NATIVE_WATCHDOG_FFS)" "$@"
+else
+CDK2_NATIVE_COMPOSED_FV := $(CDK2_NATIVE_NULL_MEMORY_TEST_FV)
+endif
+
+$(CDK2_NATIVE_FV_BLOB_OBJ): $(CDK2_NATIVE_COMPOSED_FV) | $(CDK2_NATIVE_BUILD_DIR)
 	@cd "$(dir $<)" && $(CDK2_NATIVE_OBJCOPY) -I binary -O elf64-x86-64 -B i386:x86-64 --rename-section .data=.cdk2.fv,alloc,load,readonly,data,contents "$(notdir $<)" "$(abspath $@)"
 
 $(CDK2_NATIVE_COREBOOT_IMAGE): $(CDK2_NATIVE_COREBOOT_OBJS) $(CDK2_NATIVE_FV_BLOB_OBJ) $(CDK2_NATIVE_DIR)/cdk2.ld
@@ -421,6 +460,9 @@ $(CDK2_NATIVE_FFSBUILD_TEST): $(CDK2_DIR)/tests/ffsbuild_test.c | $(CDK2_NATIVE_
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -MMD -MP -MF "$(CDK2_NATIVE_BUILD_DIR)/ffsbuild-test.d" -MT "$@" $(CDK2_NATIVE_HOST_LDFLAGS) -o "$@" "$<"
 
 $(CDK2_NATIVE_METRONOME_TEST): $(CDK2_DIR)/tests/metronome_test.c $(CDK2_DIR)/src/modules/metronome/metronome.c $(CDK2_DIR)/include/cdk2/metronome.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$<"
+
+$(CDK2_NATIVE_WATCHDOG_TEST): $(CDK2_DIR)/tests/watchdog_test.c $(CDK2_DIR)/src/modules/watchdog/watchdog.c $(CDK2_DIR)/include/cdk2/watchdog.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$<"
 
 $(CDK2_NATIVE_PE_TEST): $(CDK2_NATIVE_DIR)/pe.c $(CDK2_NATIVE_DIR)/pe.h $(CDK2_NATIVE_DIR)/pe_test.c $(CDK2_DIR)/include/industry_standard/pe_image.h | $(CDK2_NATIVE_BUILD_DIR)

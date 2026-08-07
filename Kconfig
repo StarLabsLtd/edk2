@@ -159,6 +159,14 @@ config CDK2_NULL_MEMORY_TEST
 	  Install the Generic Memory Test Protocol and promote initialized coreboot
 	  memory without running a destructive firmware memory test.
 
+config CDK2_NATIVE_WATCHDOG
+	bool "Build the native UEFI watchdog driver"
+	default y
+	depends on CDK2_NATIVE_STAGE
+	help
+	  Replace the retained WatchdogTimerDxe file with CDK2's source-built
+	  architectural watchdog protocol driver.
+
 config CDK2_BUILD_DEBUG
 	bool "Build a debug payload"
 	default n
