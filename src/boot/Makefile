@@ -38,11 +38,19 @@ CDK2_NATIVE_PE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-pe-test
 CDK2_NATIVE_MODULE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-module-test
 CDK2_NATIVE_ELF_CHECK ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-elfcheck
 CDK2_NATIVE_ELF_CHECK_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-elfcheck-test
+CDK2_NATIVE_SECURITY_STUB_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-security-stub-test
+CDK2_NATIVE_SECURITY_STUB_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/security-stub.o
+CDK2_NATIVE_SECURITY_STUB_PE ?= $(CDK2_NATIVE_BUILD_DIR)/SecurityStubDxe.efi
+CDK2_NATIVE_SECURITY_STUB_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/SecurityStubDxe.ffs
+CDK2_NATIVE_SECURITY_STUB_FV ?= $(CDK2_NATIVE_BUILD_DIR)/security-stub.fv
+CDK2_NATIVE_SECURITY_STUB_DEPEX_TOOL ?= $(CDK2_NATIVE_BUILD_DIR)/security-stub-depex
+CDK2_NATIVE_SECURITY_STUB_DEPEX ?= $(CDK2_NATIVE_BUILD_DIR)/SecurityStubDxe.depex
 HOSTCC ?= cc
 CDK2_NATIVE_CC ?= $(CC)
 CDK2_NATIVE_HOST_CC ?= $(HOSTCC)
 CDK2_NATIVE_OBJCOPY ?= objcopy
 CDK2_NATIVE_NM ?= nm
+CDK2_NATIVE_LD ?= ld
 CDK2_NATIVE_COREBOOT_ENTRY ?= $(CDK2_NATIVE_BUILD_DIR)/entry32.o
 CDK2_NATIVE_CFLAGS ?= -ffreestanding -fno-builtin -fno-stack-protector -fno-pie -fno-asynchronous-unwind-tables -fno-unwind-tables -fdata-sections -ffunction-sections -fshort-wchar -m64 -mno-red-zone -mno-sse -mno-mmx -Os -Wall -Werror
 CDK2_NATIVE_HOST_CFLAGS ?= -std=c11 -O2 -Wall -Wextra -Werror -fshort-wchar
@@ -97,11 +105,12 @@ CDK2_NATIVE_HOST_TOOLS := \
 	$(CDK2_NATIVE_PE_TEST) \
 	$(CDK2_NATIVE_MODULE_TEST) \
 	$(CDK2_NATIVE_ELF_CHECK) \
-	$(CDK2_NATIVE_ELF_CHECK_TEST)
+	$(CDK2_NATIVE_ELF_CHECK_TEST) \
+	$(CDK2_NATIVE_SECURITY_STUB_TEST)
 CDK2_NATIVE_LINK_FLAGS := -static -no-pie -nostdlib -nostartfiles -nodefaultlibs -Wl,-z,max-page-size=0x1000 -Wl,-z,common-page-size=0x1000 -Wl,-T,"$(CDK2_NATIVE_DIR)/cdk2.ld"
 CDK2_NATIVE_LINK_POST_MAP_FLAGS := -Wl,--gc-sections -Wl,--build-id=none
 
-.PHONY: native-stage native-coreboot-stage native-coreboot-image native-metronome-fv native-check native-pack native-service-test native-coreboot-test native-fv-test native-fvpack-test native-fvinfo native-fvinfo-test native-pe-test native-module-test native-elfcheck-test FORCE
+.PHONY: native-stage native-coreboot-stage native-coreboot-image native-metronome-fv native-security-stub-fv native-check native-pack native-service-test native-coreboot-test native-fv-test native-fvpack-test native-fvinfo native-fvinfo-test native-ffsbuild-test native-pe-test native-module-test native-security-stub-test native-elfcheck-test FORCE
 
 ifeq ($(CONFIG_CDK2_NATIVE_STAGE),y)
 CDK2_NATIVE_STAGE_DEPS := $(CDK2_NATIVE_ELF)
@@ -110,7 +119,7 @@ native-coreboot-stage: $(CDK2_NATIVE_COREBOOT_ELF)
 
 ifneq ($(strip $(CDK2_PAYLOAD_FV)),)
 native-coreboot-image: $(CDK2_NATIVE_COREBOOT_IMAGE)
-	@"$(CDK2_NATIVE_FV_TEST)" "$(CDK2_NATIVE_METRONOME_FV)"
+	@"$(CDK2_NATIVE_FV_TEST)" "$(CDK2_NATIVE_SECURITY_STUB_FV)"
 	@"$(CDK2_NATIVE_ELF_CHECK)" --entry cdk2_coreboot_entry32 --require-fv "$<"
 else
 native-coreboot-image:
@@ -142,6 +151,7 @@ native-check: $(CDK2_CONFIG_HEADER) $(CDK2_NATIVE_ELF) $(CDK2_NATIVE_OVERRIDE_EL
 	@"$(CDK2_NATIVE_METRONOME_TEST)"
 	@"$(CDK2_NATIVE_PE_TEST)"
 	@"$(CDK2_NATIVE_MODULE_TEST)"
+	@"$(CDK2_NATIVE_SECURITY_STUB_TEST)"
 	@"$(CDK2_NATIVE_ELF_CHECK_TEST)" "$(CDK2_NATIVE_ELF_CHECK)" "$(CDK2_NATIVE_BUILD_DIR)"
 	@printf '%s\n' "native cdk2 stage: $(CDK2_NATIVE_ELF)"
 	@printf '%s\n' "native cdk2 FV packer: $(CDK2_NATIVE_PACKER)"
@@ -159,6 +169,7 @@ native-check: $(CDK2_CONFIG_HEADER) $(CDK2_NATIVE_HOST_TOOLS)
 	@"$(CDK2_NATIVE_FV_TEST)"
 	@"$(CDK2_NATIVE_FVPACK_TEST)" "$(CDK2_NATIVE_PACKER)" "$(CDK2_NATIVE_BUILD_DIR)"
 	@"$(CDK2_NATIVE_FVINFO_TEST)" "$(CDK2_NATIVE_FVINFO)" "$(CDK2_NATIVE_BUILD_DIR)"
+	@"$(CDK2_NATIVE_FFSBUILD_TEST)" "$(CDK2_NATIVE_FFSBUILD)" "$(CDK2_NATIVE_BUILD_DIR)"
 	@"$(CDK2_NATIVE_PE_TEST)"
 	@"$(CDK2_NATIVE_MODULE_TEST)"
 	@"$(CDK2_NATIVE_ELF_CHECK_TEST)" "$(CDK2_NATIVE_ELF_CHECK)" "$(CDK2_NATIVE_BUILD_DIR)"
@@ -190,11 +201,49 @@ native-fvinfo-test: $(CDK2_NATIVE_FVINFO_TEST) $(CDK2_NATIVE_FVINFO)
 native-metronome-fv: $(CDK2_NATIVE_METRONOME_FV)
 	@printf '%s\n' "native Metronome FV: $(CDK2_NATIVE_METRONOME_FV)"
 
+native-ffsbuild-test: $(CDK2_NATIVE_FFSBUILD_TEST) $(CDK2_NATIVE_FFSBUILD)
+	@"$(CDK2_NATIVE_FFSBUILD_TEST)" "$(CDK2_NATIVE_FFSBUILD)" "$(CDK2_NATIVE_BUILD_DIR)"
+
 native-pe-test: $(CDK2_NATIVE_PE_TEST)
 	@"$(CDK2_NATIVE_PE_TEST)"
 
 native-module-test: $(CDK2_NATIVE_MODULE_TEST)
 	@"$(CDK2_NATIVE_MODULE_TEST)"
+
+native-security-stub-test: $(CDK2_NATIVE_SECURITY_STUB_TEST)
+	@"$(CDK2_NATIVE_SECURITY_STUB_TEST)"
+
+ifeq ($(CONFIG_CDK2_NATIVE_SECURITY_STUB),y)
+native-security-stub-fv: $(CDK2_NATIVE_SECURITY_STUB_FV)
+	@printf '%s\n' "native SecurityStubDxe FV: $(CDK2_NATIVE_SECURITY_STUB_FV)"
+
+$(CDK2_NATIVE_SECURITY_STUB_FV): $(CDK2_NATIVE_METRONOME_FV) $(CDK2_NATIVE_SECURITY_STUB_FFS) $(CDK2_NATIVE_FVREPLACE)
+	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_METRONOME_FV)" 0x86900 "$(CDK2_NATIVE_SECURITY_STUB_FFS)" "$@"
+
+$(CDK2_NATIVE_SECURITY_STUB_FFS): $(CDK2_NATIVE_SECURITY_STUB_PE) $(CDK2_NATIVE_SECURITY_STUB_DEPEX) $(CDK2_NATIVE_FFSBUILD)
+	@"$(CDK2_NATIVE_FFSBUILD)" f80697e9-7fd6-4665-8646-88e33ef71dfc SecurityStubDxe 1.0 0xa066 "$<" "$@" "$(CDK2_NATIVE_SECURITY_STUB_DEPEX)"
+
+$(CDK2_NATIVE_SECURITY_STUB_PE): $(CDK2_NATIVE_SECURITY_STUB_OBJ) $(CDK2_DIR)/src/modules/security_stub/security_stub.ld $(CDK2_NATIVE_PERELOCCHECK)
+	@SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) $(CDK2_NATIVE_LD) -mi386pep --subsystem 11 \
+		--entry security_stub_initialize --image-base 0 --section-alignment 0x1000 \
+		--file-alignment 0x1000 --build-id=none --no-insert-timestamp -s --nxcompat \
+		-T "$(CDK2_DIR)/src/modules/security_stub/security_stub.ld" -o "$@" "$<"
+	@"$(CDK2_NATIVE_PERELOCCHECK)" "$@"
+
+$(CDK2_NATIVE_SECURITY_STUB_OBJ): $(CDK2_DIR)/src/modules/security_stub/security_stub.c | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
+		-mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args \
+		$(CDK2_NATIVE_INCLUDES) -MMD -MP -MF "$(@:.o=.d)" -MT "$@" -c "$<" -o "$@"
+
+$(CDK2_NATIVE_SECURITY_STUB_DEPEX): $(CDK2_NATIVE_SECURITY_STUB_DEPEX_TOOL)
+	@"$<" "$@"
+
+$(CDK2_NATIVE_SECURITY_STUB_DEPEX_TOOL): $(CDK2_DIR)/src/modules/security_stub/depex.c | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -o "$@" "$<"
+else
+native-security-stub-fv:
+	@printf '%s\n' 'native SecurityStubDxe: disabled by Kconfig'
+endif
 
 native-elfcheck-test: $(CDK2_NATIVE_ELF_CHECK) $(CDK2_NATIVE_ELF_CHECK_TEST)
 	@"$(CDK2_NATIVE_ELF_CHECK_TEST)" "$(CDK2_NATIVE_ELF_CHECK)" "$(CDK2_NATIVE_BUILD_DIR)"
@@ -256,6 +305,11 @@ $(CDK2_NATIVE_FVREPLACE): $(CDK2_UTIL_DIR)/fvreplace.c | $(CDK2_NATIVE_BUILD_DIR
 $(CDK2_NATIVE_PERELOCCHECK): $(CDK2_UTIL_DIR)/pereloccheck.c | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_HOST_LDFLAGS) -o "$@" "$<"
 
+$(CDK2_NATIVE_SECURITY_STUB_TEST): $(CDK2_DIR)/tests/security_stub_test.c $(CDK2_DIR)/src/modules/security_stub/security_stub.c | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -MMD -MP \
+		-MF "$(CDK2_NATIVE_BUILD_DIR)/security-stub-test.d" -MT "$@" \
+		$(CDK2_NATIVE_INCLUDES) $(CDK2_NATIVE_HOST_LDFLAGS) -o "$@" "$<"
+
 $(CDK2_NATIVE_ELF_CHECK): $(CDK2_UTIL_DIR)/elfcheck.c | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_HOST_LDFLAGS) -o "$@" "$<"
 
@@ -296,7 +350,7 @@ $(CDK2_NATIVE_METRONOME_FV): $(CDK2_PAYLOAD_FV) $(CDK2_NATIVE_METRONOME_FFS) $(C
 	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_PAYLOAD_FV)" 0x757a8 \
 		"$(CDK2_NATIVE_METRONOME_FFS)" "$@"
 
-$(CDK2_NATIVE_FV_BLOB_OBJ): $(CDK2_NATIVE_METRONOME_FV) | $(CDK2_NATIVE_BUILD_DIR)
+$(CDK2_NATIVE_FV_BLOB_OBJ): $(CDK2_NATIVE_SECURITY_STUB_FV) | $(CDK2_NATIVE_BUILD_DIR)
 	@cd "$(dir $<)" && $(CDK2_NATIVE_OBJCOPY) -I binary -O elf64-x86-64 -B i386:x86-64 --rename-section .data=.cdk2.fv,alloc,load,readonly,data,contents "$(notdir $<)" "$(abspath $@)"
 
 $(CDK2_NATIVE_COREBOOT_IMAGE): $(CDK2_NATIVE_COREBOOT_OBJS) $(CDK2_NATIVE_FV_BLOB_OBJ) $(CDK2_NATIVE_DIR)/cdk2.ld

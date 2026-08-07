@@ -143,6 +143,14 @@ config CDK2_NATIVE_STAGE
 	  handoff. The native stage owns HOB construction and the coreboot entry
 	  flow.
 
+config CDK2_NATIVE_SECURITY_STUB
+	bool "Build the native Security architectural protocol stub"
+	default y
+	depends on CDK2_NATIVE_STAGE
+	help
+	  Build SecurityStubDxe from CDK2-owned source for deterministic
+	  replacement in the retained migration firmware volume.
+
 config CDK2_BUILD_DEBUG
 	bool "Build a debug payload"
 	default n

@@ -1,5 +1,5 @@
 # baseline-retained=72
-# retained=69
+# retained=68
 # status	wave	module
 retain	boot	FatPkg/EnhancedFatDxe/Fat
 retain	storage	MdeModulePkg/Bus/Ata/AtaAtapiPassThru/AtaAtapiPassThru
@@ -47,7 +47,7 @@ retain	remove	MdeModulePkg/Universal/PCD/Dxe/Pcd
 remove	remove	MdeModulePkg/Universal/PlatformDriOverrideDxe/PlatformDriOverrideDxe
 retain	debug	MdeModulePkg/Universal/ReportStatusCodeRouter/RuntimeDxe/ReportStatusCodeRouterRuntimeDxe
 retain	runtime	MdeModulePkg/Universal/ResetSystemRuntimeDxe/ResetSystemRuntimeDxe
-retain	security	MdeModulePkg/Universal/SecurityStubDxe/SecurityStubDxe
+native	security	MdeModulePkg/Universal/SecurityStubDxe/SecurityStubDxe
 retain	console	MdeModulePkg/Universal/SerialDxe/SerialDxe
 retain	platform	MdeModulePkg/Universal/SmbiosDxe/SmbiosDxe
 retain	debug	MdeModulePkg/Universal/StatusCodeHandler/RuntimeDxe/StatusCodeHandlerRuntimeDxe
