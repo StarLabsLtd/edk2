@@ -8,7 +8,7 @@
 
 struct cdk2_metronome;
 
-typedef uint64_t (CDK2_MS_ABI *cdk2_wait_for_tick_fn)(
+typedef uint64_t (CDK2_MS_ABI * cdk2_wait_for_tick_fn)(
 	struct cdk2_metronome *metronome, uint32_t ticks);
 
 struct cdk2_metronome {

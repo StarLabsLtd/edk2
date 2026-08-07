@@ -45,6 +45,12 @@ CDK2_NATIVE_SECURITY_STUB_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/SecurityStubDxe.ffs
 CDK2_NATIVE_SECURITY_STUB_FV ?= $(CDK2_NATIVE_BUILD_DIR)/security-stub.fv
 CDK2_NATIVE_SECURITY_STUB_DEPEX_TOOL ?= $(CDK2_NATIVE_BUILD_DIR)/security-stub-depex
 CDK2_NATIVE_SECURITY_STUB_DEPEX ?= $(CDK2_NATIVE_BUILD_DIR)/SecurityStubDxe.depex
+CDK2_NATIVE_NULL_MEMORY_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-null-memory-test-test
+CDK2_NATIVE_NULL_MEMORY_TEST_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/null-memory-test.o
+CDK2_NATIVE_NULL_MEMORY_TEST_PE ?= $(CDK2_NATIVE_BUILD_DIR)/null-memory-test.efi
+CDK2_NATIVE_NULL_MEMORY_TEST_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/null-memory-test.ffs
+CDK2_NATIVE_NULL_MEMORY_TEST_DEPEX ?= $(CDK2_NATIVE_BUILD_DIR)/null-memory-test.depex
+CDK2_NATIVE_NULL_MEMORY_TEST_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-null-memory-test.fv
 HOSTCC ?= cc
 CDK2_NATIVE_CC ?= $(CC)
 CDK2_NATIVE_HOST_CC ?= $(HOSTCC)
@@ -106,11 +112,12 @@ CDK2_NATIVE_HOST_TOOLS := \
 	$(CDK2_NATIVE_MODULE_TEST) \
 	$(CDK2_NATIVE_ELF_CHECK) \
 	$(CDK2_NATIVE_ELF_CHECK_TEST) \
-	$(CDK2_NATIVE_SECURITY_STUB_TEST)
+	$(CDK2_NATIVE_SECURITY_STUB_TEST) \
+	$(CDK2_NATIVE_NULL_MEMORY_TEST)
 CDK2_NATIVE_LINK_FLAGS := -static -no-pie -nostdlib -nostartfiles -nodefaultlibs -Wl,-z,max-page-size=0x1000 -Wl,-z,common-page-size=0x1000 -Wl,-T,"$(CDK2_NATIVE_DIR)/cdk2.ld"
 CDK2_NATIVE_LINK_POST_MAP_FLAGS := -Wl,--gc-sections -Wl,--build-id=none
 
-.PHONY: native-stage native-coreboot-stage native-coreboot-image native-metronome-fv native-security-stub-fv native-check native-pack native-service-test native-coreboot-test native-fv-test native-fvpack-test native-fvinfo native-fvinfo-test native-ffsbuild-test native-pe-test native-module-test native-security-stub-test native-elfcheck-test FORCE
+.PHONY: native-stage native-coreboot-stage native-coreboot-image native-metronome-fv native-security-stub-fv native-null-memory-test-fv native-null-memory-test-test native-check native-pack native-service-test native-coreboot-test native-fv-test native-fvpack-test native-fvinfo native-fvinfo-test native-ffsbuild-test native-pe-test native-module-test native-security-stub-test native-elfcheck-test FORCE
 
 ifeq ($(CONFIG_CDK2_NATIVE_STAGE),y)
 CDK2_NATIVE_STAGE_DEPS := $(CDK2_NATIVE_ELF)
@@ -118,8 +125,9 @@ native-stage: $(CDK2_NATIVE_ELF)
 native-coreboot-stage: $(CDK2_NATIVE_COREBOOT_ELF)
 
 ifneq ($(strip $(CDK2_PAYLOAD_FV)),)
-native-coreboot-image: $(CDK2_NATIVE_COREBOOT_IMAGE)
-	@"$(CDK2_NATIVE_FV_TEST)" "$(CDK2_NATIVE_SECURITY_STUB_FV)"
+native-coreboot-image: $(CDK2_NATIVE_COREBOOT_IMAGE) $(CDK2_NATIVE_FV_TEST) \
+		$(CDK2_NATIVE_ELF_CHECK)
+	@"$(CDK2_NATIVE_FV_TEST)" "$(CDK2_NATIVE_NULL_MEMORY_TEST_FV)"
 	@"$(CDK2_NATIVE_ELF_CHECK)" --entry cdk2_coreboot_entry32 --require-fv "$<"
 else
 native-coreboot-image:
@@ -152,6 +160,7 @@ native-check: $(CDK2_CONFIG_HEADER) $(CDK2_NATIVE_ELF) $(CDK2_NATIVE_OVERRIDE_EL
 	@"$(CDK2_NATIVE_PE_TEST)"
 	@"$(CDK2_NATIVE_MODULE_TEST)"
 	@"$(CDK2_NATIVE_SECURITY_STUB_TEST)"
+	@"$(CDK2_NATIVE_NULL_MEMORY_TEST)"
 	@"$(CDK2_NATIVE_ELF_CHECK_TEST)" "$(CDK2_NATIVE_ELF_CHECK)" "$(CDK2_NATIVE_BUILD_DIR)"
 	@printf '%s\n' "native cdk2 stage: $(CDK2_NATIVE_ELF)"
 	@printf '%s\n' "native cdk2 FV packer: $(CDK2_NATIVE_PACKER)"
@@ -245,6 +254,37 @@ native-security-stub-fv:
 	@printf '%s\n' 'native SecurityStubDxe: disabled by Kconfig'
 endif
 
+native-null-memory-test-fv: $(CDK2_NATIVE_NULL_MEMORY_TEST_FV)
+	@printf '%s\n' "native NullMemoryTest FV: $(CDK2_NATIVE_NULL_MEMORY_TEST_FV)"
+
+native-null-memory-test-test: $(CDK2_NATIVE_NULL_MEMORY_TEST)
+	@"$(CDK2_NATIVE_NULL_MEMORY_TEST)"
+
+$(CDK2_NATIVE_NULL_MEMORY_TEST_OBJ): $(CDK2_DIR)/src/modules/null_memory_test/null_memory_test.c $(CDK2_DIR)/include/cdk2/null_memory_test.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -ffunction-sections -fdata-sections,$(CDK2_NATIVE_CFLAGS)) \
+		-fno-ident -fcf-protection=none -mcmodel=large $(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+
+$(CDK2_NATIVE_NULL_MEMORY_TEST_PE): $(CDK2_NATIVE_NULL_MEMORY_TEST_OBJ) \
+		$(CDK2_DIR)/src/modules/null_memory_test/null_memory_test.ld $(CDK2_NATIVE_PERELOCCHECK)
+	@$(CDK2_NATIVE_LD) -mi386pep --subsystem 11 --entry cdk2_null_memory_test_entry \
+		--image-base 0 --section-alignment 0x1000 --file-alignment 0x1000 \
+		--build-id=none --no-insert-timestamp -s --nxcompat \
+		-T "$(CDK2_DIR)/src/modules/null_memory_test/null_memory_test.ld" -o "$@" "$<"
+	@"$(CDK2_NATIVE_PERELOCCHECK)" "$@"
+
+$(CDK2_NATIVE_NULL_MEMORY_TEST_DEPEX): | $(CDK2_NATIVE_BUILD_DIR)
+	@printf '\026\000\000\023\002\261\314\272\046\102\157\324\021\274\347\000\200\307\074\210\201\010' > "$@"
+
+$(CDK2_NATIVE_NULL_MEMORY_TEST_FFS): $(CDK2_NATIVE_NULL_MEMORY_TEST_PE) \
+		$(CDK2_NATIVE_NULL_MEMORY_TEST_DEPEX) $(CDK2_NATIVE_FFSBUILD)
+	@"$(CDK2_NATIVE_FFSBUILD)" 96b5c032-df4c-4b6e-8232-438dcf448d0e \
+		NullMemoryTestDxe 1.0 0x506a "$<" "$@" "$(CDK2_NATIVE_NULL_MEMORY_TEST_DEPEX)"
+
+$(CDK2_NATIVE_NULL_MEMORY_TEST_FV): $(CDK2_NATIVE_SECURITY_STUB_FV) \
+		$(CDK2_NATIVE_NULL_MEMORY_TEST_FFS) $(CDK2_NATIVE_FVREPLACE)
+	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_SECURITY_STUB_FV)" 0x130228 \
+		"$(CDK2_NATIVE_NULL_MEMORY_TEST_FFS)" "$@"
+
 native-elfcheck-test: $(CDK2_NATIVE_ELF_CHECK) $(CDK2_NATIVE_ELF_CHECK_TEST)
 	@"$(CDK2_NATIVE_ELF_CHECK_TEST)" "$(CDK2_NATIVE_ELF_CHECK)" "$(CDK2_NATIVE_BUILD_DIR)"
 
@@ -310,6 +350,9 @@ $(CDK2_NATIVE_SECURITY_STUB_TEST): $(CDK2_DIR)/tests/security_stub_test.c $(CDK2
 		-MF "$(CDK2_NATIVE_BUILD_DIR)/security-stub-test.d" -MT "$@" \
 		$(CDK2_NATIVE_INCLUDES) $(CDK2_NATIVE_HOST_LDFLAGS) -o "$@" "$<"
 
+$(CDK2_NATIVE_NULL_MEMORY_TEST): $(CDK2_DIR)/tests/null_memory_test_test.c $(CDK2_DIR)/src/modules/null_memory_test/null_memory_test.c $(CDK2_DIR)/include/cdk2/null_memory_test.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$<"
+
 $(CDK2_NATIVE_ELF_CHECK): $(CDK2_UTIL_DIR)/elfcheck.c | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_HOST_LDFLAGS) -o "$@" "$<"
 
@@ -350,7 +393,7 @@ $(CDK2_NATIVE_METRONOME_FV): $(CDK2_PAYLOAD_FV) $(CDK2_NATIVE_METRONOME_FFS) $(C
 	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_PAYLOAD_FV)" 0x757a8 \
 		"$(CDK2_NATIVE_METRONOME_FFS)" "$@"
 
-$(CDK2_NATIVE_FV_BLOB_OBJ): $(CDK2_NATIVE_SECURITY_STUB_FV) | $(CDK2_NATIVE_BUILD_DIR)
+$(CDK2_NATIVE_FV_BLOB_OBJ): $(CDK2_NATIVE_NULL_MEMORY_TEST_FV) | $(CDK2_NATIVE_BUILD_DIR)
 	@cd "$(dir $<)" && $(CDK2_NATIVE_OBJCOPY) -I binary -O elf64-x86-64 -B i386:x86-64 --rename-section .data=.cdk2.fv,alloc,load,readonly,data,contents "$(notdir $<)" "$(abspath $@)"
 
 $(CDK2_NATIVE_COREBOOT_IMAGE): $(CDK2_NATIVE_COREBOOT_OBJS) $(CDK2_NATIVE_FV_BLOB_OBJ) $(CDK2_NATIVE_DIR)/cdk2.ld

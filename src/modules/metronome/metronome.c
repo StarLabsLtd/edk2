@@ -73,7 +73,7 @@ struct acpi_board_info {
 	uint64_t pm_timer_reg_base;
 };
 
-typedef uint64_t (CDK2_MS_ABI *install_multiple_protocols_fn)(
+typedef uint64_t (CDK2_MS_ABI * install_multiple_protocols_fn)(
 	void **handle, const struct guid *protocol, void *interface, ...);
 
 struct boot_services_install_view {

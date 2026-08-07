@@ -39,11 +39,11 @@ struct efi_system_table {
 	void *boot_services;
 };
 
-typedef efi_status_t (CDK2_MS_ABI *install_multiple_t)(efi_handle_t *,
+typedef efi_status_t (CDK2_MS_ABI * install_multiple_t)(efi_handle_t *,
 						  const struct efi_guid *, void *, ...);
-typedef efi_status_t (CDK2_MS_ABI *security_authenticate_t)(const void *, uint32_t,
+typedef efi_status_t (CDK2_MS_ABI * security_authenticate_t)(const void *, uint32_t,
 						       const void *);
-typedef efi_status_t (CDK2_MS_ABI *security2_authenticate_t)(const void *, const void *,
+typedef efi_status_t (CDK2_MS_ABI * security2_authenticate_t)(const void *, const void *,
 							void *, size_t, uint8_t);
 
 struct security_protocol { security_authenticate_t file_authentication_state; };
