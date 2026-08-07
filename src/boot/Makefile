@@ -41,6 +41,12 @@ CDK2_NATIVE_STATUS_CODE_ROUTER_PE ?= $(CDK2_NATIVE_BUILD_DIR)/status-code-router
 CDK2_NATIVE_STATUS_CODE_ROUTER_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/status-code-router.ffs
 CDK2_NATIVE_STATUS_CODE_ROUTER_DEPEX ?= $(CDK2_NATIVE_BUILD_DIR)/status-code-router.depex
 CDK2_NATIVE_STATUS_CODE_ROUTER_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-status-code-router.fv
+CDK2_NATIVE_STATUS_CODE_HANDLER_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-status-code-handler-test
+CDK2_NATIVE_STATUS_CODE_HANDLER_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/status-code-handler.o
+CDK2_NATIVE_STATUS_CODE_HANDLER_PE ?= $(CDK2_NATIVE_BUILD_DIR)/status-code-handler.efi
+CDK2_NATIVE_STATUS_CODE_HANDLER_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/status-code-handler.ffs
+CDK2_NATIVE_STATUS_CODE_HANDLER_DEPEX ?= $(CDK2_NATIVE_BUILD_DIR)/status-code-handler.depex
+CDK2_NATIVE_STATUS_CODE_HANDLER_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-status-code-handler.fv
 CDK2_NATIVE_SERVICE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-services-test
 CDK2_NATIVE_COREBOOT_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-coreboot-test
 CDK2_NATIVE_FV_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-fv-test
@@ -135,6 +141,7 @@ CDK2_NATIVE_HOST_TOOLS := \
 	$(CDK2_NATIVE_METRONOME_TEST) \
 	$(CDK2_NATIVE_WATCHDOG_TEST) \
 	$(CDK2_NATIVE_STATUS_CODE_ROUTER_TEST) \
+	$(CDK2_NATIVE_STATUS_CODE_HANDLER_TEST) \
 	$(CDK2_NATIVE_SERVICE_TEST) \
 	$(CDK2_NATIVE_COREBOOT_TEST) \
 	$(CDK2_NATIVE_FV_TEST) \
@@ -152,7 +159,7 @@ CDK2_NATIVE_HOST_TOOLS := \
 CDK2_NATIVE_LINK_FLAGS := -static -no-pie -nostdlib -nostartfiles -nodefaultlibs -Wl,-z,max-page-size=0x1000 -Wl,-z,common-page-size=0x1000 -Wl,-T,"$(CDK2_NATIVE_DIR)/cdk2.ld"
 CDK2_NATIVE_LINK_POST_MAP_FLAGS := -Wl,--gc-sections -Wl,--build-id=none
 
-.PHONY: native-stage native-coreboot-stage native-coreboot-image native-metronome-fv native-security-stub-fv native-null-memory-test-fv native-null-memory-test-test native-watchdog-fv native-monotonic-counter-fv native-status-code-router-fv native-status-code-router-test native-cpu-io2-fv native-cpu-io2-test native-english-test native-english-fv native-check native-pack native-service-test native-coreboot-test native-fv-test native-fvpack-test native-fvinfo native-fvinfo-test native-ffsbuild-test native-pe-test native-module-test native-security-stub-test native-elfcheck-test FORCE
+.PHONY: native-stage native-coreboot-stage native-coreboot-image native-metronome-fv native-security-stub-fv native-null-memory-test-fv native-null-memory-test-test native-watchdog-fv native-monotonic-counter-fv native-status-code-router-fv native-status-code-router-test native-status-code-handler-fv native-status-code-handler-test native-cpu-io2-fv native-cpu-io2-test native-english-test native-english-fv native-check native-pack native-service-test native-coreboot-test native-fv-test native-fvpack-test native-fvinfo native-fvinfo-test native-ffsbuild-test native-pe-test native-module-test native-security-stub-test native-elfcheck-test FORCE
 
 ifeq ($(CONFIG_CDK2_NATIVE_STAGE),y)
 CDK2_NATIVE_STAGE_DEPS := $(CDK2_NATIVE_ELF)
@@ -194,6 +201,7 @@ native-check: $(CDK2_CONFIG_HEADER) $(CDK2_NATIVE_ELF) $(CDK2_NATIVE_OVERRIDE_EL
 	@"$(CDK2_NATIVE_METRONOME_TEST)"
 	@"$(CDK2_NATIVE_WATCHDOG_TEST)"
 	@"$(CDK2_NATIVE_STATUS_CODE_ROUTER_TEST)"
+	@"$(CDK2_NATIVE_STATUS_CODE_HANDLER_TEST)"
 	@"$(CDK2_NATIVE_PE_TEST)"
 	@"$(CDK2_NATIVE_MODULE_TEST)"
 	@"$(CDK2_NATIVE_SECURITY_STUB_TEST)"
@@ -220,6 +228,7 @@ native-check: $(CDK2_CONFIG_HEADER) $(CDK2_NATIVE_HOST_TOOLS)
 	@"$(CDK2_NATIVE_FFSBUILD_TEST)" "$(CDK2_NATIVE_FFSBUILD)" "$(CDK2_NATIVE_BUILD_DIR)"
 	@"$(CDK2_NATIVE_WATCHDOG_TEST)"
 	@"$(CDK2_NATIVE_STATUS_CODE_ROUTER_TEST)"
+	@"$(CDK2_NATIVE_STATUS_CODE_HANDLER_TEST)"
 	@"$(CDK2_NATIVE_PE_TEST)"
 	@"$(CDK2_NATIVE_MODULE_TEST)"
 	@"$(CDK2_NATIVE_ELF_CHECK_TEST)" "$(CDK2_NATIVE_ELF_CHECK)" "$(CDK2_NATIVE_BUILD_DIR)"
@@ -268,6 +277,12 @@ native-cpu-io2-test: $(CDK2_NATIVE_CPU_IO2_TEST)
 
 native-cpu-io2-fv: $(CDK2_NATIVE_CPU_IO2_FV)
 	@printf '%s\n' "native CpuIo2 FV: $(CDK2_NATIVE_CPU_IO2_FV)"
+
+native-status-code-handler-fv: $(CDK2_NATIVE_STATUS_CODE_HANDLER_FV)
+	@printf '%s\n' "native status-code handler FV: $(CDK2_NATIVE_STATUS_CODE_HANDLER_FV)"
+
+native-status-code-handler-test: $(CDK2_NATIVE_STATUS_CODE_HANDLER_TEST)
+	@"$(CDK2_NATIVE_STATUS_CODE_HANDLER_TEST)"
 
 native-pe-test: $(CDK2_NATIVE_PE_TEST)
 	@"$(CDK2_NATIVE_PE_TEST)"
@@ -522,6 +537,34 @@ else
 CDK2_NATIVE_COMPOSED_FV := $(CDK2_NATIVE_PRE_STATUS_CODE_ROUTER_FV)
 endif
 
+ifeq ($(CONFIG_CDK2_NATIVE_STATUS_CODE_HANDLER),y)
+CDK2_NATIVE_PRE_MONOTONIC_FV := $(CDK2_NATIVE_STATUS_CODE_HANDLER_FV)
+
+$(CDK2_NATIVE_STATUS_CODE_HANDLER_OBJ): $(CDK2_DIR)/src/modules/status_code_handler/status_code_handler.c $(CDK2_DIR)/include/cdk2/status_code_router.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -ffunction-sections -fdata-sections,$(CDK2_NATIVE_CFLAGS)) \
+		-fno-ident -fcf-protection=none -mcmodel=large $(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+
+$(CDK2_NATIVE_STATUS_CODE_HANDLER_PE): $(CDK2_NATIVE_STATUS_CODE_HANDLER_OBJ) $(CDK2_DIR)/src/modules/status_code_handler/status_code_handler.ld $(CDK2_NATIVE_PERELOCCHECK)
+	@$(CDK2_NATIVE_LD) -mi386pep --subsystem 12 --entry cdk2_status_code_handler_entry --image-base 0 \
+		--section-alignment 0x1000 --file-alignment 0x1000 --build-id=none \
+		--no-insert-timestamp -s -T "$(CDK2_DIR)/src/modules/status_code_handler/status_code_handler.ld" -o "$@" "$<"
+	@"$(CDK2_NATIVE_PERELOCCHECK)" "$@"
+
+$(CDK2_NATIVE_STATUS_CODE_HANDLER_DEPEX): | $(CDK2_NATIVE_BUILD_DIR)
+	@printf '\050\000\000\023\002\066\051\041\206\166\016\310\101\240\072\052\362\374\034\071\342\002\366\360\243\023\112\046\360\076\362\340\336\305\022\064\057\064\003\010' > "$@"
+
+$(CDK2_NATIVE_STATUS_CODE_HANDLER_FFS): $(CDK2_NATIVE_STATUS_CODE_HANDLER_PE) $(CDK2_NATIVE_STATUS_CODE_HANDLER_DEPEX) $(CDK2_NATIVE_FFSBUILD)
+	@"$(CDK2_NATIVE_FFSBUILD)" 6c2004ef-4e0e-4be4-b14c-340eb4aa5891 \
+		StatusCodeHandlerRuntimeDxe 1.0 0x608e "$<" "$@" \
+		"$(CDK2_NATIVE_STATUS_CODE_HANDLER_DEPEX)"
+
+$(CDK2_NATIVE_STATUS_CODE_HANDLER_FV): $(CDK2_NATIVE_COMPOSED_FV) $(CDK2_NATIVE_STATUS_CODE_HANDLER_FFS) $(CDK2_NATIVE_FVREPLACE)
+	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_COMPOSED_FV)" 0x536c0 \
+		"$(CDK2_NATIVE_STATUS_CODE_HANDLER_FFS)" "$@"
+else
+CDK2_NATIVE_PRE_MONOTONIC_FV := $(CDK2_NATIVE_COMPOSED_FV)
+endif
+
 $(CDK2_NATIVE_MONO_OBJ): $(CDK2_DIR)/src/modules/monotonic_counter/monotonic_counter.c | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
 		-mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args \
@@ -543,8 +586,8 @@ $(CDK2_NATIVE_MONO_FFS): $(CDK2_NATIVE_MONO_PE) $(CDK2_NATIVE_MONO_DEPEX) $(CDK2
 	@"$(CDK2_NATIVE_FFSBUILD)" ad608272-d07f-4964-801e-7bd3b7888652 \
 		MonotonicCounterRuntimeDxe 1.0 0x40a2 "$<" "$@" "$(CDK2_NATIVE_MONO_DEPEX)"
 
-$(CDK2_NATIVE_MONO_FV): $(CDK2_NATIVE_COMPOSED_FV) $(CDK2_NATIVE_MONO_FFS) $(CDK2_NATIVE_FVREPLACE)
-	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_COMPOSED_FV)" 0x9aa48 "$(CDK2_NATIVE_MONO_FFS)" "$@"
+$(CDK2_NATIVE_MONO_FV): $(CDK2_NATIVE_PRE_MONOTONIC_FV) $(CDK2_NATIVE_MONO_FFS) $(CDK2_NATIVE_FVREPLACE)
+	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_PRE_MONOTONIC_FV)" 0x9aa48 "$(CDK2_NATIVE_MONO_FFS)" "$@"
 
 ifeq ($(CONFIG_CDK2_NATIVE_CPU_IO2),y)
 CDK2_NATIVE_PRE_ENGLISH_FV := $(CDK2_NATIVE_CPU_IO2_FV)
@@ -635,6 +678,9 @@ $(CDK2_NATIVE_WATCHDOG_TEST): $(CDK2_DIR)/tests/watchdog_test.c $(CDK2_DIR)/src/
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$<"
 
 $(CDK2_NATIVE_STATUS_CODE_ROUTER_TEST): $(CDK2_DIR)/tests/status_code_router_test.c $(CDK2_DIR)/src/modules/status_code_router/status_code_router.c $(CDK2_DIR)/include/cdk2/status_code_router.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$<"
+
+$(CDK2_NATIVE_STATUS_CODE_HANDLER_TEST): $(CDK2_DIR)/tests/status_code_handler_test.c $(CDK2_DIR)/src/modules/status_code_handler/status_code_handler.c $(CDK2_DIR)/include/cdk2/status_code_router.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$<"
 
 $(CDK2_NATIVE_PE_TEST): $(CDK2_NATIVE_DIR)/pe.c $(CDK2_NATIVE_DIR)/pe.h $(CDK2_NATIVE_DIR)/pe_test.c $(CDK2_DIR)/include/industry_standard/pe_image.h | $(CDK2_NATIVE_BUILD_DIR)

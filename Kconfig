@@ -195,6 +195,15 @@ config CDK2_NATIVE_CPU_IO2
 	help
 	  Replace CpuIo2Dxe with CDK2-owned MMIO and x86 port-I/O services.
 
+config CDK2_NATIVE_STATUS_CODE_HANDLER
+	bool "Build the native release status-code handler"
+	default y
+	depends on CDK2_NATIVE_STATUS_CODE_ROUTER && !CDK2_BUILD_DEBUG
+	help
+	  Replace the release-profile handler, whose admitted configuration has
+	  serial and memory sinks disabled. Debug builds retain their configured
+	  handler until native diagnostic sinks are available.
+
 config CDK2_BUILD_DEBUG
 	bool "Build a debug payload"
 	default n
