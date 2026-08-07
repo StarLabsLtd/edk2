@@ -51,6 +51,7 @@ CDK2_CONFIG_TARGETS := build check manifest modules native-stage \
 	native-english-test native-english-fv native-status-code-handler-fv \
 	native-status-code-handler-test native-disk-io-test native-disk-io-fv \
 	native-serial-io-test native-serial-io-fv \
+	native-smbios-test native-smbios-fv \
 	manifest-check print
 
 CDK2_RECURSIVE_ARGS := \
@@ -84,6 +85,7 @@ CDK2_RECURSIVE_ARGS := \
 	native-status-code-handler-fv native-status-code-handler-test \
 	native-disk-io-test native-disk-io-fv \
 	native-serial-io-test native-serial-io-fv \
+	native-smbios-test native-smbios-fv \
 	native-elfcheck-test manifest-check print lint \
 	lint-stable lint-extended test-lint \
 	jenkins what-jenkins-does retained-fv-check coreboot-stage clean FORCE

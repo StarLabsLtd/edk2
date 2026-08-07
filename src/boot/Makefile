@@ -98,6 +98,12 @@ CDK2_NATIVE_SERIAL_IO_PE ?= $(CDK2_NATIVE_BUILD_DIR)/SerialDxe.efi
 CDK2_NATIVE_SERIAL_IO_DEPEX ?= $(CDK2_NATIVE_BUILD_DIR)/SerialDxe.depex
 CDK2_NATIVE_SERIAL_IO_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/SerialDxe.ffs
 CDK2_NATIVE_SERIAL_IO_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-serial-io.fv
+CDK2_NATIVE_SMBIOS_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-smbios-test
+CDK2_NATIVE_SMBIOS_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/smbios.o
+CDK2_NATIVE_SMBIOS_PE ?= $(CDK2_NATIVE_BUILD_DIR)/SmbiosDxe.efi
+CDK2_NATIVE_SMBIOS_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/SmbiosDxe.ffs
+CDK2_NATIVE_SMBIOS_DEPEX ?= $(CDK2_NATIVE_BUILD_DIR)/SmbiosDxe.depex
+CDK2_NATIVE_SMBIOS_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-smbios.fv
 HOSTCC ?= cc
 CDK2_NATIVE_CC ?= $(CC)
 CDK2_NATIVE_HOST_CC ?= $(HOSTCC)
@@ -168,11 +174,12 @@ CDK2_NATIVE_HOST_TOOLS := \
 	$(CDK2_NATIVE_MONO_TEST) \
 	$(CDK2_NATIVE_ENGLISH_TEST) \
 	$(CDK2_NATIVE_DISK_IO_TEST) \
-	$(CDK2_NATIVE_SERIAL_IO_TEST)
+	$(CDK2_NATIVE_SERIAL_IO_TEST) \
+	$(CDK2_NATIVE_SMBIOS_TEST)
 CDK2_NATIVE_LINK_FLAGS := -static -no-pie -nostdlib -nostartfiles -nodefaultlibs -Wl,-z,max-page-size=0x1000 -Wl,-z,common-page-size=0x1000 -Wl,-T,"$(CDK2_NATIVE_DIR)/cdk2.ld"
 CDK2_NATIVE_LINK_POST_MAP_FLAGS := -Wl,--gc-sections -Wl,--build-id=none
 
-.PHONY: native-stage native-coreboot-stage native-coreboot-image native-metronome-fv native-security-stub-fv native-null-memory-test-fv native-null-memory-test-test native-watchdog-fv native-monotonic-counter-fv native-status-code-router-fv native-status-code-router-test native-status-code-handler-fv native-status-code-handler-test native-cpu-io2-fv native-cpu-io2-test native-english-test native-english-fv native-disk-io-fv native-disk-io-test native-serial-io-fv native-serial-io-test native-check native-pack native-service-test native-coreboot-test native-fv-test native-fvpack-test native-fvinfo native-fvinfo-test native-ffsbuild-test native-pe-test native-module-test native-security-stub-test native-elfcheck-test FORCE
+.PHONY: native-stage native-coreboot-stage native-coreboot-image native-metronome-fv native-security-stub-fv native-null-memory-test-fv native-null-memory-test-test native-watchdog-fv native-monotonic-counter-fv native-status-code-router-fv native-status-code-router-test native-status-code-handler-fv native-status-code-handler-test native-cpu-io2-fv native-cpu-io2-test native-english-test native-english-fv native-disk-io-fv native-disk-io-test native-serial-io-fv native-serial-io-test native-smbios-fv native-smbios-test native-check native-pack native-service-test native-coreboot-test native-fv-test native-fvpack-test native-fvinfo native-fvinfo-test native-ffsbuild-test native-pe-test native-module-test native-security-stub-test native-elfcheck-test FORCE
 
 ifeq ($(CONFIG_CDK2_NATIVE_STAGE),y)
 CDK2_NATIVE_STAGE_DEPS := $(CDK2_NATIVE_ELF)
@@ -223,6 +230,7 @@ native-check: $(CDK2_CONFIG_HEADER) $(CDK2_NATIVE_ELF) $(CDK2_NATIVE_OVERRIDE_EL
 	@"$(CDK2_NATIVE_ENGLISH_TEST)"
 	@"$(CDK2_NATIVE_DISK_IO_TEST)"
 	@"$(CDK2_NATIVE_SERIAL_IO_TEST)"
+	@"$(CDK2_NATIVE_SMBIOS_TEST)"
 	@"$(CDK2_NATIVE_ELF_CHECK_TEST)" "$(CDK2_NATIVE_ELF_CHECK)" "$(CDK2_NATIVE_BUILD_DIR)"
 	@printf '%s\n' "native cdk2 stage: $(CDK2_NATIVE_ELF)"
 	@printf '%s\n' "native cdk2 FV packer: $(CDK2_NATIVE_PACKER)"
@@ -309,6 +317,12 @@ native-serial-io-test: $(CDK2_NATIVE_SERIAL_IO_TEST)
 
 native-serial-io-fv: $(CDK2_NATIVE_SERIAL_IO_FV)
 	@printf '%s\n' "native SerialIo FV: $(CDK2_NATIVE_SERIAL_IO_FV)"
+
+native-smbios-test: $(CDK2_NATIVE_SMBIOS_TEST)
+	@"$<"
+
+native-smbios-fv: $(CDK2_NATIVE_SMBIOS_FV)
+	@printf '%s\n' "native Smbios FV: $(CDK2_NATIVE_SMBIOS_FV)"
 
 native-pe-test: $(CDK2_NATIVE_PE_TEST)
 	@"$(CDK2_NATIVE_PE_TEST)"
@@ -669,7 +683,7 @@ CDK2_NATIVE_PRE_SERIAL_IO_FV := $(CDK2_NATIVE_ENGLISH_FV)
 endif
 
 ifeq ($(CONFIG_CDK2_NATIVE_SERIAL_IO),y)
-CDK2_NATIVE_FINAL_FV := $(CDK2_NATIVE_SERIAL_IO_FV)
+CDK2_NATIVE_PRE_SMBIOS_FV := $(CDK2_NATIVE_SERIAL_IO_FV)
 
 $(CDK2_NATIVE_SERIAL_IO_OBJ): $(CDK2_DIR)/src/modules/serial_io/serial_io.c $(CDK2_DIR)/include/cdk2/serial_io.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
@@ -693,7 +707,35 @@ $(CDK2_NATIVE_SERIAL_IO_FV): $(CDK2_NATIVE_PRE_SERIAL_IO_FV) $(CDK2_NATIVE_SERIA
 	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_PRE_SERIAL_IO_FV)" 0x2b5198 \
 		"$(CDK2_NATIVE_SERIAL_IO_FFS)" "$@"
 else
-CDK2_NATIVE_FINAL_FV := $(CDK2_NATIVE_PRE_SERIAL_IO_FV)
+CDK2_NATIVE_PRE_SMBIOS_FV := $(CDK2_NATIVE_PRE_SERIAL_IO_FV)
+endif
+
+ifeq ($(CONFIG_CDK2_NATIVE_SMBIOS),y)
+CDK2_NATIVE_FINAL_FV := $(CDK2_NATIVE_SMBIOS_FV)
+
+$(CDK2_NATIVE_SMBIOS_OBJ): $(CDK2_DIR)/src/modules/smbios/smbios.c $(CDK2_DIR)/include/cdk2/smbios.h $(CDK2_DIR)/include/cdk2/hob_payload.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
+		-mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args \
+		$(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+
+$(CDK2_NATIVE_SMBIOS_PE): $(CDK2_NATIVE_SMBIOS_OBJ) $(CDK2_DIR)/src/modules/smbios/smbios.ld $(CDK2_NATIVE_PERELOCCHECK)
+	@$(LD) -mi386pep --subsystem 11 --entry cdk2_smbios_entry --image-base 0 \
+		--section-alignment 0x1000 --file-alignment 0x1000 --build-id=none \
+		--no-insert-timestamp -s --nxcompat -T "$(CDK2_DIR)/src/modules/smbios/smbios.ld" -o "$@" "$<"
+	@"$(CDK2_NATIVE_PERELOCCHECK)" "$@"
+
+$(CDK2_NATIVE_SMBIOS_DEPEX): | $(CDK2_NATIVE_BUILD_DIR)
+	@printf '\026\000\000\023\002\366\360\243\023\112\046\360\076\362\340\336\305\022\064\057\064\010' > "$@"
+
+$(CDK2_NATIVE_SMBIOS_FFS): $(CDK2_NATIVE_SMBIOS_PE) $(CDK2_NATIVE_SMBIOS_DEPEX) $(CDK2_NATIVE_FFSBUILD)
+	@"$(CDK2_NATIVE_FFSBUILD)" f9d88642-0737-49bc-81b5-6889cd57d9ea \
+		SmbiosDxe 1.0 0x705a "$<" "$@" "$(CDK2_NATIVE_SMBIOS_DEPEX)"
+
+$(CDK2_NATIVE_SMBIOS_FV): $(CDK2_NATIVE_PRE_SMBIOS_FV) $(CDK2_NATIVE_SMBIOS_FFS) $(CDK2_NATIVE_FVREPLACE)
+	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_PRE_SMBIOS_FV)" 0x17d520 \
+		"$(CDK2_NATIVE_SMBIOS_FFS)" "$@"
+else
+CDK2_NATIVE_FINAL_FV := $(CDK2_NATIVE_PRE_SMBIOS_FV)
 endif
 
 ifeq ($(CONFIG_CDK2_NATIVE_ENGLISH),y)
@@ -734,6 +776,9 @@ $(CDK2_NATIVE_DISK_IO_TEST): $(CDK2_DIR)/tests/disk_io_test.c $(CDK2_DIR)/src/mo
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$<"
 
 $(CDK2_NATIVE_SERIAL_IO_TEST): $(CDK2_DIR)/tests/serial_io_test.c $(CDK2_DIR)/src/modules/serial_io/serial_io.c $(CDK2_DIR)/include/cdk2/serial_io.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$<"
+
+$(CDK2_NATIVE_SMBIOS_TEST): $(CDK2_DIR)/tests/smbios_test.c $(CDK2_DIR)/src/modules/smbios/smbios.c $(CDK2_DIR)/include/cdk2/smbios.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$<"
 
 FORCE:

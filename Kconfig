@@ -220,6 +220,40 @@ config CDK2_NATIVE_SERIAL_IO
 	  Publish the PI Serial I/O protocol over the UART described by the
 	  coreboot-derived serial-port HOB.
 
+config CDK2_SMBIOS_MAJOR
+	int "SMBIOS major version"
+	range 2 3
+	default 3
+	depends on CDK2_PAYLOAD
+
+config CDK2_SMBIOS_MINOR
+	int "SMBIOS minor version"
+	range 0 9
+	default 0
+	depends on CDK2_PAYLOAD
+
+config CDK2_SMBIOS_DOCREV
+	int "SMBIOS document revision"
+	range 0 255
+	default 0
+	depends on CDK2_PAYLOAD
+
+config CDK2_SMBIOS_ENTRY_POINTS
+	hex "SMBIOS entry-point publication mask"
+	range 0x1 0x3
+	default 0x3
+	depends on CDK2_PAYLOAD
+	help
+	  Bit 0 publishes the SMBIOS 2.x entry point; bit 1 publishes SMBIOS 3.x.
+
+config CDK2_NATIVE_SMBIOS
+	bool "Build native SMBIOS services"
+	default y
+	depends on CDK2_NATIVE_STAGE
+	help
+	  Import the coreboot SMBIOS HOB, provide the mutable PI SMBIOS protocol,
+	  and publish checksummed SMBIOS 2.x and 3.x configuration tables.
+
 config CDK2_BUILD_DEBUG
 	bool "Build a debug payload"
 	default n
