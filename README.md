@@ -28,12 +28,18 @@ make check
 make native-check
 make native-stage
 make native-coreboot-stage
+make CDK2_PAYLOAD_FV=/path/to/payload.fv native-coreboot-image
 make manifest
 make what-jenkins-does
 ```
 
 `make build-image` exits with an error until the retained payload modules are
 native sources in this tree.
+
+`native-coreboot-image` is an explicit integration-validation target. It embeds
+a caller-supplied, already-built flat payload FV in the native coreboot stage;
+it does not make that FV part of the standalone source boundary or re-enable
+the normal image-production target.
 
 `make what-jenkins-does` is the current cdk2 analogue of the coreboot Jenkins
 path: it runs the copied coreboot lint harness, native checks, source manifest

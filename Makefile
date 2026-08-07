@@ -23,6 +23,7 @@ CDK2_KCONFIG_AUTOHEADER ?= $(CDK2_BUILD_DIR)/include/generated/autoconf.h
 CDK2_KCONFIG_RUSTCCFG ?= $(CDK2_BUILD_DIR)/include/generated/rustc_cfg
 CDK2_KCONFIG_SPLITCONFIG ?= $(CDK2_BUILD_DIR)/config/
 CDK2_MANIFEST ?= $(CDK2_BUILD_DIR)/cdk2-native-sources.txt
+CDK2_PAYLOAD_FV ?=
 override CDK2_NATIVE_DIR := $(CDK2_ROOT)/src/boot
 CDK2_NATIVE_SOURCE_DATE_PATHS := Kconfig Makefile defconfig src include util tests configs
 CDK2_SOURCE_DATE_EPOCH ?= $(shell epoch=$$(git -C "$(CDK2_ROOT)" log -1 --format=%ct -- $(CDK2_NATIVE_SOURCE_DATE_PATHS) 2>/dev/null); test -n "$$epoch" || epoch=0; printf '%s' "$$epoch")
@@ -37,7 +38,7 @@ CDK2_KCONFIG_ENV = \
 	KCONFIG_SPLITCONFIG="$(abspath $(CDK2_KCONFIG_SPLITCONFIG))"
 
 CDK2_CONFIG_TARGETS := build check manifest modules native-stage \
-	native-coreboot-stage native-check native-pack native-service-test \
+	native-coreboot-stage native-coreboot-image native-check native-pack native-service-test \
 	native-coreboot-test native-fv-test native-fvpack-test native-pe-test \
 	native-module-test native-elfcheck-test manifest-check print
 
@@ -49,6 +50,7 @@ CDK2_RECURSIVE_ARGS := \
 	CDK2_DEFCONFIG="$(CDK2_DEFCONFIG)" \
 	CDK2_KCONFIG="$(CDK2_KCONFIG)" \
 	CDK2_KCONFIG_TOOL="$(CDK2_KCONFIG_TOOL)" \
+	CDK2_PAYLOAD_FV="$(CDK2_PAYLOAD_FV)" \
 	CDK2_NATIVE_DIR="$(CDK2_NATIVE_DIR)" \
 	$(if $(HOSTCC),HOSTCC="$(HOSTCC)") \
 	$(if $(CC),CC="$(CC)") \
@@ -59,7 +61,7 @@ CDK2_RECURSIVE_ARGS := \
 
 .PHONY: all build build-image config defconfig olddefconfig menuconfig \
 	prepare-kconfig check manifest modules native-stage native-coreboot-stage \
-	native-check native-pack native-service-test native-coreboot-test \
+	native-coreboot-image native-check native-pack native-service-test native-coreboot-test \
 	native-fv-test native-fvpack-test native-pe-test native-module-test \
 	native-elfcheck-test manifest-check print lint lint-stable lint-extended test-lint \
 	jenkins what-jenkins-does clean FORCE

@@ -287,6 +287,22 @@ static EFI_STATUS cdk2_coreboot_acpi_inspect_table(
 		return EFI_COMPROMISED_DATA;
 	}
 
+	/*
+	 * Only consume and validate tables used to construct payload HOBs.  Firmware
+	 * may publish dynamically patched AML tables whose checksum is not useful to
+	 * this early handoff; rejecting an unrelated table would prevent DXE from
+	 * receiving the otherwise valid ACPI set.
+	 */
+	switch (header->signature) {
+	case EFI_ACPI_3_0_FIXED_ACPI_DESCRIPTION_TABLE_SIGNATURE:
+	case EFI_ACPI_6_6_PCI_EXPRESS_MEMORY_MAPPED_CONFIGURATION_SPACE_BASE_ADDRESS_DESCRIPTION_TABLE_SIGNATURE:
+	case EFI_ACPI_5_0_TRUSTED_COMPUTING_PLATFORM_2_TABLE_SIGNATURE:
+	case EFI_ACPI_5_0_TRUSTED_COMPUTING_PLATFORM_ALLIANCE_CAPABILITIES_TABLE_SIGNATURE:
+		break;
+	default:
+		return EFI_SUCCESS;
+	}
+
 	if (cdk2_coreboot_checksum8(header, header->length) != 0) {
 		return EFI_COMPROMISED_DATA;
 	}

@@ -2809,6 +2809,13 @@ int main(void)
 	failures += expect(status == EFI_COMPROMISED_DATA, "bad FADT checksum accepted");
 
 	build_test_acpi_tables(&rsdp, &xsdt, &fadt, &mcfg);
+	mcfg.header.header.signature = SIGNATURE_32('S', 'S', 'D', 'T');
+	mcfg.header.header.checksum ^= 1U;
+	status = cdk2_coreboot_test_build_acpi_board_info((EFI_PHYSICAL_ADDRESS)(UINTN)&rsdp,
+							  &board_info);
+	failures += expect(status == EFI_SUCCESS, "unconsumed ACPI table blocked board info");
+
+	build_test_acpi_tables(&rsdp, &xsdt, &fadt, &mcfg);
 	rsdp.revision = 0;
 	rsdp.length = 0;
 	rsdp.rsdt_address = 0;
