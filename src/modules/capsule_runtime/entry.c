@@ -81,8 +81,7 @@ static void *boot_slot(UINTN offset)
 {
 	struct cdk2_system_table_view *system = runtime.context;
 
-	return system == NULL ? NULL : system->boot->slots_before_locate_protocol[
-		(offset - 24U) / sizeof(void *)];
+	return system == NULL ? NULL : *(void **)((UINT8 *)system->boot + offset);
 }
 
 static BOOLEAN guid_equal(const EFI_GUID *a, const EFI_GUID *b)

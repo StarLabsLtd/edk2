@@ -223,10 +223,10 @@ int main(void)
 	boot.create_event_ex = create_event;
 	boot.install_multiple = install;
 	boot.uninstall_multiple = uninstall;
-	boot.slots_before_locate_protocol[5] = allocate_pool;
-	boot.slots_before_locate_protocol[6] = free_pool;
-	boot.slots_before_locate_protocol[16] = handle_protocol;
-	boot.slots_before_locate_protocol[36] = locate_handles;
+	boot.allocate_pool = allocate_pool;
+	boot.free_pool = free_pool;
+	boot.handle_protocol = handle_protocol;
+	boot.locate_handle_buffer = locate_handles;
 	runtime.header.size = sizeof(runtime);
 	runtime.header.crc32 = 7U;
 	runtime.update_capsule = old_update;
@@ -236,7 +236,7 @@ int main(void)
 	system.boot = &boot;
 	system.runtime = &runtime;
 	expected_runtime = &runtime;
-	boot.slots_before_locate_protocol[11] = close_event;
+	boot.close_event = close_event;
 	event_status[0] = EFI_DEVICE_ERROR;
 	assert(cdk2_capsule_runtime_entry((void *)5, &system) == EFI_DEVICE_ERROR);
 	assert(runtime.update_capsule == old_update && runtime.query_capsule == old_query &&

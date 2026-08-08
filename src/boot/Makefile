@@ -163,6 +163,15 @@ CDK2_NATIVE_CAPSULE_RUNTIME_DEPEX_GEN ?= $(CDK2_NATIVE_BUILD_DIR)/capsule-runtim
 CDK2_NATIVE_CAPSULE_RUNTIME_DEPEX ?= $(CDK2_NATIVE_BUILD_DIR)/CapsuleRuntimeDxe.depex
 CDK2_NATIVE_CAPSULE_RUNTIME_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/CapsuleRuntimeDxe.ffs
 CDK2_NATIVE_CAPSULE_RUNTIME_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-capsule-runtime.fv
+CDK2_NATIVE_ESRT_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-esrt-test
+CDK2_NATIVE_ESRT_ENTRY_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-esrt-entry-test
+CDK2_NATIVE_ESRT_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/esrt.o
+CDK2_NATIVE_ESRT_ENTRY_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/esrt-entry.o
+CDK2_NATIVE_ESRT_PE ?= $(CDK2_NATIVE_BUILD_DIR)/EsrtDxe.efi
+CDK2_NATIVE_ESRT_DEPEX_GEN ?= $(CDK2_NATIVE_BUILD_DIR)/esrt-depex-gen
+CDK2_NATIVE_ESRT_DEPEX ?= $(CDK2_NATIVE_BUILD_DIR)/EsrtDxe.depex
+CDK2_NATIVE_ESRT_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/EsrtDxe.ffs
+CDK2_NATIVE_ESRT_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-esrt.fv
 CDK2_NATIVE_REMOVE_TCG1_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-without-tcg1.fv
 CDK2_NATIVE_GRAPHICS_CONSOLE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-graphics-console-test
 CDK2_NATIVE_GRAPHICS_PACKAGE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-graphics-package-test
@@ -291,12 +300,14 @@ CDK2_NATIVE_HOST_TOOLS := \
 	$(CDK2_NATIVE_TCG2_MEASURE_TEST) \
 	$(CDK2_NATIVE_TCG2_SERVICE_TEST) \
 	$(CDK2_NATIVE_TCG2_ENTRY_TEST) \
-	$(CDK2_NATIVE_TPM2_ACPI_TABLE_TEST)
+	$(CDK2_NATIVE_TPM2_ACPI_TABLE_TEST) \
+	$(CDK2_NATIVE_ESRT_TEST) \
+	$(CDK2_NATIVE_ESRT_ENTRY_TEST)
 CDK2_NATIVE_LINK_FLAGS := -static -no-pie -nostdlib -nostartfiles -nodefaultlibs -Wl,-z,max-page-size=0x1000 -Wl,-z,common-page-size=0x1000 -Wl,-T,"$(CDK2_NATIVE_DIR)/cdk2.ld"
 CDK2_NATIVE_LINK_POST_MAP_FLAGS := -Wl,--gc-sections -Wl,--build-id=none
 
 .PHONY: native-stage native-coreboot-stage native-coreboot-image native-metronome-fv native-security-stub-fv native-null-memory-test-fv native-null-memory-test-test native-watchdog-fv native-monotonic-counter-fv native-status-code-router-fv native-status-code-router-test native-status-code-handler-fv native-status-code-handler-test native-cpu-io2-fv native-cpu-io2-test native-english-test native-english-fv native-disk-io-fv native-disk-io-test native-serial-io-fv native-serial-io-test native-smbios-fv native-smbios-test native-reset-system-fv native-reset-system-test native-pcat-rtc-fv native-pcat-rtc-test native-smm-access-fv native-smm-access-test native-smm-control-fv native-smm-control-test native-cpu-io2-smm-fv native-cpu-io2-smm-test native-pch-smi-dispatch-test native-pch-smi-dispatch-fv native-local-apic-timer-test native-local-apic-timer-fv native-graphics-console-test native-graphics-console-fv native-capsule-runtime-test native-capsule-runtime-fv native-check native-pack native-service-test native-coreboot-test native-fv-test native-fvpack-test native-fvinfo native-fvinfo-test native-ffsbuild-test native-pe-test native-module-test native-security-stub-test native-elfcheck-test FORCE
-.PHONY: native-tpm2-acpi-table-test native-tpm2-acpi-table-fv
+.PHONY: native-tpm2-acpi-table-test native-tpm2-acpi-table-fv native-esrt-test native-esrt-ffs native-esrt-fv
 
 ifeq ($(CONFIG_CDK2_NATIVE_STAGE),y)
 CDK2_NATIVE_STAGE_DEPS := $(CDK2_NATIVE_ELF)
@@ -433,6 +444,8 @@ native-check: $(CDK2_CONFIG_HEADER) $(CDK2_NATIVE_ELF) $(CDK2_NATIVE_OVERRIDE_EL
 	@"$(CDK2_NATIVE_TCG2_SERVICE_TEST)"
 	@"$(CDK2_NATIVE_TCG2_ENTRY_TEST)"
 	@"$(CDK2_NATIVE_TPM2_ACPI_TABLE_TEST)"
+	@"$(CDK2_NATIVE_ESRT_TEST)"
+	@"$(CDK2_NATIVE_ESRT_ENTRY_TEST)"
 	@"$(CDK2_NATIVE_ELF_CHECK_TEST)" "$(CDK2_NATIVE_ELF_CHECK)" "$(CDK2_NATIVE_BUILD_DIR)"
 	@printf '%s\n' "native cdk2 stage: $(CDK2_NATIVE_ELF)"
 	@printf '%s\n' "native cdk2 FV packer: $(CDK2_NATIVE_PACKER)"
@@ -603,6 +616,22 @@ native-capsule-runtime-test: $(CDK2_NATIVE_CAPSULE_RUNTIME_TEST) \
 
 native-capsule-runtime-fv: $(CDK2_NATIVE_CAPSULE_RUNTIME_FV)
 	@printf '%s\n' "native capsule runtime FV: $(CDK2_NATIVE_CAPSULE_RUNTIME_FV)"
+
+native-esrt-test: $(CDK2_NATIVE_ESRT_TEST) $(CDK2_NATIVE_ESRT_ENTRY_TEST)
+	@"$(CDK2_NATIVE_ESRT_TEST)"
+	@"$(CDK2_NATIVE_ESRT_ENTRY_TEST)"
+
+native-esrt-ffs: $(CDK2_NATIVE_ESRT_FFS)
+	@printf '%s\n' "native ESRT FFS: $(CDK2_NATIVE_ESRT_FFS)"
+
+ifeq ($(CONFIG_CDK2_ESRT),y)
+native-esrt-fv: $(CDK2_NATIVE_ESRT_FV)
+	@printf '%s\n' "native ESRT FV: $(CDK2_NATIVE_ESRT_FV)"
+else
+native-esrt-fv:
+	@printf '%s\n' 'native ESRT: disabled by Kconfig'
+endif
+
 native-pe-test: $(CDK2_NATIVE_PE_TEST)
 	@"$(CDK2_NATIVE_PE_TEST)"
 
@@ -1307,7 +1336,15 @@ CDK2_NATIVE_PRE_CAPSULE_RUNTIME_FV := $(CDK2_NATIVE_FINAL_FV)
 endif
 
 ifeq ($(CONFIG_CDK2_NATIVE_TCG2),y)
+ifeq ($(CONFIG_CDK2_ESRT),y)
+CDK2_NATIVE_PRE_ESRT_FV := $(CDK2_NATIVE_TPM2_ACPI_TABLE_FV)
+CDK2_NATIVE_FINAL_FV := $(CDK2_NATIVE_ESRT_FV)
+else
 CDK2_NATIVE_FINAL_FV := $(CDK2_NATIVE_TPM2_ACPI_TABLE_FV)
+endif
+else ifeq ($(CONFIG_CDK2_ESRT),y)
+CDK2_NATIVE_PRE_ESRT_FV := $(CDK2_NATIVE_FINAL_FV)
+CDK2_NATIVE_FINAL_FV := $(CDK2_NATIVE_ESRT_FV)
 endif
 
 ifeq ($(CONFIG_CDK2_NATIVE_ENGLISH),y)
@@ -1434,6 +1471,35 @@ $(CDK2_NATIVE_TCG2_ENTRY_TEST): $(CDK2_DIR)/tests/tcg2_entry_test.c $(CDK2_DIR)/
 
 $(CDK2_NATIVE_TPM2_ACPI_TABLE_TEST): $(CDK2_DIR)/tests/tpm2_acpi_table_test.c $(CDK2_DIR)/src/modules/tpm2_acpi_table/tpm2_acpi_table.c $(CDK2_DIR)/src/modules/tpm2_acpi_table/driver.c $(CDK2_DIR)/include/cdk2/tpm2_acpi_table.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_DIR)/tests/tpm2_acpi_table_test.c" "$(CDK2_DIR)/src/modules/tpm2_acpi_table/tpm2_acpi_table.c" "$(CDK2_DIR)/src/modules/tpm2_acpi_table/driver.c"
+
+$(CDK2_NATIVE_ESRT_TEST): $(CDK2_DIR)/tests/esrt_test.c $(CDK2_DIR)/src/modules/esrt/esrt.c $(CDK2_DIR)/include/cdk2/esrt.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_DIR)/tests/esrt_test.c" "$(CDK2_DIR)/src/modules/esrt/esrt.c"
+
+$(CDK2_NATIVE_ESRT_ENTRY_TEST): $(CDK2_DIR)/tests/esrt_entry_test.c $(CDK2_DIR)/src/modules/esrt/entry.c $(CDK2_DIR)/src/modules/esrt/esrt.c $(CDK2_DIR)/include/cdk2/esrt.h $(CDK2_DIR)/include/cdk2/esrt_abi.h $(CDK2_CONFIG_HEADER) | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -fshort-wchar $(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_DIR)/tests/esrt_entry_test.c" "$(CDK2_DIR)/src/modules/esrt/esrt.c"
+
+$(CDK2_NATIVE_ESRT_OBJ): $(CDK2_DIR)/src/modules/esrt/esrt.c $(CDK2_DIR)/include/cdk2/esrt.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) -mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args $(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+
+$(CDK2_NATIVE_ESRT_ENTRY_OBJ): $(CDK2_DIR)/src/modules/esrt/entry.c $(CDK2_DIR)/include/cdk2/esrt.h $(CDK2_DIR)/include/cdk2/esrt_abi.h $(CDK2_CONFIG_HEADER) | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) -mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args -fshort-wchar $(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+
+$(CDK2_NATIVE_ESRT_PE): $(CDK2_NATIVE_ESRT_OBJ) $(CDK2_NATIVE_ESRT_ENTRY_OBJ) $(CDK2_DIR)/src/modules/esrt/esrt.ld $(CDK2_NATIVE_PERELOCCHECK)
+	@$(LD) -mi386pep --subsystem 11 --entry cdk2_esrt_entry --image-base 0 --section-alignment 0x1000 --file-alignment 0x1000 --build-id=none --no-insert-timestamp -s --nxcompat -T "$(CDK2_DIR)/src/modules/esrt/esrt.ld" -o "$@" $(CDK2_NATIVE_ESRT_OBJ) $(CDK2_NATIVE_ESRT_ENTRY_OBJ)
+	@"$(CDK2_NATIVE_PERELOCCHECK)" --subsystem 11 "$@"
+
+$(CDK2_NATIVE_ESRT_DEPEX_GEN): $(CDK2_DIR)/src/modules/esrt/depex.c | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -o "$@" "$<"
+
+$(CDK2_NATIVE_ESRT_DEPEX): $(CDK2_NATIVE_ESRT_DEPEX_GEN)
+	@"$<" "$@"
+
+$(CDK2_NATIVE_ESRT_FFS): $(CDK2_NATIVE_ESRT_PE) $(CDK2_NATIVE_ESRT_DEPEX) $(CDK2_NATIVE_FFSBUILD)
+	@"$(CDK2_NATIVE_FFSBUILD)" 999bd818-7df7-4a9a-a502-9b75033e6a0f EsrtDxe 1.0 0x707a "$<" "$@" "$(CDK2_NATIVE_ESRT_DEPEX)"
+
+$(CDK2_NATIVE_ESRT_FV): $(CDK2_NATIVE_PRE_ESRT_FV) $(CDK2_NATIVE_ESRT_FFS) $(CDK2_NATIVE_FVREPLACE)
+	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_PRE_ESRT_FV)" 0x519ca8 \
+		"$(CDK2_NATIVE_ESRT_FFS)" "$@"
 
 FORCE:
 
