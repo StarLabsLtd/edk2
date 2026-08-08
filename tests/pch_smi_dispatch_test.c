@@ -4,6 +4,7 @@
 #include "../src/modules/pch_smi_dispatch/pch_smi_dispatch.c"
 
 #include <stdio.h>
+
 #include <stdlib.h>
 #include <string.h>
 
@@ -65,7 +66,7 @@ static EFI_STATUS CDK2_MS_ABI mock_read_save_state(
 	return EFI_SUCCESS;
 }
 
-static EFI_STATUS CDK2_MS_ABI mock_smm_locate(const EFI_GUID *guid,
+static EFI_STATUS CDK2_MS_ABI mock_smm_locate(const EFI_GUID guid[1],
 	void *registration, void **protocol)
 {
 	static struct smm_cpu_protocol cpu = { mock_read_save_state, NULL };
@@ -77,7 +78,7 @@ static EFI_STATUS CDK2_MS_ABI mock_smm_locate(const EFI_GUID *guid,
 }
 
 static EFI_STATUS CDK2_MS_ABI mock_register_root(cdk2_smm_handler *handler,
-	const EFI_GUID *handler_type, void **dispatch_handle)
+	const EFI_GUID handler_type[1], void **dispatch_handle)
 {
 	(void)handler_type;
 	root_handler = handler;
@@ -85,7 +86,7 @@ static EFI_STATUS CDK2_MS_ABI mock_register_root(cdk2_smm_handler *handler,
 	return EFI_SUCCESS;
 }
 
-static EFI_STATUS CDK2_MS_ABI mock_install(void **handle, const EFI_GUID *guid,
+static EFI_STATUS CDK2_MS_ABI mock_install(void **handle, const EFI_GUID guid[1],
 	UINT32 interface_type, void *interface)
 {
 	(void)guid;
@@ -105,7 +106,7 @@ static EFI_STATUS CDK2_MS_ABI mock_get_smst(const struct smm_base_protocol *prot
 	return EFI_SUCCESS;
 }
 
-static EFI_STATUS CDK2_MS_ABI mock_boot_locate(const EFI_GUID *guid,
+static EFI_STATUS CDK2_MS_ABI mock_boot_locate(const EFI_GUID guid[1],
 	void *registration, void **protocol)
 {
 	static struct smm_base_protocol base = { NULL, mock_get_smst };
