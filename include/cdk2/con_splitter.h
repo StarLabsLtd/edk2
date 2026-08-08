@@ -23,7 +23,7 @@ struct cdk2_split_text_out_ops {
 	cdk2_split_query_fn *query;
 	cdk2_split_value_fn *set_mode;
 	cdk2_split_value_fn *set_attribute;
-	EFI_STATUS (*clear)(void *);
+	EFI_STATUS (*clear)(void *context);
 	cdk2_split_cursor_fn *set_cursor;
 	cdk2_split_visible_fn *enable_cursor;
 };
@@ -92,7 +92,7 @@ struct cdk2_split_pointer_state {
 	BOOLEAN left, right;
 };
 struct cdk2_split_pointer_device {
-	EFI_STATUS (*get_state)(void *, struct cdk2_split_pointer_state *);
+	EFI_STATUS (*get_state)(void *context, struct cdk2_split_pointer_state *state);
 	void *context;
 	UINT64 resolution_x, resolution_y, resolution_z;
 };
@@ -109,7 +109,7 @@ EFI_STATUS cdk2_split_pointer_remove(struct cdk2_split_pointer *splitter, void *
 
 struct cdk2_split_absolute_state { UINT64 x, y, z; UINT32 buttons; };
 struct cdk2_split_absolute_device {
-	EFI_STATUS (*get_state)(void *, struct cdk2_split_absolute_state *);
+	EFI_STATUS (*get_state)(void *context, struct cdk2_split_absolute_state *state);
 	void *context;
 	UINT64 min_x, min_y, min_z, max_x, max_y, max_z;
 };

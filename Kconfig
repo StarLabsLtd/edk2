@@ -517,6 +517,13 @@ config CDK2_NATIVE_CON_PLATFORM
 	  Publish console device policy and DriverBinding services for supported
 	  console input and output controllers.
 
+config CDK2_NATIVE_CON_SPLITTER
+	bool "Build native console splitter services"
+	default y
+	depends on CDK2_NATIVE_STAGE
+	help
+	  Publish virtual console aggregation and bind physical console protocols.
+
 config CDK2_NATIVE_TCG2
 	bool "Build native TPM2 measured-boot services"
 	default y

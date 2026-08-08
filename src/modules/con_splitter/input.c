@@ -191,12 +191,18 @@ EFI_STATUS cdk2_split_absolute_add(struct cdk2_split_absolute *splitter,
 		splitter->min_z = device->min_z; splitter->max_x = device->max_x;
 		splitter->max_y = device->max_y; splitter->max_z = device->max_z;
 	} else {
-		if (device->min_x < splitter->min_x) splitter->min_x = device->min_x;
-		if (device->min_y < splitter->min_y) splitter->min_y = device->min_y;
-		if (device->min_z < splitter->min_z) splitter->min_z = device->min_z;
-		if (device->max_x > splitter->max_x) splitter->max_x = device->max_x;
-		if (device->max_y > splitter->max_y) splitter->max_y = device->max_y;
-		if (device->max_z > splitter->max_z) splitter->max_z = device->max_z;
+		if (device->min_x < splitter->min_x)
+			splitter->min_x = device->min_x;
+		if (device->min_y < splitter->min_y)
+			splitter->min_y = device->min_y;
+		if (device->min_z < splitter->min_z)
+			splitter->min_z = device->min_z;
+		if (device->max_x > splitter->max_x)
+			splitter->max_x = device->max_x;
+		if (device->max_y > splitter->max_y)
+			splitter->max_y = device->max_y;
+		if (device->max_z > splitter->max_z)
+			splitter->max_z = device->max_z;
 	}
 	return EFI_SUCCESS;
 }

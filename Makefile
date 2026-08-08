@@ -67,6 +67,7 @@ CDK2_CONFIG_TARGETS := build check manifest modules native-stage \
 	native-local-apic-timer-test native-local-apic-timer-fv \
 	native-graphics-console-test native-graphics-console-fv \
 	native-con-platform-test native-con-platform-fv native-con-platform-fv-exact \
+	native-con-splitter-test native-con-splitter-fv \
 	native-hii-database-test native-hii-database-ffs native-hii-database-fv \
 	native-hii-database-oracle \
 	native-scsi-bus-test native-scsi-bus-package native-scsi-bus-fv \
@@ -182,6 +183,7 @@ CDK2_RECURSIVE_ARGS := \
 	native-local-apic-timer-test native-local-apic-timer-fv \
 	native-graphics-console-test native-graphics-console-fv \
 	native-con-platform-test native-con-platform-fv native-con-platform-fv-exact \
+	native-con-splitter-test native-con-splitter-fv \
 	native-hii-database-test native-hii-database-ffs native-hii-database-fv \
 	native-hii-database-oracle \
 	native-scsi-bus-test native-scsi-bus-package native-scsi-bus-fv \

@@ -4821,3 +4821,55 @@ $(CDK2_NATIVE_CON_SPLITTER_INPUT_TEST): $(CDK2_DIR)/tests/con_splitter_input_tes
 
 native-check: $(CDK2_NATIVE_CON_SPLITTER_INPUT_TEST)
 	@"$(CDK2_NATIVE_CON_SPLITTER_INPUT_TEST)"
+
+CDK2_NATIVE_CON_SPLITTER_ENTRY_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-con-splitter-entry-test
+CDK2_NATIVE_CON_SPLITTER_OBJS := $(CDK2_NATIVE_BUILD_DIR)/con-splitter-model.o \
+	$(CDK2_NATIVE_BUILD_DIR)/con-splitter-input.o \
+	$(CDK2_NATIVE_BUILD_DIR)/con-splitter-entry.o
+CDK2_NATIVE_CON_SPLITTER_PE ?= $(CDK2_NATIVE_BUILD_DIR)/ConSplitterDxe.efi
+CDK2_NATIVE_CON_SPLITTER_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/ConSplitterDxe.ffs
+
+.PHONY: native-con-splitter-test native-con-splitter-fv
+native-con-splitter-test: $(CDK2_NATIVE_CON_SPLITTER_MODEL_TEST) \
+		$(CDK2_NATIVE_CON_SPLITTER_INPUT_TEST) $(CDK2_NATIVE_CON_SPLITTER_ENTRY_TEST)
+	@"$(CDK2_NATIVE_CON_SPLITTER_MODEL_TEST)"
+	@"$(CDK2_NATIVE_CON_SPLITTER_INPUT_TEST)"
+	@"$(CDK2_NATIVE_CON_SPLITTER_ENTRY_TEST)"
+
+native-con-splitter-fv: $(CDK2_NATIVE_CON_SPLITTER_FFS)
+	@printf '%s\n' "native console splitter FFS: $(CDK2_NATIVE_CON_SPLITTER_FFS)"
+
+$(CDK2_NATIVE_CON_SPLITTER_ENTRY_TEST): $(CDK2_DIR)/tests/con_splitter_entry_test.c \
+		$(CDK2_DIR)/src/modules/con_splitter/model.c \
+		$(CDK2_DIR)/src/modules/con_splitter/input.c \
+		$(CDK2_DIR)/src/modules/con_splitter/entry.c \
+		$(CDK2_DIR)/include/cdk2/con_splitter.h \
+		$(CDK2_DIR)/include/cdk2/con_splitter_entry.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -fshort-wchar \
+		$(CDK2_NATIVE_INCLUDES) -o "$@" "$<" \
+		"$(CDK2_DIR)/src/modules/con_splitter/model.c" \
+		"$(CDK2_DIR)/src/modules/con_splitter/input.c" \
+		"$(CDK2_DIR)/src/modules/con_splitter/entry.c"
+
+$(CDK2_NATIVE_BUILD_DIR)/con-splitter-%.o: \
+		$(CDK2_DIR)/src/modules/con_splitter/%.c \
+		$(CDK2_DIR)/include/cdk2/con_splitter.h \
+		$(CDK2_DIR)/include/cdk2/con_splitter_entry.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
+		-mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args \
+		$(CDK2_NATIVE_INCLUDES) -MMD -MP -MF "$(@:.o=.d)" -MT "$@" -c "$<" -o "$@"
+
+$(CDK2_NATIVE_CON_SPLITTER_PE): $(CDK2_NATIVE_CON_SPLITTER_OBJS) \
+		$(CDK2_DIR)/src/modules/con_splitter/con_splitter.ld $(CDK2_NATIVE_PERELOCCHECK)
+	@$(CDK2_NATIVE_LD) -mi386pep --subsystem 11 --entry cdk2_con_splitter_entry \
+		--image-base 0 --section-alignment 0x1000 --file-alignment 0x200 \
+		--build-id=none --no-insert-timestamp -s --nxcompat \
+		-T "$(CDK2_DIR)/src/modules/con_splitter/con_splitter.ld" -o "$@" \
+		$(CDK2_NATIVE_CON_SPLITTER_OBJS)
+	@"$(CDK2_NATIVE_PERELOCCHECK)" --subsystem 11 "$@"
+
+$(CDK2_NATIVE_CON_SPLITTER_FFS): $(CDK2_NATIVE_CON_SPLITTER_PE) $(CDK2_NATIVE_FFSBUILD)
+	@"$(CDK2_NATIVE_FFSBUILD)" 408edcec-cf6d-477c-a5a8-b4844e3de281 \
+		ConSplitterDxe 1.0 0xb04e "$<" "$@" -
+
+native-check: native-con-splitter-test
