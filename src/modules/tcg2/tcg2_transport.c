@@ -209,8 +209,7 @@ static EFI_STATUS fifo_read_bytes(const struct cdk2_tpm2_transport *transport,
 	EFI_STATUS status;
 
 	while (start < end) {
-		status = wait32(transport, FIFO_STS,
-			FIFO_STS_VALID | FIFO_STS_DATA_AVAILABLE, 0);
+		status = wait32(transport, FIFO_STS, FIFO_STS_DATA_AVAILABLE, 0);
 		if (EFI_ERROR(status))
 			return status;
 		status = fifo_wait_burst(transport, &burst);
@@ -235,8 +234,7 @@ static EFI_STATUS fifo_submit(const struct cdk2_tpm2_transport *transport,
 
 	transport->io->write8(transport->io->context, transport->base + FIFO_STS,
 		FIFO_STS_COMMAND_READY);
-	status = wait32(transport, FIFO_STS,
-		FIFO_STS_VALID | FIFO_STS_COMMAND_READY, 0);
+	status = wait32(transport, FIFO_STS, FIFO_STS_COMMAND_READY, 0);
 	if (EFI_ERROR(status))
 		return status;
 	while (index < command_size) {
@@ -247,13 +245,12 @@ static EFI_STATUS fifo_submit(const struct cdk2_tpm2_transport *transport,
 			transport->io->write8(transport->io->context,
 				transport->base + FIFO_DATA, command[index++]);
 	}
-	status = wait32(transport, FIFO_STS, FIFO_STS_VALID, FIFO_STS_EXPECT);
+	status = wait32(transport, FIFO_STS, 0, FIFO_STS_EXPECT);
 	if (EFI_ERROR(status))
 		goto cleanup;
 	transport->io->write8(transport->io->context, transport->base + FIFO_STS,
 		FIFO_STS_GO);
-	status = wait32(transport, FIFO_STS,
-		FIFO_STS_VALID | FIFO_STS_DATA_AVAILABLE, 0);
+	status = wait32(transport, FIFO_STS, FIFO_STS_DATA_AVAILABLE, 0);
 	if (EFI_ERROR(status))
 		goto cleanup;
 	available = *response_size;
