@@ -10,6 +10,7 @@
 #define CDK2_HII_MAX_STRINGS 512U
 #define CDK2_HII_MAX_LANGUAGE 63U
 #define CDK2_HII_MAX_IMAGES 256U
+#define CDK2_HII_MAX_GLYPHS 512U
 #define CDK2_HII_PACKAGE_END 0xdfU
 
 struct cdk2_hii_package_list_header {
@@ -50,6 +51,7 @@ struct cdk2_hii_database {
 	UINT16 next_string_id;
 	struct cdk2_hii_image_entry *images;
 	UINT16 next_image_id;
+	struct cdk2_hii_glyph *glyphs;
 };
 struct cdk2_hii_font_info {
 	UINT32 style;
@@ -81,6 +83,15 @@ struct cdk2_hii_image_entry {
 };
 typedef EFI_STATUS cdk2_hii_screen_blt_fn(void *screen,
 	struct cdk2_hii_pixel *bitmap, UINTN x, UINTN y, UINTN width, UINTN height);
+struct cdk2_hii_glyph {
+	CHAR16 character;
+	UINT16 width, height, baseline;
+	struct cdk2_hii_pixel *bitmap;
+	BOOLEAN active;
+};
+struct cdk2_hii_row_info {
+	UINTN start_index, end_index, line_width, line_height, baseline;
+};
 
 EFI_STATUS cdk2_hii_database_init(struct cdk2_hii_database *database,
 	const struct cdk2_hii_database_ops *ops, void *context);
@@ -134,5 +145,14 @@ EFI_STATUS cdk2_hii_draw_image_id(struct cdk2_hii_database *database,
 	cdk2_hii_screen_blt_fn *screen_blt);
 void cdk2_hii_remove_images(struct cdk2_hii_database *database,
 	void *package_handle);
+EFI_STATUS cdk2_hii_register_glyph(struct cdk2_hii_database *database,
+	CHAR16 character, UINT16 width, UINT16 height, UINT16 baseline,
+	const struct cdk2_hii_pixel *bitmap);
+EFI_STATUS cdk2_hii_get_glyph(struct cdk2_hii_database *database,
+	CHAR16 character, struct cdk2_hii_image_output **image, UINTN *baseline);
+EFI_STATUS cdk2_hii_string_to_image(struct cdk2_hii_database *database,
+	UINTN flags, const CHAR16 *string, struct cdk2_hii_image_output **output,
+	UINTN x, UINTN y, struct cdk2_hii_row_info **rows, UINTN *row_count,
+	UINTN *column, cdk2_hii_screen_blt_fn *screen_blt);
 
 #endif

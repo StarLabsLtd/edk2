@@ -117,6 +117,14 @@ EFI_STATUS cdk2_hii_database_init(struct cdk2_hii_database *database,
 	__builtin_memset(database->images, 0,
 		sizeof(*database->images) * CDK2_HII_MAX_IMAGES);
 	database->next_image_id = 1U;
+	if (ops->allocate(context, sizeof(*database->glyphs) * CDK2_HII_MAX_GLYPHS,
+			(void **)&database->glyphs) != EFI_SUCCESS) {
+		ops->release(context, database->images);
+		ops->release(context, database->strings);
+		return EFI_OUT_OF_RESOURCES;
+	}
+	__builtin_memset(database->glyphs, 0,
+		sizeof(*database->glyphs) * CDK2_HII_MAX_GLYPHS);
 	return EFI_SUCCESS;
 }
 
