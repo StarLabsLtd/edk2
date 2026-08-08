@@ -17,7 +17,7 @@ static void release(void *context, void *buffer)
 static UINTN notifications;
 static EFI_STATUS notify(void *context, UINT8 type, const EFI_GUID *guid,
 	const void *list, void *handle, UINTN operation)
-{ (void)context; (void)guid; (void)list; (void)handle; if (type == 4U && operation != 0U) notifications++; return EFI_SUCCESS; }
+{ (void)context; (void)guid; (void)list; (void)handle; if (type == 1U && operation != 0U) notifications++; return EFI_SUCCESS; }
 static int expect(int condition, const char *message)
 { if (!condition) fprintf(stderr, "HII database test: %s\n", message); return !condition; }
 
@@ -27,7 +27,7 @@ int main(void)
 	struct cdk2_hii_database database;
 	struct fixture_list package = {
 		.list = { .guid = { 1U, 2U, 3U, { 4U } }, .length = sizeof(package) },
-		.strings = { (4U << 24) | 8U }, .payload = 0x12345678U,
+		.strings = { (1U << 24) | 8U }, .payload = 0x12345678U,
 		.end = { (CDK2_HII_PACKAGE_END << 24) | 4U }
 	};
 	struct fixture_list update = package, exported;
@@ -37,7 +37,7 @@ int main(void)
 	void *driver_handle = NULL;
 
 	failures += expect(cdk2_hii_database_init(&database, &ops, NULL) == EFI_SUCCESS &&
-		cdk2_hii_register_package_notify(&database, 4U, NULL, notify, NULL,
+		cdk2_hii_register_package_notify(&database, 1U, NULL, notify, NULL,
 			1U | 2U | 4U | 8U, &notify_handle) == EFI_SUCCESS &&
 		cdk2_hii_new_package_list(&database, &package, (void *)7, &handle) ==
 			EFI_SUCCESS && notifications == 1U,
@@ -45,7 +45,7 @@ int main(void)
 	failures += expect(cdk2_hii_get_package_list_handle(&database, handle,
 		&driver_handle) == EFI_SUCCESS && driver_handle == (void *)7,
 		"package-list driver handle was not retained");
-	failures += expect(cdk2_hii_list_package_lists(&database, 4U, NULL, &count,
+	failures += expect(cdk2_hii_list_package_lists(&database, 1U, NULL, &count,
 		handles) == EFI_SUCCESS && count == 1U && handles[0] == handle,
 		"package type filtering failed");
 	failures += expect(cdk2_hii_export_package_lists(&database, handle, &size, NULL) ==
