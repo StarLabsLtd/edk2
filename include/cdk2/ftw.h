@@ -10,6 +10,7 @@
 #define EFI_VOLUME_CORRUPTED EFIERR(10)
 #define EFI_ACCESS_DENIED EFIERR(15)
 #define EFI_BAD_BUFFER_SIZE EFIERR(4)
+#define EFI_WRITE_PROTECTED EFIERR(8)
 #define EFI_ABORTED EFIERR(21)
 #endif
 
@@ -19,6 +20,7 @@ enum cdk2_ftw_phase { CDK2_FTW_EMPTY, CDK2_FTW_ALLOCATED,
 
 struct cdk2_ftw_record {
 	UINT64 lba, offset, length;
+	INT64 relative_offset;
 	UINT32 private_size;
 	UINT8 phase;
 	UINT8 reserved[3];
@@ -53,12 +55,14 @@ struct cdk2_ftw {
 	UINTN block_size;
 	UINT8 *scratch;
 	struct cdk2_ftw_journal journal;
+	INT64 relative_offset;
 };
 
 UINT32 cdk2_ftw_crc32(const void *data, UINTN bytes);
 EFI_STATUS cdk2_ftw_initialize(struct cdk2_ftw *ftw);
 EFI_STATUS cdk2_ftw_allocate(struct cdk2_ftw *ftw, const EFI_GUID *caller,
 	UINTN private_size, UINTN writes);
+void cdk2_ftw_set_relative_offset(struct cdk2_ftw *ftw, INT64 relative_offset);
 EFI_STATUS cdk2_ftw_write(struct cdk2_ftw *ftw, UINT64 lba, UINTN offset,
 	UINTN length, const void *private_data, const void *buffer);
 EFI_STATUS cdk2_ftw_restart(struct cdk2_ftw *ftw);

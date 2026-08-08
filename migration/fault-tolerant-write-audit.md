@@ -21,6 +21,24 @@ its explicit DEPEX expression.
 This source lane is inventory-neutral: it does not replace the admitted FFS,
 change either retained-inventory TSV, or alter FV composition.
 
+## PI working-space compatibility
+
+The persistent journal uses the PI/EDK II byte layout rather than a private
+on-flash structure.  The 32-byte `EFI_FAULT_TOLERANT_WORKING_BLOCK_HEADER`
+uses working-block signature `9e58292b-7c68-497d-a0ce-6500fd9f1b95`, the
+standard CRC32 calculated with the CRC and state bytes erased, and the
+erase-polarity-one valid/invalid transition.  The variable queue uses the
+40-byte `EFI_FAULT_TOLERANT_WRITE_HEADER` followed by 40-byte
+`EFI_FAULT_TOLERANT_WRITE_RECORD` entries and per-record private data.
+
+The codec scans past completed batches, preserves the last admitted pending
+batch across reclaim, records the signed target-to-spare `RelativeOffset`, and
+only permits flash-compatible one-to-zero updates between erases.  Host tests
+pin the complete 32-byte header for the admitted `0x10000` working-space size,
+recover a spare-complete record, reject torn headers and illegal zero-to-one
+updates, exhaust the queue to exercise reclaim, and run every core write crash
+boundary through the PI codec.
+
 ## Admitted Q35 geometry
 
 The admitted Q35 trace reports `NvStorageBase:0xFF800000,

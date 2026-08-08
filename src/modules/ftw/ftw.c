@@ -65,6 +65,10 @@ EFI_STATUS cdk2_ftw_allocate(struct cdk2_ftw *ftw, const EFI_GUID *caller,
 	ftw->journal.write_count = writes; ftw->journal.phase = CDK2_FTW_ALLOCATED;
 	return persist(ftw);
 }
+void cdk2_ftw_set_relative_offset(struct cdk2_ftw *ftw, INT64 relative_offset)
+{
+	if (ftw) ftw->relative_offset = relative_offset;
+}
 static EFI_STATUS finish_from_spare(struct cdk2_ftw *ftw, struct cdk2_ftw_record *record)
 {
 	EFI_STATUS status = ftw->ops->spare_read(ftw->context, 0, ftw->scratch, ftw->block_size);
@@ -91,6 +95,7 @@ EFI_STATUS cdk2_ftw_write(struct cdk2_ftw *ftw, UINT64 lba, UINTN offset,
 	    ftw->journal.next_write >= ftw->journal.write_count) return EFI_ACCESS_DENIED;
 	record = &ftw->journal.records[ftw->journal.next_write]; zero(record, sizeof(*record));
 	record->lba = lba; record->offset = offset; record->length = length;
+	record->relative_offset = ftw->relative_offset;
 	record->private_size = ftw->journal.private_size;
 	copy(record->private_data, private_data, record->private_size);
 	status = persist(ftw); if (EFI_ERROR(status)) return EFI_ABORTED;

@@ -58,7 +58,7 @@ EFI_STATUS cdk2_ftw_fvb_initialize(struct cdk2_ftw_fvb *a, UINT8 *scratch)
 	if (EFI_ERROR(status)) return status;
 	if (!work_size || work_size != spare_size || !a->block_count)
 		return EFI_VOLUME_CORRUPTED;
-	a->core = (struct cdk2_ftw){ &core_ops, a, work_size * a->block_count, scratch, { 0 } };
+	a->core = (struct cdk2_ftw){ &core_ops, a, work_size * a->block_count, scratch, { 0 }, 0 };
 	return cdk2_ftw_initialize(&a->core);
 }
 EFI_STATUS cdk2_ftw_fvb_select_target(struct cdk2_ftw_fvb *a, void *volume, UINT64 lba)

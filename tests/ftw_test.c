@@ -2,10 +2,12 @@
 #include <assert.h>
 #include <string.h>
 #include <cdk2/ftw.h>
+#include <cdk2/ftw_pi.h>
 
 #define BLOCK 32
 struct media {
 	struct cdk2_ftw_journal journal;
+	UINT8 workspace[4096];
 	UINT8 target[2][BLOCK], spare[BLOCK];
 	BOOLEAN journal_exists;
 	unsigned operation, fail_at;
@@ -13,10 +15,15 @@ struct media {
 static EFI_STATUS fault(struct media *m)
 { m->operation++; return m->fail_at == m->operation ? EFI_DEVICE_ERROR : EFI_SUCCESS; }
 static EFI_STATUS journal_read(void *p, struct cdk2_ftw_journal *j)
-{ struct media *m = p; if (!m->journal_exists) return EFI_NOT_FOUND; *j = m->journal; return 0; }
+{ struct media *m = p; if (!m->journal_exists) return EFI_NOT_FOUND;
+	return cdk2_ftw_pi_decode(m->workspace, sizeof(m->workspace), j); }
 static EFI_STATUS journal_write(void *p, const struct cdk2_ftw_journal *j)
 { struct media *m = p; EFI_STATUS s = fault(m); if (EFI_ERROR(s)) return s;
-	m->journal = *j; m->journal_exists = TRUE; return 0; }
+	if (!m->journal_exists) { s = cdk2_ftw_pi_initialize(m->workspace, sizeof(m->workspace));
+		if (EFI_ERROR(s)) return s; }
+	s = cdk2_ftw_pi_encode(m->workspace, sizeof(m->workspace), j);
+	if (!EFI_ERROR(s)) { m->journal = *j; m->journal_exists = TRUE; }
+	return s; }
 static EFI_STATUS target_read(void *p, UINT64 lba, void *b, UINTN n)
 { struct media *m = p; EFI_STATUS s = fault(m); if (EFI_ERROR(s)) return s;
 	if (lba > 1 || n != BLOCK) return EFI_INVALID_PARAMETER;
@@ -41,7 +48,7 @@ static EFI_STATUS spare_erase(void *p, UINT64 lba)
 static const struct cdk2_ftw_ops ops = { journal_read, journal_write, target_read,
 	target_write, target_erase, spare_read, spare_write, spare_erase };
 static struct cdk2_ftw make_ftw(struct media *m, UINT8 *scratch)
-{ return (struct cdk2_ftw){ &ops, m, BLOCK, scratch, { 0 } }; }
+{ return (struct cdk2_ftw){ &ops, m, BLOCK, scratch, { 0 }, 0 }; }
 
 static void crash_matrix(void)
 {
@@ -85,16 +92,19 @@ int main(void)
 	assert(cdk2_ftw_get_last_write(&ftw, &got, &lba, &offset, &length,
 		&private_size, &private, &complete) == EFI_SUCCESS && complete && lba == 0);
 	/* Persist spare-complete, then lose power before destination erase. */
+	cdk2_ftw_set_relative_offset(&ftw,-0x40000);
 	m.operation = 0; m.fail_at = 6;
 	assert(cdk2_ftw_write(&ftw, 1, 10, 5, &private, update) == EFI_ABORTED);
-	assert(m.journal.records[1].phase == CDK2_FTW_SPARE_COMPLETE);
+	assert(m.journal.records[1].phase == CDK2_FTW_SPARE_COMPLETE &&
+		m.journal.records[1].relative_offset == -0x40000);
 	m.fail_at = 0; m.operation = 0; ftw = make_ftw(&m, scratch);
 	assert(cdk2_ftw_initialize(&ftw) == EFI_SUCCESS);
 	assert(!memcmp(m.target[1] + 10, update, 5) &&
 		m.journal.phase == CDK2_FTW_BATCH_COMPLETE);
 	assert(cdk2_ftw_abort(&ftw) == EFI_NOT_FOUND);
 	/* CRC detects torn/corrupt journal rather than trusting its state bits. */
-	m.journal.records[0].lba ^= 1; ftw = make_ftw(&m, scratch);
+	m.workspace[0] ^= 1;
+	ftw = make_ftw(&m, scratch);
 	assert(cdk2_ftw_initialize(&ftw) == EFI_VOLUME_CORRUPTED);
 	crash_matrix();
 	return 0;
