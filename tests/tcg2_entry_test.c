@@ -60,9 +60,16 @@ static EFI_STATUS create_exit(void *context, void **event)
 	return stage(context, 'E', 4);
 }
 
+static EFI_STATUS create_exit_failed(void *context, void **event)
+{
+	*event = (void *)(UINTN)3;
+	return stage(context, 'D', 5);
+}
+
 static EFI_STATUS close_event(void *context, void *event)
 {
-	record(context, event == (void *)(UINTN)2 ? 'X' : 'v');
+	record(context, event == (void *)(UINTN)3 ? 'Y' :
+		event == (void *)(UINTN)2 ? 'X' : 'v');
 	return EFI_SUCCESS;
 }
 
@@ -74,14 +81,14 @@ static EFI_STATUS install_config(void *context, cdk2_const_guid_ptr guid,
 		record(context, 'c');
 		return EFI_SUCCESS;
 	}
-	return stage(context, 'C', 5);
+	return stage(context, 'C', 6);
 }
 
 static EFI_STATUS install_protocol(void *context, cdk2_const_guid_ptr guid,
 	void *interface)
 {
 	(void)guid; (void)interface;
-	return stage(context, 'P', 6);
+	return stage(context, 'P', 7);
 }
 
 static void release_service(void *context, struct cdk2_tcg2_service *service)
@@ -96,6 +103,7 @@ static const struct cdk2_tcg2_entry_ops ops = {
 	.create_variable_event = create_variable,
 	.register_variable_notify = register_notify,
 	.create_exit_event = create_exit,
+	.create_exit_failed_event = create_exit_failed,
 	.close_event = close_event,
 	.install_config = install_config,
 	.install_protocol = install_protocol,
@@ -112,8 +120,8 @@ static int expect(int condition, const char *message)
 int main(void)
 {
 	static const char *const expected[] = {
-		"RVNECP", "RF", "RVUF", "RVNvUF", "RVNEvUF",
-		"RVNECXvUF", "RVNECPcXvUF",
+		"RVNEDCP", "RF", "RVUF", "RVNvUF", "RVNEvUF",
+		"RVNEDXvUF", "RVNEDCYXvUF", "RVNEDCPcYXvUF",
 	};
 	struct cdk2_tcg2_service service = {0};
 	struct mock_context mock;
@@ -122,7 +130,7 @@ int main(void)
 	int failures = 0;
 
 	service.final_table = (void *)(UINTN)0x1000;
-	for (failure = 0; failure <= 6; failure++) {
+	for (failure = 0; failure <= 7; failure++) {
 		mock = (struct mock_context){ .fail_stage = failure };
 		status = cdk2_tcg2_entry_publish(&service, &mock, &ops);
 		failures += expect((failure == 0 && status == EFI_SUCCESS) ||

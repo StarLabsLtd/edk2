@@ -7,11 +7,13 @@ EFI_STATUS cdk2_tcg2_entry_publish(struct cdk2_tcg2_service *service,
 {
 	void *variable_event = NULL;
 	void *exit_event = NULL;
+	void *exit_failed_event = NULL;
 	EFI_STATUS status;
 
 	if (service == NULL || ops == NULL || ops->register_security == NULL ||
 	    ops->unregister_security == NULL || ops->create_variable_event == NULL ||
 	    ops->register_variable_notify == NULL || ops->create_exit_event == NULL ||
+	    ops->create_exit_failed_event == NULL ||
 	    ops->close_event == NULL || ops->install_config == NULL ||
 	    ops->install_protocol == NULL || ops->release_service == NULL)
 		return EFI_INVALID_PARAMETER;
@@ -27,15 +29,20 @@ EFI_STATUS cdk2_tcg2_entry_publish(struct cdk2_tcg2_service *service,
 	status = ops->create_exit_event(context, &exit_event);
 	if (EFI_ERROR(status))
 		goto close_variable_event;
+	status = ops->create_exit_failed_event(context, &exit_failed_event);
+	if (EFI_ERROR(status))
+		goto close_exit_event;
 	status = ops->install_config(context, &efi_tcg2_final_events_table_guid,
 		service->final_table);
 	if (EFI_ERROR(status))
-		goto close_exit_event;
+		goto close_exit_failed_event;
 	status = ops->install_protocol(context, &efi_tcg2_protocol_guid,
 		&service->protocol);
 	if (!EFI_ERROR(status))
 		return EFI_SUCCESS;
 	ops->install_config(context, &efi_tcg2_final_events_table_guid, NULL);
+close_exit_failed_event:
+	ops->close_event(context, exit_failed_event);
 close_exit_event:
 	ops->close_event(context, exit_event);
 close_variable_event:

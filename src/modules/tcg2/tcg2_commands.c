@@ -355,6 +355,7 @@ EFI_STATUS cdk2_tpm2_hash_spans(void *context, TPMI_ALG_HASH algorithm,
 	UINT32 chunk;
 	UINT16 returned;
 	EFI_STATUS status;
+	EFI_STATUS flush_status;
 
 	if (transport == NULL || spans == NULL || span_count == 0 || digest == NULL)
 		return EFI_INVALID_PARAMETER;
@@ -362,8 +363,10 @@ EFI_STATUS cdk2_tpm2_hash_spans(void *context, TPMI_ALG_HASH algorithm,
 	if (EFI_ERROR(status))
 		return status;
 	for (span_index = 0; span_index < span_count; span_index++) {
-		if (spans[span_index].size != 0 && spans[span_index].data == NULL)
-			return EFI_INVALID_PARAMETER;
+		if (spans[span_index].size != 0 && spans[span_index].data == NULL) {
+			status = EFI_INVALID_PARAMETER;
+			goto flush;
+		}
 		for (offset = 0; offset < spans[span_index].size; offset += chunk) {
 			chunk = spans[span_index].size - offset;
 			if (chunk > CDK2_TPM2_SEQUENCE_CHUNK)
@@ -371,14 +374,28 @@ EFI_STATUS cdk2_tpm2_hash_spans(void *context, TPMI_ALG_HASH algorithm,
 			status = cdk2_tpm2_sequence_update(transport, handle,
 				spans[span_index].data + offset, (UINT16)chunk, &code);
 			if (EFI_ERROR(status))
-				return status;
+				goto flush;
 		}
 	}
 	status = cdk2_tpm2_sequence_complete(transport, handle, NULL, 0,
 		digest, digest_size, &returned, &code);
 	if (EFI_ERROR(status))
-		return status;
+		goto flush;
 	return returned == digest_size ? EFI_SUCCESS : EFI_COMPROMISED_DATA;
+flush:
+	{
+		UINT8 command[14];
+		UINT8 response[CDK2_TPM2_HEADER_SIZE];
+		UINT32 response_size = sizeof(response);
+		struct cdk2_tpm2_result result;
+
+		write_be32(command + 10, handle);
+		command_header(command, sizeof(command), CDK2_TPM2_CC_FLUSH_CONTEXT);
+		flush_status = cdk2_tpm2_execute(transport, command, sizeof(command), response,
+			&response_size, &result);
+		(void)flush_status;
+	}
+	return status;
 }
 
 EFI_STATUS cdk2_tpm2_extend_digests(void *context, TPM_PCRINDEX pcr_index,

@@ -6,7 +6,12 @@
 
 #define BASE 0xfed40000U
 
-struct command_mock { UINT8 data[256]; UINT32 response_code; };
+struct command_mock {
+	UINT8 data[256];
+	UINT32 response_code;
+	BOOLEAN fail_sequence_update;
+	UINT32 flushes;
+};
 
 static UINT32 be32(const UINT8 *bytes)
 {
@@ -83,6 +88,13 @@ static void write32(void *context, UINT64 address, UINT32 value)
 	}
 	if (code == CDK2_TPM2_CC_SEQUENCE_UPDATE ||
 	    code == CDK2_TPM2_CC_PCR_EXTEND) {
+		make_header(mock, 10);
+		if (code == CDK2_TPM2_CC_SEQUENCE_UPDATE && mock->fail_sequence_update)
+			put32(mock->data + 6, 1U);
+		return;
+	}
+	if (code == CDK2_TPM2_CC_FLUSH_CONTEXT) {
+		mock->flushes++;
 		make_header(mock, 10);
 		return;
 	}
@@ -177,6 +189,11 @@ int main(void)
 	failures += expect(cdk2_tpm2_hash_spans(&transport, TPM_ALG_SHA256,
 		hash_spans, 2, digest, sizeof(digest)) == EFI_SUCCESS &&
 		digest[0] == 0xa5, "native TPM hashing failed");
+	mock.fail_sequence_update = TRUE;
+	failures += expect(cdk2_tpm2_hash_spans(&transport, TPM_ALG_SHA256,
+		hash_spans, 2, digest, sizeof(digest)) == EFI_DEVICE_ERROR &&
+		mock.flushes == 1U, "failed sequence was not flushed");
+	mock.fail_sequence_update = FALSE;
 	failures += expect(cdk2_tpm2_extend_digests(&transport, 7, &extend_digest, 1,
 		&code) == EFI_SUCCESS && code == 0, "native TPM extension failed");
 	failures += expect(cdk2_tpm2_pcr_allocate(&transport, 3, 2,

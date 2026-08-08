@@ -20,6 +20,8 @@ typedef EFI_STATUS CDK2_MS_ABI allocate_pool_fn(EFI_MEMORY_TYPE, UINTN, void **)
 typedef EFI_STATUS CDK2_MS_ABI free_pool_fn(void *);
 typedef EFI_STATUS CDK2_MS_ABI create_event_fn(UINT32, UINTN,
 	void (CDK2_MS_ABI *)(void *, void *), void *, void **);
+typedef EFI_STATUS CDK2_MS_ABI create_event_ex_fn(UINT32, UINTN,
+	void (CDK2_MS_ABI *)(void *, void *), void *, const EFI_GUID *, void **);
 typedef EFI_STATUS CDK2_MS_ABI close_event_fn(void *);
 typedef EFI_STATUS CDK2_MS_ABI register_protocol_notify_fn(
 	const EFI_GUID *, void *, void **);
@@ -29,6 +31,7 @@ typedef EFI_STATUS CDK2_MS_ABI locate_protocol_fn(const EFI_GUID *, void *, void
 typedef EFI_STATUS CDK2_MS_ABI stall_fn(UINTN);
 typedef EFI_STATUS CDK2_MS_ABI get_variable_fn(const CHAR16 *, const EFI_GUID *,
 	UINT32 *, UINTN *, void *);
+typedef void CDK2_MS_ABI reset_system_fn(UINT32, EFI_STATUS, UINTN, void *);
 
 struct boot_services_view {
 	UINT8 header[40];
@@ -49,11 +52,15 @@ struct boot_services_view {
 	UINT8 before_locate_protocol[64];
 	locate_protocol_fn *locate_protocol;
 	install_multiple_fn *install_multiple;
+	UINT8 before_create_event_ex[40];
+	create_event_ex_fn *create_event_ex;
 };
 
 struct runtime_services_view {
 	UINT8 before_get_variable[72];
 	get_variable_fn *get_variable;
+	UINT8 before_reset_system[24];
+	reset_system_fn *reset_system;
 };
 
 struct config_table { EFI_GUID guid; void *table; };
@@ -75,6 +82,10 @@ typedef char install_config_offset_check[
 	OFFSET_OF(struct boot_services_view, install_configuration_table) == 192 ? 1 : -1];
 typedef char locate_protocol_offset_check[
 	OFFSET_OF(struct boot_services_view, locate_protocol) == 320 ? 1 : -1];
+typedef char create_event_ex_offset_check[
+	OFFSET_OF(struct boot_services_view, create_event_ex) == 376 ? 1 : -1];
+typedef char reset_system_offset_check[
+	OFFSET_OF(struct runtime_services_view, reset_system) == 104 ? 1 : -1];
 
 static const EFI_GUID variable_write_arch_guid = {
 	0x6441f818, 0x6362, 0x4e44,
@@ -96,6 +107,10 @@ static const EFI_GUID image_security_database_guid = {
 	0xd719b2cb, 0x3d3a, 0x4596,
 	{ 0xa3, 0xbc, 0xda, 0xd0, 0x0e, 0x67, 0x65, 0x6f }
 };
+static const EFI_GUID exit_boot_services_failed_guid = {
+	0x5aea42b5, 0x31e1, 0x4515,
+	{ 0xbc, 0x31, 0xb8, 0xd5, 0x25, 0x75, 0x65, 0xa6 }
+};
 static const CHAR16 secure_boot[] = { 'S', 'e', 'c', 'u', 'r', 'e', 'B', 'o', 'o', 't', 0 };
 static const CHAR16 pk[] = { 'P', 'K', 0 };
 static const CHAR16 kek[] = { 'K', 'E', 'K', 0 };
@@ -108,11 +123,13 @@ static struct runtime_services_view *runtime_services;
 static struct cdk2_security_router *security_router;
 static void *protocol_handle;
 static struct cdk2_tpm2_io tpm_io;
+static BOOLEAN variables_measured;
 
 static EFI_STATUS CDK2_MS_ABI measure_image(const void *file,
 	const void *file_buffer, UINTN file_size, BOOLEAN boot_policy, void *context);
 static void CDK2_MS_ABI variable_write_ready(void *event, void *context);
 static void CDK2_MS_ABI exit_boot_services(void *event, void *context);
+static void CDK2_MS_ABI exit_boot_services_failed(void *event, void *context);
 
 static BOOLEAN guid_equal(const EFI_GUID *left, const EFI_GUID *right)
 {
@@ -259,9 +276,18 @@ static EFI_STATUS create_variable_event(void *context, void **event)
 static EFI_STATUS register_variable_notify(void *context, void *event)
 {
 	void *registration;
+	void *protocol;
+	EFI_STATUS status;
+
 	(void)context;
-	return boot_services->register_protocol_notify(&variable_write_arch_guid,
+	status = boot_services->register_protocol_notify(&variable_write_arch_guid,
 		event, &registration);
+	if (EFI_ERROR(status))
+		return status;
+	if (!EFI_ERROR(boot_services->locate_protocol(&variable_write_arch_guid, NULL,
+	    &protocol)))
+		variable_write_ready(event, NULL);
+	return EFI_SUCCESS;
 }
 
 static EFI_STATUS create_exit_event(void *context, void **event)
@@ -269,6 +295,15 @@ static EFI_STATUS create_exit_event(void *context, void **event)
 	(void)context;
 	return boot_services->create_event(EVT_SIGNAL_EXIT_BOOT_SERVICES,
 		TPL_CALLBACK, exit_boot_services, NULL, event);
+}
+
+static EFI_STATUS create_exit_failed_event(void *context, void **event)
+{
+	(void)context;
+	if (boot_services->create_event_ex == NULL)
+		return EFI_UNSUPPORTED;
+	return boot_services->create_event_ex(EVT_NOTIFY_SIGNAL, TPL_CALLBACK,
+		exit_boot_services_failed, NULL, &exit_boot_services_failed_guid, event);
 }
 
 static EFI_STATUS close_event(void *context, void *event)
@@ -289,6 +324,7 @@ static const struct cdk2_tcg2_entry_ops entry_ops = {
 	.create_variable_event = create_variable_event,
 	.register_variable_notify = register_variable_notify,
 	.create_exit_event = create_exit_event,
+	.create_exit_failed_event = create_exit_failed_event,
 	.close_event = close_event,
 	.install_config = install_config,
 	.install_protocol = install_protocol,
@@ -303,12 +339,12 @@ static EFI_STATUS CDK2_MS_ABI measure_image(const void *file,
 		UINT64 image_length;
 		UINT64 image_link_time;
 		UINT64 device_path_length;
-		UINT8 device_path[768];
-	} event = {0};
+		UINT8 device_path[];
+	};
+	struct image_event *event;
 	const UINT8 *node = file;
 	UINT32 path_size = 0;
 	UINT16 node_size;
-	UINT32 index;
 	UINT32 code;
 	EFI_STATUS status;
 	(void)context;
@@ -316,23 +352,31 @@ static EFI_STATUS CDK2_MS_ABI measure_image(const void *file,
 	    file_size > MAX_UINT32)
 		return EFI_SUCCESS;
 	do {
-		if (path_size + 4 > sizeof(event.device_path))
+		if (path_size > MAX_UINT32 - 4U)
 			return EFI_SUCCESS;
 		node_size = (UINT16)node[path_size + 2] |
 			(UINT16)node[path_size + 3] << 8;
-		if (node_size < 4 || node_size > sizeof(event.device_path) - path_size)
+		if (node_size < 4 || path_size > MAX_UINT32 - node_size)
 			return EFI_SUCCESS;
 		path_size += node_size;
-	} while (node[path_size - node_size] != 0x7f);
-	event.image_location = (UINT64)(UINTN)file_buffer;
-	event.image_length = file_size;
-	event.device_path_length = path_size;
-	for (index = 0; index < path_size; index++)
-		event.device_path[index] = node[index];
+	} while (node[path_size - node_size] != 0x7f ||
+		node[path_size - node_size + 1U] != 0xff);
+	if (path_size > MAX_UINT32 - OFFSET_OF(struct image_event, device_path))
+		return EFI_SUCCESS;
+	if (EFI_ERROR(boot_services->allocate_pool(efi_boot_services_data,
+	    OFFSET_OF(struct image_event, device_path) + path_size, (void **)&event)))
+		return EFI_SUCCESS;
+	event->image_location = (UINT64)(UINTN)file_buffer;
+	event->image_length = file_size;
+	event->image_link_time = 0;
+	event->device_path_length = path_size;
+	for (UINT32 index = 0; index < path_size; index++)
+		event->device_path[index] = node[index];
 	status = cdk2_tcg2_measure_image(&service, 4,
 		boot_policy ? EV_EFI_BOOT_SERVICES_APPLICATION :
 		EV_EFI_BOOT_SERVICES_DRIVER, file_buffer, (UINT32)file_size,
-		&event, OFFSET_OF(struct image_event, device_path) + path_size, &code);
+		event, OFFSET_OF(struct image_event, device_path) + path_size, &code);
+	boot_services->free_pool(event);
 	/* A measurement failure must not become an image-authentication failure. */
 	(void)status;
 	return EFI_SUCCESS;
@@ -360,6 +404,9 @@ static void CDK2_MS_ABI variable_write_ready(void *event, void *context)
 {
 	(void)event;
 	(void)context;
+	if (variables_measured)
+		return;
+	variables_measured = TRUE;
 	measure_variable(secure_boot, sizeof(secure_boot), &global_variable_guid,
 		EV_EFI_VARIABLE_DRIVER_CONFIG);
 	measure_variable(pk, sizeof(pk), &global_variable_guid,
@@ -382,6 +429,33 @@ static void CDK2_MS_ABI exit_boot_services(void *event, void *context)
 	security_router->unregister_handler(measure_image, NULL);
 }
 
+static void CDK2_MS_ABI exit_boot_services_failed(void *event, void *context)
+{
+	UINT32 code;
+
+	(void)event;
+	(void)context;
+	cdk2_tcg2_exit_boot_services(&service, FALSE, FALSE, &code);
+	cdk2_tcg2_exit_boot_services(&service, TRUE, FALSE, &code);
+}
+
+static EFI_STATUS physical_presence(void *context, BOOLEAN asserted)
+{
+	/* The firmware-owned TPM locality is the platform's physical-presence gate. */
+	(void)context;
+	(void)asserted;
+	return EFI_SUCCESS;
+}
+
+static EFI_STATUS reset_platform(void *context)
+{
+	(void)context;
+	if (runtime_services->reset_system == NULL)
+		return EFI_UNSUPPORTED;
+	runtime_services->reset_system(0, EFI_SUCCESS, 0, NULL);
+	return EFI_SUCCESS;
+}
+
 EFI_STATUS CDK2_MS_ABI cdk2_tcg2_entry(void *image,
 	struct system_table_view *system)
 {
@@ -395,6 +469,7 @@ EFI_STATUS CDK2_MS_ABI cdk2_tcg2_entry(void *image,
 		return EFI_INVALID_PARAMETER;
 	boot_services = system->boot;
 	runtime_services = system->runtime;
+	variables_measured = FALSE;
 	tpm_base = find_tpm_base(system);
 	if (tpm_base == 0)
 		return EFI_NOT_FOUND;
@@ -412,6 +487,12 @@ EFI_STATUS CDK2_MS_ABI cdk2_tcg2_entry(void *image,
 		NULL, NULL, LOG_CAPACITY, LOG_CAPACITY);
 	if (EFI_ERROR(status))
 		return status;
+	status = cdk2_tcg2_configure_platform(&service, NULL, physical_presence,
+		reset_platform);
+	if (EFI_ERROR(status)) {
+		cdk2_tcg2_service_release(&service);
+		return status;
+	}
 	status = boot_services->locate_protocol(&security_router_guid, NULL,
 		(void **)&security_router);
 	if (EFI_ERROR(status)) {

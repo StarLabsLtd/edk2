@@ -20,6 +20,7 @@ struct cdk2_tcg2_entry_ops {
 	cdk2_tcg2_entry_create_fn *create_variable_event;
 	cdk2_tcg2_entry_notify_fn *register_variable_notify;
 	cdk2_tcg2_entry_create_fn *create_exit_event;
+	cdk2_tcg2_entry_create_fn *create_exit_failed_event;
 	cdk2_tcg2_entry_close_fn *close_event;
 	cdk2_tcg2_entry_install_fn *install_config;
 	cdk2_tcg2_entry_install_fn *install_protocol;
