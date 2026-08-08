@@ -57,7 +57,7 @@ CDK2_CONFIG_TARGETS := build check manifest modules native-stage \
 	native-smm-access-test native-smm-access-fv \
 	native-smm-control-test native-smm-control-fv \
 	native-cpu-io2-smm-test native-cpu-io2-smm-fv \
-	native-pch-smi-dispatch-test \
+	native-pch-smi-dispatch-test native-pch-smi-dispatch-fv \
 	manifest-check print
 
 CDK2_RECURSIVE_ARGS := \
@@ -97,7 +97,7 @@ CDK2_RECURSIVE_ARGS := \
 	native-smm-access-test native-smm-access-fv \
 	native-smm-control-test native-smm-control-fv \
 	native-cpu-io2-smm-test native-cpu-io2-smm-fv \
-	native-pch-smi-dispatch-test \
+	native-pch-smi-dispatch-test native-pch-smi-dispatch-fv \
 	native-elfcheck-test manifest-check print lint \
 	lint-stable lint-extended test-lint \
 	jenkins what-jenkins-does retained-fv-check coreboot-stage clean FORCE

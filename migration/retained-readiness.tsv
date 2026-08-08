@@ -50,7 +50,6 @@ unsafe-standalone	UefiPayloadPkg/BlSupportDxe/BlSupportDxe
 hardware-gated	UefiPayloadPkg/BlSupportSmm/BlSupportSmm
 hardware-gated	UefiPayloadPkg/EcAcpiBatteryStatusDxe/EcAcpiBatteryStatusDxe
 hardware-gated	UefiPayloadPkg/GraphicsOutputDxe/GraphicsOutputDxe
-hardware-gated	UefiPayloadPkg/PchSmiDispatchSmm/PchSmiDispatchSmm
 hardware-gated	UefiPayloadPkg/SmmStoreFvb/SmmStoreFvbRuntimeDxe
 hardware-gated	UefiPayloadPkg/Tpm2AcpiTableDxe/Tpm2AcpiTableDxe
 unsafe-standalone	UefiPayloadPkg/cdk2/backend/edk2/entry/UefiPayloadEntry

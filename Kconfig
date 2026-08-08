@@ -294,6 +294,15 @@ config CDK2_NATIVE_CPU_IO2_SMM
 	  Publish the SMM CPU I/O 2 protocol and populate the management-mode
 	  system table with native MMIO and port-I/O services.
 
+config CDK2_NATIVE_PCH_SMI_DISPATCH
+	bool "Build native PCH software-SMI dispatch services"
+	default y
+	depends on CDK2_NATIVE_CPU_IO2_SMM && CDK2_NATIVE_SMM_CONTROL
+	help
+	  Publish the PI SMM Software Dispatch 2 protocol using the SMI register
+	  information supplied by coreboot. The dispatcher contains no chipset
+	  register constants beyond the architectural APM command/data ports.
+
 config CDK2_BUILD_DEBUG
 	bool "Build a debug payload"
 	default n
