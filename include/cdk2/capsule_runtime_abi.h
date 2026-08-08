@@ -20,12 +20,17 @@ struct cdk2_boot_services_view {
 	void *copy_mem, *set_mem, *create_event_ex;
 };
 
-_Static_assert(sizeof(struct cdk2_table_header) == 24, "UEFI table header ABI");
-_Static_assert(offsetof(struct cdk2_runtime_services_view, update_capsule) == 112, "UpdateCapsule ABI");
-_Static_assert(offsetof(struct cdk2_runtime_services_view, query_capsule) == 120, "QueryCapsule ABI");
-_Static_assert(sizeof(struct cdk2_runtime_services_view) == 136, "runtime table ABI");
-_Static_assert(offsetof(struct cdk2_boot_services_view, calculate_crc32) == 344, "CalculateCrc32 ABI");
-_Static_assert(offsetof(struct cdk2_boot_services_view, create_event_ex) == 368, "CreateEventEx ABI");
+typedef char cdk2_table_header_abi[(sizeof(struct cdk2_table_header) == 24) ? 1 : -1];
+typedef char cdk2_update_capsule_abi[
+	(offsetof(struct cdk2_runtime_services_view, update_capsule) == 112) ? 1 : -1];
+typedef char cdk2_query_capsule_abi[
+	(offsetof(struct cdk2_runtime_services_view, query_capsule) == 120) ? 1 : -1];
+typedef char cdk2_runtime_table_abi[
+	(sizeof(struct cdk2_runtime_services_view) == 136) ? 1 : -1];
+typedef char cdk2_calculate_crc32_abi[
+	(offsetof(struct cdk2_boot_services_view, calculate_crc32) == 344) ? 1 : -1];
+typedef char cdk2_create_event_ex_abi[
+	(offsetof(struct cdk2_boot_services_view, create_event_ex) == 368) ? 1 : -1];
 
 EFI_STATUS cdk2_capsule_install_runtime_slots(struct cdk2_runtime_services_view *,
 	struct cdk2_boot_services_view *, void *, void *);

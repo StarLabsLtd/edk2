@@ -320,6 +320,15 @@ config CDK2_NATIVE_GRAPHICS_CONSOLE
 	  Publish Simple Text Output on GOP controllers and own the HII narrow-font
 	  package used to render the complete UEFI console glyph repertoire.
 
+config CDK2_NATIVE_CAPSULE_RUNTIME
+	bool "Build native capsule runtime services"
+	default n
+	depends on CDK2_NATIVE_STAGE
+	help
+	  Publish capsule query and update runtime services after variable write
+	  services become available. Disabled until the native replacement has
+	  passed exact retained-FV and carrier validation.
+
 config CDK2_BUILD_DEBUG
 	bool "Build a debug payload"
 	default n

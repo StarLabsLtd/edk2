@@ -150,6 +150,17 @@ CDK2_NATIVE_LOCAL_APIC_TIMER_DEPEX_GEN ?= $(CDK2_NATIVE_BUILD_DIR)/local-apic-ti
 CDK2_NATIVE_LOCAL_APIC_TIMER_DEPEX ?= $(CDK2_NATIVE_BUILD_DIR)/LocalApicTimerDxe.depex
 CDK2_NATIVE_LOCAL_APIC_TIMER_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/LocalApicTimerDxe.ffs
 CDK2_NATIVE_LOCAL_APIC_TIMER_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-local-apic-timer.fv
+CDK2_NATIVE_CAPSULE_RUNTIME_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-capsule-runtime-test
+CDK2_NATIVE_CAPSULE_RUNTIME_ABI_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-capsule-runtime-abi-test
+CDK2_NATIVE_CAPSULE_RUNTIME_ENTRY_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-capsule-runtime-entry-test
+CDK2_NATIVE_CAPSULE_RUNTIME_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/capsule-runtime.o
+CDK2_NATIVE_CAPSULE_RUNTIME_ABI_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/capsule-runtime-abi.o
+CDK2_NATIVE_CAPSULE_RUNTIME_ENTRY_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/capsule-runtime-entry.o
+CDK2_NATIVE_CAPSULE_RUNTIME_PE ?= $(CDK2_NATIVE_BUILD_DIR)/CapsuleRuntimeDxe.efi
+CDK2_NATIVE_CAPSULE_RUNTIME_DEPEX_GEN ?= $(CDK2_NATIVE_BUILD_DIR)/capsule-runtime-depex-gen
+CDK2_NATIVE_CAPSULE_RUNTIME_DEPEX ?= $(CDK2_NATIVE_BUILD_DIR)/CapsuleRuntimeDxe.depex
+CDK2_NATIVE_CAPSULE_RUNTIME_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/CapsuleRuntimeDxe.ffs
+CDK2_NATIVE_CAPSULE_RUNTIME_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-capsule-runtime.fv
 CDK2_NATIVE_REMOVE_TCG1_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-without-tcg1.fv
 CDK2_NATIVE_GRAPHICS_CONSOLE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-graphics-console-test
 CDK2_NATIVE_GRAPHICS_PACKAGE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-graphics-package-test
@@ -241,11 +252,14 @@ CDK2_NATIVE_HOST_TOOLS := \
 	$(CDK2_NATIVE_LOCAL_APIC_TIMER_DRIVER_TEST) \
 	$(CDK2_NATIVE_GRAPHICS_CONSOLE_TEST) \
 	$(CDK2_NATIVE_GRAPHICS_PACKAGE_TEST) \
-	$(CDK2_NATIVE_GRAPHICS_ENTRY_TEST)
+	$(CDK2_NATIVE_GRAPHICS_ENTRY_TEST) \
+	$(CDK2_NATIVE_CAPSULE_RUNTIME_TEST) \
+	$(CDK2_NATIVE_CAPSULE_RUNTIME_ABI_TEST) \
+	$(CDK2_NATIVE_CAPSULE_RUNTIME_ENTRY_TEST)
 CDK2_NATIVE_LINK_FLAGS := -static -no-pie -nostdlib -nostartfiles -nodefaultlibs -Wl,-z,max-page-size=0x1000 -Wl,-z,common-page-size=0x1000 -Wl,-T,"$(CDK2_NATIVE_DIR)/cdk2.ld"
 CDK2_NATIVE_LINK_POST_MAP_FLAGS := -Wl,--gc-sections -Wl,--build-id=none
 
-.PHONY: native-stage native-coreboot-stage native-coreboot-image native-metronome-fv native-security-stub-fv native-null-memory-test-fv native-null-memory-test-test native-watchdog-fv native-monotonic-counter-fv native-status-code-router-fv native-status-code-router-test native-status-code-handler-fv native-status-code-handler-test native-cpu-io2-fv native-cpu-io2-test native-english-test native-english-fv native-disk-io-fv native-disk-io-test native-serial-io-fv native-serial-io-test native-smbios-fv native-smbios-test native-reset-system-fv native-reset-system-test native-pcat-rtc-fv native-pcat-rtc-test native-smm-access-fv native-smm-access-test native-smm-control-fv native-smm-control-test native-cpu-io2-smm-fv native-cpu-io2-smm-test native-pch-smi-dispatch-test native-pch-smi-dispatch-fv native-local-apic-timer-test native-local-apic-timer-fv native-graphics-console-test native-graphics-console-fv native-check native-pack native-service-test native-coreboot-test native-fv-test native-fvpack-test native-fvinfo native-fvinfo-test native-ffsbuild-test native-pe-test native-module-test native-security-stub-test native-elfcheck-test FORCE
+.PHONY: native-stage native-coreboot-stage native-coreboot-image native-metronome-fv native-security-stub-fv native-null-memory-test-fv native-null-memory-test-test native-watchdog-fv native-monotonic-counter-fv native-status-code-router-fv native-status-code-router-test native-status-code-handler-fv native-status-code-handler-test native-cpu-io2-fv native-cpu-io2-test native-english-test native-english-fv native-disk-io-fv native-disk-io-test native-serial-io-fv native-serial-io-test native-smbios-fv native-smbios-test native-reset-system-fv native-reset-system-test native-pcat-rtc-fv native-pcat-rtc-test native-smm-access-fv native-smm-access-test native-smm-control-fv native-smm-control-test native-cpu-io2-smm-fv native-cpu-io2-smm-test native-pch-smi-dispatch-test native-pch-smi-dispatch-fv native-local-apic-timer-test native-local-apic-timer-fv native-graphics-console-test native-graphics-console-fv native-capsule-runtime-test native-capsule-runtime-fv native-check native-pack native-service-test native-coreboot-test native-fv-test native-fvpack-test native-fvinfo native-fvinfo-test native-ffsbuild-test native-pe-test native-module-test native-security-stub-test native-elfcheck-test FORCE
 
 ifeq ($(CONFIG_CDK2_NATIVE_STAGE),y)
 CDK2_NATIVE_STAGE_DEPS := $(CDK2_NATIVE_ELF)
@@ -305,9 +319,9 @@ native-check: $(CDK2_CONFIG_HEADER) $(CDK2_NATIVE_ELF) $(CDK2_NATIVE_OVERRIDE_EL
 	@"$(CDK2_NATIVE_PCH_SMI_DISPATCH_TEST)"
 	@"$(CDK2_NATIVE_LOCAL_APIC_TIMER_TEST)"
 	@"$(CDK2_NATIVE_LOCAL_APIC_TIMER_DRIVER_TEST)"
-	@"$(CDK2_NATIVE_GRAPHICS_CONSOLE_TEST)"
-	@"$(CDK2_NATIVE_GRAPHICS_PACKAGE_TEST)"
-	@"$(CDK2_NATIVE_GRAPHICS_ENTRY_TEST)"
+	@"$(CDK2_NATIVE_CAPSULE_RUNTIME_TEST)"
+	@"$(CDK2_NATIVE_CAPSULE_RUNTIME_ABI_TEST)"
+	@"$(CDK2_NATIVE_CAPSULE_RUNTIME_ENTRY_TEST)"
 	@"$(CDK2_NATIVE_ELF_CHECK_TEST)" "$(CDK2_NATIVE_ELF_CHECK)" "$(CDK2_NATIVE_BUILD_DIR)"
 	@printf '%s\n' "native cdk2 stage: $(CDK2_NATIVE_ELF)"
 	@printf '%s\n' "native cdk2 FV packer: $(CDK2_NATIVE_PACKER)"
@@ -448,6 +462,14 @@ native-graphics-console-test: $(CDK2_NATIVE_GRAPHICS_CONSOLE_TEST) $(CDK2_NATIVE
 	@"$(CDK2_NATIVE_GRAPHICS_PACKAGE_TEST)"
 	@"$(CDK2_NATIVE_GRAPHICS_ENTRY_TEST)"
 
+native-capsule-runtime-test: $(CDK2_NATIVE_CAPSULE_RUNTIME_TEST) \
+		$(CDK2_NATIVE_CAPSULE_RUNTIME_ABI_TEST) $(CDK2_NATIVE_CAPSULE_RUNTIME_ENTRY_TEST)
+	@"$(CDK2_NATIVE_CAPSULE_RUNTIME_TEST)"
+	@"$(CDK2_NATIVE_CAPSULE_RUNTIME_ABI_TEST)"
+	@"$(CDK2_NATIVE_CAPSULE_RUNTIME_ENTRY_TEST)"
+
+native-capsule-runtime-fv: $(CDK2_NATIVE_CAPSULE_RUNTIME_FV)
+	@printf '%s\n' "native capsule runtime FV: $(CDK2_NATIVE_CAPSULE_RUNTIME_FV)"
 native-pe-test: $(CDK2_NATIVE_PE_TEST)
 	@"$(CDK2_NATIVE_PE_TEST)"
 
@@ -1062,6 +1084,38 @@ $(CDK2_NATIVE_LOCAL_APIC_TIMER_FV): $(CDK2_NATIVE_PRE_LOCAL_APIC_TIMER_FV) $(CDK
 	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_PRE_LOCAL_APIC_TIMER_FV)" 0x80880 "$(CDK2_NATIVE_LOCAL_APIC_TIMER_FFS)" "$@"
 endif
 
+ifeq ($(CONFIG_CDK2_NATIVE_CAPSULE_RUNTIME),y)
+CDK2_NATIVE_PRE_CAPSULE_RUNTIME_FV := $(CDK2_NATIVE_FINAL_FV)
+CDK2_NATIVE_FINAL_FV := $(CDK2_NATIVE_CAPSULE_RUNTIME_FV)
+else
+CDK2_NATIVE_PRE_CAPSULE_RUNTIME_FV := $(CDK2_NATIVE_FINAL_FV)
+endif
+
+$(CDK2_NATIVE_CAPSULE_RUNTIME_OBJ): $(CDK2_DIR)/src/modules/capsule_runtime/capsule_runtime.c $(CDK2_DIR)/include/cdk2/capsule_runtime.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) -mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args $(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+
+$(CDK2_NATIVE_CAPSULE_RUNTIME_ABI_OBJ): $(CDK2_DIR)/src/modules/capsule_runtime/capsule_runtime_abi.c $(CDK2_DIR)/include/cdk2/capsule_runtime_abi.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) -mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args $(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+
+$(CDK2_NATIVE_CAPSULE_RUNTIME_ENTRY_OBJ): $(CDK2_DIR)/src/modules/capsule_runtime/entry.c $(CDK2_DIR)/include/cdk2/capsule_runtime_entry.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) -mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args $(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+
+$(CDK2_NATIVE_CAPSULE_RUNTIME_PE): $(CDK2_NATIVE_CAPSULE_RUNTIME_OBJ) $(CDK2_NATIVE_CAPSULE_RUNTIME_ABI_OBJ) $(CDK2_NATIVE_CAPSULE_RUNTIME_ENTRY_OBJ) $(CDK2_DIR)/src/modules/capsule_runtime/capsule_runtime.ld $(CDK2_NATIVE_PERELOCCHECK)
+	@$(LD) -mi386pep --subsystem 11 --entry cdk2_capsule_runtime_entry --image-base 0 --section-alignment 0x1000 --file-alignment 0x1000 --build-id=none --no-insert-timestamp -s --nxcompat -T "$(CDK2_DIR)/src/modules/capsule_runtime/capsule_runtime.ld" -o "$@" $(CDK2_NATIVE_CAPSULE_RUNTIME_OBJ) $(CDK2_NATIVE_CAPSULE_RUNTIME_ABI_OBJ) $(CDK2_NATIVE_CAPSULE_RUNTIME_ENTRY_OBJ)
+	@"$(CDK2_NATIVE_PERELOCCHECK)" --subsystem 11 "$@"
+
+$(CDK2_NATIVE_CAPSULE_RUNTIME_DEPEX_GEN): $(CDK2_DIR)/src/modules/capsule_runtime/depex.c | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -o "$@" "$<"
+
+$(CDK2_NATIVE_CAPSULE_RUNTIME_DEPEX): $(CDK2_NATIVE_CAPSULE_RUNTIME_DEPEX_GEN)
+	@"$<" "$@"
+
+$(CDK2_NATIVE_CAPSULE_RUNTIME_FFS): $(CDK2_NATIVE_CAPSULE_RUNTIME_PE) $(CDK2_NATIVE_CAPSULE_RUNTIME_DEPEX) $(CDK2_NATIVE_FFSBUILD)
+	@"$(CDK2_NATIVE_FFSBUILD)" 42857f0a-13f2-4b21-8a23-53d3f714b840 CapsuleRuntimeDxe 1.0 0x407a "$<" "$@" "$(CDK2_NATIVE_CAPSULE_RUNTIME_DEPEX)"
+
+$(CDK2_NATIVE_CAPSULE_RUNTIME_FV): $(CDK2_NATIVE_PRE_CAPSULE_RUNTIME_FV) $(CDK2_NATIVE_CAPSULE_RUNTIME_FFS) $(CDK2_NATIVE_FVREPLACE)
+	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_PRE_CAPSULE_RUNTIME_FV)" 0x969c8 "$(CDK2_NATIVE_CAPSULE_RUNTIME_FFS)" "$@"
+
 # The admitted profile disables TPM 1.2.  Remove its unused driver while
 # retaining Tcg2Dxe until the native TPM 2.0 replacement is admitted.
 CDK2_NATIVE_PRE_REMOVE_TCG1_FV := $(CDK2_NATIVE_FINAL_FV)
@@ -1205,6 +1259,15 @@ $(CDK2_NATIVE_GRAPHICS_ENTRY_TEST): $(CDK2_DIR)/tests/graphics_console_entry_tes
 		"$(CDK2_DIR)/src/modules/graphics_console/model.c" \
 		"$(CDK2_DIR)/src/modules/graphics_console/font_package.c" \
 		"$(CDK2_DIR)/src/modules/graphics_console/font_data.c"
+
+$(CDK2_NATIVE_CAPSULE_RUNTIME_TEST): $(CDK2_DIR)/tests/capsule_runtime_test.c $(CDK2_DIR)/src/modules/capsule_runtime/capsule_runtime.c $(CDK2_DIR)/include/cdk2/capsule_runtime.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_DIR)/tests/capsule_runtime_test.c" "$(CDK2_DIR)/src/modules/capsule_runtime/capsule_runtime.c"
+
+$(CDK2_NATIVE_CAPSULE_RUNTIME_ABI_TEST): $(CDK2_DIR)/tests/capsule_runtime_abi_test.c $(CDK2_DIR)/src/modules/capsule_runtime/capsule_runtime.c $(CDK2_DIR)/src/modules/capsule_runtime/capsule_runtime_abi.c $(CDK2_DIR)/include/cdk2/capsule_runtime_abi.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_DIR)/tests/capsule_runtime_abi_test.c" "$(CDK2_DIR)/src/modules/capsule_runtime/capsule_runtime.c" "$(CDK2_DIR)/src/modules/capsule_runtime/capsule_runtime_abi.c"
+
+$(CDK2_NATIVE_CAPSULE_RUNTIME_ENTRY_TEST): $(CDK2_DIR)/tests/capsule_runtime_entry_test.c $(CDK2_DIR)/src/modules/capsule_runtime/entry.c $(CDK2_DIR)/src/modules/capsule_runtime/capsule_runtime.c $(CDK2_DIR)/src/modules/capsule_runtime/capsule_runtime_abi.c $(CDK2_DIR)/include/cdk2/capsule_runtime_entry.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -DCDK2_CAPSULE_ENTRY_TEST $(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_DIR)/tests/capsule_runtime_entry_test.c" "$(CDK2_DIR)/src/modules/capsule_runtime/entry.c" "$(CDK2_DIR)/src/modules/capsule_runtime/capsule_runtime.c" "$(CDK2_DIR)/src/modules/capsule_runtime/capsule_runtime_abi.c"
 
 FORCE:
 

@@ -60,6 +60,7 @@ CDK2_CONFIG_TARGETS := build check manifest modules native-stage \
 	native-pch-smi-dispatch-test native-pch-smi-dispatch-fv \
 	native-local-apic-timer-test native-local-apic-timer-fv \
 	native-graphics-console-test native-graphics-console-fv \
+	native-capsule-runtime-test native-capsule-runtime-fv \
 	manifest-check print
 
 CDK2_RECURSIVE_ARGS := \
@@ -102,6 +103,7 @@ CDK2_RECURSIVE_ARGS := \
 	native-pch-smi-dispatch-test native-pch-smi-dispatch-fv \
 	native-local-apic-timer-test native-local-apic-timer-fv \
 	native-graphics-console-test native-graphics-console-fv \
+	native-capsule-runtime-test native-capsule-runtime-fv \
 	native-elfcheck-test manifest-check print lint \
 	lint-stable lint-extended test-lint \
 	jenkins what-jenkins-does retained-fv-check coreboot-stage clean FORCE
