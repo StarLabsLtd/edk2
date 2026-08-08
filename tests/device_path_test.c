@@ -53,6 +53,88 @@ static int text_equal(const CHAR16 *actual, const char *expected)
 	return *actual == 0 && *expected == '\0';
 }
 
+static void text16(CHAR16 *output, const char *input)
+{
+	while (*input != '\0')
+		*output++ = (CHAR16)(UINT8)*input++;
+	*output = 0;
+}
+
+static int expect_round_trip(const char *input,
+	const struct cdk2_device_path_allocator *allocator)
+{
+	CHAR16 source[256];
+	CHAR16 output[256];
+	struct cdk2_device_path *path = NULL;
+	UINTN size;
+	UINTN required;
+	EFI_STATUS status;
+	text16(source, input);
+	status = cdk2_device_path_from_text(source, allocator, &path);
+	if (status != EFI_SUCCESS)
+		return expect(FALSE, input);
+	status = cdk2_device_path_size(path, CDK2_DEVICE_PATH_MAX_SIZE, &size);
+	if (status == EFI_SUCCESS)
+		status = cdk2_device_path_to_text(path, size, FALSE, TRUE, output,
+			ARRAY_SIZE(output), &required);
+	allocator->free(allocator->context, path);
+	if (status == EFI_SUCCESS && !text_equal(output, input)) {
+		fprintf(stderr, "device-path round trip output: ");
+		for (required = 0; output[required] != 0; required++)
+			fputc((char)output[required], stderr);
+		fputc('\n', stderr);
+	}
+	return expect(status == EFI_SUCCESS && text_equal(output, input), input);
+}
+
+static int parser_tests(const struct cdk2_device_path_allocator *allocator)
+{
+	static const char *const paths[] = {
+		"Pci(0x1f,0x2)/PcCard(0x3)/Ctrl(0x1234)",
+		"MemoryMapped(0x4,0x123456789,0xabcdef)/BMC(0x1,0x123456789abcdef0)",
+		"VenHw(11223344-5566-7788-0102-030405060708,aa05)",
+		"PciRoot(0x2)/PcieRoot(0x3)/Floppy(0x4)/Keyboard(0x5)",
+		"Serial(0x6)/ParallelPort(0x7)",
+		"Acpi(PNP1234,0x2)/Acpi(0x12345678,0x2)",
+		"AcpiExp(PNP0A03,0,ROOT)",
+		"AcpiEx(PNP0A03,@@@0000,0x7,HID,,U)",
+		"AcpiEx(PNP0A03,@@@0000,0x0,x,,)",
+		"AcpiAdr(0x111,0x222,0x333)",
+		"HardwarePath(119,0102ff)/AcpiPath(126,aabb)",
+		"PcCard(0x1),PcCard(0x2)",
+	};
+	static const char *const malformed[] = {
+		"", "Pci(1)", "Pci(0x100,0)", "Pci(0,0)/",
+		"VenHw(bad)", "VenHw(11223344-5566-7788-0102-030405060708,0)",
+		"Acpi(PNP123,0)", "AcpiEx(PNP0A03,PNP0000,0)", "AcpiAdr()",
+		"HardwarePath(256,00)", "AcpiAdr(0x100000000)",
+	};
+	CHAR16 text[256];
+	struct cdk2_device_path *path;
+	UINTN before;
+	UINTN index;
+	int failures = 0;
+	for (index = 0; index < ARRAY_SIZE(paths); index++)
+		failures += expect_round_trip(paths[index], allocator);
+	text16(text, "Pci(0x1f,0x2)"); before = allocations;
+	failures += expect(cdk2_device_path_node_from_text(text, allocator, &path) ==
+		EFI_SUCCESS && allocations == before + 1 &&
+		cdk2_device_path_node_length(path) == 6, "node parser/two-pass allocation");
+	if (path != NULL)
+		allocator->free(allocator->context, path);
+	for (index = 0; index < ARRAY_SIZE(malformed); index++) {
+		text16(text, malformed[index]); path = (void *)(UINTN)1; before = allocations;
+		failures += expect(cdk2_device_path_from_text(text, allocator, &path) ==
+			EFI_INVALID_PARAMETER && path == NULL && allocations == before,
+			"malformed parser input accepted or allocated");
+	}
+	text16(text, "Pci(0,0)"); fail_allocation = TRUE; path = (void *)(UINTN)1;
+	failures += expect(cdk2_device_path_from_text(text, allocator, &path) ==
+		EFI_OUT_OF_RESOURCES && path == NULL, "parser allocation failure escaped");
+	fail_allocation = FALSE;
+	return failures;
+}
+
 static void put16(UINT8 *bytes, UINT16 value)
 {
 	bytes[0] = (UINT8)value;
@@ -435,6 +517,7 @@ int main(void)
 	failures += formatter_tests();
 	failures += messaging_formatter_tests();
 	failures += media_bbs_formatter_tests();
+	failures += parser_tests(&allocator);
 
 	set_node(first, 1, 1, 8);
 	set_node((void *)(first_bytes + 8), CDK2_DEVICE_PATH_END_TYPE,
