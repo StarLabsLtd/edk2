@@ -31,9 +31,6 @@ static EFI_STATUS CDK2_MS_ABI create_event(UINT32 type, UINTN tpl,
 static EFI_STATUS CDK2_MS_ABI convert_pointer(UINTN disposition, void **pointer)
 { (void)disposition; assert(pointer != NULL); converts++; return EFI_SUCCESS; }
 
-static void set_slot(struct cdk2_boot_services_view *boot, UINTN offset, void *function)
-{ *(void **)((UINT8 *)boot + offset) = function; }
-
 int main(void)
 {
 	struct cdk2_boot_services_view boot = { 0 };
@@ -43,8 +40,8 @@ int main(void)
 
 	boot.calculate_crc32 = crc32;
 	boot.create_event_ex = create_event;
-	set_slot(&boot, 320U, install);
-	set_slot(&boot, 328U, uninstall);
+	boot.install_multiple = install;
+	boot.uninstall_multiple = uninstall;
 	runtime.header.size = sizeof(runtime);
 	runtime.header.crc32 = 7U;
 	runtime.update_capsule = old_update;

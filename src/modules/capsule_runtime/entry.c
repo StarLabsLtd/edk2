@@ -3,8 +3,6 @@
 #include <cdk2/capsule_runtime.h>
 #include <cdk2/capsule_runtime_entry.h>
 
-#define BS_INSTALL_MULTIPLE_OFFSET 320U
-#define BS_UNINSTALL_MULTIPLE_OFFSET 328U
 #define EVT_NOTIFY_SIGNAL 0x200U
 #define TPL_NOTIFY 16U
 
@@ -27,11 +25,6 @@ static struct cdk2_system_table_view *system_table;
 static struct cdk2_capsule_runtime runtime;
 static void *capsule_handle;
 static void *va_event;
-
-static void *boot_function(UINTN offset)
-{
-	return *(void **)((UINT8 *)system_table->boot + offset);
-}
 
 static EFI_STATUS support(const struct cdk2_capsule_header *capsule, void *context)
 {
@@ -160,7 +153,7 @@ EFI_STATUS CDK2_MS_ABI cdk2_capsule_runtime_entry(void *image,
 		update_capsule, query_capsule);
 	if (EFI_ERROR(status))
 		return status;
-	install_multiple = boot_function(BS_INSTALL_MULTIPLE_OFFSET);
+	install_multiple = system->boot->install_multiple;
 	if (install_multiple == NULL) {
 		status = EFI_UNSUPPORTED;
 		goto restore;
@@ -180,7 +173,7 @@ EFI_STATUS CDK2_MS_ABI cdk2_capsule_runtime_entry(void *image,
 	if (!EFI_ERROR(status))
 		return EFI_SUCCESS;
 uninstall:
-	uninstall_multiple = boot_function(BS_UNINSTALL_MULTIPLE_OFFSET);
+	uninstall_multiple = system->boot->uninstall_multiple;
 	if (uninstall_multiple != NULL)
 		(void)uninstall_multiple(capsule_handle, &capsule_arch_guid, NULL, NULL);
 	capsule_handle = NULL;
