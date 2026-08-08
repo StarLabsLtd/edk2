@@ -41,12 +41,6 @@ CDK2_KCONFIG_ENV = \
 
 CDK2_CONFIG_TARGETS := build check manifest modules native-stage \
 	native-coreboot-stage native-coreboot-image native-check native-pack native-service-test \
-	native-pcd-package \
-	native-pci-host-bridge-package \
-	native-pci-bus-package native-pci-bus-fv \
-	native-sata-controller-package native-sata-controller-oracle native-sata-controller-fv \
-	native-ata-atapi-fv native-ata-atapi-fv-exact native-ata-bus-fv \
-	native-ata-bus-fv-exact \
 	native-coreboot-test native-fv-test native-fvpack-test native-pe-test \
 	native-fvinfo native-fvinfo-test native-null-memory-test-fv \
 	native-null-memory-test-test native-module-test native-elfcheck-test \
@@ -66,58 +60,8 @@ CDK2_CONFIG_TARGETS := build check manifest modules native-stage \
 	native-pch-smi-dispatch-test native-pch-smi-dispatch-fv \
 	native-local-apic-timer-test native-local-apic-timer-fv \
 	native-graphics-console-test native-graphics-console-fv \
-	native-hii-database-test native-hii-database-ffs native-hii-database-fv \
-	native-hii-database-oracle \
-	native-scsi-bus-test native-scsi-bus-package native-scsi-bus-fv \
-	native-scsi-disk-test native-scsi-disk-package native-scsi-disk-fv \
-	native-scsi-disk-fv-exact native-scsi-disk-oracle \
-	native-xhci-test native-xhci-package native-xhci-fv native-xhci-fv-exact \
-	native-usb-bus-test native-usb-bus-package native-usb-bus-fv \
-	native-usb-mass-test native-usb-mass-package native-usb-mass-fv-exact \
-	native-usb-keyboard-test native-usb-keyboard-package \
-	native-usb-keyboard-fv-exact \
-	native-usb-mouse-test native-usb-mouse-package native-usb-mouse-fv-exact \
-	native-sio-bus-test native-sio-bus-package native-sio-bus-fv-exact \
-	native-ps2-mouse-test native-ps2-mouse-package native-ps2-mouse-fv-exact \
-	native-terminal-test native-terminal-package native-terminal-fv-exact \
-	native-graphics-output-test native-graphics-output-package \
-	native-graphics-output-fv-exact \
-	native-acpi-table-test native-acpi-table-package native-acpi-table-fv-exact \
-	native-smmstore-test native-smmstore-package native-smmstore-fv-exact \
-	native-usb-bus-fv-exact \
-	native-scsi-bus-fv-exact native-scsi-bus-oracle \
 	native-capsule-runtime-test native-capsule-runtime-fv \
-	native-tcg2-transport-test native-tcg2-commands-test native-tcg2-event-log-test \
-	native-tcg2-measure-test native-tcg2-service-test native-tcg2-entry-test native-tcg2-fv \
-	native-tpm2-acpi-table-test native-tpm2-acpi-table-fv \
-	native-esrt-test native-esrt-ffs native-esrt-fv \
-	native-pcd-fv \
-	native-device-path-test native-device-path-fv \
-	native-partition-test native-partition-fv \
-	native-bl-support-test native-bl-support-package native-bl-support-fv \
-	native-bl-support-oracle native-pci-host-bridge-fv \
-	native-pci-host-bridge-oracle \
-	native-pci-host-bridge-in-fv-oracle \
-	native-fat-test native-fat-package native-fat-fv native-fat-oracle \
-	native-pci-bus-test \
-	native-ata-atapi-pass-thru-test \
-	native-ata-atapi-binding-test \
-	native-ata-atapi-ahci-test \
-	native-ata-atapi-ide-test \
-	native-ata-atapi-pci-test \
-	native-ata-atapi-entry-test \
-	native-ata-protocol-test \
-	native-ata-async-test \
-	native-ata-backend-ide-test \
-	native-ata-bus-model-test \
-	native-ata-bus-io-test \
-	native-ata-bus-block-test \
-	native-ata-bus-binding-test \
-	native-ata-bus-entry-test \
-	native-ata-bus-package \
-	native-ata-bus-oracle \
-	native-ata-atapi-package \
-	native-ata-atapi-oracle \
+	native-ftw-test \
 	manifest-check print
 
 CDK2_RECURSIVE_ARGS := \
@@ -129,22 +73,6 @@ CDK2_RECURSIVE_ARGS := \
 	CDK2_KCONFIG="$(CDK2_KCONFIG)" \
 	CDK2_KCONFIG_TOOL="$(CDK2_KCONFIG_TOOL)" \
 	CDK2_PAYLOAD_FV="$(CDK2_PAYLOAD_FV)" \
-	$(if $(CDK2_NATIVE_PRE_ATA_ATAPI_FV),CDK2_NATIVE_PRE_ATA_ATAPI_FV="$(CDK2_NATIVE_PRE_ATA_ATAPI_FV)") \
-	$(if $(CDK2_NATIVE_PRE_ATA_BUS_FV),CDK2_NATIVE_PRE_ATA_BUS_FV="$(CDK2_NATIVE_PRE_ATA_BUS_FV)") \
-	$(if $(CDK2_NATIVE_PRE_SCSI_BUS_FV),CDK2_NATIVE_PRE_SCSI_BUS_FV="$(CDK2_NATIVE_PRE_SCSI_BUS_FV)") \
-	$(if $(CDK2_NATIVE_PRE_SCSI_DISK_FV),CDK2_NATIVE_PRE_SCSI_DISK_FV="$(CDK2_NATIVE_PRE_SCSI_DISK_FV)") \
-	$(if $(CDK2_NATIVE_PRE_XHCI_FV),CDK2_NATIVE_PRE_XHCI_FV="$(CDK2_NATIVE_PRE_XHCI_FV)") \
-	$(if $(CDK2_NATIVE_PRE_USB_BUS_FV),CDK2_NATIVE_PRE_USB_BUS_FV="$(CDK2_NATIVE_PRE_USB_BUS_FV)") \
-	$(if $(CDK2_NATIVE_PRE_USB_MASS_FV),CDK2_NATIVE_PRE_USB_MASS_FV="$(CDK2_NATIVE_PRE_USB_MASS_FV)") \
-	$(if $(CDK2_NATIVE_PRE_USB_KEYBOARD_FV),CDK2_NATIVE_PRE_USB_KEYBOARD_FV="$(CDK2_NATIVE_PRE_USB_KEYBOARD_FV)") \
-	$(if $(CDK2_NATIVE_PRE_USB_MOUSE_FV),CDK2_NATIVE_PRE_USB_MOUSE_FV="$(CDK2_NATIVE_PRE_USB_MOUSE_FV)") \
-	$(if $(CDK2_NATIVE_PRE_SIO_BUS_FV),CDK2_NATIVE_PRE_SIO_BUS_FV="$(CDK2_NATIVE_PRE_SIO_BUS_FV)") \
-	$(if $(CDK2_NATIVE_PRE_PS2_MOUSE_FV),CDK2_NATIVE_PRE_PS2_MOUSE_FV="$(CDK2_NATIVE_PRE_PS2_MOUSE_FV)") \
-	$(if $(CDK2_NATIVE_PRE_TERMINAL_FV),CDK2_NATIVE_PRE_TERMINAL_FV="$(CDK2_NATIVE_PRE_TERMINAL_FV)") \
-	$(if $(CDK2_NATIVE_PRE_GRAPHICS_OUTPUT_FV),CDK2_NATIVE_PRE_GRAPHICS_OUTPUT_FV="$(CDK2_NATIVE_PRE_GRAPHICS_OUTPUT_FV)") \
-	$(if $(CDK2_NATIVE_PRE_ACPI_TABLE_FV),CDK2_NATIVE_PRE_ACPI_TABLE_FV="$(CDK2_NATIVE_PRE_ACPI_TABLE_FV)") \
-	$(if $(CDK2_NATIVE_PRE_SMMSTORE_FV),CDK2_NATIVE_PRE_SMMSTORE_FV="$(CDK2_NATIVE_PRE_SMMSTORE_FV)") \
-	$(if $(CDK2_NATIVE_PCD_DATABASE),CDK2_NATIVE_PCD_DATABASE="$(CDK2_NATIVE_PCD_DATABASE)") \
 	CDK2_NATIVE_DIR="$(CDK2_NATIVE_DIR)" \
 	$(if $(HOSTCC),HOSTCC="$(HOSTCC)") \
 	$(if $(CC),CC="$(CC)") \
@@ -156,7 +84,6 @@ CDK2_RECURSIVE_ARGS := \
 .PHONY: all build build-image config defconfig olddefconfig menuconfig \
 	prepare-kconfig check manifest modules native-stage native-coreboot-stage \
 	native-coreboot-image native-check native-pack native-service-test native-coreboot-test \
-	native-pcd-package native-pcd-fv native-pci-host-bridge-package \
 	native-fv-test native-fvpack-test native-pe-test native-module-test \
 	native-fvinfo native-fvinfo-test native-ffsbuild-test native-security-stub-test \
 	native-security-stub-fv native-null-memory-test-fv native-null-memory-test-test \
@@ -177,35 +104,8 @@ CDK2_RECURSIVE_ARGS := \
 	native-pch-smi-dispatch-test native-pch-smi-dispatch-fv \
 	native-local-apic-timer-test native-local-apic-timer-fv \
 	native-graphics-console-test native-graphics-console-fv \
-	native-hii-database-test native-hii-database-ffs native-hii-database-fv \
-	native-hii-database-oracle \
-	native-scsi-bus-test native-scsi-bus-package native-scsi-bus-fv \
-	native-scsi-disk-test native-scsi-disk-package native-scsi-disk-fv \
-	native-scsi-disk-fv-exact native-scsi-disk-oracle \
-	native-xhci-test native-xhci-package native-xhci-fv native-xhci-fv-exact \
-	native-usb-bus-test native-usb-bus-package native-usb-bus-fv \
-	native-usb-mass-test native-usb-mass-package native-usb-mass-fv-exact \
-	native-usb-keyboard-test native-usb-keyboard-package \
-	native-usb-keyboard-fv-exact \
-	native-usb-mouse-test native-usb-mouse-package native-usb-mouse-fv-exact \
-	native-sio-bus-test native-sio-bus-package native-sio-bus-fv-exact \
-	native-ps2-mouse-test native-ps2-mouse-package native-ps2-mouse-fv-exact \
-	native-terminal-test native-terminal-package native-terminal-fv-exact \
-	native-graphics-output-test native-graphics-output-package \
-	native-graphics-output-fv-exact \
-	native-acpi-table-test native-acpi-table-package native-acpi-table-fv-exact \
-	native-smmstore-test native-smmstore-package native-smmstore-fv-exact \
-	native-usb-bus-fv-exact \
-	native-scsi-bus-fv-exact native-scsi-bus-oracle \
 	native-capsule-runtime-test native-capsule-runtime-fv \
-	native-tcg2-transport-test native-tcg2-commands-test native-tcg2-event-log-test \
-	native-tcg2-measure-test native-tcg2-service-test native-tcg2-entry-test native-tcg2-fv \
-	native-tpm2-acpi-table-test native-tpm2-acpi-table-fv \
-	native-esrt-test native-esrt-ffs native-esrt-fv \
-	native-device-path-test native-device-path-fv \
-	native-partition-test native-partition-fv \
-	native-bl-support-test native-bl-support-package native-bl-support-fv \
-	native-bl-support-oracle native-fat-test native-fat-package native-fat-fv native-fat-oracle \
+	native-ftw-test \
 	native-elfcheck-test manifest-check print lint \
 	lint-stable lint-extended test-lint \
 	jenkins what-jenkins-does retained-fv-check coreboot-stage clean FORCE

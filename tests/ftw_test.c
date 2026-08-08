@@ -43,6 +43,30 @@ static const struct cdk2_ftw_ops ops = { journal_read, journal_write, target_rea
 static struct cdk2_ftw make_ftw(struct media *m, UINT8 *scratch)
 { return (struct cdk2_ftw){ &ops, m, BLOCK, scratch, { 0 } }; }
 
+static void crash_matrix(void)
+{
+	unsigned cut;
+	for (cut = 1; cut <= 9; cut++) {
+		struct media m = { 0 }; UINT8 scratch[BLOCK], update[5] = { 3,4,5,6,7 };
+		EFI_GUID id = { .data1 = cut }; struct cdk2_ftw ftw = make_ftw(&m, scratch);
+		memset(m.target[0], 0x11, BLOCK);
+		assert(cdk2_ftw_initialize(&ftw) == EFI_SUCCESS);
+		assert(cdk2_ftw_allocate(&ftw, &id, 0, 1) == EFI_SUCCESS);
+		m.operation = 0; m.fail_at = cut;
+		assert(EFI_ERROR(cdk2_ftw_write(&ftw, 0, 7, sizeof(update), NULL, update)));
+		/* A cut must expose either the complete old block or complete new block. */
+		assert((m.target[0][7] == 0x11) ||
+			!memcmp(m.target[0] + 7, update, sizeof(update)) ||
+			(m.journal.records[0].phase == CDK2_FTW_SPARE_COMPLETE &&
+			 !memcmp(m.spare + 7, update, sizeof(update))));
+		m.operation = 0; m.fail_at = 0; ftw = make_ftw(&m, scratch);
+		assert(cdk2_ftw_initialize(&ftw) == EFI_SUCCESS);
+		if (memcmp(m.target[0] + 7, update, sizeof(update)))
+			assert(cdk2_ftw_write(&ftw, 0, 7, sizeof(update), NULL, update) == EFI_SUCCESS);
+		assert(!memcmp(m.target[0] + 7, update, sizeof(update)));
+	}
+}
+
 int main(void)
 {
 	struct media m = { 0 }; UINT8 scratch[BLOCK], update[5] = { 9,8,7,6,5 };
@@ -72,5 +96,6 @@ int main(void)
 	/* CRC detects torn/corrupt journal rather than trusting its state bits. */
 	m.journal.records[0].lba ^= 1; ftw = make_ftw(&m, scratch);
 	assert(cdk2_ftw_initialize(&ftw) == EFI_VOLUME_CORRUPTED);
+	crash_matrix();
 	return 0;
 }
