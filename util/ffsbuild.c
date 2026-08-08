@@ -17,6 +17,7 @@
 #define SECTION_VERSION 0x14U
 #define SECTION_USER_INTERFACE 0x15U
 #define SECTION_PE32 0x10U
+#define SECTION_RAW 0x19U
 
 static void fail(const char *message)
 {
@@ -147,9 +148,11 @@ int main(int argc, char **argv)
 	uint8_t guid[16];
 	uint8_t *pe;
 	uint8_t *depex = NULL;
+	uint8_t *raw = NULL;
 	uint8_t *output;
 	size_t pe_size;
 	size_t depex_size = 6;
+	size_t raw_size = 0;
 	size_t output_size;
 	size_t pe_section_size;
 	size_t offset;
@@ -160,7 +163,7 @@ int main(int argc, char **argv)
 
 	if (argc < 7) {
 		fprintf(stderr, "usage: %s GUID UI VERSION SIZE PE OUTPUT [DEPEX|-] "
-			"[--file-type TYPE] [--depex-type TYPE]\n", argv[0]);
+			"[--file-type TYPE] [--depex-type TYPE] [--raw FILE]\n", argv[0]);
 		return EXIT_FAILURE;
 	}
 	argument = 7;
@@ -172,6 +175,12 @@ int main(int argc, char **argv)
 
 		if (argument + 1 >= argc)
 			fail("missing option value");
+		if (strcmp(argv[argument], "--raw") == 0) {
+			raw = read_file(argv[argument + 1], &raw_size,
+				"cannot read RAW section input");
+			argument += 2;
+			continue;
+		}
 		value = strtoul(argv[argument + 1], &end, 0);
 		if (*end != '\0' || value > 0xffU)
 			fail("invalid option value");
@@ -215,6 +224,16 @@ int main(int argc, char **argv)
 	output[23] = 0;
 
 	offset = FFS_HEADER_SIZE;
+	if (raw != NULL) {
+		if (raw_size > 0xffffffU - 4U)
+			fail("RAW section is too large");
+		if (raw_size + 4U > output_size - offset)
+			fail("RAW section does not fit requested FFS size");
+		put24(output + offset, raw_size + 4U);
+		output[offset + 3] = SECTION_RAW;
+		memcpy(output + offset + 4U, raw, raw_size);
+		offset = align4(offset + raw_size + 4U);
+	}
 	if (depex_size == 0) {
 		/* Some UEFI drivers are deliberately admitted without a DEPEX. */
 	} else if (depex != NULL) {
@@ -248,6 +267,7 @@ int main(int argc, char **argv)
 	if (file == NULL || fwrite(output, 1, output_size, file) != output_size || fclose(file) != 0)
 		fail("cannot write output FFS");
 	free(output);
+	free(raw);
 	free(depex);
 	free(pe);
 	return EXIT_SUCCESS;

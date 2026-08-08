@@ -48,6 +48,22 @@ static int run_without_depex(const char *tool, const char *pe, const char *outpu
 	return !WIFEXITED(status) || WEXITSTATUS(status) != 0;
 }
 
+static int run_raw(const char *tool, const char *pe, const char *output,
+	const char *raw)
+{
+	pid_t child = fork();
+	int status;
+
+	if (child == 0) {
+		execl(tool, tool, "80cf7257-87ab-47f9-a3fe-d50b76d89541",
+		      "PcdDxe", "1.0", "130", pe, output, "--raw", raw, NULL);
+		_exit(127);
+	}
+	if (child < 0 || waitpid(child, &status, 0) != child)
+		return 1;
+	return !WIFEXITED(status) || WEXITSTATUS(status) != 0;
+}
+
 static int run_mm(const char *tool, const char *pe, const char *output,
 	const char *depex, const char *depex_type)
 {
@@ -91,15 +107,17 @@ int main(int argc, char **argv)
 		0xf6, 0xf0, 0xa3, 0x13, 0x4a, 0x26, 0xf0, 0x3e,
 		0xf2, 0xe0, 0xde, 0xc5, 0x12, 0x34, 0x2f, 0x34, 0x08
 	};
+	static const uint8_t raw[] = { 0x3c, 0x19, 0x7d, 0x3c, 7, 0, 0, 0 };
 	uint8_t mm_depex[sizeof(depex)];
 	uint8_t output[130];
-	char pe_path[512], depex_path[512], output_path[512];
+	char pe_path[512], depex_path[512], raw_path[512], output_path[512];
 	FILE *file;
 
 	if (argc != 3)
 		return 1;
 	snprintf(pe_path, sizeof(pe_path), "%s/ffsbuild-test.efi", argv[2]);
 	snprintf(depex_path, sizeof(depex_path), "%s/ffsbuild-test.depex", argv[2]);
+	snprintf(raw_path, sizeof(raw_path), "%s/ffsbuild-test.raw", argv[2]);
 	snprintf(output_path, sizeof(output_path), "%s/ffsbuild-test.ffs", argv[2]);
 	if (write_file(pe_path, pe, sizeof(pe)) ||
 	    write_file(depex_path, depex, sizeof(depex)) ||
@@ -118,6 +136,15 @@ int main(int argc, char **argv)
 	if (file == NULL || fread(output, 1, sizeof(output), file) != sizeof(output) ||
 	    fclose(file) != 0 || output[24 + 3] != 0x10 ||
 	    memcmp(output + 28, pe, sizeof(pe)) != 0)
+		return 1;
+	if (write_file(raw_path, raw, sizeof(raw)) ||
+	    run_raw(argv[1], pe_path, output_path, raw_path))
+		return 1;
+	file = fopen(output_path, "rb");
+	if (file == NULL || fread(output, 1, sizeof(output), file) != sizeof(output) ||
+	    fclose(file) != 0 || output[27] != 0x19 ||
+	    memcmp(output + 28, raw, sizeof(raw)) != 0 || output[39] != 0x13 ||
+	    output[47] != 0x10)
 		return 1;
 	memcpy(mm_depex, depex, sizeof(mm_depex));
 	mm_depex[3] = 0x1c;

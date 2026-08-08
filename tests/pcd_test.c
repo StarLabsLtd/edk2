@@ -15,6 +15,87 @@ static unsigned callbacks;
 static unsigned installs, uninstalls;
 static uint64_t second_install_status;
 static struct cdk2_pcd_protocol *published_native;
+static struct fixture *raw_fixture;
+static size_t raw_fixture_size;
+static uint8_t variable_data[16];
+static unsigned variable_writes, variable_locks;
+
+static uint64_t CDK2_MS_ABI mock_get_variable(const uint16_t *name,
+	const EFI_GUID *guid, uint32_t *attributes, size_t *size, void *data)
+{
+	(void)name;
+	(void)guid;
+	(void)attributes;
+	if (*size < sizeof(variable_data))
+		return EFI_BUFFER_TOO_SMALL;
+	memcpy(data, variable_data, sizeof(variable_data));
+	*size = sizeof(variable_data);
+	return EFI_SUCCESS;
+}
+
+static uint64_t CDK2_MS_ABI mock_set_variable(const uint16_t *name,
+	const EFI_GUID *guid, uint32_t attributes, size_t size, const void *data)
+{
+	(void)name;
+	(void)guid;
+	(void)attributes;
+	if (size > sizeof(variable_data))
+		return EFI_INVALID_PARAMETER;
+	memcpy(variable_data, data, size);
+	variable_writes++;
+	return EFI_SUCCESS;
+}
+
+static uint64_t CDK2_MS_ABI mock_lock_variable(const uint16_t *name,
+	const EFI_GUID *guid)
+{
+	(void)name;
+	(void)guid;
+	variable_locks++;
+	return EFI_SUCCESS;
+}
+
+struct fv_view {
+	void *unused[3];
+	uint64_t (CDK2_MS_ABI *read_section)(void *, const EFI_GUID *, uint8_t,
+		size_t, void **, size_t *, uint32_t *);
+};
+struct system_view {
+	uint8_t header[24];
+	uint16_t *vendor;
+	uint32_t revision, pad;
+	void *console[6], *runtime;
+	struct cdk2_pcd_boot_services *boot;
+};
+
+static uint64_t CDK2_MS_ABI mock_read_section(void *self, const EFI_GUID *file,
+	uint8_t type, size_t instance, void **buffer, size_t *size, uint32_t *auth)
+{
+	(void)self;
+	(void)file;
+	if (type != 0x19 || instance != 0)
+		return EFI_NOT_FOUND;
+	*buffer = raw_fixture;
+	*size = raw_fixture_size;
+	*auth = 0;
+	return EFI_SUCCESS;
+}
+
+static uint64_t CDK2_MS_ABI mock_handle(void *handle, const EFI_GUID *guid,
+	void **interface)
+{
+	static struct { uint32_t revision, pad; void *parent, *system, *device; }
+		loaded = { 0, 0, NULL, NULL, (void *)2 };
+	static struct fv_view fv = { { NULL, NULL, NULL }, mock_read_section };
+	(void)guid;
+	if (handle == (void *)1)
+		*interface = &loaded;
+	else if (handle == (void *)2)
+		*interface = &fv;
+	else
+		return EFI_NOT_FOUND;
+	return EFI_SUCCESS;
+}
 
 static uint64_t CDK2_MS_ABI mock_install(void **handle, const EFI_GUID *guid,
 	void *interface, ...)
@@ -66,6 +147,38 @@ struct delta_fixture {
 	uint32_t length, delta;
 };
 
+struct hii_fixture {
+	struct cdk2_pcd_database_header header;
+	uint32_t local;
+	EFI_GUID guid;
+	struct { uint32_t string_index, default_offset; uint16_t guid_index,
+		variable_offset; uint32_t attributes; uint16_t property, reserved; } head;
+	uint32_t default_value;
+	uint16_t name[2];
+};
+
+static void make_hii(struct hii_fixture *fixture)
+{
+	memset(fixture, 0, sizeof(*fixture));
+	fixture->header.signature = signature;
+	fixture->header.build_version = CDK2_PCD_SERVICE_VERSION;
+	fixture->header.length = fixture->header.length_all_skus = sizeof(*fixture);
+	fixture->header.local_tokens_offset = offsetof(struct hii_fixture, local);
+	fixture->header.ex_map_offset = offsetof(struct hii_fixture, guid);
+	fixture->header.guid_offset = offsetof(struct hii_fixture, guid);
+	fixture->header.string_offset = offsetof(struct hii_fixture, name);
+	fixture->header.size_offset = fixture->header.sku_offset =
+		fixture->header.name_offset = sizeof(*fixture);
+	fixture->header.local_token_count = fixture->header.guid_count = 1;
+	fixture->local = 0x84000000U | offsetof(struct hii_fixture, head);
+	fixture->guid = space;
+	fixture->head.default_offset = offsetof(struct hii_fixture, default_value);
+	fixture->head.variable_offset = 4;
+	fixture->head.attributes = 7;
+	fixture->head.property = 1;
+	fixture->name[0] = 'X';
+}
+
 static void make_fixture(struct fixture *fixture)
 {
 	memset(fixture, 0, sizeof(*fixture));
@@ -97,24 +210,35 @@ static void make_fixture(struct fixture *fixture)
 int main(void)
 {
 	struct fixture fixture, bad;
+	struct fixture pei;
 	struct delta_fixture delta_fixture;
+	struct hii_fixture hii;
 	struct cdk2_pcd_context context;
 	struct cdk2_pcd_boot_services boot_services;
+	struct system_view system;
 	void *value;
 	size_t size;
 	uint32_t replacement = 42, token = 0;
+	uint8_t vpd[16] = { 0 };
 	int failures = 0;
 
 	make_fixture(&fixture);
 	memset(&boot_services, 0, sizeof(boot_services));
 	boot_services.install_multiple_protocols = mock_install;
 	boot_services.uninstall_multiple_protocols = mock_uninstall;
+	boot_services.handle_protocol = mock_handle;
+	memset(&system, 0, sizeof(system));
+	system.boot = &boot_services;
 	failures += expect(cdk2_pcd_init(&context, &fixture, sizeof(fixture)) == EFI_SUCCESS,
 		"valid version-seven database accepted");
 	failures += expect(cdk2_pcd_get(&context, NULL, 2, &value, &size) == EFI_SUCCESS &&
 		size == 8 && *(uint64_t *)value == fixture.wide, "native token lookup");
 	failures += expect(cdk2_pcd_get(&context, &space, 77, &value, &size) == EFI_SUCCESS &&
 		*(uint32_t *)value == fixture.value, "dynamic-ex mapping");
+	make_fixture(&pei);
+	pei.value = 0x10203040;
+	failures += expect(cdk2_pcd_merge_hob(&context, &pei, sizeof(pei)) == EFI_SUCCESS &&
+		fixture.value == pei.value, "validated PEI HOB DynamicEx state merged");
 	failures += expect(cdk2_pcd_register(&context, &space, 77, changed) == EFI_SUCCESS,
 		"callback registration");
 	size = sizeof(replacement);
@@ -153,6 +277,38 @@ int main(void)
 	failures += expect(cdk2_pcd_publish(&context, &boot_services) ==
 		EFI_OUT_OF_RESOURCES && installs == 2 && uninstalls == 1,
 		"second publication failure rolls back first pair");
+	installs = uninstalls = 0;
+	second_install_status = EFI_SUCCESS;
+	raw_fixture = &fixture;
+	raw_fixture_size = sizeof(fixture);
+	failures += expect(cdk2_pcd_driver_entry((void *)1, &system) == EFI_SUCCESS &&
+		installs == 2, "entry acquires authenticated RAW section and publishes");
+	make_hii(&hii);
+	memset(variable_data, 0, sizeof(variable_data));
+	variable_data[4] = 0x78;
+	failures += expect(cdk2_pcd_init(&context, &hii, sizeof(hii)) == EFI_SUCCESS &&
+		cdk2_pcd_configure_storage(&context, mock_get_variable, mock_set_variable,
+			NULL, 0) == EFI_SUCCESS &&
+		cdk2_pcd_get(&context, NULL, 1, &value, &size) == EFI_SUCCESS &&
+		size == 4 && *(uint32_t *)value == 0x78,
+		"HII datum read through runtime variable backend");
+	size = 4;
+	failures += expect(cdk2_pcd_set(&context, NULL, 1, &replacement, &size) ==
+		EFI_SUCCESS && variable_writes == 1 && variable_data[4] == replacement,
+		"HII write preserves variable envelope");
+	failures += expect(cdk2_pcd_lock_read_only(&context, mock_lock_variable) ==
+		EFI_SUCCESS && variable_locks == 1, "read-only HII variable policy locked");
+	make_hii(&hii);
+	hii.local = 0x44000000U | offsetof(struct hii_fixture, head);
+	*(uint32_t *)&hii.head = 3;
+	vpd[3] = 0xef;
+	failures += expect(cdk2_pcd_init(&context, &hii, sizeof(hii)) == EFI_SUCCESS &&
+		cdk2_pcd_configure_storage(&context, NULL, NULL, vpd, sizeof(vpd)) ==
+		EFI_SUCCESS && cdk2_pcd_get(&context, NULL, 1, &value, &size) == EFI_SUCCESS &&
+		*(uint32_t *)value == 0xef, "VPD datum resolves against bounded VPD window");
+	size = 4;
+	failures += expect(cdk2_pcd_set(&context, NULL, 1, &replacement, &size) !=
+		EFI_SUCCESS, "VPD mutation rejected");
 
 	make_fixture(&bad);
 	bad.header.signature.data1++;

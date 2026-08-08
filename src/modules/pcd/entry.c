@@ -17,7 +17,37 @@ static const EFI_GUID efi_info_guid = {
 	0xfd0f4478, 0x0efd, 0x461d, { 0xba, 0x2d, 0xe5, 0x8c, 0x45, 0xfd, 0x5f, 0x5e }
 };
 static struct cdk2_pcd_context *active;
+static struct cdk2_pcd_context driver_context;
 static void *pcd_handle;
+
+typedef uint64_t CDK2_MS_ABI read_section_fn(void *, const EFI_GUID *, uint8_t,
+	size_t, void **, size_t *, uint32_t *);
+
+struct firmware_volume2_view {
+	void *get_attributes, *set_attributes, *read_file;
+	read_section_fn *read_section;
+};
+
+struct table_header { uint64_t signature; uint32_t revision, header_size,
+	crc32, reserved; };
+struct system_table_view {
+	struct table_header header;
+	uint16_t *vendor;
+	uint32_t revision, pad;
+	void *console[6];
+	void *runtime_services;
+	struct cdk2_pcd_boot_services *boot_services;
+};
+
+static const EFI_GUID fv2_guid = {
+	0x220e73b6, 0x6bdb, 0x4413, { 0x84, 0x05, 0xb9, 0x74, 0xb1, 0x08, 0x61, 0x9a }
+};
+static const EFI_GUID loaded_image_guid = {
+	0x5b1b31a1, 0x9562, 0x11d2, { 0x8e, 0x3f, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b }
+};
+static const EFI_GUID pcd_file_guid = {
+	0x80cf7257, 0x87ab, 0x47f9, { 0xa3, 0xfe, 0xd5, 0x0b, 0x76, 0xd8, 0x95, 0x41 }
+};
 
 static void *get_value(const EFI_GUID *space, size_t token, size_t *size)
 {
@@ -250,4 +280,43 @@ fail:
 	active = NULL;
 	pcd_handle = NULL;
 	return status;
+}
+
+uint64_t CDK2_MS_ABI cdk2_pcd_driver_entry(void *image_handle,
+	void *system_table)
+{
+	struct system_table_view *table = system_table;
+	struct firmware_volume2_view *volume = NULL;
+	struct { uint32_t revision, pad; void *parent, *system, *device; } *loaded = NULL;
+	void *database = NULL;
+	size_t size = 0;
+	uint32_t authentication = 0;
+	uint64_t status;
+
+	(void)image_handle;
+	if (table == NULL || table->boot_services == NULL ||
+	    table->boot_services->handle_protocol == NULL)
+		return EFI_INVALID_PARAMETER;
+	status = table->boot_services->handle_protocol(image_handle,
+		&loaded_image_guid, (void **)&loaded);
+	if (status != EFI_SUCCESS)
+		return status;
+	if (loaded == NULL || loaded->device == NULL)
+		return EFI_NOT_FOUND;
+	status = table->boot_services->handle_protocol(loaded->device, &fv2_guid,
+		(void **)&volume);
+	if (status != EFI_SUCCESS)
+		return status;
+	if (volume == NULL || volume->read_section == NULL)
+		return EFI_NOT_FOUND;
+	status = volume->read_section(volume, &pcd_file_guid, 0x19, 0, &database,
+		&size, &authentication);
+	if (status != EFI_SUCCESS)
+		return status;
+	if (authentication != 0)
+		return EFI_SECURITY_VIOLATION;
+	status = cdk2_pcd_init(&driver_context, database, size);
+	if (status != EFI_SUCCESS)
+		return status;
+	return cdk2_pcd_publish(&driver_context, table->boot_services);
 }

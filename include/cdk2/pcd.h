@@ -36,11 +36,24 @@ struct cdk2_pcd_callback_slot {
 	cdk2_pcd_callback *callback;
 };
 
+typedef uint64_t CDK2_MS_ABI cdk2_pcd_get_variable_fn(const uint16_t *,
+	const EFI_GUID *, uint32_t *, size_t *, void *);
+typedef uint64_t CDK2_MS_ABI cdk2_pcd_set_variable_fn(const uint16_t *,
+	const EFI_GUID *, uint32_t, size_t, const void *);
+typedef uint64_t CDK2_MS_ABI cdk2_pcd_lock_variable_fn(const uint16_t *,
+	const EFI_GUID *);
+
 struct cdk2_pcd_context {
 	uint8_t *database;
 	size_t capacity;
 	struct cdk2_pcd_database_header *header;
 	struct cdk2_pcd_callback_slot callbacks[CDK2_PCD_MAX_CALLBACKS];
+	cdk2_pcd_get_variable_fn *get_variable;
+	cdk2_pcd_set_variable_fn *set_variable;
+	cdk2_pcd_lock_variable_fn *lock_variable;
+	uint8_t *vpd;
+	size_t vpd_size;
+	uint8_t variable[4096];
 };
 
 struct cdk2_pcd_info {
@@ -120,9 +133,14 @@ typedef uint64_t CDK2_MS_ABI cdk2_pcd_install_fn(void **,
 	const EFI_GUID *, void *, ...);
 typedef uint64_t CDK2_MS_ABI cdk2_pcd_uninstall_fn(void *,
 	const EFI_GUID *, void *, ...);
+typedef uint64_t CDK2_MS_ABI cdk2_pcd_locate_fn(const EFI_GUID *, void *, void **);
+typedef uint64_t CDK2_MS_ABI cdk2_pcd_handle_fn(void *, const EFI_GUID *, void **);
 
 struct cdk2_pcd_boot_services {
-	uint8_t before_install[328];
+	uint8_t before_handle[152];
+	cdk2_pcd_handle_fn *handle_protocol;
+	uint8_t before_locate[160];
+	cdk2_pcd_locate_fn *locate_protocol;
 	cdk2_pcd_install_fn *install_multiple_protocols;
 	cdk2_pcd_uninstall_fn *uninstall_multiple_protocols;
 };
@@ -142,7 +160,16 @@ uint64_t cdk2_pcd_next_token(struct cdk2_pcd_context *context,
 uint64_t cdk2_pcd_set_sku(struct cdk2_pcd_context *context, uint64_t sku);
 uint64_t cdk2_pcd_apply_sku_delta(struct cdk2_pcd_context *context,
 	uint64_t sku);
+uint64_t cdk2_pcd_merge_hob(struct cdk2_pcd_context *context,
+	void *pei_database, size_t pei_size);
+uint64_t cdk2_pcd_configure_storage(struct cdk2_pcd_context *context,
+	cdk2_pcd_get_variable_fn *get_variable,
+	cdk2_pcd_set_variable_fn *set_variable, uint8_t *vpd, size_t vpd_size);
+uint64_t cdk2_pcd_lock_read_only(struct cdk2_pcd_context *context,
+	cdk2_pcd_lock_variable_fn *lock_variable);
 uint64_t cdk2_pcd_publish(struct cdk2_pcd_context *context,
 	struct cdk2_pcd_boot_services *boot_services);
+uint64_t CDK2_MS_ABI cdk2_pcd_driver_entry(void *image_handle,
+	void *system_table);
 
 #endif

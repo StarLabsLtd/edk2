@@ -25,6 +25,11 @@ CDK2_NATIVE_FVREPLACE ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-fvreplace
 CDK2_NATIVE_PERELOCCHECK ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-pereloccheck
 CDK2_NATIVE_METRONOME_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-metronome-test
 CDK2_NATIVE_PCD_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-pcd-test
+CDK2_NATIVE_PCD_DATABASE ?=
+CDK2_NATIVE_PCD_MODEL_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/pcd-model.o
+CDK2_NATIVE_PCD_ENTRY_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/pcd-entry.o
+CDK2_NATIVE_PCD_PE ?= $(CDK2_NATIVE_BUILD_DIR)/PcdDxe.efi
+CDK2_NATIVE_PCD_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/PcdDxe.ffs
 CDK2_NATIVE_METRONOME_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/metronome.o
 CDK2_NATIVE_METRONOME_PE ?= $(CDK2_NATIVE_BUILD_DIR)/metronome.efi
 CDK2_NATIVE_METRONOME_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/metronome.ffs
@@ -308,7 +313,7 @@ CDK2_NATIVE_HOST_TOOLS := \
 CDK2_NATIVE_LINK_FLAGS := -static -no-pie -nostdlib -nostartfiles -nodefaultlibs -Wl,-z,max-page-size=0x1000 -Wl,-z,common-page-size=0x1000 -Wl,-T,"$(CDK2_NATIVE_DIR)/cdk2.ld"
 CDK2_NATIVE_LINK_POST_MAP_FLAGS := -Wl,--gc-sections -Wl,--build-id=none
 
-.PHONY: native-stage native-coreboot-stage native-coreboot-image native-metronome-fv native-security-stub-fv native-null-memory-test-fv native-null-memory-test-test native-watchdog-fv native-monotonic-counter-fv native-status-code-router-fv native-status-code-router-test native-status-code-handler-fv native-status-code-handler-test native-cpu-io2-fv native-cpu-io2-test native-english-test native-english-fv native-disk-io-fv native-disk-io-test native-serial-io-fv native-serial-io-test native-smbios-fv native-smbios-test native-reset-system-fv native-reset-system-test native-pcat-rtc-fv native-pcat-rtc-test native-smm-access-fv native-smm-access-test native-smm-control-fv native-smm-control-test native-cpu-io2-smm-fv native-cpu-io2-smm-test native-pch-smi-dispatch-test native-pch-smi-dispatch-fv native-local-apic-timer-test native-local-apic-timer-fv native-graphics-console-test native-graphics-console-fv native-capsule-runtime-test native-capsule-runtime-fv native-check native-pack native-service-test native-coreboot-test native-fv-test native-fvpack-test native-fvinfo native-fvinfo-test native-ffsbuild-test native-pe-test native-module-test native-security-stub-test native-elfcheck-test FORCE
+.PHONY: native-stage native-coreboot-stage native-coreboot-image native-pcd-package native-metronome-fv native-security-stub-fv native-null-memory-test-fv native-null-memory-test-test native-watchdog-fv native-monotonic-counter-fv native-status-code-router-fv native-status-code-router-test native-status-code-handler-fv native-status-code-handler-test native-cpu-io2-fv native-cpu-io2-test native-english-test native-english-fv native-disk-io-fv native-disk-io-test native-serial-io-fv native-serial-io-test native-smbios-fv native-smbios-test native-reset-system-fv native-reset-system-test native-pcat-rtc-fv native-pcat-rtc-test native-smm-access-fv native-smm-access-test native-smm-control-fv native-smm-control-test native-cpu-io2-smm-fv native-cpu-io2-smm-test native-pch-smi-dispatch-test native-pch-smi-dispatch-fv native-local-apic-timer-test native-local-apic-timer-fv native-graphics-console-test native-graphics-console-fv native-capsule-runtime-test native-capsule-runtime-fv native-check native-pack native-service-test native-coreboot-test native-fv-test native-fvpack-test native-fvinfo native-fvinfo-test native-ffsbuild-test native-pe-test native-module-test native-security-stub-test native-elfcheck-test FORCE
 .PHONY: native-tpm2-acpi-table-test native-tpm2-acpi-table-fv native-esrt-test native-esrt-ffs native-esrt-fv
 
 ifeq ($(CONFIG_CDK2_NATIVE_STAGE),y)
@@ -1535,6 +1540,32 @@ $(CDK2_NATIVE_METRONOME_TEST): $(CDK2_DIR)/tests/metronome_test.c $(CDK2_DIR)/sr
 
 $(CDK2_NATIVE_PCD_TEST): $(CDK2_DIR)/tests/pcd_test.c $(CDK2_DIR)/src/modules/pcd/pcd.c $(CDK2_DIR)/src/modules/pcd/entry.c $(CDK2_DIR)/include/cdk2/pcd.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" $(CDK2_DIR)/tests/pcd_test.c $(CDK2_DIR)/src/modules/pcd/pcd.c $(CDK2_DIR)/src/modules/pcd/entry.c
+
+native-pcd-package: $(CDK2_NATIVE_PCD_FFS)
+
+$(CDK2_NATIVE_PCD_MODEL_OBJ): $(CDK2_DIR)/src/modules/pcd/pcd.c $(CDK2_DIR)/include/cdk2/pcd.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
+		-mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args \
+		$(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+
+$(CDK2_NATIVE_PCD_ENTRY_OBJ): $(CDK2_DIR)/src/modules/pcd/entry.c $(CDK2_DIR)/include/cdk2/pcd.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
+		-mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args \
+		$(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+
+$(CDK2_NATIVE_PCD_PE): $(CDK2_NATIVE_PCD_MODEL_OBJ) $(CDK2_NATIVE_PCD_ENTRY_OBJ) $(CDK2_NATIVE_BUILD_DIR)/mem.o $(CDK2_DIR)/src/modules/pcd/pcd.ld $(CDK2_NATIVE_PERELOCCHECK)
+	@$(LD) -mi386pep --subsystem 11 --entry cdk2_pcd_driver_entry --image-base 0 \
+		--section-alignment 0x1000 --file-alignment 0x1000 --build-id=none \
+		--no-insert-timestamp -s --nxcompat -T "$(CDK2_DIR)/src/modules/pcd/pcd.ld" \
+		-o "$@" $(CDK2_NATIVE_PCD_MODEL_OBJ) $(CDK2_NATIVE_PCD_ENTRY_OBJ) $(CDK2_NATIVE_BUILD_DIR)/mem.o
+	@"$(CDK2_NATIVE_PERELOCCHECK)" "$@"
+
+$(CDK2_NATIVE_PCD_FFS): $(CDK2_NATIVE_PCD_PE) $(CDK2_NATIVE_FFSBUILD)
+	@test -n "$(CDK2_NATIVE_PCD_DATABASE)" || { printf '%s\n' 'CDK2_NATIVE_PCD_DATABASE is required' >&2; exit 1; }
+	@test -f "$(CDK2_NATIVE_PCD_DATABASE)" || { printf '%s\n' 'configuration database does not exist' >&2; exit 1; }
+	@"$(CDK2_NATIVE_FFSBUILD)" 80cf7257-87ab-47f9-a3fe-d50b76d89541 \
+		PcdDxe 1.0 0x945a "$(CDK2_NATIVE_PCD_PE)" "$@" \
+		--raw "$(CDK2_NATIVE_PCD_DATABASE)"
 
 $(CDK2_NATIVE_WATCHDOG_TEST): $(CDK2_DIR)/tests/watchdog_test.c $(CDK2_DIR)/src/modules/watchdog/watchdog.c $(CDK2_DIR)/include/cdk2/watchdog.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$<"
