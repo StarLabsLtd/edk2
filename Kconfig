@@ -398,7 +398,7 @@ config CDK2_EVIL_MAID_PROTECTION
 	bool "Enable TPM-backed anti-tamper boot policy"
 	default n
 	depends on CDK2_SECURE_BOOT && CDK2_TPM2 && CDK2_SMMSTORE
-	depends on !CDK2_TPM12 && !CDK2_SHELL
+	depends on !CDK2_SHELL
 	help
 	  Require a locked Secure Boot variable state and a usable TPM2 measurement
 	  path before boot options are launched. The runtime gate is intended for
@@ -492,11 +492,6 @@ config CDK2_BOOT_TIMEOUT
 	default 0
 	depends on CDK2_PAYLOAD
 
-config CDK2_TPM12
-	bool "Include TPM 1.2 support"
-	default y
-	depends on CDK2_PAYLOAD
-
 config CDK2_TPM2
 	bool "Include TPM 2 support"
 	default y
@@ -505,7 +500,7 @@ config CDK2_TPM2
 config CDK2_TPM_CONFIG
 	bool "Include TPM configuration UI"
 	default y
-	depends on (CDK2_TPM12 || CDK2_TPM2) && CDK2_SETUP_UI
+	depends on CDK2_TPM2 && CDK2_SETUP_UI
 
 config CDK2_CPU_TIMER
 	bool "Use CPUID leaf 0x15 for the CPU timer"

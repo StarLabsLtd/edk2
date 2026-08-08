@@ -30,6 +30,15 @@ payload before DXE logging and BDS. The retained binaries therefore still have
 an implicit runtime dependency on the dynamic-PCD protocols or database. It
 must not be removed until those consumers are identified and migrated.
 
+## TPM 1.2 driver
+
+`TcgDxe`, file GUID `a5683620-7998-4bb2-a377-1c1e31e1e215`, implements the
+legacy TPM 1.2 measured-boot protocol. CDK2's platform contract supports TPM
+2.0 only; the unused `CDK2_TPM12` configuration switch has therefore been
+removed rather than retaining an untestable second security policy. The TPM
+2.0 driver remains present until its native replacement passes both FIFO/TIS
+and CRB QEMU gates.
+
 ## QEMU evidence
 
 The admitted candidate was derived from baseline FV SHA-256
@@ -44,10 +53,17 @@ The three-module negative candidate, which also removed `PcdDxe`, stopped
 immediately after coreboot transferred control to the payload. This is the
 reason the retained count decreases by two, not three.
 
+The later TPM-1.2-free candidate replaced `TcgDxe` with a valid pad while
+leaving `Tcg2Dxe` at its admitted offset. On the paired coreboot local-APIC
+handoff, exact IA32 and x86-64 Q35 carriers both reached the UEFI shell, ran
+`startup.nsh` through `CDK2_NATIVE_DONE`, and invoked reset without an
+exception or assertion.
+
 The deterministic candidate command is:
 
 ```text
 cdk2-fvpack --prune-dxe-fv --dxe-fv BASELINE.fv --output CANDIDATE.fv \
   --remove-guid 13ac6dd0-73d0-11d4-b06b-00aa00bd6de7 \
-  --remove-guid 35034ce2-a6e5-4fb4-babe-a0156e9b2549
+  --remove-guid 35034ce2-a6e5-4fb4-babe-a0156e9b2549 \
+  --remove-guid a5683620-7998-4bb2-a377-1c1e31e1e215
 ```

@@ -1,5 +1,5 @@
 # baseline-retained=72
-# retained=51
+# retained=50
 # status	wave	module
 retain	boot	FatPkg/EnhancedFatDxe/Fat
 retain	storage	MdeModulePkg/Bus/Ata/AtaAtapiPassThru/AtaAtapiPassThru
@@ -57,7 +57,7 @@ native	platform	OvmfPkg/LocalApicTimerDxe/LocalApicTimerDxe
 retain	console	OvmfPkg/SioBusDxe/SioBusDxe
 native	runtime	PcAtChipsetPkg/PcatRealTimeClockRuntimeDxe/PcatRealTimeClockRuntimeDxe
 retain	security	SecurityPkg/Tcg/Tcg2Dxe/Tcg2Dxe
-retain	security	SecurityPkg/Tcg/TcgDxe/TcgDxe
+remove	remove	SecurityPkg/Tcg/TcgDxe/TcgDxe
 retain	boot	ShellPkg/Application/Shell/Shell
 retain	platform	UefiCpuPkg/CpuDxe/CpuDxe
 native	pci	UefiCpuPkg/CpuIo2Dxe/CpuIo2Dxe
