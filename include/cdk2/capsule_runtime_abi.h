@@ -13,7 +13,7 @@ struct cdk2_runtime_services_view {
 	void *update_capsule, *query_capsule, *query_variable_info;
 };
 typedef EFI_STATUS CDK2_MS_ABI cdk2_crc32_fn(
-	void *data, UINTN size, UINT32 *crc32);
+	void *data, UINTN size, UINT32 result[static 1]);
 struct cdk2_boot_services_view {
 	struct cdk2_table_header header;
 	void *slots_before_locate_protocol[37];
