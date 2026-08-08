@@ -4,6 +4,12 @@
 
 #define GPT_HEADER_SIZE 92U
 #define GPT_ENTRY_MIN_SIZE 128U
+#define MBR_TABLE_OFFSET 446U
+#define MBR_ENTRY_SIZE 16U
+#define MBR_ENTRY_COUNT 4U
+#define MBR_CHAIN_LIMIT 128U
+
+static const EFI_GUID blank_guid;
 
 static UINT32 read32(const UINT8 *bytes)
 {
@@ -54,6 +60,11 @@ static BOOLEAN media_valid(const struct cdk2_partition_media *media)
 {
 	return media != NULL && media->read != NULL && media->block_size >= 512U &&
 		media->block_size <= MAX_UINT16 && media->last_block >= 2U;
+}
+
+static BOOLEAN extended_type(UINT8 type)
+{
+	return type == 0x05U || type == 0x0fU || type == 0x85U;
 }
 
 static EFI_STATUS validate_header(UINT8 *header, UINT32 block_size,
@@ -184,9 +195,141 @@ EFI_STATUS cdk2_partition_parse_gpt(const struct cdk2_partition_media *media,
 				((UINT16)entry[56 + character * 2] |
 				 (UINT16)entry[57 + character * 2] << 8);
 		partition->index = (UINT32)index + 1U;
+		partition->disk_signature = 0;
 		partition->mbr_type = 0;
 		found++;
 	}
 	*partition_count = found;
 	return EFI_SUCCESS;
+}
+
+static EFI_STATUS add_mbr_partition(struct cdk2_partition *partitions,
+	UINTN capacity, UINTN *count, UINT64 start, UINT32 blocks, UINT8 type,
+	UINT32 signature, UINT32 index, UINT64 last_block)
+{
+	struct cdk2_partition *partition;
+	UINTN character;
+	EFI_STATUS status;
+
+	if (blocks == 0 || start > last_block || blocks - 1U > last_block - start)
+		return EFI_COMPROMISED_DATA;
+	if (*count == capacity)
+		return EFI_BUFFER_TOO_SMALL;
+	status = validate_entry_range(partitions, *count, start,
+		start + blocks - 1U, 1U, last_block);
+	if (EFI_ERROR(status))
+		return status;
+	partition = &partitions[*count];
+	partition->scheme = CDK2_PARTITION_MBR;
+	partition->start_lba = start;
+	partition->end_lba = start + blocks - 1U;
+	partition->attributes = 0;
+	partition->type_guid = blank_guid;
+	partition->unique_guid = blank_guid;
+	for (character = 0; character < CDK2_GPT_NAME_CHARS; character++)
+		partition->name[character] = 0;
+	partition->index = index;
+	partition->disk_signature = signature;
+	partition->mbr_type = type;
+	(*count)++;
+	return EFI_SUCCESS;
+}
+
+EFI_STATUS cdk2_partition_parse_mbr(const struct cdk2_partition_media *media,
+	void *block_buffer, UINTN block_capacity,
+	struct cdk2_partition *partitions, UINTN partition_capacity,
+	UINTN *partition_count)
+{
+	UINT8 *block = block_buffer;
+	UINT64 extended_base = 0;
+	UINT64 extended_size = 0;
+	UINT64 ebr = 0;
+	UINT32 signature;
+	UINT32 logical_index = 5U;
+	UINTN count = 0;
+	UINTN index;
+	EFI_STATUS status;
+
+	if (!media_valid(media) || block == NULL || partitions == NULL ||
+	    partition_count == NULL || block_capacity < media->block_size)
+		return EFI_INVALID_PARAMETER;
+	*partition_count = 0;
+	status = media->read(media->context, 0, 1U, block);
+	if (EFI_ERROR(status))
+		return status;
+	if (block[510] != 0x55U || block[511] != 0xaaU)
+		return EFI_NOT_FOUND;
+	signature = read32(block + 440);
+	for (index = 0; index < MBR_ENTRY_COUNT; index++) {
+		const UINT8 *entry = block + MBR_TABLE_OFFSET + index * MBR_ENTRY_SIZE;
+		UINT8 type = entry[4];
+		UINT32 start = read32(entry + 8);
+		UINT32 blocks = read32(entry + 12);
+
+		if (entry[0] != 0 && entry[0] != 0x80U)
+			return EFI_COMPROMISED_DATA;
+		if (type == 0 && start == 0 && blocks == 0)
+			continue;
+		if (type == 0xeeU)
+			return EFI_NOT_FOUND;
+		if (type == 0 || blocks == 0)
+			return EFI_COMPROMISED_DATA;
+		if (extended_type(type)) {
+			if (extended_base != 0)
+				return EFI_COMPROMISED_DATA;
+			if (start == 0 || start > media->last_block ||
+			    blocks - 1U > media->last_block - start)
+				return EFI_COMPROMISED_DATA;
+			extended_base = start;
+			extended_size = blocks;
+			ebr = start;
+			continue;
+		}
+		status = add_mbr_partition(partitions, partition_capacity, &count,
+			start, blocks, type, signature, (UINT32)index + 1U,
+			media->last_block);
+		if (EFI_ERROR(status))
+			return status;
+	}
+	for (index = 0; ebr != 0 && index < MBR_CHAIN_LIMIT; index++) {
+		const UINT8 *logical;
+		const UINT8 *link;
+		UINT64 next;
+
+		if (ebr < extended_base || ebr - extended_base >= extended_size ||
+		    ebr > media->last_block)
+			return EFI_COMPROMISED_DATA;
+		status = media->read(media->context, ebr, 1U, block);
+		if (EFI_ERROR(status))
+			return status;
+		if (block[510] != 0x55U || block[511] != 0xaaU)
+			return EFI_COMPROMISED_DATA;
+		logical = block + MBR_TABLE_OFFSET;
+		link = logical + MBR_ENTRY_SIZE;
+		if (logical[4] == 0 || extended_type(logical[4]) ||
+		    read32(logical + 8) == 0)
+			return EFI_COMPROMISED_DATA;
+		if ((UINT64)read32(logical + 8) + read32(logical + 12) >
+		    extended_base + extended_size - ebr)
+			return EFI_COMPROMISED_DATA;
+		status = add_mbr_partition(partitions, partition_capacity, &count,
+			ebr + read32(logical + 8), read32(logical + 12), logical[4],
+			signature, logical_index++, media->last_block);
+		if (EFI_ERROR(status))
+			return status;
+		if (link[4] == 0 && read32(link + 8) == 0 && read32(link + 12) == 0) {
+			ebr = 0;
+			break;
+		}
+		if (!extended_type(link[4]) || read32(link + 8) == 0)
+			return EFI_COMPROMISED_DATA;
+		next = extended_base + read32(link + 8);
+		if (next <= extended_base || next == ebr)
+			return EFI_COMPROMISED_DATA;
+		ebr = next;
+	}
+	if (ebr != 0)
+		return EFI_COMPROMISED_DATA;
+	*partition_count = count;
+	return count == 0 ? EFI_NOT_FOUND : EFI_SUCCESS;
 }

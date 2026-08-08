@@ -23,6 +23,7 @@ struct cdk2_partition {
 	EFI_GUID unique_guid;
 	CHAR16 name[CDK2_GPT_NAME_CHARS];
 	UINT32 index;
+	UINT32 disk_signature;
 	UINT8 mbr_type;
 };
 
@@ -41,5 +42,9 @@ EFI_STATUS cdk2_partition_parse_gpt(const struct cdk2_partition_media *media,
 	void *header_block, UINTN header_capacity, void *entry_buffer,
 	UINTN entry_capacity, struct cdk2_partition *partitions,
 	UINTN partition_capacity, UINTN *partition_count);
+EFI_STATUS cdk2_partition_parse_mbr(const struct cdk2_partition_media *media,
+	void *block_buffer, UINTN block_capacity,
+	struct cdk2_partition *partitions, UINTN partition_capacity,
+	UINTN *partition_count);
 
 #endif
