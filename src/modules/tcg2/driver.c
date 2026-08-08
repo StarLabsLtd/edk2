@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: BSD-2-Clause-Patent */
 
 #include <cdk2/security_router.h>
+#include <cdk2/tcg2_entry.h>
 #include <cdk2/tcg2_service.h>
 #include <industry_standard/tpm2_acpi.h>
 
@@ -107,6 +108,11 @@ static struct runtime_services_view *runtime_services;
 static struct cdk2_security_router *security_router;
 static void *protocol_handle;
 static struct cdk2_tpm2_io tpm_io;
+
+static EFI_STATUS CDK2_MS_ABI measure_image(const void *file,
+	const void *file_buffer, UINTN file_size, BOOLEAN boot_policy, void *context);
+static void CDK2_MS_ABI variable_write_ready(void *event, void *context);
+static void CDK2_MS_ABI exit_boot_services(void *event, void *context);
 
 static BOOLEAN guid_equal(const EFI_GUID *left, const EFI_GUID *right)
 {
@@ -231,6 +237,64 @@ static EFI_STATUS install_config(void *context, cdk2_const_guid_ptr guid,
 	return boot_services->install_configuration_table(guid, table);
 }
 
+static EFI_STATUS register_security(void *context)
+{
+	(void)context;
+	return security_router->register_handler(measure_image, NULL);
+}
+
+static EFI_STATUS unregister_security(void *context)
+{
+	(void)context;
+	return security_router->unregister_handler(measure_image, NULL);
+}
+
+static EFI_STATUS create_variable_event(void *context, void **event)
+{
+	(void)context;
+	return boot_services->create_event(EVT_NOTIFY_SIGNAL, TPL_CALLBACK,
+		variable_write_ready, NULL, event);
+}
+
+static EFI_STATUS register_variable_notify(void *context, void *event)
+{
+	void *registration;
+	(void)context;
+	return boot_services->register_protocol_notify(&variable_write_arch_guid,
+		event, &registration);
+}
+
+static EFI_STATUS create_exit_event(void *context, void **event)
+{
+	(void)context;
+	return boot_services->create_event(EVT_SIGNAL_EXIT_BOOT_SERVICES,
+		TPL_CALLBACK, exit_boot_services, NULL, event);
+}
+
+static EFI_STATUS close_event(void *context, void *event)
+{
+	(void)context;
+	return boot_services->close_event(event);
+}
+
+static void release_service(void *context, struct cdk2_tcg2_service *instance)
+{
+	(void)context;
+	cdk2_tcg2_service_release(instance);
+}
+
+static const struct cdk2_tcg2_entry_ops entry_ops = {
+	.register_security = register_security,
+	.unregister_security = unregister_security,
+	.create_variable_event = create_variable_event,
+	.register_variable_notify = register_variable_notify,
+	.create_exit_event = create_exit_event,
+	.close_event = close_event,
+	.install_config = install_config,
+	.install_protocol = install_protocol,
+	.release_service = release_service,
+};
+
 static EFI_STATUS CDK2_MS_ABI measure_image(const void *file,
 	const void *file_buffer, UINTN file_size, BOOLEAN boot_policy, void *context)
 {
@@ -323,9 +387,6 @@ EFI_STATUS CDK2_MS_ABI cdk2_tcg2_entry(void *image,
 {
 	struct cdk2_tpm2_transport transport;
 	enum cdk2_tpm2_interface interface;
-	void *variable_event = NULL;
-	void *exit_event = NULL;
-	void *registration;
 	EFI_STATUS status;
 	UINT64 tpm_base;
 
@@ -353,33 +414,9 @@ EFI_STATUS CDK2_MS_ABI cdk2_tcg2_entry(void *image,
 		return status;
 	status = boot_services->locate_protocol(&security_router_guid, NULL,
 		(void **)&security_router);
-	if (EFI_ERROR(status))
-		goto release_service;
-	status = security_router->register_handler(measure_image, NULL);
-	if (EFI_ERROR(status))
-		goto release_service;
-	status = boot_services->create_event(EVT_NOTIFY_SIGNAL, TPL_CALLBACK,
-		variable_write_ready, NULL, &variable_event);
-	if (EFI_ERROR(status))
-		goto unregister_handler;
-	status = boot_services->register_protocol_notify(&variable_write_arch_guid,
-		variable_event, &registration);
-	if (EFI_ERROR(status))
-		goto close_variable_event;
-	status = boot_services->create_event(EVT_SIGNAL_EXIT_BOOT_SERVICES,
-		TPL_CALLBACK, exit_boot_services, NULL, &exit_event);
-	if (EFI_ERROR(status))
-		goto close_variable_event;
-	status = cdk2_tcg2_publish_protocols(&service, NULL, install_protocol,
-		install_config, NULL);
-	if (!EFI_ERROR(status))
-		return EFI_SUCCESS;
-	boot_services->close_event(exit_event);
-close_variable_event:
-	boot_services->close_event(variable_event);
-unregister_handler:
-	security_router->unregister_handler(measure_image, NULL);
-release_service:
-	cdk2_tcg2_service_release(&service);
-	return status;
+	if (EFI_ERROR(status)) {
+		cdk2_tcg2_service_release(&service);
+		return status;
+	}
+	return cdk2_tcg2_entry_publish(&service, NULL, &entry_ops);
 }

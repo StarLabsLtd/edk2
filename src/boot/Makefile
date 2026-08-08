@@ -180,7 +180,8 @@ CDK2_NATIVE_TCG2_COMMANDS_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-tcg2-commands-te
 CDK2_NATIVE_TCG2_EVENT_LOG_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-tcg2-event-log-test
 CDK2_NATIVE_TCG2_MEASURE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-tcg2-measure-test
 CDK2_NATIVE_TCG2_SERVICE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-tcg2-service-test
-CDK2_NATIVE_TCG2_OBJS ?= $(addprefix $(CDK2_NATIVE_BUILD_DIR)/tcg2-,driver.o tcg2_transport.o tcg2_commands.o tcg2_event_log.o tcg2_measure.o tcg2_service.o)
+CDK2_NATIVE_TCG2_ENTRY_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-tcg2-entry-test
+CDK2_NATIVE_TCG2_OBJS ?= $(addprefix $(CDK2_NATIVE_BUILD_DIR)/tcg2-,driver.o tcg2_entry.o tcg2_transport.o tcg2_commands.o tcg2_event_log.o tcg2_measure.o tcg2_service.o)
 CDK2_NATIVE_TCG2_PE ?= $(CDK2_NATIVE_BUILD_DIR)/Tcg2Dxe.efi
 CDK2_NATIVE_TCG2_DEPEX_GEN ?= $(CDK2_NATIVE_BUILD_DIR)/tcg2-depex-gen
 CDK2_NATIVE_TCG2_DEPEX ?= $(CDK2_NATIVE_BUILD_DIR)/Tcg2Dxe.depex
@@ -511,6 +512,9 @@ native-tcg2-measure-test: $(CDK2_NATIVE_TCG2_MEASURE_TEST)
 	@"$<"
 
 native-tcg2-service-test: $(CDK2_NATIVE_TCG2_SERVICE_TEST)
+	@"$<"
+
+native-tcg2-entry-test: $(CDK2_NATIVE_TCG2_ENTRY_TEST)
 	@"$<"
 
 native-pch-smi-dispatch-fv: $(CDK2_NATIVE_PCH_SMI_DISPATCH_FV)
@@ -1358,6 +1362,9 @@ $(CDK2_NATIVE_TCG2_MEASURE_TEST): $(CDK2_DIR)/tests/tcg2_measure_test.c $(CDK2_D
 
 $(CDK2_NATIVE_TCG2_SERVICE_TEST): $(CDK2_DIR)/tests/tcg2_service_test.c $(CDK2_DIR)/src/modules/tcg2/tcg2_service.c $(CDK2_DIR)/src/modules/tcg2/tcg2_measure.c $(CDK2_DIR)/src/modules/tcg2/tcg2_event_log.c $(CDK2_DIR)/include/cdk2/tcg2_service.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_DIR)/tests/tcg2_service_test.c" "$(CDK2_DIR)/src/modules/tcg2/tcg2_service.c" "$(CDK2_DIR)/src/modules/tcg2/tcg2_measure.c" "$(CDK2_DIR)/src/modules/tcg2/tcg2_event_log.c"
+
+$(CDK2_NATIVE_TCG2_ENTRY_TEST): $(CDK2_DIR)/tests/tcg2_entry_test.c $(CDK2_DIR)/src/modules/tcg2/tcg2_entry.c $(CDK2_DIR)/include/cdk2/tcg2_entry.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_DIR)/tests/tcg2_entry_test.c" "$(CDK2_DIR)/src/modules/tcg2/tcg2_entry.c"
 
 FORCE:
 
