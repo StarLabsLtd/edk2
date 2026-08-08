@@ -44,7 +44,8 @@ static UINT32 get32(const UINT8 *buffer)
 static void copy_bytes(UINT8 *out, const UINT8 *in, UINT32 size)
 {
 	UINT32 index;
-	for (index = 0; index < size; index++) out[index] = in[index];
+	for (index = 0; index < size; index++)
+		out[index] = in[index];
 }
 
 static int guid_equal(const EFI_GUID *left, const EFI_GUID *right)
@@ -53,7 +54,8 @@ static int guid_equal(const EFI_GUID *left, const EFI_GUID *right)
 	const UINT8 *b = (const UINT8 *)right;
 	UINTN index;
 	for (index = 0; index < sizeof(*left); index++)
-		if (a[index] != b[index]) return 0;
+		if (a[index] != b[index])
+			return 0;
 	return 1;
 }
 
@@ -116,8 +118,10 @@ static EFI_STATUS encode_event(const struct cdk2_tcg2_event *event,
 	UINT32 index;
 	EFI_STATUS status = event_size(event, &size);
 
-	if (EFI_ERROR(status)) return status;
-	if (size > capacity) return EFI_BUFFER_TOO_SMALL;
+	if (EFI_ERROR(status))
+		return status;
+	if (size > capacity)
+		return EFI_BUFFER_TOO_SMALL;
 	put32(buffer + offset, event->pcr_index); offset += 4;
 	put32(buffer + offset, event->event_type); offset += 4;
 	put32(buffer + offset, event->digest_count); offset += 4;
@@ -141,7 +145,8 @@ EFI_STATUS cdk2_tcg2_append_event(struct cdk2_tcg2_logs *logs,
 {
 	struct cdk2_tcg2_data_span span;
 
-	if (event == NULL) return EFI_INVALID_PARAMETER;
+	if (event == NULL)
+		return EFI_INVALID_PARAMETER;
 	span = (struct cdk2_tcg2_data_span){ event->event, event->event_size };
 	return cdk2_tcg2_append_event_spans(logs, event, &span, 1);
 }
@@ -165,9 +170,11 @@ EFI_STATUS cdk2_tcg2_append_event_spans(struct cdk2_tcg2_logs *logs,
 			return EFI_BAD_BUFFER_SIZE;
 		total_event_size += spans[index].size;
 	}
-	if (total_event_size != event->event_size) return EFI_COMPROMISED_DATA;
+	if (total_event_size != event->event_size)
+		return EFI_COMPROMISED_DATA;
 	status = event_size(event, &size);
-	if (EFI_ERROR(status)) return status;
+	if (EFI_ERROR(status))
+		return status;
 	if (size > logs->main.capacity - logs->main.used) {
 		logs->main.truncated = TRUE;
 		return EFI_VOLUME_FULL;
@@ -175,7 +182,8 @@ EFI_STATUS cdk2_tcg2_append_event_spans(struct cdk2_tcg2_logs *logs,
 	status = encode_event(event, spans, span_count,
 		logs->main.buffer + logs->main.used,
 		logs->main.capacity - logs->main.used, &written);
-	if (EFI_ERROR(status) || written != size) return EFI_COMPROMISED_DATA;
+	if (EFI_ERROR(status) || written != size)
+		return EFI_COMPROMISED_DATA;
 	logs->main.last_entry_offset = logs->main.used;
 	logs->main.used += size;
 	logs->event_count++;
@@ -207,19 +215,24 @@ static EFI_STATUS raw_event_size(const UINT8 *record, UINT32 available,
 	UINT32 offset = 12;
 	UINT16 size;
 
-	if (available < 16U) return EFI_COMPROMISED_DATA;
+	if (available < 16U)
+		return EFI_COMPROMISED_DATA;
 	count = get32(record + 8);
 	if (count == 0 || count > CDK2_TCG2_MAX_DIGESTS)
 		return EFI_COMPROMISED_DATA;
 	for (index = 0; index < count; index++) {
-		if (offset + 2U > available) return EFI_COMPROMISED_DATA;
+		if (offset + 2U > available)
+			return EFI_COMPROMISED_DATA;
 		size = digest_size(get16(record + offset)); offset += 2;
-		if (size == 0 || offset + size > available) return EFI_COMPROMISED_DATA;
+		if (size == 0 || offset + size > available)
+			return EFI_COMPROMISED_DATA;
 		offset += size;
 	}
-	if (offset + 4U > available) return EFI_COMPROMISED_DATA;
+	if (offset + 4U > available)
+		return EFI_COMPROMISED_DATA;
 	count = get32(record + offset); offset += 4;
-	if (count > available - offset) return EFI_COMPROMISED_DATA;
+	if (count > available - offset)
+		return EFI_COMPROMISED_DATA;
 	*record_size = offset + count;
 	return EFI_SUCCESS;
 }
@@ -242,16 +255,19 @@ EFI_STATUS cdk2_tcg2_import_event2_hobs(struct cdk2_tcg2_logs *logs,
 		header = (const EFI_HOB_GENERIC_HEADER *)current;
 		if (header->hob_length < sizeof(*header) || header->hob_length > end - current)
 			return EFI_COMPROMISED_DATA;
-		if (header->hob_type == EFI_HOB_TYPE_END_OF_HOB_LIST) return EFI_SUCCESS;
+		if (header->hob_type == EFI_HOB_TYPE_END_OF_HOB_LIST)
+			return EFI_SUCCESS;
 		if (header->hob_type == EFI_HOB_TYPE_GUID_EXTENSION &&
 		    header->hob_length >= sizeof(*guid)) {
 			guid = (const EFI_HOB_GUID_TYPE *)current;
 			if (guid_equal(&guid->name, &cdk2_tcg_event2_entry_hob_guid)) {
 				payload_size = header->hob_length - sizeof(*guid);
 				status = raw_event_size(current + sizeof(*guid), payload_size, &size);
-				if (EFI_ERROR(status) || size != payload_size) return EFI_COMPROMISED_DATA;
+				if (EFI_ERROR(status) || size != payload_size)
+					return EFI_COMPROMISED_DATA;
 				status = append_raw(&logs->main, current + sizeof(*guid), size);
-				if (EFI_ERROR(status)) return status;
+				if (EFI_ERROR(status))
+					return status;
 				logs->event_count++;
 			}
 		}
@@ -265,5 +281,6 @@ EFI_STATUS cdk2_tcg2_import_event2_hobs(struct cdk2_tcg2_logs *logs,
 
 void cdk2_tcg2_activate_final_log(struct cdk2_tcg2_logs *logs)
 {
-	if (logs != NULL) logs->final_active = TRUE;
+	if (logs != NULL)
+		logs->final_active = TRUE;
 }

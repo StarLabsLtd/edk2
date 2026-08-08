@@ -29,7 +29,7 @@ static struct cdk2_tcg2_service *from_protocol(EFI_TCG2_PROTOCOL *protocol)
 }
 
 static EFI_STATUS CDK2_MS_ABI protocol_get_capability(EFI_TCG2_PROTOCOL *protocol,
-	EFI_TCG2_BOOT_SERVICE_CAPABILITY *output)
+	efi_tcg2_capability_ptr output)
 {
 	struct cdk2_tcg2_service *service;
 	EFI_TCG2_BOOT_SERVICE_CAPABILITY capability;
@@ -57,8 +57,8 @@ static EFI_STATUS CDK2_MS_ABI protocol_get_capability(EFI_TCG2_PROTOCOL *protoco
 }
 
 static EFI_STATUS CDK2_MS_ABI protocol_get_event_log(EFI_TCG2_PROTOCOL *protocol,
-	EFI_TCG2_EVENT_LOG_FORMAT format, EFI_PHYSICAL_ADDRESS *location,
-	EFI_PHYSICAL_ADDRESS *last_entry, BOOLEAN *truncated)
+	EFI_TCG2_EVENT_LOG_FORMAT format, efi_physical_address_ptr location,
+	efi_physical_address_ptr last_entry, efi_boolean_ptr truncated)
 {
 	if (protocol == NULL)
 		return EFI_INVALID_PARAMETER;
@@ -68,7 +68,7 @@ static EFI_STATUS CDK2_MS_ABI protocol_get_event_log(EFI_TCG2_PROTOCOL *protocol
 
 static EFI_STATUS CDK2_MS_ABI protocol_hash_log_extend(EFI_TCG2_PROTOCOL *protocol,
 	UINT64 flags, EFI_PHYSICAL_ADDRESS data, UINT64 data_size,
-	EFI_TCG2_EVENT *event)
+	efi_tcg2_event_ptr event)
 {
 	struct cdk2_tcg2_service *service;
 	UINT32 event_offset = OFFSET_OF(EFI_TCG2_EVENT, event);
@@ -161,8 +161,8 @@ static UINT32 interface_export(enum cdk2_tpm2_interface interface)
 
 EFI_STATUS cdk2_tcg2_service_init(struct cdk2_tcg2_service *service,
 	const struct cdk2_tpm2_transport *transport, void *context,
-	cdk2_tcg2_allocate_fn *allocate, cdk2_tcg2_hash_fn *hash,
-	cdk2_tcg2_extend_fn *extend, UINT32 main_capacity, UINT32 final_capacity)
+	cdk2_tcg2_allocate_ptr allocate, cdk2_tcg2_hash_ptr hash,
+	cdk2_tcg2_extend_ptr extend, UINT32 main_capacity, UINT32 final_capacity)
 {
 	EFI_PHYSICAL_ADDRESS main_address;
 	EFI_PHYSICAL_ADDRESS final_address;
@@ -198,28 +198,35 @@ EFI_STATUS cdk2_tcg2_service_init(struct cdk2_tcg2_service *service,
 	status = allocate(context, efi_acpi_memory_nvs,
 		final_capacity + sizeof(*service->final_table), &final_buffer,
 		&final_address);
-	if (EFI_ERROR(status)) return status;
+	if (EFI_ERROR(status))
+		return status;
 	service->transport = *transport;
 	status = cdk2_tpm2_request_locality(&service->transport);
-	if (EFI_ERROR(status)) return status;
+	if (EFI_ERROR(status))
+		return status;
 	status = cdk2_tpm2_startup(&service->transport, CDK2_TPM2_SU_CLEAR,
 		&response_code);
-	if (EFI_ERROR(status)) return status;
+	if (EFI_ERROR(status))
+		return status;
 	status = cdk2_tpm2_get_property(&service->transport, TPM2_PT_MANUFACTURER,
 		&manufacturer, &response_code);
-	if (EFI_ERROR(status)) return status;
+	if (EFI_ERROR(status))
+		return status;
 	status = cdk2_tpm2_get_pcr_banks(&service->transport, &supported, &active,
 		&banks, &response_code);
-	if (EFI_ERROR(status)) return status;
+	if (EFI_ERROR(status))
+		return status;
 	status = cdk2_tcg2_log_init(&service->logs.main, main_buffer, main_capacity);
-	if (EFI_ERROR(status)) return status;
+	if (EFI_ERROR(status))
+		return status;
 	service->final_table = final_buffer;
 	service->final_table->version = CDK2_TCG2_FINAL_EVENTS_VERSION;
 	service->final_table->number_of_events = 0;
 	service->logs.final_count_export = &service->final_table->number_of_events;
 	status = cdk2_tcg2_log_init(&service->logs.final,
 		service->final_table->events, final_capacity);
-	if (EFI_ERROR(status)) return status;
+	if (EFI_ERROR(status))
+		return status;
 	service->main_address = main_address; service->final_address = final_address;
 	service->capability = (struct cdk2_tcg2_capability){
 		.structure_version_major = 1, .structure_version_minor = 1,
@@ -239,9 +246,10 @@ EFI_STATUS cdk2_tcg2_service_init(struct cdk2_tcg2_service *service,
 	for (index = 0; index < HASH_COUNT; index++)
 		if ((active & (1U << index)) != 0)
 			service->measurement.algorithms[service->measurement.algorithm_count++] =
-				(TPMI_ALG_HASH[]){ TPM_ALG_SHA1, TPM_ALG_SHA256, TPM_ALG_SHA384,
-				TPM_ALG_SHA512, TPM_ALG_SM3_256 }[index];
-	if (service->measurement.algorithm_count == 0) return EFI_DEVICE_ERROR;
+				((TPMI_ALG_HASH[]) { TPM_ALG_SHA1, TPM_ALG_SHA256, TPM_ALG_SHA384,
+				TPM_ALG_SHA512, TPM_ALG_SM3_256 })[index];
+	if (service->measurement.algorithm_count == 0)
+		return EFI_DEVICE_ERROR;
 	service->export = (struct cdk2_tcg2_acpi_export){
 		.revision = CDK2_TCG2_EXPORT_REVISION, .size = sizeof(service->export),
 		.active_interface = (UINT8)interface_export(transport->interface),
@@ -254,14 +262,15 @@ EFI_STATUS cdk2_tcg2_service_init(struct cdk2_tcg2_service *service,
 EFI_STATUS cdk2_tcg2_get_capability(const struct cdk2_tcg2_service *service,
 	struct cdk2_tcg2_capability *capability)
 {
-	if (service == NULL || capability == NULL) return EFI_INVALID_PARAMETER;
+	if (service == NULL || capability == NULL)
+		return EFI_INVALID_PARAMETER;
 	*capability = service->capability;
 	return EFI_SUCCESS;
 }
 
 EFI_STATUS cdk2_tcg2_get_event_log(struct cdk2_tcg2_service *service,
-	UINT32 format, EFI_PHYSICAL_ADDRESS *location,
-	EFI_PHYSICAL_ADDRESS *last_entry, BOOLEAN *truncated)
+	UINT32 format, efi_physical_address_ptr location,
+	efi_physical_address_ptr last_entry, efi_boolean_ptr truncated)
 {
 	if (service == NULL || location == NULL || last_entry == NULL ||
 	    truncated == NULL || format != CDK2_TCG2_EVENT_LOG_FORMAT_TCG_2)
@@ -296,10 +305,12 @@ EFI_STATUS cdk2_tcg2_submit_command(struct cdk2_tcg2_service *service,
 {
 	struct cdk2_tpm2_result result;
 	EFI_STATUS status;
-	if (service == NULL || response_code == NULL) return EFI_INVALID_PARAMETER;
+	if (service == NULL || response_code == NULL)
+		return EFI_INVALID_PARAMETER;
 	status = cdk2_tpm2_execute(&service->transport, command, command_size,
 		response, response_size, &result);
-	if (!EFI_ERROR(status)) *response_code = result.response_code;
+	if (!EFI_ERROR(status))
+		*response_code = result.response_code;
 	return status;
 }
 
@@ -310,9 +321,9 @@ const struct cdk2_tcg2_acpi_export *cdk2_tcg2_acpi_info(
 }
 
 EFI_STATUS cdk2_tcg2_publish_protocols(struct cdk2_tcg2_service *service,
-	void *context, cdk2_tcg2_install_protocol_fn *install_protocol,
-	cdk2_tcg2_install_config_fn *install_config,
-	cdk2_tcg2_set_banks_fn *set_banks)
+	void *context, cdk2_tcg2_install_protocol_ptr install_protocol,
+	cdk2_tcg2_install_config_ptr install_config,
+	cdk2_tcg2_set_banks_ptr set_banks)
 {
 	EFI_STATUS status;
 	if (service == NULL || install_protocol == NULL || install_config == NULL)

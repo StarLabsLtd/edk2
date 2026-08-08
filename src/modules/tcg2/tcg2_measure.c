@@ -27,8 +27,10 @@ static UINT16 algorithm_size(TPMI_ALG_HASH algorithm)
 static UINT32 string_size(const char *string)
 {
 	UINT32 size = 0;
-	if (string == NULL) return 0;
-	while (string[size] != '\0') size++;
+	if (string == NULL)
+		return 0;
+	while (string[size] != '\0')
+		size++;
 	return size;
 }
 
@@ -53,14 +55,17 @@ static EFI_STATUS measure_parts(struct cdk2_tcg2_measurement *measurement,
 	for (index = 0; index < measurement->algorithm_count; index++) {
 		digests[index].algorithm = measurement->algorithms[index];
 		digests[index].size = algorithm_size(digests[index].algorithm);
-		if (digests[index].size == 0) return EFI_UNSUPPORTED;
+		if (digests[index].size == 0)
+			return EFI_UNSUPPORTED;
 		status = measurement->hash(measurement->context, digests[index].algorithm,
 			spans, span_count, digests[index].bytes, digests[index].size);
-		if (EFI_ERROR(status)) return status;
+		if (EFI_ERROR(status))
+			return status;
 	}
 	status = measurement->extend(measurement->context, pcr_index, digests,
 		measurement->algorithm_count, response_code);
-	if (EFI_ERROR(status)) return status;
+	if (EFI_ERROR(status))
+		return status;
 	if (!append)
 		return EFI_SUCCESS;
 	log_event = (struct cdk2_tcg2_event){
@@ -78,7 +83,8 @@ EFI_STATUS cdk2_tcg2_measure_spans(struct cdk2_tcg2_measurement *measurement,
 	const void *event, UINT32 event_size, UINT32 *response_code)
 {
 	struct cdk2_tcg2_data_span event_span = { event, event_size };
-	if (event_size != 0 && event == NULL) return EFI_INVALID_PARAMETER;
+	if (event_size != 0 && event == NULL)
+		return EFI_INVALID_PARAMETER;
 	return measure_parts(measurement, pcr_index, event_type, spans, span_count,
 		&event_span, 1, event_size, response_code, 1);
 }
@@ -98,8 +104,10 @@ static EFI_STATUS add_span(struct cdk2_tcg2_span *spans, UINT32 *count,
 {
 	if (offset > image_size || size > image_size - offset)
 		return EFI_COMPROMISED_DATA;
-	if (size == 0) return EFI_SUCCESS;
-	if (*count >= CDK2_TCG2_MAX_SPANS) return EFI_OUT_OF_RESOURCES;
+	if (size == 0)
+		return EFI_SUCCESS;
+	if (*count >= CDK2_TCG2_MAX_SPANS)
+		return EFI_OUT_OF_RESOURCES;
 	spans[*count] = (struct cdk2_tcg2_span){ image + offset, size };
 	(*count)++;
 	return EFI_SUCCESS;
@@ -128,10 +136,12 @@ EFI_STATUS cdk2_tcg2_measure_pe(struct cdk2_tcg2_measurement *measurement,
 	UINT32 temp;
 	EFI_STATUS status;
 
-	if (image == NULL || image_size < sizeof(*dos)) return EFI_INVALID_PARAMETER;
+	if (image == NULL || image_size < sizeof(*dos))
+		return EFI_INVALID_PARAMETER;
 	dos = (const EFI_IMAGE_DOS_HEADER *)image;
 	if (dos->e_magic != EFI_IMAGE_DOS_SIGNATURE || dos->e_lfanew > image_size -
-	    sizeof(*nt)) return EFI_COMPROMISED_DATA;
+	    sizeof(*nt))
+		return EFI_COMPROMISED_DATA;
 	nt = (const EFI_IMAGE_NT_HEADERS64 *)(image + dos->e_lfanew);
 	if (nt->signature != EFI_IMAGE_NT_SIGNATURE ||
 	    nt->optional_header.magic != EFI_IMAGE_NT_OPTIONAL_HDR64_MAGIC ||
@@ -145,15 +155,19 @@ EFI_STATUS cdk2_tcg2_measure_pe(struct cdk2_tcg2_measurement *measurement,
 	security_offset = dos->e_lfanew + OFFSET_OF(EFI_IMAGE_NT_HEADERS64,
 		optional_header.data_directory[PE_SECURITY_DIRECTORY]);
 	if (checksum_offset + 4U > security_offset || security_offset + 8U >
-	    nt->optional_header.size_of_headers) return EFI_COMPROMISED_DATA;
+	    nt->optional_header.size_of_headers)
+		return EFI_COMPROMISED_DATA;
 	status = add_span(spans, &span_count, image, image_size, 0, checksum_offset);
-	if (EFI_ERROR(status)) return status;
+	if (EFI_ERROR(status))
+		return status;
 	status = add_span(spans, &span_count, image, image_size, checksum_offset + 4U,
 		security_offset - checksum_offset - 4U);
-	if (EFI_ERROR(status)) return status;
+	if (EFI_ERROR(status))
+		return status;
 	status = add_span(spans, &span_count, image, image_size, security_offset + 8U,
 		nt->optional_header.size_of_headers - security_offset - 8U);
-	if (EFI_ERROR(status)) return status;
+	if (EFI_ERROR(status))
+		return status;
 	section_offset = dos->e_lfanew + sizeof(UINT32) + sizeof(EFI_IMAGE_FILE_HEADER) +
 		nt->file_header.size_of_optional_header;
 	if (section_offset > image_size || nt->file_header.number_of_sections >
@@ -161,7 +175,8 @@ EFI_STATUS cdk2_tcg2_measure_pe(struct cdk2_tcg2_measurement *measurement,
 		return EFI_COMPROMISED_DATA;
 	sections = (const EFI_IMAGE_SECTION_HEADER *)(image + section_offset);
 	sum = nt->optional_header.size_of_headers;
-	for (index = 0; index < nt->file_header.number_of_sections; index++) order[index] = index;
+	for (index = 0; index < nt->file_header.number_of_sections; index++)
+		order[index] = index;
 	for (index = 0; index < nt->file_header.number_of_sections; index++)
 		for (next = index + 1; next < nt->file_header.number_of_sections; next++)
 			if (sections[order[next]].pointer_to_raw_data <
@@ -175,17 +190,21 @@ EFI_STATUS cdk2_tcg2_measure_pe(struct cdk2_tcg2_measurement *measurement,
 			return EFI_COMPROMISED_DATA;
 		status = add_span(spans, &span_count, image, image_size,
 			section->pointer_to_raw_data, section->size_of_raw_data);
-		if (EFI_ERROR(status)) return status;
+		if (EFI_ERROR(status))
+			return status;
 		sum = section->pointer_to_raw_data + section->size_of_raw_data;
 	}
 	cert_offset = nt->optional_header.data_directory[PE_SECURITY_DIRECTORY].virtual_address;
 	cert_size = nt->optional_header.data_directory[PE_SECURITY_DIRECTORY].size;
 	if (cert_size != 0 && (cert_offset < sum || cert_offset > image_size ||
-	    cert_size > image_size - cert_offset)) return EFI_COMPROMISED_DATA;
-	if (cert_size == 0) cert_offset = image_size;
+	    cert_size > image_size - cert_offset))
+		return EFI_COMPROMISED_DATA;
+	if (cert_size == 0)
+		cert_offset = image_size;
 	status = add_span(spans, &span_count, image, image_size, sum,
 		cert_offset - sum);
-	if (EFI_ERROR(status)) return status;
+	if (EFI_ERROR(status))
+		return status;
 	return cdk2_tcg2_measure_spans(measurement, pcr_index, event_type, spans,
 		span_count, event, event_size, response_code);
 }
@@ -251,7 +270,8 @@ EFI_STATUS cdk2_tcg2_measure_action(struct cdk2_tcg2_measurement *measurement,
 {
 	struct cdk2_tcg2_span span;
 	UINT32 size = string_size(action);
-	if (size == 0) return EFI_INVALID_PARAMETER;
+	if (size == 0)
+		return EFI_INVALID_PARAMETER;
 	span = (struct cdk2_tcg2_span){ (const UINT8 *)action, size };
 	return cdk2_tcg2_measure_spans(measurement, pcr_index, event_type, &span, 1,
 		action, size, response_code);

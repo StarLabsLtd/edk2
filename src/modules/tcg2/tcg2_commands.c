@@ -188,7 +188,8 @@ EFI_STATUS cdk2_tpm2_get_pcr_banks(const struct cdk2_tpm2_transport *transport,
 			return EFI_COMPROMISED_DATA;
 		*supported |= bit;
 		while (select_size-- != 0)
-			if (response[offset++] != 0) *active |= bit;
+			if (response[offset++] != 0)
+				*active |= bit;
 	}
 	return EFI_SUCCESS;
 }

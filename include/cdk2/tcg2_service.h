@@ -11,8 +11,8 @@
 #define CDK2_TCG2_FINAL_EVENTS_VERSION 1U
 #define CDK2_TCG2_EXPORT_REVISION 1U
 
-typedef UINT64 * cdk2_physical_address_ptr;
-typedef const EFI_GUID * cdk2_const_guid_ptr;
+typedef UINT64 cdk2_physical_address_ptr[1];
+typedef const EFI_GUID cdk2_const_guid_ptr[1];
 
 typedef EFI_STATUS cdk2_tcg2_allocate_fn(
 	void *context, EFI_MEMORY_TYPE type, UINT32 size,
@@ -23,6 +23,12 @@ typedef EFI_STATUS cdk2_tcg2_install_config_fn(
 	void *context, cdk2_const_guid_ptr guid, void *table);
 typedef EFI_STATUS cdk2_tcg2_set_banks_fn(
 	void *context, UINT32 active, void *response);
+typedef cdk2_tcg2_allocate_fn * cdk2_tcg2_allocate_ptr;
+typedef cdk2_tcg2_install_protocol_fn * cdk2_tcg2_install_protocol_ptr;
+typedef cdk2_tcg2_install_config_fn * cdk2_tcg2_install_config_ptr;
+typedef cdk2_tcg2_set_banks_fn * cdk2_tcg2_set_banks_ptr;
+typedef cdk2_tcg2_hash_fn * cdk2_tcg2_hash_ptr;
+typedef cdk2_tcg2_extend_fn * cdk2_tcg2_extend_ptr;
 
 struct cdk2_tcg2_capability {
 	UINT8 structure_version_major;
@@ -74,13 +80,13 @@ struct cdk2_tcg2_service {
 
 EFI_STATUS cdk2_tcg2_service_init(struct cdk2_tcg2_service *service,
 	const struct cdk2_tpm2_transport *transport, void *context,
-	cdk2_tcg2_allocate_fn *allocate, cdk2_tcg2_hash_fn *hash,
-	cdk2_tcg2_extend_fn *extend, UINT32 main_capacity, UINT32 final_capacity);
+	cdk2_tcg2_allocate_ptr allocate, cdk2_tcg2_hash_ptr hash,
+	cdk2_tcg2_extend_ptr extend, UINT32 main_capacity, UINT32 final_capacity);
 EFI_STATUS cdk2_tcg2_get_capability(const struct cdk2_tcg2_service *service,
 	struct cdk2_tcg2_capability *capability);
 EFI_STATUS cdk2_tcg2_get_event_log(struct cdk2_tcg2_service *service,
-	UINT32 format, EFI_PHYSICAL_ADDRESS *location,
-	EFI_PHYSICAL_ADDRESS *last_entry, BOOLEAN *truncated);
+	UINT32 format, efi_physical_address_ptr location,
+	efi_physical_address_ptr last_entry, efi_boolean_ptr truncated);
 EFI_STATUS cdk2_tcg2_hash_log_extend(struct cdk2_tcg2_service *service,
 	TPM_PCRINDEX pcr_index, UINT32 event_type, const void *data,
 	UINT32 data_size, const void *event, UINT32 event_size,
@@ -91,8 +97,8 @@ EFI_STATUS cdk2_tcg2_submit_command(struct cdk2_tcg2_service *service,
 const struct cdk2_tcg2_acpi_export *cdk2_tcg2_acpi_info(
 	const struct cdk2_tcg2_service *service);
 EFI_STATUS cdk2_tcg2_publish_protocols(struct cdk2_tcg2_service *service,
-	void *context, cdk2_tcg2_install_protocol_fn *install_protocol,
-	cdk2_tcg2_install_config_fn *install_config,
-	cdk2_tcg2_set_banks_fn *set_banks);
+	void *context, cdk2_tcg2_install_protocol_ptr install_protocol,
+	cdk2_tcg2_install_config_ptr install_config,
+	cdk2_tcg2_set_banks_ptr set_banks);
 
 #endif

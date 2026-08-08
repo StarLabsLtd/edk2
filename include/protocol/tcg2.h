@@ -52,7 +52,7 @@ typedef struct efi_tcg2_event {
 
 typedef struct efi_tcg2_protocol *efi_tcg2_protocol_ptr;
 typedef struct efi_tcg2_boot_service_capability *efi_tcg2_capability_ptr;
-typedef UINT64 * efi_physical_address_ptr;
+typedef UINT64 efi_physical_address_ptr[1];
 typedef UINT8 *efi_boolean_ptr;
 typedef struct efi_tcg2_event *efi_tcg2_event_ptr;
 typedef UINT8 *efi_uint8_ptr;

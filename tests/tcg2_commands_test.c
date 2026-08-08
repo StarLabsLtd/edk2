@@ -23,14 +23,16 @@ static void put32(UINT8 *bytes, UINT32 value)
 static UINT8 read8(void *context, UINT64 address)
 {
 	struct command_mock *mock = context;
-	if (address == BASE) return 0;
+	if (address == BASE)
+		return 0;
 	return mock->data[address - BASE - 0x80U];
 }
 
 static UINT32 read32(void *context, UINT64 address)
 {
 	(void)context;
-	if (address - BASE == 0x44U) return 2U;
+	if (address - BASE == 0x44U)
+		return 2U;
 	return 0;
 }
 
@@ -57,9 +59,13 @@ static void write32(void *context, UINT64 address, UINT32 value)
 	UINT32 code;
 	UINT32 property;
 
-	if (address - BASE != 0x4cU || value != 1U) return;
+	if (address - BASE != 0x4cU || value != 1U)
+		return;
 	code = be32(mock->data + 6);
-	if (code == CDK2_TPM2_CC_STARTUP) { make_header(mock, 10); return; }
+	if (code == CDK2_TPM2_CC_STARTUP) {
+		make_header(mock, 10);
+		return;
+	}
 	if (code == CDK2_TPM2_CC_HASH_SEQUENCE_START) {
 		make_header(mock, 14);
 		put32(mock->data + 10, 0x80000001U);
@@ -108,7 +114,8 @@ static void stall(void *context, UINT32 microseconds)
 
 static int expect(int condition, const char *message)
 {
-	if (!condition) fprintf(stderr, "tcg2-commands test: %s\n", message);
+	if (!condition)
+		fprintf(stderr, "tcg2-commands test: %s\n", message);
 	return !condition;
 }
 

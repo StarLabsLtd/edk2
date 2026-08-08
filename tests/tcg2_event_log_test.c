@@ -6,7 +6,8 @@
 
 static int expect(int condition, const char *message)
 {
-	if (!condition) fprintf(stderr, "tcg2-event-log test: %s\n", message);
+	if (!condition)
+		fprintf(stderr, "tcg2-event-log test: %s\n", message);
 	return !condition;
 }
 
@@ -54,7 +55,7 @@ int main(void)
 	digests[1].algorithm = TPM_ALG_SHA256;
 	logs.main.capacity = logs.main.used;
 	failures += expect(cdk2_tcg2_append_event(&logs, &event) == EFI_VOLUME_FULL &&
-		logs.main.truncated, "main-log overflow was not contained");
+		logs.main.truncated, "primary log overflow was not contained");
 
 	memset(&logs, 0, sizeof(logs));
 	cdk2_tcg2_log_init(&logs.main, main_buffer, sizeof(main_buffer));

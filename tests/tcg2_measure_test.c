@@ -14,8 +14,10 @@ static EFI_STATUS hash(void *context, TPMI_ALG_HASH algorithm,
 	struct mock *mock = context;
 	UINT32 index, byte;
 	mock->hash_calls++;
-	for (index = 0; index < span_count; index++) mock->hashed_bytes += spans[index].size;
-	for (byte = 0; byte < digest_size; byte++) digest[byte] = (UINT8)algorithm;
+	for (index = 0; index < span_count; index++)
+		mock->hashed_bytes += spans[index].size;
+	for (byte = 0; byte < digest_size; byte++)
+		digest[byte] = (UINT8)algorithm;
 	return EFI_SUCCESS;
 }
 
@@ -29,7 +31,8 @@ static EFI_STATUS extend(void *context, TPM_PCRINDEX pcr,
 
 static int expect(int condition, const char *message)
 {
-	if (!condition) fprintf(stderr, "tcg2-measure test: %s\n", message);
+	if (!condition)
+		fprintf(stderr, "tcg2-measure test: %s\n", message);
 	return !condition;
 }
 

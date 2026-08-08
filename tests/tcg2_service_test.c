@@ -106,7 +106,8 @@ static EFI_STATUS set_banks(void *context, UINT32 active, void *response_buffer)
 
 static int expect(int condition, const char *message)
 {
-	if (!condition) fprintf(stderr, "tcg2-service test: %s\n", message);
+	if (!condition)
+		fprintf(stderr, "tcg2-service test: %s\n", message);
 	return !condition;
 }
 

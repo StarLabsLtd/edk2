@@ -44,9 +44,12 @@ static UINT32 mock_read32(void *context, UINT64 address)
 		return mock->locality ? 0xa0U : 0;
 	if (offset == 0x18U) {
 		UINT32 value = 0x80U | 0x4000U;
-		if (mock->ready) value |= 0x40U;
-		if (mock->command_size < 12U && !mock->started) value |= 0x08U;
-		if (mock->started) value |= 0x10U;
+		if (mock->ready)
+			value |= 0x40U;
+		if (mock->command_size < 12U && !mock->started)
+			value |= 0x08U;
+		if (mock->started)
+			value |= 0x10U;
 		return value;
 	}
 	if (offset == 0x0cU)
@@ -70,10 +73,14 @@ static void mock_write8(void *context, UINT64 address, UINT8 value)
 	struct mock_io *mock = context;
 	UINT64 offset = address - TEST_BASE;
 
-	if (offset == 0 && value == 2U) mock->locality = 1;
-	if (offset == 0x18U && value == 0x40U) mock->ready = 1;
-	if (offset == 0x18U && value == 0x20U) mock->started = 1;
-	if (offset == 0x24U) mock->command[mock->command_size++] = value;
+	if (offset == 0 && value == 2U)
+		mock->locality = 1;
+	if (offset == 0x18U && value == 0x40U)
+		mock->ready = 1;
+	if (offset == 0x18U && value == 0x20U)
+		mock->started = 1;
+	if (offset == 0x24U)
+		mock->command[mock->command_size++] = value;
 	if (offset >= 0x80U && mock->interface == CDK2_TPM2_INTERFACE_CRB) {
 		mock->command[offset - 0x80U] = value;
 		if (mock->command_size <= offset - 0x80U)
@@ -86,8 +93,10 @@ static void mock_write32(void *context, UINT64 address, UINT32 value)
 	struct mock_io *mock = context;
 	UINT64 offset = address - TEST_BASE;
 
-	if (offset == 0x08U && value == 1U) mock->locality = 1;
-	if (offset == 0x48U) mock->cancel_writes++;
+	if (offset == 0x08U && value == 1U)
+		mock->locality = 1;
+	if (offset == 0x48U)
+		mock->cancel_writes++;
 }
 
 static void mock_write64(void *context, UINT64 address, UINT64 value)
