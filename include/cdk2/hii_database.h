@@ -7,6 +7,8 @@
 
 #define CDK2_HII_MAX_LISTS 64U
 #define CDK2_HII_MAX_NOTIFIES 32U
+#define CDK2_HII_MAX_STRINGS 512U
+#define CDK2_HII_MAX_LANGUAGE 63U
 #define CDK2_HII_PACKAGE_END 0xdfU
 
 struct cdk2_hii_package_list_header {
@@ -43,6 +45,21 @@ struct cdk2_hii_database {
 	void *context;
 	struct cdk2_hii_list lists[CDK2_HII_MAX_LISTS];
 	struct cdk2_hii_notify notifies[CDK2_HII_MAX_NOTIFIES];
+	struct cdk2_hii_string *strings;
+	UINT16 next_string_id;
+};
+struct cdk2_hii_font_info {
+	UINT32 style;
+	UINT16 size;
+	CHAR16 name[1];
+};
+struct cdk2_hii_string {
+	void *package_handle;
+	CHAR8 language[CDK2_HII_MAX_LANGUAGE + 1U];
+	CHAR16 *text;
+	struct cdk2_hii_font_info *font;
+	UINT16 id;
+	BOOLEAN active;
 };
 
 EFI_STATUS cdk2_hii_database_init(struct cdk2_hii_database *database,
@@ -63,5 +80,21 @@ EFI_STATUS cdk2_hii_register_package_notify(struct cdk2_hii_database *database,
 	void *context, UINTN notify_mask, void **notify_handle);
 EFI_STATUS cdk2_hii_unregister_package_notify(struct cdk2_hii_database *database,
 	void *notify_handle);
+EFI_STATUS cdk2_hii_new_string(struct cdk2_hii_database *database,
+	void *package_handle, UINT16 *string_id, const CHAR8 *language,
+	const CHAR16 *string, const struct cdk2_hii_font_info *font);
+EFI_STATUS cdk2_hii_set_string(struct cdk2_hii_database *database,
+	void *package_handle, UINT16 string_id, const CHAR8 *language,
+	const CHAR16 *string, const struct cdk2_hii_font_info *font);
+EFI_STATUS cdk2_hii_get_string(struct cdk2_hii_database *database,
+	const CHAR8 *language, void *package_handle, UINT16 string_id,
+	CHAR16 *string, UINTN *string_size, struct cdk2_hii_font_info **font);
+EFI_STATUS cdk2_hii_get_languages(struct cdk2_hii_database *database,
+	void *package_handle, CHAR8 *languages, UINTN *size);
+EFI_STATUS cdk2_hii_get_secondary_languages(struct cdk2_hii_database *database,
+	void *package_handle, const CHAR8 *primary_language, CHAR8 *languages,
+	UINTN *size);
+void cdk2_hii_remove_strings(struct cdk2_hii_database *database,
+	void *package_handle);
 
 #endif
