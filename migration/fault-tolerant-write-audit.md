@@ -20,3 +20,17 @@ its explicit DEPEX expression.
 
 This source lane is inventory-neutral: it does not replace the admitted FFS,
 change either retained-inventory TSV, or alter FV composition.
+
+## Admitted Q35 geometry
+
+The admitted Q35 trace reports `NvStorageBase:0xFF800000,
+NvStorageSize:0x80000`; its coreboot configuration has an SMMSTORE block size
+of `0x10000` and total size `0x80000` (eight blocks). `SmmStoreFvbRuntime`
+derives the layout directly from the authoritative SMMSTORE HOB as three
+variable blocks, one working block, and four spare blocks. Therefore the exact
+admitted values are variable `0xff800000+0x30000`, working
+`0xff830000+0x10000`, and spare `0xff840000+0x40000`.
+
+The native contract consumes the existing `SMMSTORE_INFO` HOB and repeats that
+derivation with overflow, parity, alignment, and minimum-size validation. It
+has no Q35 default and fails closed when the HOB is absent or malformed.
