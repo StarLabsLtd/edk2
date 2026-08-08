@@ -11,6 +11,7 @@
 #define CDK2_HII_MAX_LANGUAGE 63U
 #define CDK2_HII_MAX_IMAGES 256U
 #define CDK2_HII_MAX_GLYPHS 512U
+#define CDK2_HII_MAX_KEYBOARD_LAYOUTS 32U
 #define CDK2_HII_PACKAGE_END 0xdfU
 
 struct cdk2_hii_package_list_header {
@@ -52,6 +53,10 @@ struct cdk2_hii_database {
 	struct cdk2_hii_image_entry *images;
 	UINT16 next_image_id;
 	struct cdk2_hii_glyph *glyphs;
+	EFI_GUID keyboard_layouts[CDK2_HII_MAX_KEYBOARD_LAYOUTS];
+	UINTN keyboard_layout_count, current_keyboard_layout;
+	void (*keyboard_notify)(void *context, const EFI_GUID *layout);
+	void *keyboard_notify_context;
 };
 struct cdk2_hii_font_info {
 	UINT32 style;
@@ -154,5 +159,15 @@ EFI_STATUS cdk2_hii_string_to_image(struct cdk2_hii_database *database,
 	UINTN flags, const CHAR16 *string, struct cdk2_hii_image_output **output,
 	UINTN x, UINTN y, struct cdk2_hii_row_info **rows, UINTN *row_count,
 	UINTN *column, cdk2_hii_screen_blt_fn *screen_blt);
+EFI_STATUS cdk2_hii_add_keyboard_layout(struct cdk2_hii_database *database,
+	const EFI_GUID *layout);
+EFI_STATUS cdk2_hii_find_keyboard_layouts(struct cdk2_hii_database *database,
+	UINT16 *count, EFI_GUID *layouts);
+EFI_STATUS cdk2_hii_get_keyboard_layout(struct cdk2_hii_database *database,
+	EFI_GUID *layout);
+EFI_STATUS cdk2_hii_set_keyboard_layout(struct cdk2_hii_database *database,
+	const EFI_GUID *layout);
+void cdk2_hii_set_keyboard_notify(struct cdk2_hii_database *database,
+	void (*notify)(void *context, const EFI_GUID *layout), void *context);
 
 #endif
