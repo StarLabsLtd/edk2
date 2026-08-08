@@ -109,6 +109,10 @@ static int parser_tests(const struct cdk2_device_path_allocator *allocator)
 		"Acpi(PNP123,0)", "AcpiEx(PNP0A03,PNP0000,0)", "AcpiAdr()",
 		"HardwarePath(256,00)", "AcpiAdr(0x100000000)",
 	};
+	static const char *const display[] = {
+		"Ata(0x1234)", "IPv4(192.0.2.1)",
+		"IPv6(0001:0002:0003:0004:0005:0006:0007:0008)",
+	};
 	CHAR16 text[256];
 	struct cdk2_device_path *path;
 	UINTN before;
@@ -116,6 +120,13 @@ static int parser_tests(const struct cdk2_device_path_allocator *allocator)
 	int failures = 0;
 	for (index = 0; index < ARRAY_SIZE(paths); index++)
 		failures += expect_round_trip(paths[index], allocator);
+	for (index = 0; index < ARRAY_SIZE(display); index++) {
+		text16(text, display[index]); path = NULL;
+		failures += expect(cdk2_device_path_from_text(text, allocator, &path) ==
+			EFI_SUCCESS, "messaging display form rejected");
+		if (path != NULL)
+			allocator->free(allocator->context, path);
+	}
 	text16(text, "Pci(0x1f,0x2)"); before = allocations;
 	failures += expect(cdk2_device_path_node_from_text(text, allocator, &path) ==
 		EFI_SUCCESS && allocations == before + 1 &&
@@ -132,6 +143,61 @@ static int parser_tests(const struct cdk2_device_path_allocator *allocator)
 	failures += expect(cdk2_device_path_from_text(text, allocator, &path) ==
 		EFI_OUT_OF_RESOURCES && path == NULL, "parser allocation failure escaped");
 	fail_allocation = FALSE;
+	return failures;
+}
+
+static int messaging_parser_tests(const struct cdk2_device_path_allocator *allocator)
+{
+	static const char *const paths[] = {
+		"Ata(Secondary,Slave,0x1234)", "Scsi(0x1234,0xabcd)",
+		"Fibre(0x123456789,0xabcdef)", "I1394(0123456789abcdef)",
+		"USB(0x12,0x34)", "I2O(0x12345678)",
+		"Infiniband(0x1,11223344-5566-7788-0102-030405060708,0x2,0x3,0x4)",
+		"VenMsg(11223344-5566-7788-0102-030405060708,aa05)",
+		"VenPcAnsi()", "VenVt100()", "VenVt100Plus()", "VenUtf8()", "DebugPort()",
+		"UartFlowCtrl(None)", "UartFlowCtrl(Hardware)", "UartFlowCtrl(XonXoff)",
+		"SAS(0x11,0x22,0x3,NoTopology,0,0,0,0x9)",
+		"MAC(010203040506,0x1)",
+		"IPv4(192.0.2.1,TCP,Static,192.0.2.2,255.255.255.0,192.0.2.254)",
+		"IPv6(0001:0002:0003:0004:0005:0006:0007:0008,UDP,StatelessAutoConfigure,0011:0012:0013:0014:0015:0016:0017:0018,0x40,0021:0022:0023:0024:0025:0026:0027:0028)",
+		"Uart(115200,8,N,1)", "UsbClass(0x1,0x2,0x0,0x4,0x5)",
+		"UsbAudio(0x1,0x2,0x3,0x4)", "UsbCDCControl(0x1,0x2,0x3,0x4)",
+		"UsbHID(0x1,0x2,0x3,0x4)",
+		"UsbImage(0x1,0x2,0x3,0x4)", "UsbPrinter(0x1,0x2,0x3,0x4)",
+		"UsbMassStorage(0x1,0x2,0x3,0x4)", "UsbHub(0x1,0x2,0x3,0x4)",
+		"UsbCDCData(0x1,0x2,0x3,0x4)", "UsbSmartCard(0x1,0x2,0x3,0x4)",
+		"UsbVideo(0x1,0x2,0x3,0x4)", "UsbDiagnostic(0x1,0x2,0x3,0x4)",
+		"UsbWireless(0x1,0x2,0x3,0x4)",
+		"UsbDeviceFirmwareUpdate(0x1,0x2,0x3)",
+		"UsbIrdaBridge(0x1,0x2,0x3)", "UsbTestAndMeasurement(0x1,0x2,0x3)",
+		"UsbWwid(0x1,0x2,0x3,\"serial,number\")", "Unit(0x7)",
+		"Sata(0x1,0x2,0x3)",
+		"iSCSI(target,0x1,0x0102030405060708,CRC32C,None,CHAP_UNI,TCP)",
+		"Vlan(4094)", "FibreEx(0x0102030405060708,0x1112131415161718)",
+		"SasEx(0x0102030405060708,0x1112131415161718,0x2,SATA,External,Expanded,0x4)",
+		"NVMe(0x1234,01-02-03-04-05-06-07-08)", "Uri(urn:host/a,b)",
+		"UFS(0x1,0x2)", "SD(0x3)", "Bluetooth(010203040506)",
+		"Wi-Fi(network)", "eMMC(0x4)", "BluetoothLE(010203040506,0x1)",
+		"Dns(8.8.8.8,1.1.1.1)",
+		"Dns(0001:0002:0003:0004:0005:0006:0007:0008)",
+	};
+	static const char *const malformed[] = {
+		"Ata(Bad,Master,0)", "MAC(0102,0)", "IPv4(300.0.0.1)",
+		"IPv6(1::2)", "Uart(0,9,Q,3)", "UsbClass(0,0,0,0,256)",
+		"UsbWwid(0,0,0,serial)", "iSCSI(x,0,0x01,None,None,None,TCP)",
+		"SasEx(0x00,0x00,0,NoTopology,0,0,0)",
+		"NVMe(0,00-00)", "Bluetooth(00)", "Dns(8.8.8.8,0000:0000:0000:0000:0000:0000:0000:0000)",
+	};
+	CHAR16 text[512]; struct cdk2_device_path *path; UINTN index, before;
+	int failures = 0;
+	for (index = 0; index < ARRAY_SIZE(paths); index++)
+		failures += expect_round_trip(paths[index], allocator);
+	for (index = 0; index < ARRAY_SIZE(malformed); index++) {
+		text16(text, malformed[index]); path = (void *)(UINTN)1; before = allocations;
+		failures += expect(cdk2_device_path_from_text(text, allocator, &path) ==
+			EFI_INVALID_PARAMETER && path == NULL && allocations == before,
+			"malformed messaging input accepted");
+	}
 	return failures;
 }
 
@@ -518,6 +584,7 @@ int main(void)
 	failures += messaging_formatter_tests();
 	failures += media_bbs_formatter_tests();
 	failures += parser_tests(&allocator);
+	failures += messaging_parser_tests(&allocator);
 
 	set_node(first, 1, 1, 8);
 	set_node((void *)(first_bytes + 8), CDK2_DEVICE_PATH_END_TYPE,
