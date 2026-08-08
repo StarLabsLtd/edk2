@@ -13,6 +13,15 @@ static void write32(UINT8 *value, UINT32 data)
 	value[0] = data; value[1] = data >> 8; value[2] = data >> 16;
 	value[3] = data >> 24;
 }
+static void write16(UINT8 *value, UINT16 data)
+{ value[0] = data; value[1] = data >> 8; }
+static void write_cell(UINT8 *value, UINT16 width, UINT16 height,
+	INT16 offset_x, INT16 offset_y, INT16 advance_x)
+{
+	write16(value, width); write16(value + 2U, height);
+	write16(value + 4U, (UINT16)offset_x); write16(value + 6U, (UINT16)offset_y);
+	write16(value + 8U, (UINT16)advance_x);
+}
 static int expect(int condition, const char *message)
 { if (!condition) fprintf(stderr, "HII package parser test: %s\n", message); return !condition; }
 
@@ -23,6 +32,7 @@ int main(void)
 	UINT8 list[81] = { 0 };
 	UINT8 image_list[55] = { 0 };
 	UINT8 palette_list[54] = { 0 };
+	UINT8 font_list[92] = { 0 };
 	struct cdk2_hii_image_input image;
 	CHAR16 text[3];
 	UINTN size = sizeof(text);
@@ -91,5 +101,40 @@ int main(void)
 		image.bitmap[0].red == 0U && image.bitmap[1].red == 0xffU,
 		"paletted transparent image was not decoded faithfully");
 	release(NULL, image.bitmap);
+	write32(font_list + 16U, sizeof(font_list));
+	write32(font_list + 20U, (0x05U << 24) | 68U);
+	write32(font_list + 24U, 28U);
+	write32(font_list + 28U, 28U);
+	write_cell(font_list + 32U, 2U, 2U, -1, 1, 3);
+	/* FontStyle is zero and FontFamily is the required empty UCS-2 string. */
+	font_list[48] = 0x23U;
+	write_cell(font_list + 49U, 2U, 2U, -1, 1, 3);
+	font_list[59] = 0x12U; font_list[60] = 0xa0U;
+	font_list[61] = 0x13U; write16(font_list + 62U, 2U);
+	font_list[64] = 0xc0U; font_list[65] = 0x60U;
+	font_list[66] = 0x20U; write16(font_list + 67U, 1U);
+	font_list[69] = 0x22U; font_list[70] = 2U;
+	font_list[71] = 0x14U;
+	write_cell(font_list + 72U, 1U, 1U, 2, -2, 4);
+	font_list[82] = 1U; font_list[83] = 0x80U;
+	font_list[84] = 0x30U; font_list[85] = 0xeeU; font_list[86] = 3U;
+	font_list[87] = 0x00U;
+	write32(font_list + 88U, (CDK2_HII_PACKAGE_END << 24) | 4U);
+	failures += expect(cdk2_hii_new_package_list(&database, font_list, NULL,
+		&handle) == EFI_SUCCESS && database.glyphs[0].character == 1U &&
+		database.glyphs[0].width == 2U && database.glyphs[0].offset_x == -1 &&
+		database.glyphs[0].advance_x == 3 &&
+		database.glyphs[3].character == 4U &&
+		database.glyphs[4].character == 7U && database.glyphs[4].width == 1U &&
+		database.glyphs[4].offset_y == -2,
+		"standard/default/duplicate/skip/variability GIBT blocks were not decoded");
+	font_list[82] = 0U;
+	failures += expect(cdk2_hii_update_package_list(&database, handle, font_list) ==
+		EFI_INVALID_PARAMETER && database.glyphs[0].character == 1U,
+		"short variability bitmap was admitted or corrupted the old package");
+	font_list[82] = 1U; font_list[86] = 2U;
+	failures += expect(cdk2_hii_update_package_list(&database, handle, font_list) ==
+		EFI_INVALID_PARAMETER && database.glyphs[4].character == 7U,
+		"undersized extended GIBT block was admitted");
 	return failures == 0 ? 0 : 1;
 }
