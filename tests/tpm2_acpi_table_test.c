@@ -125,6 +125,50 @@ int main(void)
 		checksum = (UINT8)(checksum + ((const UINT8 *)&table)[index]);
 	failures += expect(checksum == 0, "ACPI checksum is wrong");
 	{
+		struct {
+			EFI_ACPI_DESCRIPTION_HEADER header;
+			UINT64 entry;
+		} __packed xsdt = {0};
+		EFI_ACPI_3_0_ROOT_SYSTEM_DESCRIPTION_POINTER rsdp = {0};
+		struct cdk2_config_table_view config = {
+			.guid = { 0x8868e871, 0xe4f1, 0x11d3,
+				{ 0xbc, 0x22, 0x00, 0x80, 0xc7, 0x3c, 0x88, 0x81 } },
+			.table = &rsdp,
+		};
+		const EFI_ACPI_DESCRIPTION_HEADER *found_platform = NULL;
+		const EFI_TPM2_ACPI_TABLE *found_tpm2 = NULL;
+		UINT8 *bytes;
+		UINT8 sum;
+
+		xsdt.header.signature =
+			EFI_ACPI_3_0_EXTENDED_SYSTEM_DESCRIPTION_TABLE_SIGNATURE;
+		xsdt.header.length = sizeof(xsdt);
+		xsdt.entry = (UINT64)(UINTN)&table.table;
+		bytes = (UINT8 *)&xsdt;
+		for (sum = 0, index = 0; index < sizeof(xsdt); index++)
+			sum = (UINT8)(sum + bytes[index]);
+		xsdt.header.checksum = (UINT8)(0U - sum);
+		rsdp.signature = EFI_ACPI_3_0_ROOT_SYSTEM_DESCRIPTION_POINTER_SIGNATURE;
+		rsdp.revision = 2;
+		rsdp.length = sizeof(rsdp);
+		rsdp.xsdt_address = (UINT64)(UINTN)&xsdt;
+		bytes = (UINT8 *)&rsdp;
+		for (sum = 0, index = 0; index < 20; index++)
+			sum = (UINT8)(sum + bytes[index]);
+		rsdp.checksum = (UINT8)(0U - sum);
+		for (sum = 0, index = 0; index < sizeof(rsdp); index++)
+			sum = (UINT8)(sum + bytes[index]);
+		rsdp.extended_checksum = (UINT8)(0U - sum);
+		failures += expect(cdk2_tpm2_acpi_find_config(&config, 1,
+			&found_platform, &found_tpm2) == EFI_SUCCESS &&
+			found_platform == &xsdt.header && found_tpm2 == &table.table,
+			"XSDT-only TPM2 table was not discovered");
+		xsdt.header.checksum++;
+		failures += expect(cdk2_tpm2_acpi_find_config(&config, 1,
+			&found_platform, &found_tpm2) == EFI_COMPROMISED_DATA,
+			"corrupt XSDT checksum was accepted");
+	}
+	{
 		struct cdk2_tcg2_acpi_export export = {
 			.revision = CDK2_TCG2_EXPORT_REVISION, .size = sizeof(export),
 			.active_interface = 1, .tpm_base = 0xfed40000,

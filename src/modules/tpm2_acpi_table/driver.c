@@ -13,6 +13,8 @@ struct boot_services_view {
 struct system_table_view {
 	UINT8 before_boot_services[96];
 	struct boot_services_view *boot_services;
+	UINTN table_count;
+	struct cdk2_config_table_view *tables;
 };
 
 typedef char locate_protocol_offset_check[
@@ -32,9 +34,77 @@ static const EFI_GUID tcg2_protocol_guid = {
 	0x607f766c, 0x7455, 0x42be,
 	{ 0x93, 0x0b, 0xe4, 0xd7, 0x6d, 0xb2, 0x72, 0x0f }
 };
+static const EFI_GUID acpi20_table_guid = {
+	0x8868e871, 0xe4f1, 0x11d3,
+	{ 0xbc, 0x22, 0x00, 0x80, 0xc7, 0x3c, 0x88, 0x81 }
+};
 
 static struct cdk2_acpi_table_protocol *acpi_table;
 static struct cdk2_acpi_sdt_protocol *acpi_sdt;
+
+static BOOLEAN guid_equal(const EFI_GUID *left, const EFI_GUID *right)
+{
+	const UINT8 *a = (const UINT8 *)left;
+	const UINT8 *b = (const UINT8 *)right;
+	UINTN index;
+	for (index = 0; index < sizeof(*left); index++)
+		if (a[index] != b[index])
+			return FALSE;
+	return TRUE;
+}
+
+static BOOLEAN checksum_ok(const void *data, UINT32 size)
+{
+	const UINT8 *bytes = data;
+	UINT8 sum = 0;
+	UINT32 index;
+	for (index = 0; index < size; index++)
+		sum = (UINT8)(sum + bytes[index]);
+	return sum == 0;
+}
+
+EFI_STATUS cdk2_tpm2_acpi_find_config(
+	const struct cdk2_config_table_view *tables, UINTN table_count,
+	const EFI_ACPI_DESCRIPTION_HEADER **platform,
+	const EFI_TPM2_ACPI_TABLE **tpm2)
+{
+	const EFI_ACPI_3_0_ROOT_SYSTEM_DESCRIPTION_POINTER *rsdp = NULL;
+	const EFI_ACPI_DESCRIPTION_HEADER *xsdt;
+	const EFI_ACPI_DESCRIPTION_HEADER *header;
+	const UINT64 *entries;
+	UINTN count;
+	UINTN index;
+
+	if (tables == NULL || platform == NULL || tpm2 == NULL)
+		return EFI_INVALID_PARAMETER;
+	for (index = 0; index < table_count; index++)
+		if (guid_equal(&tables[index].guid, &acpi20_table_guid))
+			rsdp = tables[index].table;
+	if (rsdp == NULL || rsdp->signature !=
+	    EFI_ACPI_3_0_ROOT_SYSTEM_DESCRIPTION_POINTER_SIGNATURE ||
+	    rsdp->length != sizeof(*rsdp) || rsdp->xsdt_address == 0 ||
+	    !checksum_ok(rsdp, 20) || !checksum_ok(rsdp, rsdp->length))
+		return EFI_COMPROMISED_DATA;
+	xsdt = (const void *)(UINTN)rsdp->xsdt_address;
+	if (xsdt->signature != EFI_ACPI_3_0_EXTENDED_SYSTEM_DESCRIPTION_TABLE_SIGNATURE ||
+	    xsdt->length < sizeof(*xsdt) || xsdt->length > 1024U * 1024U ||
+	    !checksum_ok(xsdt, xsdt->length))
+		return EFI_COMPROMISED_DATA;
+	*platform = xsdt;
+	entries = (const UINT64 *)(xsdt + 1);
+	count = (xsdt->length - sizeof(*xsdt)) / sizeof(*entries);
+	for (index = 0; index < count; index++) {
+		header = (const void *)(UINTN)entries[index];
+		if (header->signature ==
+		    EFI_ACPI_5_0_TRUSTED_COMPUTING_PLATFORM_2_TABLE_SIGNATURE &&
+		    header->length >= sizeof(EFI_TPM2_ACPI_TABLE) &&
+		    header->length <= 1024U * 1024U && checksum_ok(header, header->length)) {
+			*tpm2 = (const EFI_TPM2_ACPI_TABLE *)header;
+			return EFI_SUCCESS;
+		}
+	}
+	return EFI_NOT_FOUND;
+}
 
 static EFI_STATUS CDK2_MS_ABI get_table(UINTN index,
 	cdk2_acpi_header_ptr table, cdk2_uintn_ptr key)
@@ -54,9 +124,11 @@ static EFI_STATUS CDK2_MS_ABI install_table(const void *table, UINTN size,
 	return acpi_table->install(table, size, key);
 }
 
-EFI_STATUS cdk2_tpm2_acpi_install_from_protocols(cdk2_tcg2_protocol_ptr tcg2,
+static EFI_STATUS install_from_protocols(cdk2_tcg2_protocol_ptr tcg2,
 	struct cdk2_acpi_table_protocol *table_protocol,
-	struct cdk2_acpi_sdt_protocol *sdt_protocol)
+	struct cdk2_acpi_sdt_protocol *sdt_protocol,
+	const EFI_ACPI_DESCRIPTION_HEADER *fallback_platform,
+	const EFI_TPM2_ACPI_TABLE *fallback_tpm2)
 {
 	const struct cdk2_tcg2_service *tcg2_service;
 	const EFI_ACPI_DESCRIPTION_HEADER *platform = NULL;
@@ -89,6 +161,10 @@ EFI_STATUS cdk2_tpm2_acpi_install_from_protocols(cdk2_tcg2_protocol_ptr tcg2,
 		    header->length >= sizeof(EFI_TPM2_ACPI_TABLE))
 			existing = (const EFI_TPM2_ACPI_TABLE *)header;
 	}
+	if (platform == NULL)
+		platform = fallback_platform;
+	if (existing == NULL)
+		existing = fallback_tpm2;
 	if (platform == NULL || existing == NULL)
 		return EFI_NOT_FOUND;
 	tcg2_service = (const struct cdk2_tcg2_service *)tcg2;
@@ -99,10 +175,19 @@ EFI_STATUS cdk2_tpm2_acpi_install_from_protocols(cdk2_tcg2_protocol_ptr tcg2,
 	return cdk2_tpm2_acpi_replace(&info, &services, &table_key);
 }
 
+EFI_STATUS cdk2_tpm2_acpi_install_from_protocols(cdk2_tcg2_protocol_ptr tcg2,
+	struct cdk2_acpi_table_protocol *table_protocol,
+	struct cdk2_acpi_sdt_protocol *sdt_protocol)
+{
+	return install_from_protocols(tcg2, table_protocol, sdt_protocol, NULL, NULL);
+}
+
 EFI_STATUS CDK2_MS_ABI cdk2_tpm2_acpi_entry(void *image,
 	struct system_table_view *system)
 {
 	EFI_TCG2_PROTOCOL *tcg2;
+	const EFI_ACPI_DESCRIPTION_HEADER *platform = NULL;
+	const EFI_TPM2_ACPI_TABLE *existing = NULL;
 	EFI_STATUS status;
 
 	(void)image;
@@ -120,5 +205,9 @@ EFI_STATUS CDK2_MS_ABI cdk2_tpm2_acpi_entry(void *image,
 		NULL, (void **)&tcg2);
 	if (EFI_ERROR(status))
 		return status;
-	return cdk2_tpm2_acpi_install_from_protocols(tcg2, acpi_table, acpi_sdt);
+	status = cdk2_tpm2_acpi_find_config(system->tables, system->table_count,
+		&platform, &existing);
+	if (EFI_ERROR(status) && status != EFI_NOT_FOUND)
+		return status;
+	return install_from_protocols(tcg2, acpi_table, acpi_sdt, platform, existing);
 }

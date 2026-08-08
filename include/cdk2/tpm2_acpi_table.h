@@ -7,6 +7,7 @@
 #include <protocol/tcg2.h>
 
 struct cdk2_tcg2_acpi_export;
+struct cdk2_config_table_view { EFI_GUID guid; void *table; };
 typedef EFI_ACPI_DESCRIPTION_HEADER * cdk2_acpi_header_ptr[1];
 typedef UINTN cdk2_uintn_ptr[1];
 typedef UINT32 cdk2_uint32_ptr[1];
@@ -76,5 +77,9 @@ EFI_STATUS cdk2_tpm2_acpi_from_export(const struct cdk2_tcg2_acpi_export *export
 EFI_STATUS cdk2_tpm2_acpi_install_from_protocols(cdk2_tcg2_protocol_ptr tcg2,
 	struct cdk2_acpi_table_protocol *table_protocol,
 	struct cdk2_acpi_sdt_protocol *sdt_protocol);
+EFI_STATUS cdk2_tpm2_acpi_find_config(
+	const struct cdk2_config_table_view *tables, UINTN table_count,
+	const EFI_ACPI_DESCRIPTION_HEADER **platform,
+	const EFI_TPM2_ACPI_TABLE **tpm2);
 
 #endif
