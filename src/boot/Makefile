@@ -186,7 +186,7 @@ CDK2_NATIVE_TCG2_DEPEX_GEN ?= $(CDK2_NATIVE_BUILD_DIR)/tcg2-depex-gen
 CDK2_NATIVE_TCG2_DEPEX ?= $(CDK2_NATIVE_BUILD_DIR)/Tcg2Dxe.depex
 CDK2_NATIVE_TCG2_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/Tcg2Dxe.ffs
 CDK2_NATIVE_TCG2_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-tcg2.fv
-CDK2_NATIVE_PRE_TCG2_FV ?= $(CDK2_NATIVE_LOCAL_APIC_TIMER_FV)
+CDK2_NATIVE_PRE_TCG2_FV ?= $(CDK2_NATIVE_GRAPHICS_CONSOLE_FV)
 HOSTCC ?= cc
 CDK2_NATIVE_CC ?= $(CC)
 CDK2_NATIVE_HOST_CC ?= $(HOSTCC)
@@ -1127,10 +1127,6 @@ ifeq ($(CONFIG_CDK2_NATIVE_LOCAL_APIC_TIMER),y)
 CDK2_NATIVE_PRE_LOCAL_APIC_TIMER_FV := $(CDK2_NATIVE_FINAL_FV)
 CDK2_NATIVE_FINAL_FV := $(CDK2_NATIVE_LOCAL_APIC_TIMER_FV)
 
-ifeq ($(CONFIG_CDK2_NATIVE_TCG2),y)
-CDK2_NATIVE_FINAL_FV := $(CDK2_NATIVE_TCG2_FV)
-endif
-
 $(CDK2_NATIVE_LOCAL_APIC_TIMER_OBJ): $(CDK2_DIR)/src/modules/local_apic_timer/local_apic_timer.c $(CDK2_DIR)/include/cdk2/local_apic_timer.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) -mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args $(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
 
@@ -1194,8 +1190,8 @@ $(CDK2_NATIVE_REMOVE_TCG1_FV): $(CDK2_NATIVE_PRE_REMOVE_TCG1_FV) \
 	@"$(CDK2_NATIVE_FVINFO)" "$@" | grep -qi \
 		'fdff263d-5f68-4591-87ba-b768f445a9af'
 
-ifeq ($(CONFIG_CDK2_NATIVE_GRAPHICS_CONSOLE),y)
 CDK2_NATIVE_PRE_GRAPHICS_CONSOLE_FV := $(CDK2_NATIVE_FINAL_FV)
+ifeq ($(CONFIG_CDK2_NATIVE_GRAPHICS_CONSOLE),y)
 CDK2_NATIVE_FINAL_FV := $(CDK2_NATIVE_GRAPHICS_CONSOLE_FV)
 
 native-graphics-console-fv: $(CDK2_NATIVE_GRAPHICS_CONSOLE_FV)
@@ -1203,6 +1199,10 @@ native-graphics-console-fv: $(CDK2_NATIVE_GRAPHICS_CONSOLE_FV)
 else
 native-graphics-console-fv:
 	@printf '%s\n' 'native GraphicsConsoleDxe: disabled by Kconfig'
+endif
+
+ifeq ($(CONFIG_CDK2_NATIVE_TCG2),y)
+CDK2_NATIVE_FINAL_FV := $(CDK2_NATIVE_TCG2_FV)
 endif
 
 $(CDK2_NATIVE_BUILD_DIR)/graphics-console-%.o: \
