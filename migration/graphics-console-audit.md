@@ -1,7 +1,7 @@
 # Graphics console replacement audit
 
-`GraphicsConsoleDxe` remains inventory-neutral while its complete driver model
-is implemented and reviewed. The admitted artifact has:
+`GraphicsConsoleDxe` is replaced by the complete, reviewed native driver model.
+The admitted artifact has:
 
 - FFS GUID `cccb0c28-4b24-11d5-9a5a-0090273fc14d`;
 - offset `0x2da328`, size `0x9056`, and file type `0x07`;

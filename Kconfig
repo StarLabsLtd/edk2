@@ -314,7 +314,7 @@ config CDK2_NATIVE_LOCAL_APIC_TIMER
 
 config CDK2_NATIVE_GRAPHICS_CONSOLE
 	bool "Build native graphics console services"
-	default n
+	default y
 	depends on CDK2_NATIVE_STAGE
 	help
 	  Publish Simple Text Output on GOP controllers and own the HII narrow-font
