@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 
 #include <cdk2/tpm2_acpi_table.h>
+#include <cdk2/tcg2_service.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -48,7 +49,7 @@ static struct cdk2_tpm2_acpi_info valid_info(void)
 {
 	struct cdk2_tpm2_acpi_info info = {
 		.revision = 5, .platform_class = 2,
-		.interface_type = CDK2_TPM2_INTERFACE_CRB,
+		.interface_type = CDK2_TPM2_ACPI_INTERFACE_CRB,
 		.oem_id = { 'C', 'D', 'K', '2', ' ', ' ' },
 		.oem_table_id = 0x1122334455667788ULL, .oem_revision = 3,
 		.creator_id = 0x43444b32U, .creator_revision = 7,
@@ -75,6 +76,7 @@ int main(void)
 	struct cdk2_tpm2_acpi_table table;
 	UINTN key = 0, index;
 	int failures = 0;
+	UINT8 checksum = 0;
 
 	failures += expect(sizeof(table) == 76U, "revision-4 table size changed");
 	failures += expect(cdk2_tpm2_acpi_build(&info, &table) == EFI_SUCCESS,
@@ -98,8 +100,31 @@ int main(void)
 		failures += expect(table.parameters[index] == 0, "parameters not zero");
 	failures += expect(table.event_log_length == info.event_log_length &&
 		table.event_log_address == info.event_log_address, "event log is wrong");
+	for (index = 0; index < sizeof(table); index++)
+		checksum = (UINT8)(checksum + ((const UINT8 *)&table)[index]);
+	failures += expect(checksum == 0, "ACPI checksum is wrong");
+	{
+		struct cdk2_tcg2_acpi_export export = {
+			.revision = CDK2_TCG2_EXPORT_REVISION, .size = sizeof(export),
+			.active_interface = 1, .tpm_base = 0xfed40000,
+			.log_base = 0x12345000, .log_capacity = 0x10000,
+		};
+		EFI_ACPI_DESCRIPTION_HEADER platform = table.table.header;
+		struct cdk2_tpm2_acpi_info derived;
+		failures += expect(cdk2_tpm2_acpi_from_export(&export, &platform,
+			&table.table, &derived) == EFI_SUCCESS &&
+			derived.interface_type == 1 && derived.tpm_base == export.tpm_base &&
+			derived.event_log_address == export.log_base &&
+			derived.event_log_length == export.log_capacity &&
+			memcmp(derived.oem_id, platform.oem_id, sizeof(derived.oem_id)) == 0,
+			"native TCG2 export was not converted authoritatively");
+		export.reserved2 = 1;
+		failures += expect(cdk2_tpm2_acpi_from_export(&export, &platform,
+			&table.table, &derived) == EFI_COMPROMISED_DATA,
+			"corrupt native TCG2 export was accepted");
+	}
 
-	info.interface_type = CDK2_TPM2_INTERFACE_TIS;
+	info.interface_type = CDK2_TPM2_ACPI_INTERFACE_TIS;
 	failures += expect(cdk2_tpm2_acpi_build(&info, &table) == EFI_SUCCESS &&
 		table.table.start_method == CDK2_TPM2_START_METHOD_TIS &&
 		table.table.address_of_control_area == 0, "TIS fields are wrong");

@@ -4,9 +4,12 @@
 #define CDK2_TPM2_ACPI_TABLE_H_
 
 #include <industry_standard/tpm2_acpi.h>
+#include <protocol/tcg2.h>
 
-#define CDK2_TPM2_INTERFACE_TIS 0U
-#define CDK2_TPM2_INTERFACE_CRB 1U
+struct cdk2_tcg2_acpi_export;
+
+#define CDK2_TPM2_ACPI_INTERFACE_TIS 0U
+#define CDK2_TPM2_ACPI_INTERFACE_CRB 1U
 #define CDK2_TPM2_START_METHOD_TIS 6U
 #define CDK2_TPM2_START_METHOD_CRB 7U
 #define CDK2_TPM2_CRB_CONTROL_AREA_OFFSET 0x40U
@@ -43,9 +46,23 @@ struct cdk2_acpi_table_services {
 		UINTN *table_key) CDK2_MS_ABI;
 };
 
+struct cdk2_acpi_table_protocol {
+	EFI_STATUS (CDK2_MS_ABI *install)(const void *table, UINTN size,
+		UINTN *table_key);
+	EFI_STATUS (CDK2_MS_ABI *uninstall)(UINTN table_key);
+};
+
+struct cdk2_acpi_sdt_protocol {
+	EFI_STATUS (CDK2_MS_ABI *get_table)(UINTN index,
+		EFI_ACPI_DESCRIPTION_HEADER **table, UINT32 *version, UINTN *table_key);
+};
+
 EFI_STATUS cdk2_tpm2_acpi_build(const struct cdk2_tpm2_acpi_info *info,
 	struct cdk2_tpm2_acpi_table *table);
 EFI_STATUS cdk2_tpm2_acpi_replace(const struct cdk2_tpm2_acpi_info *info,
 	const struct cdk2_acpi_table_services *services, UINTN *table_key);
+EFI_STATUS cdk2_tpm2_acpi_from_export(const struct cdk2_tcg2_acpi_export *export,
+	const EFI_ACPI_DESCRIPTION_HEADER *platform_table,
+	const EFI_TPM2_ACPI_TABLE *existing, struct cdk2_tpm2_acpi_info *info);
 
 #endif
