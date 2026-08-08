@@ -47,6 +47,7 @@ static EFI_STATUS CDK2_MS_ABI text_reset(struct cdk2_simple_text_output_view *te
 	EFI_STATUS status;
 
 	(void)extended;
+	binding->console.attribute = 7U;
 	status = cdk2_graphics_console_set_mode(&binding->console, 0U);
 	if (!EFI_ERROR(status))
 		sync_text_mode(binding);

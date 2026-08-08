@@ -5,6 +5,7 @@
 #include <stdlib.h>
 
 static UINTN opens, closes, installs, uninstalls, blts, fail_open, allocations, releases;
+static UINTN last_blt_operation, last_blt_x, last_blt_y, last_blt_width, last_blt_height;
 static EFI_STATUS uninstall_status;
 static struct cdk2_gop_view gop;
 static struct cdk2_gop_mode_info gop_info = {
@@ -81,7 +82,7 @@ static EFI_STATUS locate(void *context, const EFI_GUID *guid, void **interface)
 static EFI_STATUS CDK2_MS_ABI blt(void *graphics, void *buffer, UINTN operation,
 	UINTN sx, UINTN sy,
 	UINTN dx, UINTN dy, UINTN width, UINTN height, UINTN delta)
-{ (void)graphics; (void)buffer; (void)operation; (void)sx; (void)sy; (void)dx; (void)dy; (void)width; (void)height; (void)delta; blts++; return EFI_SUCCESS; }
+{ (void)graphics; (void)buffer; (void)sx; (void)sy; (void)delta; blts++; last_blt_operation = operation; last_blt_x = dx; last_blt_y = dy; last_blt_width = width; last_blt_height = height; return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI render(const struct cdk2_hii_font_view *hii, UINT32 flags,
 	const CHAR16 *string, const struct cdk2_font_display_info *display,
 	struct cdk2_image_output **image, UINTN x, UINTN y,
@@ -91,9 +92,11 @@ static EFI_STATUS CDK2_MS_ABI render(const struct cdk2_hii_font_view *hii, UINT3
 	if (flags != (CDK2_HII_IGNORE_IF_NO_GLYPH | CDK2_HII_IGNORE_LINE_BREAK |
 	    CDK2_HII_DIRECT_TO_SCREEN) || string == NULL || image == NULL ||
 	    (*image)->image.screen != &gop || (*image)->width != 800U ||
-	    (*image)->height != 600U || x != 2U || y != 3U)
+	    (*image)->height != 600U || (x != 2U && x != 4U) || y != 3U)
 		return EFI_INVALID_PARAMETER;
 	renders++;
+	if (x == 4U && (string[0] != 0xfff1U || string[1] != L'A'))
+		return EFI_INVALID_PARAMETER;
 	return EFI_SUCCESS;
 }
 static EFI_STATUS CDK2_MS_ABI get_glyph(const struct cdk2_hii_font_view *hii,
@@ -156,6 +159,10 @@ int main(void)
 	failures += expect(binding.text.clear_screen(&binding.text) == EFI_SUCCESS &&
 		last_cursor_visible,
 		"ClearScreen did not restore the visible cursor after clearing");
+	failures += expect(binding.text.set_attribute(&binding.text, 0x40U) == EFI_SUCCESS &&
+		binding.text.reset(&binding.text, FALSE) == EFI_SUCCESS &&
+		binding.text.mode->attribute == 7,
+		"Reset did not restore the default text attribute");
 	failures += expect(cdk2_graphics_binding_publish(&binding, &binding, publish, unpublish,
 		notify, NULL) == EFI_SUCCESS && publishes == 3U && notifications == 1U &&
 		binding.driver.version == 0x10U &&
@@ -184,6 +191,12 @@ int main(void)
 		failures += expect(cdk2_graphics_render_string(&binding, L"A", NULL, &image,
 			2, 3, 8, 19) == EFI_SUCCESS && renders == 1U && blts == 1U,
 			"HII StringToImage was not directed to the GOP");
+	}
+	{
+		struct cdk2_image_output *image = NULL;
+		CHAR16 wide[] = { 0xfff1U, L'A', 0U };
+		failures += expect(cdk2_graphics_render_string(&binding, wide, NULL, &image,
+			4, 3, 16, 19) == EFI_SUCCESS, "wide HII directive was not preserved");
 	}
 	uninstall_status = EFI_DEVICE_ERROR;
 	failures += expect(cdk2_graphics_binding_stop(&binding) == EFI_DEVICE_ERROR &&

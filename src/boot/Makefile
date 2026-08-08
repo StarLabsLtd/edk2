@@ -1084,7 +1084,12 @@ CDK2_NATIVE_PRE_GRAPHICS_CONSOLE_FV := $(CDK2_NATIVE_FINAL_FV)
 CDK2_NATIVE_FINAL_FV := $(CDK2_NATIVE_GRAPHICS_CONSOLE_FV)
 endif
 
-$(CDK2_NATIVE_BUILD_DIR)/graphics-console-%.o: $(CDK2_DIR)/src/modules/graphics_console/%.c | $(CDK2_NATIVE_BUILD_DIR)
+$(CDK2_NATIVE_BUILD_DIR)/graphics-console-%.o: \
+	$(CDK2_DIR)/src/modules/graphics_console/%.c \
+	$(CDK2_DIR)/include/cdk2/graphics_console.h \
+	$(CDK2_DIR)/include/cdk2/graphics_console_binding.h \
+	$(CDK2_DIR)/include/cdk2/graphics_console_font.h \
+	$(CDK2_DIR)/include/cdk2/graphics_console_package.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
 		-mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args \
 		$(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
