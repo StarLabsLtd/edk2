@@ -51,25 +51,26 @@ int main(void)
 	UINT8 toggle = 4U;
 	struct cdk2_split_pointer pointer = {
 		.devices = {
-			{ pointer_state, (void *)1, 10U, 1U, 1U },
-			{ pointer_state, (void *)2, 20U, 2U, 1U },
+			{ reset, pointer_state, (void *)1, NULL, 10U, 1U, 1U },
+			{ reset, pointer_state, (void *)2, NULL, 20U, 2U, 1U },
 		},
 		.device_count = 2U, .resolution_x = 20U, .resolution_y = 2U,
 		.resolution_z = 1U,
 	};
 	struct cdk2_split_pointer_state relative;
 	struct cdk2_split_absolute absolute = {
-		.devices = { { absolute_state, (void *)1, 0U, 0U, 0U, 100U, 50U, 0U } },
+		.devices = { { reset, absolute_state, (void *)1, NULL,
+			0U, 0U, 0U, 100U, 50U, 0U } },
 		.device_count = 1U, .min_x = 10U, .min_y = 20U, .max_x = 210U, .max_y = 120U,
 	};
 	struct cdk2_split_absolute_state position;
 	int failures = 0;
 	struct cdk2_split_pointer rebuilt_pointer = { 0 };
 	struct cdk2_split_pointer_device pointer_one = {
-		pointer_state, (void *)1, 10U, 1U, 1U
+		reset, pointer_state, (void *)1, NULL, 10U, 1U, 1U
 	};
 	struct cdk2_split_pointer_device pointer_two = {
-		pointer_state, (void *)2, 20U, 2U, 1U
+		reset, pointer_state, (void *)2, NULL, 20U, 2U, 1U
 	};
 
 	failures += expect(cdk2_split_text_in_add(&text, read_key, reset, (void *)1) ==

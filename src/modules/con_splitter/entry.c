@@ -1,16 +1,33 @@
 /* SPDX-License-Identifier: BSD-2-Clause-Patent */
 
 #include <cdk2/con_splitter_entry.h>
+#include <cdk2/con_splitter_binding.h>
 
 typedef EFI_STATUS CDK2_MS_ABI install_multiple_fn(void **, ...);
 typedef EFI_STATUS CDK2_MS_ABI uninstall_multiple_fn(void *, ...);
 typedef EFI_STATUS CDK2_MS_ABI allocate_pool_fn(UINTN, UINTN, void **);
+typedef EFI_STATUS CDK2_MS_ABI open_protocol_fn(void *, const EFI_GUID *, void **,
+	void *, void *, UINT32);
+typedef EFI_STATUS CDK2_MS_ABI close_protocol_fn(void *, const EFI_GUID *, void *,
+	void *);
+typedef void CDK2_MS_ABI event_notify_fn(void *, void *);
+typedef EFI_STATUS CDK2_MS_ABI create_event_fn(UINT32, UINTN, event_notify_fn *,
+	void *, void **);
+typedef EFI_STATUS CDK2_MS_ABI event_fn(void *);
 struct boot_services_view {
 	UINT8 header[24];
 	void *raise_tpl, *restore_tpl, *allocate_pages, *free_pages, *get_memory_map;
 	allocate_pool_fn *allocate_pool;
 	void *free_pool;
-	void *slots[31];
+	create_event_fn *create_event;
+	void *set_timer, *wait_for_event;
+	event_fn *signal_event;
+	event_fn *close_event;
+	event_fn *check_event;
+	void *slots_before_open[19];
+	open_protocol_fn *open_protocol;
+	close_protocol_fn *close_protocol;
+	void *slots_after_close[4];
 	install_multiple_fn *install_multiple;
 	uninstall_multiple_fn *uninstall_multiple;
 };
@@ -26,6 +43,16 @@ struct cdk2_split_system_table {
 	struct cdk2_split_text_out_protocol *standard_error;
 	void *runtime;
 	struct boot_services_view *boot;
+};
+enum binding_kind { BIND_INPUT, BIND_POINTER, BIND_ABSOLUTE, BIND_OUTPUT, BIND_ERROR };
+struct binding_context {
+	struct splitter_entry *owner;
+	enum binding_kind kind;
+};
+struct wait_context {
+	struct splitter_entry *owner;
+	enum binding_kind kind;
+	void *event;
 };
 struct splitter_entry {
 	struct cdk2_split_text_in input_model;
@@ -47,6 +74,11 @@ struct splitter_entry {
 	void *input_handle, *input_ex_handle, *output_handle, *error_handle;
 	void *pointer_handle, *absolute_handle;
 	void *gop_handle;
+	void *image;
+	struct cdk2_split_binding bindings[5];
+	struct binding_context binding_contexts[5];
+	struct cdk2_split_publication publications[5];
+	struct wait_context waits[4];
 };
 static struct splitter_entry entry;
 static const EFI_GUID text_in_guid = { 0x387477c1, 0x69c7, 0x11d2,
@@ -61,6 +93,94 @@ static const EFI_GUID absolute_guid = { 0x8d59d32b, 0xc655, 0x4ae9,
 	{ 0x9b, 0x15, 0xf2, 0x59, 0x04, 0x99, 0x2a, 0x43 } };
 static const EFI_GUID gop_guid = { 0x9042a9de, 0x23dc, 0x4a38,
 	{ 0x96, 0xfb, 0x7a, 0xde, 0xd0, 0x80, 0x51, 0x6a } };
+static const EFI_GUID driver_binding_guid = { 0x18a031ab, 0xb443, 0x4d1a,
+	{ 0xa5, 0xc0, 0x0c, 0x09, 0x26, 0x1e, 0x9f, 0x71 } };
+static const EFI_GUID component_name_guid = { 0x107a772c, 0xd5e1, 0x11d4,
+	{ 0x9a, 0x46, 0x00, 0x90, 0x27, 0x3f, 0xc1, 0x4d } };
+static const EFI_GUID component_name2_guid = { 0x6a7a5cff, 0xe8d9, 0x4f70,
+	{ 0xba, 0xda, 0x75, 0xab, 0x30, 0x25, 0xce, 0x14 } };
+
+EFI_STATUS cdk2_split_wait_poll(void *virtual_event, void **physical_events,
+	UINTN count, cdk2_split_event_fn *check_event,
+	cdk2_split_event_fn *signal_event)
+{
+	UINTN index;
+
+	if (virtual_event == NULL || physical_events == NULL || check_event == NULL ||
+	    signal_event == NULL)
+		return EFI_INVALID_PARAMETER;
+	for (index = 0; index < count; index++)
+		if (physical_events[index] != NULL &&
+		    check_event(physical_events[index]) == EFI_SUCCESS)
+			return signal_event(virtual_event);
+	return EFI_NOT_READY;
+}
+
+static void CDK2_MS_ABI wait_notify(void *event, void *context)
+{
+	struct wait_context *wait = context;
+	UINTN index, count = 0U;
+	void *physical[CDK2_CON_SPLITTER_MAX_INPUTS] = { 0 };
+
+	if (wait == NULL || wait->owner == NULL || event != wait->event)
+		return;
+	switch (wait->kind) {
+	case BIND_INPUT:
+		count = wait->owner->input_model.device_count;
+		break;
+	case BIND_POINTER:
+		count = wait->owner->pointer_model.device_count;
+		break;
+	case BIND_ABSOLUTE:
+		count = wait->owner->absolute_model.device_count;
+		break;
+	default:
+		return;
+	}
+	for (index = 0; index < count; index++) {
+		if (wait->kind == BIND_INPUT)
+			physical[index] = wait->owner->input_model.devices[index].wait_event;
+		else if (wait->kind == BIND_POINTER)
+			physical[index] = wait->owner->pointer_model.devices[index].wait_event;
+		else
+			physical[index] = wait->owner->absolute_model.devices[index].wait_event;
+	}
+	(void)cdk2_split_wait_poll(event, physical, count,
+		wait->owner->boot->check_event, wait->owner->boot->signal_event);
+}
+
+static EFI_STATUS prepare_wait_events(struct splitter_entry *owner)
+{
+	static const enum binding_kind kinds[4] = {
+		BIND_INPUT, BIND_INPUT, BIND_POINTER, BIND_ABSOLUTE
+	};
+	EFI_STATUS status;
+	UINTN index;
+
+	if (owner->boot->create_event == NULL || owner->boot->signal_event == NULL ||
+	    owner->boot->close_event == NULL || owner->boot->check_event == NULL)
+		return EFI_UNSUPPORTED;
+	for (index = 0; index < 4U; index++) {
+		owner->waits[index] = (struct wait_context) { owner, kinds[index], NULL };
+		status = owner->boot->create_event(0x100U, 16U, wait_notify,
+			&owner->waits[index], &owner->waits[index].event);
+		if (EFI_ERROR(status)) {
+			while (index != 0U)
+				(void)owner->boot->close_event(owner->waits[--index].event);
+			return status;
+		}
+	}
+	return EFI_SUCCESS;
+}
+
+static void close_wait_events(struct splitter_entry *owner)
+{
+	UINTN index;
+
+	for (index = 0; index < 4U; index++)
+		if (owner->waits[index].event != NULL)
+			(void)owner->boot->close_event(owner->waits[index].event);
+}
 
 static struct cdk2_split_text_out *output_model(
 	struct cdk2_split_text_out_protocol *protocol)
@@ -105,8 +225,8 @@ static EFI_STATUS CDK2_MS_ABI text_test(struct cdk2_split_text_out_protocol *pro
 	CHAR16 *string)
 { return cdk2_split_text_out_test(output_model(protocol), string); }
 static EFI_STATUS CDK2_MS_ABI text_query(struct cdk2_split_text_out_protocol *protocol,
-	UINTN mode, UINTN * columns,
-	UINTN * rows)
+	UINTN mode, UINTN *columns,
+	UINTN *rows)
 { return cdk2_split_text_out_query_mode(output_model(protocol), mode, columns, rows); }
 static EFI_STATUS CDK2_MS_ABI text_set_mode(struct cdk2_split_text_out_protocol *protocol,
 	UINTN mode)
@@ -150,7 +270,7 @@ static EFI_STATUS CDK2_MS_ABI input_ex_read(
 
 static EFI_STATUS CDK2_MS_ABI input_ex_set_state(
 	struct cdk2_split_text_in_ex_protocol *protocol,
-	UINT8 * toggle)
+	UINT8 *toggle)
 {
 	(void)protocol;
 	return cdk2_split_text_in_set_state(&entry.input_model, toggle);
@@ -159,7 +279,7 @@ static EFI_STATUS CDK2_MS_ABI input_ex_set_state(
 static EFI_STATUS CDK2_MS_ABI input_ex_register(
 	struct cdk2_split_text_in_ex_protocol *protocol,
 	struct cdk2_split_key_data *key,
-	cdk2_split_key_notify_fn * callback,
+	cdk2_split_key_notify_fn *callback,
 	void **handle)
 {
 	(void)protocol;
@@ -208,7 +328,7 @@ static EFI_STATUS CDK2_MS_ABI absolute_get_state(
 
 static EFI_STATUS CDK2_MS_ABI gop_query(
 	struct cdk2_split_gop_protocol *protocol, UINT32 mode,
-	UINTN * size,
+	UINTN *size,
 	struct cdk2_split_gop_mode_info **information)
 {
 	struct cdk2_split_gop_mode split_mode;
@@ -256,6 +376,181 @@ static EFI_STATUS CDK2_MS_ABI gop_blt(struct cdk2_split_gop_protocol *protocol,
 		source_y, destination_x, destination_y, width, height, delta);
 }
 
+static EFI_STATUS physical_output(void *context, const CHAR16 *string)
+{
+	struct cdk2_split_text_out_protocol *text = context;
+	return text->output(text, (CHAR16 *)string);
+}
+static EFI_STATUS physical_test(void *context, const CHAR16 *string)
+{
+	struct cdk2_split_text_out_protocol *text = context;
+	return text->test(text, (CHAR16 *)string);
+}
+static EFI_STATUS physical_query(void *context, UINTN mode, UINTN *columns,
+	UINTN *rows)
+{
+	struct cdk2_split_text_out_protocol *text = context;
+	return text->query(text, mode, columns, rows);
+}
+static EFI_STATUS physical_value_mode(void *context, UINTN value)
+{
+	struct cdk2_split_text_out_protocol *text = context;
+	return text->set_mode(text, value);
+}
+static EFI_STATUS physical_value_attribute(void *context, UINTN value)
+{
+	struct cdk2_split_text_out_protocol *text = context;
+	return text->set_attribute(text, value);
+}
+static EFI_STATUS physical_clear(void *context)
+{
+	struct cdk2_split_text_out_protocol *text = context;
+	return text->clear(text);
+}
+static EFI_STATUS physical_cursor(void *context, UINTN column, UINTN row)
+{
+	struct cdk2_split_text_out_protocol *text = context;
+	return text->set_cursor(text, column, row);
+}
+static EFI_STATUS physical_visible(void *context, BOOLEAN visible)
+{
+	struct cdk2_split_text_out_protocol *text = context;
+	return text->enable_cursor(text, visible);
+}
+static const struct cdk2_split_text_out_ops physical_output_ops = {
+	physical_output, physical_test, physical_query, physical_value_mode,
+	physical_value_attribute, physical_clear, physical_cursor, physical_visible
+};
+static EFI_STATUS physical_input_read(void *context, struct cdk2_split_key *key)
+{
+	struct cdk2_split_text_in_protocol *input = context;
+	return input->read(input, (struct cdk2_split_input_key *)key);
+}
+static EFI_STATUS physical_input_reset(void *context, BOOLEAN extended)
+{
+	struct cdk2_split_text_in_protocol *input = context;
+	return input->reset(input, extended);
+}
+static EFI_STATUS physical_pointer_reset(void *context, BOOLEAN extended)
+{
+	struct cdk2_split_pointer_protocol *pointer = context;
+	return pointer->reset(pointer, extended);
+}
+static EFI_STATUS physical_pointer_state(void *context,
+	struct cdk2_split_pointer_state *state)
+{
+	struct cdk2_split_pointer_protocol *pointer = context;
+	return pointer->get_state(pointer, state);
+}
+static EFI_STATUS physical_absolute_reset(void *context, BOOLEAN extended)
+{
+	struct cdk2_split_absolute_protocol *absolute = context;
+	return absolute->reset(absolute, extended);
+}
+static EFI_STATUS physical_absolute_state(void *context,
+	struct cdk2_split_absolute_state *state)
+{
+	struct cdk2_split_absolute_protocol *absolute = context;
+	return absolute->get_state(absolute, state);
+}
+
+static EFI_STATUS binding_open(void *context, void *controller,
+	const EFI_GUID *protocol, UINT32 attributes, void **interface)
+{
+	struct binding_context *binding = context;
+	return binding->owner->boot->open_protocol(controller, protocol, interface,
+		binding->owner->image, controller, attributes);
+}
+static EFI_STATUS binding_close(void *context, void *controller,
+	const EFI_GUID *protocol)
+{
+	struct binding_context *binding = context;
+	return binding->owner->boot->close_protocol(controller, protocol,
+		binding->owner->image, controller);
+}
+static EFI_STATUS binding_admit(void *context, void *interface)
+{
+	struct binding_context *binding = context;
+	struct splitter_entry *owner = binding->owner;
+
+	switch (binding->kind) {
+	case BIND_INPUT: {
+		struct cdk2_split_text_in_protocol *input = interface;
+		return cdk2_split_text_in_add_event(&owner->input_model,
+			physical_input_read, physical_input_reset, interface,
+			input->wait_for_key);
+	}
+	case BIND_POINTER: {
+		struct cdk2_split_pointer_protocol *pointer = interface;
+		struct cdk2_split_pointer_device device = {
+			physical_pointer_reset, physical_pointer_state, interface,
+			pointer->wait_for_input, pointer->mode->resolution_x,
+			pointer->mode->resolution_y, pointer->mode->resolution_z
+		};
+		return cdk2_split_pointer_add(&owner->pointer_model, &device);
+	}
+	case BIND_ABSOLUTE: {
+		struct cdk2_split_absolute_protocol *absolute = interface;
+		struct cdk2_split_absolute_device device = {
+			physical_absolute_reset, physical_absolute_state, interface,
+			absolute->wait_for_input, absolute->mode->min_x,
+			absolute->mode->min_y, absolute->mode->min_z,
+			absolute->mode->max_x, absolute->mode->max_y,
+			absolute->mode->max_z
+		};
+		return cdk2_split_absolute_add(&owner->absolute_model, &device);
+	}
+	case BIND_OUTPUT:
+		return cdk2_split_text_out_add(&owner->output_model,
+			&physical_output_ops, interface,
+			(UINTN)((struct cdk2_split_text_out_protocol *)interface)->mode->max_mode);
+	case BIND_ERROR:
+		return cdk2_split_text_out_add(&owner->error_model,
+			&physical_output_ops, interface,
+			(UINTN)((struct cdk2_split_text_out_protocol *)interface)->mode->max_mode);
+	}
+	return EFI_UNSUPPORTED;
+}
+static EFI_STATUS binding_remove(void *context, void *interface)
+{
+	struct binding_context *binding = context;
+	struct splitter_entry *owner = binding->owner;
+
+	switch (binding->kind) {
+	case BIND_INPUT:
+		return cdk2_split_text_in_remove(&owner->input_model, interface);
+	case BIND_POINTER:
+		return cdk2_split_pointer_remove(&owner->pointer_model, interface);
+	case BIND_ABSOLUTE:
+		return cdk2_split_absolute_remove(&owner->absolute_model, interface);
+	case BIND_OUTPUT:
+		return cdk2_split_text_out_remove(&owner->output_model, interface);
+	case BIND_ERROR:
+		return cdk2_split_text_out_remove(&owner->error_model, interface);
+	}
+	return EFI_UNSUPPORTED;
+}
+static const struct cdk2_split_binding_ops binding_ops = {
+	binding_open, binding_close, binding_admit, binding_remove
+};
+
+static EFI_STATUS publish_binding(void *context, void **handle, void *driver,
+	void *component, void *component2)
+{
+	struct splitter_entry *owner = context;
+	return owner->boot->install_multiple(handle, &driver_binding_guid, driver,
+		&component_name_guid, component, &component_name2_guid, component2,
+		NULL);
+}
+static EFI_STATUS unpublish_binding(void *context, void *handle, void *driver,
+	void *component, void *component2)
+{
+	struct splitter_entry *owner = context;
+	return owner->boot->uninstall_multiple(handle, &driver_binding_guid, driver,
+		&component_name_guid, component, &component_name2_guid, component2,
+		NULL);
+}
+
 static void prepare_output(struct cdk2_split_text_out_protocol *protocol,
 	struct cdk2_split_text_out_mode *mode)
 {
@@ -271,10 +566,14 @@ EFI_STATUS CDK2_MS_ABI cdk2_con_splitter_entry(void *image,
 	EFI_STATUS status;
 
 	if (image == NULL || system == NULL || system->boot == NULL ||
-	    system->boot->install_multiple == NULL || system->boot->uninstall_multiple == NULL)
+	    system->boot->install_multiple == NULL ||
+	    system->boot->uninstall_multiple == NULL ||
+	    system->boot->open_protocol == NULL ||
+	    system->boot->close_protocol == NULL)
 		return EFI_INVALID_PARAMETER;
 	__builtin_memset(&entry, 0, sizeof(entry));
 	entry.boot = system->boot;
+	entry.image = image;
 	(void)cdk2_split_text_out_init(&entry.output_model, 80U, 25U);
 	(void)cdk2_split_text_out_init(&entry.error_model, 80U, 25U);
 	entry.input = (struct cdk2_split_text_in_protocol) { input_reset, input_read, NULL };
@@ -291,6 +590,26 @@ EFI_STATUS CDK2_MS_ABI cdk2_con_splitter_entry(void *image,
 	entry.gop = (struct cdk2_split_gop_protocol) {
 		gop_query, gop_set, gop_blt, &entry.gop_mode
 	};
+	status = prepare_wait_events(&entry);
+	if (EFI_ERROR(status))
+		return status;
+	entry.input.wait_for_key = entry.waits[0].event;
+	entry.input_ex.wait_for_key_ex = entry.waits[1].event;
+	entry.pointer.wait_for_input = entry.waits[2].event;
+	entry.absolute.wait_for_input = entry.waits[3].event;
+	for (UINTN index = 0; index < 5U; index++) {
+		const EFI_GUID *protocol = index == BIND_INPUT ? &text_in_guid :
+			index == BIND_POINTER ? &pointer_guid :
+			index == BIND_ABSOLUTE ? &absolute_guid : &text_out_guid;
+		entry.binding_contexts[index] = (struct binding_context) {
+			&entry, (enum binding_kind)index
+		};
+		entry.bindings[index] = (struct cdk2_split_binding) {
+			&binding_ops, &entry.binding_contexts[index], protocol, { { 0 } }
+		};
+		cdk2_split_publication_prepare(&entry.publications[index],
+			&entry.bindings[index], image);
+	}
 	prepare_output(&entry.output, &entry.output_mode);
 	prepare_output(&entry.error, &entry.error_mode);
 	sync_mode(&entry.output);
@@ -298,7 +617,7 @@ EFI_STATUS CDK2_MS_ABI cdk2_con_splitter_entry(void *image,
 	status = entry.boot->install_multiple(&entry.input_handle, &text_in_guid,
 		&entry.input, NULL);
 	if (EFI_ERROR(status))
-		return status;
+		goto cleanup_events;
 	status = entry.boot->install_multiple(&entry.output_handle, &text_out_guid,
 		&entry.output, NULL);
 	if (EFI_ERROR(status))
@@ -323,6 +642,10 @@ EFI_STATUS CDK2_MS_ABI cdk2_con_splitter_entry(void *image,
 		&entry.gop, NULL);
 	if (EFI_ERROR(status))
 		goto rollback_absolute;
+	status = cdk2_split_publications_install(entry.publications, 5U,
+		publish_binding, unpublish_binding, &entry);
+	if (EFI_ERROR(status))
+		goto rollback_gop;
 	system->console_in_handle = entry.input_handle;
 	system->con_in = &entry.input;
 	system->console_out_handle = entry.output_handle;
@@ -330,6 +653,10 @@ EFI_STATUS CDK2_MS_ABI cdk2_con_splitter_entry(void *image,
 	system->standard_error_handle = entry.error_handle;
 	system->standard_error = &entry.error;
 	return EFI_SUCCESS;
+
+rollback_gop:
+	(void)entry.boot->uninstall_multiple(entry.gop_handle, &gop_guid,
+		&entry.gop, NULL);
 
 rollback_absolute:
 	(void)entry.boot->uninstall_multiple(entry.absolute_handle, &absolute_guid,
@@ -351,5 +678,7 @@ rollback_output:
 rollback_input:
 	(void)entry.boot->uninstall_multiple(entry.input_handle, &text_in_guid,
 		&entry.input, NULL);
+cleanup_events:
+	close_wait_events(&entry);
 	return status;
 }

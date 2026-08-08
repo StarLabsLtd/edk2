@@ -5,6 +5,13 @@
 EFI_STATUS cdk2_split_text_in_add(struct cdk2_split_text_in *splitter,
 	cdk2_split_key_read_fn *read, cdk2_split_reset_fn *reset, void *context)
 {
+	return cdk2_split_text_in_add_event(splitter, read, reset, context, NULL);
+}
+
+EFI_STATUS cdk2_split_text_in_add_event(struct cdk2_split_text_in *splitter,
+	cdk2_split_key_read_fn *read, cdk2_split_reset_fn *reset, void *context,
+	void *wait_event)
+{
 	UINTN index;
 
 	if (splitter == NULL || read == NULL || reset == NULL || context == NULL)
@@ -15,7 +22,7 @@ EFI_STATUS cdk2_split_text_in_add(struct cdk2_split_text_in *splitter,
 	if (splitter->device_count == CDK2_CON_SPLITTER_MAX_INPUTS)
 		return EFI_OUT_OF_RESOURCES;
 	splitter->devices[splitter->device_count++] =
-		(struct cdk2_split_text_in_device) { read, reset, context };
+		(struct cdk2_split_text_in_device) { read, reset, context, wait_event };
 	return EFI_SUCCESS;
 }
 
@@ -183,12 +190,30 @@ static INT32 scale_relative(INT32 value, UINT64 virtual_resolution,
 		(INT64)device_resolution);
 }
 
+EFI_STATUS cdk2_split_pointer_reset(struct cdk2_split_pointer *splitter,
+	BOOLEAN extended)
+{
+	EFI_STATUS result = EFI_SUCCESS, status;
+	UINTN index;
+
+	if (splitter == NULL)
+		return EFI_INVALID_PARAMETER;
+	for (index = 0; index < splitter->device_count; index++) {
+		status = splitter->devices[index].reset(splitter->devices[index].context,
+			extended);
+		if (EFI_ERROR(status))
+			result = status;
+	}
+	return result;
+}
+
 EFI_STATUS cdk2_split_pointer_add(struct cdk2_split_pointer *splitter,
 	const struct cdk2_split_pointer_device *device)
 {
 	UINTN index;
 
-	if (splitter == NULL || device == NULL || device->get_state == NULL ||
+	if (splitter == NULL || device == NULL || device->reset == NULL ||
+	    device->get_state == NULL ||
 	    device->context == NULL)
 		return EFI_INVALID_PARAMETER;
 	for (index = 0; index < splitter->device_count; index++)
@@ -268,12 +293,30 @@ static UINT64 scale_absolute(UINT64 value, UINT64 source_min, UINT64 source_max,
 		(source_max - source_min);
 }
 
+EFI_STATUS cdk2_split_absolute_reset(struct cdk2_split_absolute *splitter,
+	BOOLEAN extended)
+{
+	EFI_STATUS result = EFI_SUCCESS, status;
+	UINTN index;
+
+	if (splitter == NULL)
+		return EFI_INVALID_PARAMETER;
+	for (index = 0; index < splitter->device_count; index++) {
+		status = splitter->devices[index].reset(splitter->devices[index].context,
+			extended);
+		if (EFI_ERROR(status))
+			result = status;
+	}
+	return result;
+}
+
 EFI_STATUS cdk2_split_absolute_add(struct cdk2_split_absolute *splitter,
 	const struct cdk2_split_absolute_device *device)
 {
 	UINTN index;
 
-	if (splitter == NULL || device == NULL || device->get_state == NULL ||
+	if (splitter == NULL || device == NULL || device->reset == NULL ||
+	    device->get_state == NULL ||
 	    device->context == NULL)
 		return EFI_INVALID_PARAMETER;
 	for (index = 0; index < splitter->device_count; index++)

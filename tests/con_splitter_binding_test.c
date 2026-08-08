@@ -7,6 +7,7 @@
 #define TEST_WRITE_PROTECTED EFIERR(8)
 
 static UINTN opens, closes, admits, removes;
+static UINTN publishes, unpublishes, fail_publish;
 static EFI_STATUS injected;
 static EFI_STATUS open_protocol(void *context, void *controller,
 	const EFI_GUID *protocol, UINT32 attributes, void **interface)
@@ -38,6 +39,21 @@ static int expect(int condition, const char *message)
 		fprintf(stderr, "con splitter binding test: %s\n", message);
 	return !condition;
 }
+static EFI_STATUS publish(void *context, void **handle, void *driver,
+	void *component, void *component2)
+{
+	(void)context; (void)driver; (void)component; (void)component2;
+	publishes++; *handle = (void *)publishes;
+	return publishes == fail_publish ? EFI_DEVICE_ERROR : EFI_SUCCESS;
+}
+static EFI_STATUS unpublish(void *context, void *handle, void *driver,
+	void *component, void *component2)
+{
+	(void)context; (void)driver; (void)component; (void)component2;
+	if (handle == NULL)
+		return EFI_INVALID_PARAMETER;
+	unpublishes++; return EFI_SUCCESS;
+}
 
 int main(void)
 {
@@ -46,6 +62,8 @@ int main(void)
 		open_protocol, close_protocol, admit, remove_device
 	};
 	struct cdk2_split_binding binding = { &ops, NULL, &protocol, { { 0 } } };
+	struct cdk2_split_publication publications[5] = { 0 };
+	UINTN index;
 	int failures = 0;
 
 	failures += expect(cdk2_split_binding_supported(&binding, (void *)1) ==
@@ -70,5 +88,11 @@ int main(void)
 	injected = EFI_SUCCESS;
 	failures += expect(cdk2_split_binding_stop(&binding, (void *)1) == EFI_SUCCESS &&
 		!binding.instances[0].active, "successful Stop retained ownership");
+	for (index = 0; index < 5U; index++)
+		cdk2_split_publication_prepare(&publications[index], &binding, (void *)8);
+	fail_publish = 4U;
+	failures += expect(cdk2_split_publications_install(publications, 5U, publish,
+		unpublish, NULL) == EFI_DEVICE_ERROR && unpublishes == 3U,
+		"partial DriverBinding/ComponentName publication was not rolled back");
 	return failures == 0 ? 0 : 1;
 }

@@ -123,6 +123,10 @@ struct cdk2_split_gop_protocol {
 };
 
 struct cdk2_split_system_table;
+typedef EFI_STATUS CDK2_MS_ABI cdk2_split_event_fn(void *);
+EFI_STATUS cdk2_split_wait_poll(void *virtual_event, void **physical_events,
+	UINTN count, cdk2_split_event_fn *check_event,
+	cdk2_split_event_fn *signal_event);
 EFI_STATUS CDK2_MS_ABI cdk2_con_splitter_entry(void *image,
 	struct cdk2_split_system_table *system);
 

@@ -87,6 +87,7 @@ struct cdk2_split_text_in_device {
 	cdk2_split_key_read_fn *read;
 	cdk2_split_reset_fn *reset;
 	void *context;
+	void *wait_event;
 };
 struct cdk2_split_text_in {
 	struct cdk2_split_text_in_device devices[CDK2_CON_SPLITTER_MAX_INPUTS];
@@ -97,6 +98,9 @@ struct cdk2_split_text_in {
 };
 EFI_STATUS cdk2_split_text_in_add(struct cdk2_split_text_in *splitter,
 	cdk2_split_key_read_fn *read, cdk2_split_reset_fn *reset, void *context);
+EFI_STATUS cdk2_split_text_in_add_event(struct cdk2_split_text_in *splitter,
+	cdk2_split_key_read_fn *read, cdk2_split_reset_fn *reset, void *context,
+	void *wait_event);
 EFI_STATUS cdk2_split_text_in_remove(struct cdk2_split_text_in *splitter, void *context);
 EFI_STATUS cdk2_split_text_in_read(struct cdk2_split_text_in *splitter,
 	struct cdk2_split_key *key);
@@ -117,8 +121,10 @@ struct cdk2_split_pointer_state {
 	BOOLEAN left, right;
 };
 struct cdk2_split_pointer_device {
+	cdk2_split_reset_fn *reset;
 	EFI_STATUS (*get_state)(void *context, struct cdk2_split_pointer_state *state);
 	void *context;
+	void *wait_event;
 	UINT64 resolution_x, resolution_y, resolution_z;
 };
 struct cdk2_split_pointer {
@@ -128,14 +134,18 @@ struct cdk2_split_pointer {
 };
 EFI_STATUS cdk2_split_pointer_get_state(struct cdk2_split_pointer *splitter,
 	struct cdk2_split_pointer_state *state);
+EFI_STATUS cdk2_split_pointer_reset(struct cdk2_split_pointer *splitter,
+	BOOLEAN extended);
 EFI_STATUS cdk2_split_pointer_add(struct cdk2_split_pointer *splitter,
 	const struct cdk2_split_pointer_device *device);
 EFI_STATUS cdk2_split_pointer_remove(struct cdk2_split_pointer *splitter, void *context);
 
 struct cdk2_split_absolute_state { UINT64 x, y, z; UINT32 buttons; };
 struct cdk2_split_absolute_device {
+	cdk2_split_reset_fn *reset;
 	EFI_STATUS (*get_state)(void *context, struct cdk2_split_absolute_state *state);
 	void *context;
+	void *wait_event;
 	UINT64 min_x, min_y, min_z, max_x, max_y, max_z;
 };
 struct cdk2_split_absolute {
@@ -145,6 +155,8 @@ struct cdk2_split_absolute {
 };
 EFI_STATUS cdk2_split_absolute_get_state(struct cdk2_split_absolute *splitter,
 	struct cdk2_split_absolute_state *state);
+EFI_STATUS cdk2_split_absolute_reset(struct cdk2_split_absolute *splitter,
+	BOOLEAN extended);
 EFI_STATUS cdk2_split_absolute_add(struct cdk2_split_absolute *splitter,
 	const struct cdk2_split_absolute_device *device);
 EFI_STATUS cdk2_split_absolute_remove(struct cdk2_split_absolute *splitter, void *context);
