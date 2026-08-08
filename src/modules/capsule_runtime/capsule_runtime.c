@@ -34,35 +34,49 @@ EFI_STATUS cdk2_capsule_update(struct cdk2_capsule_runtime *r,
 		return EFI_INVALID_PARAMETER;
 	status = cdk2_capsule_preflight(a, count, sg, r->at_runtime, p, support,
 		r->context, &need, &reset);
-	if (EFI_ERROR(status)) return status;
+	if (EFI_ERROR(status))
+		return status;
 	for (i = 0; i < count; i++)
 		if (!(a[i]->flags & CDK2_CAPSULE_PERSIST)) {
 			status = r->process(a[i], r->context);
-			if (EFI_ERROR(status)) return status;
+			if (EFI_ERROR(status))
+				return status;
 		}
-	if (!need) return EFI_SUCCESS;
+	if (!need)
+		return EFI_SUCCESS;
 	r->writeback(sg, r->context);
 	status = r->persist(r->sequence, sg, r->context);
-	if (EFI_ERROR(status)) return status;
+	if (EFI_ERROR(status))
+		return status;
 	r->sequence++;
-	if (reset) r->warm_reset(r->context);
+	if (reset)
+		r->warm_reset(r->context);
 	return EFI_SUCCESS;
 }
 
 EFI_STATUS cdk2_capsule_convert_runtime(struct cdk2_capsule_runtime *r,
 	EFI_STATUS (*convert)(void **, void *), void *context)
 {
-	void *p[4]; UINTN i; EFI_STATUS status;
-	if (r == NULL || convert == NULL) return EFI_INVALID_PARAMETER;
-	p[0]=(void *)r->process; p[1]=(void *)r->persist;
-	p[2]=(void *)r->writeback; p[3]=(void *)r->warm_reset;
-	for (i=0; i<4; i++) {
-		status=convert(&p[i], context);
-		if (EFI_ERROR(status)) return status;
+	void *p[4];
+	UINTN i;
+	EFI_STATUS status;
+
+	if (r == NULL || convert == NULL)
+		return EFI_INVALID_PARAMETER;
+	p[0] = (void *)r->process;
+	p[1] = (void *)r->persist;
+	p[2] = (void *)r->writeback;
+	p[3] = (void *)r->warm_reset;
+	for (i = 0; i < 4; i++) {
+		status = convert(&p[i], context);
+		if (EFI_ERROR(status))
+			return status;
 	}
-	r->process=(void *)p[0]; r->persist=(void *)p[1];
-	r->writeback=(void *)p[2]; r->warm_reset=(void *)p[3];
-	r->at_runtime=TRUE;
+	r->process = (void *)p[0];
+	r->persist = (void *)p[1];
+	r->writeback = (void *)p[2];
+	r->warm_reset = (void *)p[3];
+	r->at_runtime = TRUE;
 	return EFI_SUCCESS;
 }
 

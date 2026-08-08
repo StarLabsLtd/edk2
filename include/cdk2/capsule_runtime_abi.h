@@ -4,6 +4,11 @@
 #include <stddef.h>
 #include <uefi.h>
 
+typedef UINT32 * cdk2_uint32_ptr;
+typedef UINT64 * cdk2_uint64_ptr;
+typedef void **cdk2_void_ptr_ptr;
+typedef const EFI_GUID * cdk2_const_guid_ptr;
+
 struct cdk2_table_header { UINT64 signature; UINT32 revision, size, crc32, reserved; };
 struct cdk2_runtime_services_view {
 	struct cdk2_table_header header;

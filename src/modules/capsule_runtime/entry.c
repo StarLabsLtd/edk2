@@ -88,7 +88,7 @@ static EFI_STATUS CDK2_MS_ABI update_capsule(
 
 static EFI_STATUS CDK2_MS_ABI query_capsule(
 	const struct cdk2_capsule_header *const *capsules, UINTN count,
-	UINT64 *maximum_size, UINT32 *reset_type)
+	cdk2_uint64_ptr maximum_size, cdk2_uint32_ptr reset_type)
 {
 	static const struct cdk2_capsule_policy policy = {
 		.max_nonpopulate = 0xa00000U,

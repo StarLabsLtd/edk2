@@ -12,7 +12,7 @@ static EFI_STATUS install_status, event_status;
 static UINTN installs, uninstalls, converts;
 static void (CDK2_MS_ABI *notification)(void *, void *);
 
-static EFI_STATUS CDK2_MS_ABI crc32(void *table, UINTN size, UINT32 *crc)
+static EFI_STATUS CDK2_MS_ABI crc32(void *table, UINTN size, cdk2_uint32_ptr crc)
 { (void)table; (void)size; *crc = 0xabcdef01U; return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI install(void **handle, ...)
 { installs++; *handle = (void *)1; return install_status; }
@@ -20,7 +20,7 @@ static EFI_STATUS CDK2_MS_ABI uninstall(void *handle, ...)
 { assert(handle == (void *)1); uninstalls++; return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI create_event(UINT32 type, UINTN tpl,
 	void (CDK2_MS_ABI *notify)(void *, void *), void *context,
-	const EFI_GUID *group, void **event)
+	cdk2_const_guid_ptr group, cdk2_void_ptr_ptr event)
 {
 	(void)context;
 	assert(type == 0x200U && tpl == 16U && group != NULL);
