@@ -3,6 +3,7 @@
 #include <cdk2/hii_database.h>
 
 #define HII_SIMPLE_FONTS 0x07U
+#define HII_KEYBOARD_LAYOUT 0x09U
 #define NARROW_HEIGHT 19U
 struct simple_font_header { UINT32 length_type; UINT16 narrow_count, wide_count; };
 struct narrow_glyph { CHAR16 unicode; UINT8 attributes; UINT8 bitmap[NARROW_HEIGHT]; };
@@ -47,8 +48,37 @@ EFI_STATUS cdk2_hii_ingest_package_list(struct cdk2_hii_database *database,
 					return status;
 				}
 			}
+		} else if (package_type(package) == HII_KEYBOARD_LAYOUT) {
+			const UINT8 *bytes = (const UINT8 *)package;
+			UINT16 count, layout_size;
+			UINTN layout_offset = 6U;
+
+			if (package_length(package) < layout_offset)
+				goto invalid;
+			count = (UINT16)bytes[4] | ((UINT16)bytes[5] << 8);
+			for (index = 0; index < count; index++) {
+				if (layout_offset + 2U > package_length(package))
+					goto invalid;
+				layout_size = (UINT16)bytes[layout_offset] |
+					((UINT16)bytes[layout_offset + 1U] << 8);
+				if (layout_size < 23U || layout_offset + layout_size >
+				    package_length(package))
+					goto invalid;
+				status = cdk2_hii_add_keyboard_layout_record(database, list,
+					bytes + layout_offset, layout_size);
+				if (EFI_ERROR(status)) {
+					cdk2_hii_remove_keyboard_layouts(database, list);
+					return status;
+				}
+				layout_offset += layout_size;
+			}
+			if (layout_offset != package_length(package))
+				goto invalid;
 		}
 		offset += package_length(package);
 	}
 	return EFI_SUCCESS;
+invalid:
+	cdk2_hii_remove_keyboard_layouts(database, list);
+	return EFI_INVALID_PARAMETER;
 }

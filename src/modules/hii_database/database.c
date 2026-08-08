@@ -125,9 +125,20 @@ EFI_STATUS cdk2_hii_database_init(struct cdk2_hii_database *database,
 	}
 	__builtin_memset(database->glyphs, 0,
 		sizeof(*database->glyphs) * CDK2_HII_MAX_GLYPHS);
+	if (ops->allocate(context, sizeof(*database->keyboard_records) *
+			CDK2_HII_MAX_KEYBOARD_LAYOUTS,
+			(void **)&database->keyboard_records) != EFI_SUCCESS) {
+		ops->release(context, database->glyphs);
+		ops->release(context, database->images);
+		ops->release(context, database->strings);
+		return EFI_OUT_OF_RESOURCES;
+	}
+	__builtin_memset(database->keyboard_records, 0,
+		sizeof(*database->keyboard_records) * CDK2_HII_MAX_KEYBOARD_LAYOUTS);
 	if (ops->allocate(context,
 			sizeof(*database->config_routes) * CDK2_HII_MAX_CONFIG_ROUTES,
 			(void **)&database->config_routes) != EFI_SUCCESS) {
+		ops->release(context, database->keyboard_records);
 		ops->release(context, database->glyphs);
 		ops->release(context, database->images);
 		ops->release(context, database->strings);
@@ -138,6 +149,7 @@ EFI_STATUS cdk2_hii_database_init(struct cdk2_hii_database *database,
 	if (ops->allocate(context, sizeof(*database->keywords) * CDK2_HII_MAX_KEYWORDS,
 			(void **)&database->keywords) != EFI_SUCCESS) {
 		ops->release(context, database->config_routes);
+		ops->release(context, database->keyboard_records);
 		ops->release(context, database->glyphs);
 		ops->release(context, database->images);
 		ops->release(context, database->strings);
@@ -178,6 +190,10 @@ EFI_STATUS cdk2_hii_new_package_list(struct cdk2_hii_database *database,
 	*handle = list;
 	status = cdk2_hii_ingest_package_list(database, list);
 	if (EFI_ERROR(status)) {
+		cdk2_hii_remove_strings(database, list);
+		cdk2_hii_remove_images(database, list);
+		cdk2_hii_remove_glyphs(database, list);
+		cdk2_hii_remove_keyboard_layouts(database, list);
 		database->ops->release(database->context, list->data);
 		*list = (struct cdk2_hii_list) { 0 };
 		*handle = NULL;
@@ -199,8 +215,21 @@ EFI_STATUS cdk2_hii_remove_package_list(struct cdk2_hii_database *database,
 	cdk2_hii_remove_strings(database, list);
 	cdk2_hii_remove_images(database, list);
 	cdk2_hii_remove_glyphs(database, list);
+	cdk2_hii_remove_keyboard_layouts(database, list);
 	database->ops->release(database->context, list->data);
 	*list = (struct cdk2_hii_list) { 0 };
+	return EFI_SUCCESS;
+}
+
+EFI_STATUS cdk2_hii_get_package_list_handle(struct cdk2_hii_database *database,
+	void *package_handle, void **driver_handle)
+{
+	struct cdk2_hii_list *list = package_handle;
+
+	if (database == NULL || driver_handle == NULL || list < database->lists ||
+	    list >= database->lists + CDK2_HII_MAX_LISTS || !list->active)
+		return EFI_INVALID_PARAMETER;
+	*driver_handle = list->driver_handle;
 	return EFI_SUCCESS;
 }
 

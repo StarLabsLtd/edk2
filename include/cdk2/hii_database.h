@@ -56,6 +56,7 @@ struct cdk2_hii_database {
 	UINT16 next_image_id;
 	struct cdk2_hii_glyph *glyphs;
 	EFI_GUID keyboard_layouts[CDK2_HII_MAX_KEYBOARD_LAYOUTS];
+	struct cdk2_hii_keyboard_record *keyboard_records;
 	UINTN keyboard_layout_count, current_keyboard_layout;
 	void (*keyboard_notify)(void *context, const EFI_GUID *layout);
 	void *keyboard_notify_context;
@@ -117,6 +118,11 @@ struct cdk2_hii_keyword {
 	CHAR16 *name_space, *keyword, *value;
 	BOOLEAN read_only, active;
 };
+struct cdk2_hii_keyboard_record {
+	void *package_handle, *data;
+	UINT16 size;
+	BOOLEAN active;
+};
 
 EFI_STATUS cdk2_hii_database_init(struct cdk2_hii_database *database,
 	const struct cdk2_hii_database_ops *ops, void *context);
@@ -136,6 +142,8 @@ EFI_STATUS cdk2_hii_register_package_notify(struct cdk2_hii_database *database,
 	void *context, UINTN notify_mask, void **notify_handle);
 EFI_STATUS cdk2_hii_unregister_package_notify(struct cdk2_hii_database *database,
 	void *notify_handle);
+EFI_STATUS cdk2_hii_get_package_list_handle(struct cdk2_hii_database *database,
+	void *package_handle, void **driver_handle);
 EFI_STATUS cdk2_hii_new_string(struct cdk2_hii_database *database,
 	void *package_handle, UINT16 *string_id, const CHAR8 *language,
 	const CHAR16 *string, const struct cdk2_hii_font_info *font);
@@ -188,6 +196,12 @@ EFI_STATUS cdk2_hii_string_to_image(struct cdk2_hii_database *database,
 	UINTN *column, cdk2_hii_screen_blt_fn *screen_blt);
 EFI_STATUS cdk2_hii_add_keyboard_layout(struct cdk2_hii_database *database,
 	const EFI_GUID *layout);
+EFI_STATUS cdk2_hii_add_keyboard_layout_record(struct cdk2_hii_database *database,
+	void *package_handle, const void *layout, UINT16 layout_size);
+EFI_STATUS cdk2_hii_copy_keyboard_layout(struct cdk2_hii_database *database,
+	const EFI_GUID *layout, UINT16 *layout_size, void *layout_buffer);
+void cdk2_hii_remove_keyboard_layouts(struct cdk2_hii_database *database,
+	void *package_handle);
 EFI_STATUS cdk2_hii_find_keyboard_layouts(struct cdk2_hii_database *database,
 	UINT16 *count, EFI_GUID *layouts);
 EFI_STATUS cdk2_hii_get_keyboard_layout(struct cdk2_hii_database *database,

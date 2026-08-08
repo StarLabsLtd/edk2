@@ -34,6 +34,7 @@ int main(void)
 	void *handle, *notify_handle, *handles[1];
 	UINTN size = 0U, count = 1U;
 	int failures = 0;
+	void *driver_handle = NULL;
 
 	failures += expect(cdk2_hii_database_init(&database, &ops, NULL) == EFI_SUCCESS &&
 		cdk2_hii_register_package_notify(&database, 4U, NULL, notify, NULL,
@@ -41,6 +42,9 @@ int main(void)
 		cdk2_hii_new_package_list(&database, &package, (void *)7, &handle) ==
 			EFI_SUCCESS && notifications == 1U,
 		"package admission or NEW notification failed");
+	failures += expect(cdk2_hii_get_package_list_handle(&database, handle,
+		&driver_handle) == EFI_SUCCESS && driver_handle == (void *)7,
+		"package-list driver handle was not retained");
 	failures += expect(cdk2_hii_list_package_lists(&database, 4U, NULL, &count,
 		handles) == EFI_SUCCESS && count == 1U && handles[0] == handle,
 		"package type filtering failed");
