@@ -8,6 +8,9 @@
 #define MBR_ENTRY_SIZE 16U
 #define MBR_ENTRY_COUNT 4U
 #define MBR_CHAIN_LIMIT 128U
+#define ISO_SECTOR_SIZE 2048U
+#define ISO_DESCRIPTOR_START 16U
+#define ISO_DESCRIPTOR_LIMIT 64U
 
 static const EFI_GUID blank_guid;
 
@@ -39,6 +42,14 @@ static void copy(void *destination, const void *source, UINTN size)
 
 	while (size-- != 0)
 		*out++ = *in++;
+}
+
+static BOOLEAN bytes_equal(const UINT8 *left, const UINT8 *right, UINTN size)
+{
+	while (size-- != 0)
+		if (*left++ != *right++)
+			return FALSE;
+	return TRUE;
 }
 
 UINT32 cdk2_partition_crc32(const void *buffer, UINTN size)
@@ -196,6 +207,7 @@ EFI_STATUS cdk2_partition_parse_gpt(const struct cdk2_partition_media *media,
 				 (UINT16)entry[57 + character * 2] << 8);
 		partition->index = (UINT32)index + 1U;
 		partition->disk_signature = 0;
+		partition->boot_entry = 0;
 		partition->mbr_type = 0;
 		found++;
 	}
@@ -230,9 +242,162 @@ static EFI_STATUS add_mbr_partition(struct cdk2_partition *partitions,
 		partition->name[character] = 0;
 	partition->index = index;
 	partition->disk_signature = signature;
+	partition->boot_entry = 0;
 	partition->mbr_type = type;
 	(*count)++;
 	return EFI_SUCCESS;
+}
+
+static EFI_STATUS read_iso_sector(const struct cdk2_partition_media *media,
+	UINT32 sector, UINT8 *buffer)
+{
+	UINTN blocks;
+	UINT64 lba;
+
+	if (media->block_size > ISO_SECTOR_SIZE ||
+	    ISO_SECTOR_SIZE % media->block_size != 0)
+		return EFI_UNSUPPORTED;
+	blocks = ISO_SECTOR_SIZE / media->block_size;
+	lba = (UINT64)sector * blocks;
+	if (lba > media->last_block || blocks - 1U > media->last_block - lba)
+		return EFI_COMPROMISED_DATA;
+	return media->read(media->context, lba, blocks, buffer);
+}
+
+static BOOLEAN catalog_checksum_valid(const UINT8 *entry)
+{
+	UINT32 sum = 0;
+	UINTN index;
+
+	for (index = 0; index < 32U; index += 2U)
+		sum += (UINT16)entry[index] | (UINT16)entry[index + 1U] << 8;
+	return (UINT16)sum == 0;
+}
+
+static EFI_STATUS add_boot_entry(const struct cdk2_partition_media *media,
+	const UINT8 *entry, UINT32 boot_entry,
+	struct cdk2_partition *partitions, UINTN capacity, UINTN *count)
+{
+	struct cdk2_partition *partition;
+	UINT64 start;
+	UINT64 byte_size;
+	UINT64 blocks;
+	UINT32 sectors;
+	UINTN character;
+
+	if (entry[0] == 0)
+		return EFI_SUCCESS;
+	if (entry[0] != 0x88U || entry[1] > 4U || read32(entry + 8) == 0 ||
+	    ((UINT16)entry[6] | (UINT16)entry[7] << 8) == 0)
+		return EFI_COMPROMISED_DATA;
+	start = (UINT64)read32(entry + 8) * ISO_SECTOR_SIZE / media->block_size;
+	sectors = (UINT16)entry[6] | (UINT16)entry[7] << 8;
+	if (entry[1] == 1U)
+		sectors = 2400U;
+	else if (entry[1] == 2U)
+		sectors = 2880U;
+	else if (entry[1] == 3U)
+		sectors = 5760U;
+	byte_size = sectors * 512ULL;
+	blocks = (byte_size + media->block_size - 1U) / media->block_size;
+	if (start > media->last_block || blocks == 0 ||
+	    blocks - 1U > media->last_block - start)
+		return EFI_COMPROMISED_DATA;
+	if (*count == capacity)
+		return EFI_BUFFER_TOO_SMALL;
+	if (EFI_ERROR(validate_entry_range(partitions, *count, start,
+		start + blocks - 1U, 0, media->last_block)))
+		return EFI_COMPROMISED_DATA;
+	partition = &partitions[*count];
+	partition->scheme = CDK2_PARTITION_EL_TORITO;
+	partition->start_lba = start;
+	partition->end_lba = start + blocks - 1U;
+	partition->attributes = entry[1];
+	partition->type_guid = blank_guid;
+	partition->unique_guid = blank_guid;
+	for (character = 0; character < CDK2_GPT_NAME_CHARS; character++)
+		partition->name[character] = 0;
+	partition->index = boot_entry + 1U;
+	partition->disk_signature = 0;
+	partition->boot_entry = boot_entry;
+	partition->mbr_type = entry[4];
+	(*count)++;
+	return EFI_SUCCESS;
+}
+
+EFI_STATUS cdk2_partition_parse_el_torito(
+	const struct cdk2_partition_media *media, void *sector_buffer,
+	UINTN sector_capacity, struct cdk2_partition *partitions,
+	UINTN partition_capacity, UINTN *partition_count)
+{
+	UINT8 *sector = sector_buffer;
+	UINT32 catalog_lba = 0;
+	UINT32 descriptor;
+	UINT32 boot_entry = 0;
+	UINTN count = 0;
+	UINTN offset;
+	EFI_STATUS status;
+
+	if (!media_valid(media) || sector == NULL || partitions == NULL ||
+	    partition_count == NULL || sector_capacity < ISO_SECTOR_SIZE)
+		return EFI_INVALID_PARAMETER;
+	*partition_count = 0;
+	for (descriptor = ISO_DESCRIPTOR_START;
+	     descriptor < ISO_DESCRIPTOR_LIMIT; descriptor++) {
+		status = read_iso_sector(media, descriptor, sector);
+		if (EFI_ERROR(status))
+			return status;
+		if (sector[0] == 255U)
+			break;
+		if (!bytes_equal(sector + 1, (const UINT8 *)"CD001", 5) ||
+		    sector[6] != 1U)
+			return EFI_COMPROMISED_DATA;
+		if (sector[0] == 0 &&
+		    bytes_equal(sector + 7,
+			    (const UINT8 *)"EL TORITO SPECIFICATION", 23)) {
+			catalog_lba = read32(sector + 71);
+			break;
+		}
+	}
+	if (catalog_lba == 0)
+		return EFI_NOT_FOUND;
+	status = read_iso_sector(media, catalog_lba, sector);
+	if (EFI_ERROR(status))
+		return status;
+	if (sector[0] != 1U ||
+	    (sector[1] > 2U && sector[1] != 0xefU) ||
+	    sector[30] != 0x55U || sector[31] != 0xaaU ||
+	    !catalog_checksum_valid(sector))
+		return EFI_COMPROMISED_DATA;
+	status = add_boot_entry(media, sector + 32, boot_entry++, partitions,
+		partition_capacity, &count);
+	if (EFI_ERROR(status))
+		return status;
+	for (offset = 64U; offset + 32U <= ISO_SECTOR_SIZE;) {
+		UINT8 indicator = sector[offset];
+
+		if (indicator == 0)
+			break;
+		if (indicator != 0x90U && indicator != 0x91U)
+			return EFI_COMPROMISED_DATA;
+		if (sector[offset + 1] > 2U && sector[offset + 1] != 0xefU)
+			return EFI_COMPROMISED_DATA;
+		if ((UINTN)sector[offset + 2] * 32U >
+		    ISO_SECTOR_SIZE - offset - 32U)
+			return EFI_COMPROMISED_DATA;
+		for (descriptor = 0; descriptor < sector[offset + 2]; descriptor++) {
+			status = add_boot_entry(media,
+				sector + offset + 32U + descriptor * 32U, boot_entry++,
+				partitions, partition_capacity, &count);
+			if (EFI_ERROR(status))
+				return status;
+		}
+		offset += 32U + (UINTN)sector[offset + 2] * 32U;
+		if (indicator == 0x91U)
+			break;
+	}
+	*partition_count = count;
+	return count == 0 ? EFI_NOT_FOUND : EFI_SUCCESS;
 }
 
 EFI_STATUS cdk2_partition_parse_mbr(const struct cdk2_partition_media *media,
