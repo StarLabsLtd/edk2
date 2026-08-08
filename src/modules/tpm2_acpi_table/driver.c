@@ -4,9 +4,14 @@
 #include <cdk2/tpm2_acpi_table.h>
 
 typedef EFI_STATUS CDK2_MS_ABI locate_protocol_fn(const EFI_GUID *, void *, void **);
+typedef EFI_STATUS CDK2_MS_ABI allocate_pool_fn(UINT32, UINTN, void **);
+typedef EFI_STATUS CDK2_MS_ABI free_pool_fn(void *);
 
 struct boot_services_view {
-	UINT8 before_locate_protocol[320];
+	UINT8 before_allocate_pool[64];
+	allocate_pool_fn *allocate_pool;
+	free_pool_fn *free_pool;
+	UINT8 before_locate_protocol[240];
 	locate_protocol_fn *locate_protocol;
 };
 
@@ -19,6 +24,10 @@ struct system_table_view {
 
 typedef char locate_protocol_offset_check[
 	OFFSET_OF(struct boot_services_view, locate_protocol) == 320 ? 1 : -1];
+typedef char allocate_pool_offset_check[
+	OFFSET_OF(struct boot_services_view, allocate_pool) == 64 ? 1 : -1];
+typedef char free_pool_offset_check[
+	OFFSET_OF(struct boot_services_view, free_pool) == 72 ? 1 : -1];
 typedef char boot_services_offset_check[
 	OFFSET_OF(struct system_table_view, boot_services) == 96 ? 1 : -1];
 
@@ -41,6 +50,7 @@ static const EFI_GUID acpi20_table_guid = {
 
 static struct cdk2_acpi_table_protocol *acpi_table;
 static struct cdk2_acpi_sdt_protocol *acpi_sdt;
+static struct boot_services_view *boot_services;
 
 static BOOLEAN guid_equal(const EFI_GUID *left, const EFI_GUID *right)
 {
@@ -124,10 +134,21 @@ static EFI_STATUS CDK2_MS_ABI install_table(const void *table, UINTN size,
 	return acpi_table->install(acpi_table, table, size, key);
 }
 
+static EFI_STATUS CDK2_MS_ABI allocate(UINTN size, void **buffer)
+{
+	/* EfiBootServicesData. */
+	return boot_services->allocate_pool(4, size, buffer);
+}
+
+static EFI_STATUS CDK2_MS_ABI free_buffer(void *buffer)
+{
+	return boot_services->free_pool(buffer);
+}
+
 static EFI_STATUS install_from_protocols(cdk2_tcg2_protocol_ptr tcg2,
 	struct cdk2_acpi_table_protocol *table_protocol,
 	struct cdk2_acpi_sdt_protocol *sdt_protocol,
-	const EFI_ACPI_DESCRIPTION_HEADER *fallback_platform,
+	cdk2_acpi_allocate_fn *allocate_fn, cdk2_acpi_free_fn *free_fn,
 	const EFI_TPM2_ACPI_TABLE *fallback_tpm2)
 {
 	const struct cdk2_tcg2_service *tcg2_service;
@@ -137,6 +158,8 @@ static EFI_STATUS install_from_protocols(cdk2_tcg2_protocol_ptr tcg2,
 		.get_table = get_table,
 		.uninstall_table = uninstall_table,
 		.install_table = install_table,
+		.allocate = allocate_fn,
+		.free = free_fn,
 	};
 	EFI_ACPI_DESCRIPTION_HEADER *header;
 	struct cdk2_tpm2_acpi_info info;
@@ -146,7 +169,8 @@ static EFI_STATUS install_from_protocols(cdk2_tcg2_protocol_ptr tcg2,
 	UINT32 version;
 	EFI_STATUS status;
 
-	if (tcg2 == NULL || table_protocol == NULL || sdt_protocol == NULL)
+	if (tcg2 == NULL || table_protocol == NULL || sdt_protocol == NULL ||
+	    allocate_fn == NULL || free_fn == NULL)
 		return EFI_INVALID_PARAMETER;
 	acpi_table = table_protocol;
 	acpi_sdt = sdt_protocol;
@@ -154,17 +178,16 @@ static EFI_STATUS install_from_protocols(cdk2_tcg2_protocol_ptr tcg2,
 	     &version, &key)); index++) {
 		if (header == NULL || header->length < sizeof(*header))
 			return EFI_COMPROMISED_DATA;
-		if (platform == NULL)
-			platform = header;
 		if (header->signature ==
 		    EFI_ACPI_5_0_TRUSTED_COMPUTING_PLATFORM_2_TABLE_SIGNATURE &&
-		    header->length >= sizeof(EFI_TPM2_ACPI_TABLE))
+		    header->length >= sizeof(EFI_TPM2_ACPI_TABLE)) {
 			existing = (const EFI_TPM2_ACPI_TABLE *)header;
+			platform = header;
+		}
 	}
-	if (platform == NULL)
-		platform = fallback_platform;
-	if (existing == NULL)
-		existing = fallback_tpm2;
+	/* An XSDT-only table has no uninstall key, so it cannot be replaced safely. */
+	if (existing == NULL && fallback_tpm2 != NULL)
+		return EFI_UNSUPPORTED;
 	if (platform == NULL || existing == NULL)
 		return EFI_NOT_FOUND;
 	tcg2_service = (const struct cdk2_tcg2_service *)tcg2;
@@ -177,9 +200,11 @@ static EFI_STATUS install_from_protocols(cdk2_tcg2_protocol_ptr tcg2,
 
 EFI_STATUS cdk2_tpm2_acpi_install_from_protocols(cdk2_tcg2_protocol_ptr tcg2,
 	struct cdk2_acpi_table_protocol *table_protocol,
-	struct cdk2_acpi_sdt_protocol *sdt_protocol)
+	struct cdk2_acpi_sdt_protocol *sdt_protocol,
+	cdk2_acpi_allocate_fn *allocate_fn, cdk2_acpi_free_fn *free_fn)
 {
-	return install_from_protocols(tcg2, table_protocol, sdt_protocol, NULL, NULL);
+	return install_from_protocols(tcg2, table_protocol, sdt_protocol,
+		allocate_fn, free_fn, NULL);
 }
 
 EFI_STATUS CDK2_MS_ABI cdk2_tpm2_acpi_entry(void *image,
@@ -193,6 +218,7 @@ EFI_STATUS CDK2_MS_ABI cdk2_tpm2_acpi_entry(void *image,
 	(void)image;
 	if (system == NULL || system->boot_services == NULL)
 		return EFI_INVALID_PARAMETER;
+	boot_services = system->boot_services;
 	status = system->boot_services->locate_protocol(&acpi_table_protocol_guid,
 		NULL, (void **)&acpi_table);
 	if (EFI_ERROR(status))
@@ -209,5 +235,6 @@ EFI_STATUS CDK2_MS_ABI cdk2_tpm2_acpi_entry(void *image,
 		&platform, &existing);
 	if (EFI_ERROR(status) && status != EFI_NOT_FOUND)
 		return status;
-	return install_from_protocols(tcg2, acpi_table, acpi_sdt, platform, existing);
+	return install_from_protocols(tcg2, acpi_table, acpi_sdt,
+		allocate, free_buffer, existing);
 }

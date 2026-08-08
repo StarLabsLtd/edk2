@@ -3,15 +3,43 @@
 #include <cdk2/tpm2_acpi_table.h>
 #include <cdk2/tcg2_service.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 struct mock_table { EFI_ACPI_DESCRIPTION_HEADER header; UINTN key; };
 static struct mock_table tables[4];
 static UINTN table_count, fail_key, installed_size;
 static EFI_STATUS install_status;
+static EFI_STATUS restore_status;
+static UINTN allocation_count;
 static struct cdk2_tpm2_acpi_table installed;
 static EFI_ACPI_DESCRIPTION_HEADER driver_platform;
 static EFI_TPM2_ACPI_TABLE driver_tpm;
+static BOOLEAN driver_tpm_removed;
+static struct cdk2_acpi_table_protocol *entry_table_protocol;
+static struct cdk2_acpi_sdt_protocol *entry_sdt_protocol;
+static EFI_TCG2_PROTOCOL *entry_tcg2_protocol;
+
+typedef EFI_STATUS CDK2_MS_ABI entry_allocate_fn(UINT32, UINTN, void **);
+typedef EFI_STATUS CDK2_MS_ABI entry_free_fn(void *);
+typedef EFI_STATUS CDK2_MS_ABI entry_locate_fn(const EFI_GUID *, void *, void **);
+
+struct entry_boot_services {
+	UINT8 before_allocate_pool[64];
+	entry_allocate_fn *allocate_pool;
+	entry_free_fn *free_pool;
+	UINT8 before_locate_protocol[240];
+	entry_locate_fn *locate_protocol;
+};
+
+struct entry_system_table {
+	UINT8 before_boot_services[96];
+	struct entry_boot_services *boot_services;
+	UINTN table_count;
+	struct cdk2_config_table_view *tables;
+};
+
+EFI_STATUS CDK2_MS_ABI cdk2_tpm2_acpi_entry(void *image, void *system);
 
 static EFI_STATUS CDK2_MS_ABI get_table(UINTN index,
 	cdk2_acpi_header_ptr table, cdk2_uintn_ptr key)
@@ -40,9 +68,61 @@ static EFI_STATUS CDK2_MS_ABI uninstall_table(UINTN key)
 static EFI_STATUS CDK2_MS_ABI install_table(const void *table, UINTN size,
 	cdk2_uintn_ptr key)
 {
+	const EFI_ACPI_DESCRIPTION_HEADER *header = table;
+
+	if (size != sizeof(installed)) {
+		if (EFI_ERROR(restore_status))
+			return restore_status;
+		if (table_count < ARRAY_SIZE(tables)) {
+			memcpy(&tables[table_count].header, header,
+				size < sizeof(tables[0].header) ? size : sizeof(tables[0].header));
+			tables[table_count].key = 0x80U + table_count;
+			table_count++;
+		}
+		*key = 0x80U;
+		return EFI_SUCCESS;
+	}
 	if (size == sizeof(installed))
 		memcpy(&installed, table, size);
 	installed_size = size; *key = 0x55U; return install_status;
+}
+
+static EFI_STATUS CDK2_MS_ABI allocate_buffer(UINTN size, void **buffer)
+{
+	*buffer = malloc(size);
+	if (*buffer == NULL)
+		return EFI_OUT_OF_RESOURCES;
+	allocation_count++;
+	return EFI_SUCCESS;
+}
+
+static EFI_STATUS CDK2_MS_ABI free_buffer(void *buffer)
+{
+	free(buffer);
+	allocation_count--;
+	return EFI_SUCCESS;
+}
+
+static EFI_STATUS CDK2_MS_ABI entry_allocate(UINT32 type, UINTN size,
+	void **buffer)
+{
+	(void)type;
+	return allocate_buffer(size, buffer);
+}
+
+static EFI_STATUS CDK2_MS_ABI entry_locate(const EFI_GUID *guid,
+	void *registration, void **interface)
+{
+	const UINT8 *bytes = (const UINT8 *)guid;
+
+	(void)registration;
+	if (bytes[0] == 0xddU)
+		*interface = entry_table_protocol;
+	else if (bytes[0] == 0x8eU)
+		*interface = entry_sdt_protocol;
+	else
+		*interface = entry_tcg2_protocol;
+	return EFI_SUCCESS;
 }
 
 static struct cdk2_acpi_table_protocol *seen_table_this;
@@ -59,6 +139,10 @@ static EFI_STATUS CDK2_MS_ABI protocol_uninstall(
 	struct cdk2_acpi_table_protocol *this, UINTN key)
 {
 	seen_table_this = this;
+	if (key == 21U) {
+		driver_tpm_removed = TRUE;
+		return EFI_SUCCESS;
+	}
 	return uninstall_table(key);
 }
 
@@ -70,7 +154,7 @@ static EFI_STATUS CDK2_MS_ABI sdt_get_table(
 	*key = index + 20;
 	if (index == 0)
 		*table = &driver_platform;
-	else if (index == 1)
+	else if (index == 1 && !driver_tpm_removed)
 		*table = &driver_tpm.header;
 	else
 		return EFI_NOT_FOUND;
@@ -102,6 +186,7 @@ static void reset_mocks(void)
 {
 	memset(tables, 0, sizeof(tables)); table_count = 0;
 	fail_key = MAX_UINTN; install_status = EFI_SUCCESS; installed_size = 0;
+	restore_status = EFI_SUCCESS; allocation_count = 0;
 	memset(&installed, 0, sizeof(installed));
 }
 
@@ -113,7 +198,8 @@ int main(void)
 	};
 	const struct cdk2_acpi_table_services services = {
 		.get_table = get_table, .uninstall_table = uninstall_table,
-		.install_table = install_table,
+		.install_table = install_table, .allocate = allocate_buffer,
+		.free = free_buffer,
 	};
 	struct cdk2_tpm2_acpi_info info = valid_info();
 	struct cdk2_tpm2_acpi_table table;
@@ -235,9 +321,11 @@ int main(void)
 	tables[0] = (struct mock_table){ .header.signature = 0x50434146U, .key = 1 };
 	tables[1] = (struct mock_table){
 		.header.signature = EFI_ACPI_5_0_TRUSTED_COMPUTING_PLATFORM_2_TABLE_SIGNATURE,
+		.header.length = sizeof(EFI_ACPI_DESCRIPTION_HEADER),
 		.key = 2 };
 	tables[2] = (struct mock_table){
 		.header.signature = EFI_ACPI_5_0_TRUSTED_COMPUTING_PLATFORM_2_TABLE_SIGNATURE,
+		.header.length = sizeof(EFI_ACPI_DESCRIPTION_HEADER),
 		.key = 3 };
 	table_count = 3; info = valid_info();
 	failures += expect(cdk2_tpm2_acpi_replace(&info, &services, &key) == EFI_SUCCESS,
@@ -245,24 +333,38 @@ int main(void)
 	failures += expect(table_count == 1U && tables[0].key == 1U,
 		"shifted TPM2 table was skipped");
 	failures += expect(installed_size == sizeof(installed) && key == 0x55U &&
-		installed.table.start_method == CDK2_TPM2_START_METHOD_CRB,
+		installed.table.start_method == CDK2_TPM2_START_METHOD_CRB &&
+		allocation_count == 0,
 		"wrong table installed");
 
 	reset_mocks();
 	tables[0] = (struct mock_table){
 		.header.signature = EFI_ACPI_5_0_TRUSTED_COMPUTING_PLATFORM_2_TABLE_SIGNATURE,
+		.header.length = sizeof(EFI_ACPI_DESCRIPTION_HEADER),
 		.key = 9 };
 	table_count = 1; fail_key = 9; info = valid_info();
-	failures += expect(cdk2_tpm2_acpi_replace(&info, &services, &key) == EFI_SUCCESS &&
-		table_count == 1U && installed_size == sizeof(installed),
-		"uninstall failure did not advance");
+	failures += expect(cdk2_tpm2_acpi_replace(&info, &services, &key) ==
+		EFI_DEVICE_ERROR && table_count == 1U && installed_size == 0 &&
+		allocation_count == 0, "uninstall failure was not atomic");
+	fail_key = MAX_UINTN;
 	install_status = EFI_OUT_OF_RESOURCES;
 	failures += expect(cdk2_tpm2_acpi_replace(&info, &services, &key) ==
-		EFI_OUT_OF_RESOURCES, "install status lost");
+		EFI_OUT_OF_RESOURCES && table_count == 1U && allocation_count == 0,
+		"failed install did not restore old table");
+	reset_mocks();
+	tables[0] = (struct mock_table){
+		.header.signature = EFI_ACPI_5_0_TRUSTED_COMPUTING_PLATFORM_2_TABLE_SIGNATURE,
+		.header.length = sizeof(EFI_ACPI_DESCRIPTION_HEADER), .key = 10 };
+	table_count = 1; install_status = EFI_OUT_OF_RESOURCES;
+	restore_status = EFI_DEVICE_ERROR;
+	failures += expect(cdk2_tpm2_acpi_replace(&info, &services, &key) ==
+		EFI_DEVICE_ERROR && allocation_count == 0,
+		"rollback failure was not reported");
 	failures += expect(cdk2_tpm2_acpi_replace(&info, NULL, &key) ==
 		EFI_INVALID_PARAMETER, "NULL services accepted");
 	{
 		struct cdk2_tcg2_service native_service = {0};
+		EFI_STATUS adapter_status;
 		struct cdk2_acpi_table_protocol table_protocol = {
 			.install = protocol_install, .uninstall = protocol_uninstall,
 		};
@@ -273,24 +375,101 @@ int main(void)
 		reset_mocks();
 		seen_table_this = NULL;
 		driver_platform = table.table.header;
+		driver_platform.signature = 0x50434146U;
+		driver_platform.oem_table_id = 0xaabbccddeeff0011ULL;
 		driver_platform.length = sizeof(driver_platform);
 		driver_tpm = table.table;
+		driver_tpm.header.oem_table_id = 0x1020304050607080ULL;
 		driver_tpm.header.length = sizeof(driver_tpm);
+		driver_tpm_removed = FALSE;
 		native_service.export = (struct cdk2_tcg2_acpi_export){
 			.revision = CDK2_TCG2_EXPORT_REVISION,
 			.size = sizeof(native_service.export), .active_interface = 1,
 			.tpm_base = 0xfed40000, .log_base = 0x22345000,
 			.log_capacity = 0x8000,
 		};
-		failures += expect(cdk2_tpm2_acpi_install_from_protocols(
-			&native_service.protocol, &table_protocol, &sdt_protocol) ==
-			EFI_SUCCESS && installed.event_log_address == 0x22345000 &&
+		adapter_status = cdk2_tpm2_acpi_install_from_protocols(
+			&native_service.protocol, &table_protocol, &sdt_protocol,
+			allocate_buffer, free_buffer);
+		if (adapter_status != EFI_SUCCESS)
+			fprintf(stderr, "adapter status=%llx\n",
+				(unsigned long long)adapter_status);
+		failures += expect(adapter_status == EFI_SUCCESS &&
+			installed.event_log_address == 0x22345000 &&
 			installed.event_log_length == 0x8000 &&
+			installed.table.header.oem_table_id ==
+				driver_tpm.header.oem_table_id &&
 			installed.table.start_method == CDK2_TPM2_START_METHOD_CRB,
 			"DXE adapter did not consume native TCG2 export");
 		failures += expect(seen_table_this == &table_protocol &&
 			sdt_protocol.acpi_version == 0x510,
 			"ACPI protocol ABI was not preserved");
+	}
+	{
+		struct {
+			EFI_ACPI_DESCRIPTION_HEADER header;
+			UINT64 entry;
+		} __packed xsdt = {0};
+		EFI_ACPI_3_0_ROOT_SYSTEM_DESCRIPTION_POINTER rsdp = {0};
+		struct cdk2_config_table_view config = {
+			.guid = { 0x8868e871, 0xe4f1, 0x11d3,
+				{ 0xbc, 0x22, 0x00, 0x80, 0xc7, 0x3c, 0x88, 0x81 } },
+			.table = &rsdp,
+		};
+		struct cdk2_tcg2_service native_service = {0};
+		struct cdk2_acpi_table_protocol table_protocol = {
+			.install = protocol_install, .uninstall = protocol_uninstall,
+		};
+		struct cdk2_acpi_sdt_protocol sdt_protocol = {
+			.acpi_version = 0x510, .get_table = sdt_get_table,
+		};
+		struct entry_boot_services boot = {
+			.allocate_pool = entry_allocate, .free_pool = free_buffer,
+			.locate_protocol = entry_locate,
+		};
+		struct entry_system_table system = {
+			.boot_services = &boot, .table_count = 1, .tables = &config,
+		};
+		UINT8 *bytes;
+		UINT8 sum;
+
+		reset_mocks();
+		driver_platform = table.table.header;
+		driver_platform.signature = 0x50434146U;
+		driver_platform.length = sizeof(driver_platform);
+		driver_tpm_removed = TRUE;
+		native_service.export = (struct cdk2_tcg2_acpi_export){
+			.revision = CDK2_TCG2_EXPORT_REVISION,
+			.size = sizeof(native_service.export), .active_interface = 1,
+			.tpm_base = 0xfed40000, .log_base = 0x22345000,
+			.log_capacity = 0x8000,
+		};
+		entry_table_protocol = &table_protocol;
+		entry_sdt_protocol = &sdt_protocol;
+		entry_tcg2_protocol = &native_service.protocol;
+		xsdt.header.signature =
+			EFI_ACPI_3_0_EXTENDED_SYSTEM_DESCRIPTION_TABLE_SIGNATURE;
+		xsdt.header.length = sizeof(xsdt);
+		xsdt.entry = (UINT64)(UINTN)&table.table;
+		bytes = (UINT8 *)&xsdt;
+		for (sum = 0, index = 0; index < sizeof(xsdt); index++)
+			sum = (UINT8)(sum + bytes[index]);
+		xsdt.header.checksum = (UINT8)(0U - sum);
+		rsdp.signature =
+			EFI_ACPI_3_0_ROOT_SYSTEM_DESCRIPTION_POINTER_SIGNATURE;
+		rsdp.revision = 2;
+		rsdp.length = sizeof(rsdp);
+		rsdp.xsdt_address = (UINT64)(UINTN)&xsdt;
+		bytes = (UINT8 *)&rsdp;
+		for (sum = 0, index = 0; index < 20; index++)
+			sum = (UINT8)(sum + bytes[index]);
+		rsdp.checksum = (UINT8)(0U - sum);
+		for (sum = 0, index = 0; index < sizeof(rsdp); index++)
+			sum = (UINT8)(sum + bytes[index]);
+		rsdp.extended_checksum = (UINT8)(0U - sum);
+		failures += expect(cdk2_tpm2_acpi_entry(NULL, &system) ==
+			EFI_UNSUPPORTED && installed_size == 0 && allocation_count == 0,
+			"XSDT-only TPM2 table was duplicated");
 	}
 	return failures == 0 ? 0 : 1;
 }

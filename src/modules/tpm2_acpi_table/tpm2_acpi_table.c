@@ -32,6 +32,39 @@ static UINT8 checksum8(const void *buffer, UINTN size)
 	return (UINT8)(0U - sum);
 }
 
+struct saved_table {
+	struct saved_table *next;
+	UINTN size;
+	UINT8 data[];
+};
+
+static EFI_STATUS restore_tables(struct saved_table *saved,
+	const struct cdk2_acpi_table_services *services)
+{
+	EFI_STATUS first_error = EFI_SUCCESS;
+	EFI_STATUS status;
+	UINTN key;
+
+	for (; saved != NULL; saved = saved->next) {
+		status = services->install_table(saved->data, saved->size, &key);
+		if (EFI_ERROR(status) && !EFI_ERROR(first_error))
+			first_error = status;
+	}
+	return first_error;
+}
+
+static void free_tables(struct saved_table *saved,
+	const struct cdk2_acpi_table_services *services)
+{
+	struct saved_table *next;
+
+	while (saved != NULL) {
+		next = saved->next;
+		services->free(saved);
+		saved = next;
+	}
+}
+
 EFI_STATUS cdk2_tpm2_acpi_from_export(const struct cdk2_tcg2_acpi_export *export,
 	const EFI_ACPI_DESCRIPTION_HEADER *platform_table,
 	const EFI_TPM2_ACPI_TABLE *existing, struct cdk2_tpm2_acpi_info *info)
@@ -104,12 +137,15 @@ EFI_STATUS cdk2_tpm2_acpi_replace(const struct cdk2_tpm2_acpi_info *info,
 {
 	struct cdk2_tpm2_acpi_table table;
 	EFI_ACPI_DESCRIPTION_HEADER *existing;
+	struct saved_table *saved = NULL;
+	struct saved_table *copy;
 	UINTN existing_key;
 	UINTN index = 0;
 	EFI_STATUS status;
 
 	if (services == NULL || services->get_table == NULL ||
 	    services->uninstall_table == NULL || services->install_table == NULL ||
+	    services->allocate == NULL || services->free == NULL ||
 	    table_key == NULL)
 		return EFI_INVALID_PARAMETER;
 	status = cdk2_tpm2_acpi_build(info, &table);
@@ -123,10 +159,38 @@ EFI_STATUS cdk2_tpm2_acpi_replace(const struct cdk2_tpm2_acpi_info *info,
 			index++;
 			continue;
 		}
-		status = services->uninstall_table(existing_key);
+		if (existing->length < sizeof(*existing) ||
+		    existing->length > 1024U * 1024U) {
+			status = EFI_COMPROMISED_DATA;
+			goto rollback;
+		}
+		status = services->allocate(OFFSET_OF(struct saved_table, data) +
+			existing->length, (void **)&copy);
 		if (EFI_ERROR(status))
-			index++;
+			goto rollback;
+		copy->next = saved;
+		copy->size = existing->length;
+		copy_bytes(copy->data, existing, existing->length);
+		status = services->uninstall_table(existing_key);
+		if (EFI_ERROR(status)) {
+			services->free(copy);
+			goto rollback;
+		}
+		saved = copy;
 	}
 	*table_key = 0;
-	return services->install_table(&table, sizeof(table), table_key);
+	status = services->install_table(&table, sizeof(table), table_key);
+	if (EFI_ERROR(status))
+		goto rollback;
+	free_tables(saved, services);
+	return EFI_SUCCESS;
+
+rollback:
+	if (saved != NULL) {
+		EFI_STATUS rollback_status = restore_tables(saved, services);
+		free_tables(saved, services);
+		if (EFI_ERROR(rollback_status))
+			return rollback_status;
+	}
+	return status;
 }
