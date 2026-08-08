@@ -14,6 +14,8 @@ static struct cdk2_gop_mode_info gop_info = {
 };
 static struct cdk2_gop_protocol_mode gop_mode = { .info = &gop_info };
 static struct cdk2_hii_font_view font;
+static EFI_STATUS glyph_status;
+static BOOLEAN glyph_fallback;
 static UINTN renders;
 static UINTN publishes;
 static UINTN unpublishes, fail_publish;
@@ -106,6 +108,14 @@ static EFI_STATUS CDK2_MS_ABI get_glyph(const struct cdk2_hii_font_view *hii,
 	(void)hii; (void)display;
 	*image = NULL;
 	*baseline = 0U;
+	if (glyph_status != EFI_SUCCESS) {
+		if (glyph_fallback) {
+			*image = calloc(1, sizeof(**image));
+			if (*image != NULL)
+				(*image)->image.bitmap = malloc(4U);
+		}
+		return glyph_status;
+	}
 	return character == L'A' ? EFI_SUCCESS : EFI_NOT_FOUND;
 }
 static int expect(int condition, const char *message)
@@ -146,6 +156,15 @@ int main(void)
 	failures += expect(binding.text.test_string(&binding.text, L"A") == EFI_SUCCESS &&
 		binding.text.test_string(&binding.text, L"Z") == EFI_UNSUPPORTED,
 		"TestString did not validate HII glyph availability");
+	glyph_status = 1U; glyph_fallback = TRUE;
+	{
+		UINTN releases_before = releases;
+		failures += expect(binding.text.test_string(&binding.text, L"A") == EFI_UNSUPPORTED &&
+			releases == releases_before + 2U,
+			"TestString leaked the fallback image returned with a glyph warning");
+	}
+	glyph_fallback = FALSE;
+	glyph_status = EFI_SUCCESS;
 	binding.console.column = binding.console.modes[0].columns - 1U;
 	binding.console.row = binding.console.modes[0].rows - 1U;
 	{
@@ -179,6 +198,14 @@ int main(void)
 	failures += expect(EFI_ERROR(cdk2_graphics_binding_start(&binding, &binding)) &&
 		closes == 1U && !binding.device_path_open, "failed Start leaked ownership");
 	opens = closes = 0; fail_open = 0;
+	failures += expect(cdk2_graphics_binding_supported(&binding, &binding) == EFI_SUCCESS &&
+		opens == 2U && closes == 2U,
+		"Supported did not probe and close DevicePath and GOP symmetrically");
+	opens = closes = 0; fail_open = 1U;
+	failures += expect(EFI_ERROR(cdk2_graphics_binding_supported(&binding, &binding)) &&
+		opens == 1U && closes == 0U,
+		"Supported accepted a controller without DevicePath");
+	opens = closes = 0; fail_open = 0;
 	failures += expect(cdk2_graphics_binding_start(&binding, &binding) == EFI_SUCCESS &&
 		opens == 2U && installs == 1U && binding.text_installed &&
 		binding.console.modes[0].columns == 80U &&
@@ -206,7 +233,7 @@ int main(void)
 	failures += expect(cdk2_graphics_binding_stop(&binding) == EFI_SUCCESS &&
 		uninstalls == 2U && closes == 2U && !binding.text_installed,
 		"Stop did not release protocols symmetrically");
-	opens = closes = installs = uninstalls = 0U;
+	opens = closes = installs = uninstalls = allocations = releases = 0U;
 	failures += expect(binding.driver.start(&binding.driver, (void *)1, NULL) == EFI_SUCCESS &&
 		binding.driver.start(&binding.driver, (void *)2, NULL) == EFI_SUCCESS &&
 		binding.instances != NULL && binding.instances->next != NULL &&

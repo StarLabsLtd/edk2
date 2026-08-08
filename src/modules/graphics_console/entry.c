@@ -66,6 +66,7 @@ struct graphics_entry_context {
 	void *image;
 	void *notify_event;
 	void *notify_registration;
+	EFI_STATUS package_status;
 	struct cdk2_graphics_console_binding binding;
 	struct cdk2_graphics_font_package package;
 };
@@ -244,10 +245,15 @@ static void CDK2_MS_ABI database_available(void *event, void *context)
 	struct cdk2_hii_database_view *database;
 
 	(void)event;
-	if (entry->package.handle != NULL || EFI_ERROR(locate(entry, &hii_database_guid,
-	    (void **)&database)))
+	if (entry->package.handle != NULL)
 		return;
-	(void)cdk2_graphics_font_install(&entry->package, database, allocate, release, entry);
+	entry->package_status = locate(entry, &hii_database_guid, (void **)&database);
+	if (entry->package_status == EFI_NOT_FOUND)
+		entry->package_status = EFI_NOT_READY;
+	if (EFI_ERROR(entry->package_status))
+		return;
+	entry->package_status = cdk2_graphics_font_install(&entry->package, database,
+		allocate, release, entry);
 }
 
 static EFI_STATUS notify(void *context, const EFI_GUID *protocol)
@@ -265,7 +271,14 @@ static EFI_STATUS notify(void *context, const EFI_GUID *protocol)
 		entry->notify_event = NULL;
 		return status;
 	}
+	entry->package_status = EFI_NOT_READY;
 	database_available(entry->notify_event, entry);
+	if (entry->package_status != EFI_NOT_READY && EFI_ERROR(entry->package_status)) {
+		entry->boot->close_event(entry->notify_event);
+		entry->notify_event = NULL;
+		entry->notify_registration = NULL;
+		return entry->package_status;
+	}
 	return EFI_SUCCESS;
 }
 

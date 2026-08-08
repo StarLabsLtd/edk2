@@ -6,6 +6,7 @@
 #define EFI_ALREADY_STARTED EFIERR(20)
 
 static UINTN draws, fills, scrolls, cursors;
+static EFI_STATUS draw_status;
 static CHAR16 last_character;
 static UINT32 last_column, last_row;
 static BOOLEAN last_wide, last_cursor_visible;
@@ -20,7 +21,8 @@ static EFI_STATUS draw(void *context, CHAR16 character, UINT32 column, UINT32 ro
 	last_column = column;
 	last_row = row;
 	last_wide = wide;
-	return character == L'?' ? 1U : EFI_SUCCESS;
+	return draw_status != EFI_SUCCESS ? draw_status :
+		(character == L'?' ? 1U : EFI_SUCCESS);
 }
 
 static EFI_STATUS fill(void *context, UINT32 column, UINT32 row, UINT32 columns,
@@ -80,6 +82,14 @@ int main(void)
 		"wide/narrow glyph state is wrong");
 	failures += expect(cdk2_graphics_console_output(&console, L"?") == 1U,
 		"unknown-glyph warning was lost");
+	draw_status = EFI_DEVICE_ERROR;
+	{
+		UINTN cursors_before = cursors;
+		failures += expect(cdk2_graphics_console_output(&console, L"F") ==
+			EFI_DEVICE_ERROR && cursors == cursors_before + 2U && last_cursor_visible,
+			"draw failure did not restore the reported-visible cursor");
+	}
+	draw_status = EFI_SUCCESS;
 	failures += expect(cdk2_graphics_console_set_cursor(&console, 99, 30) == EFI_SUCCESS &&
 		last_column == 99U && last_row == 30U, "valid cursor position was rejected");
 	failures += expect(cdk2_graphics_console_output(&console, L"XY") == EFI_SUCCESS &&

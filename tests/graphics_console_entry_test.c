@@ -38,6 +38,10 @@ struct system_table_view { UINT8 before_boot_services[96]; struct boot_services_
 EFI_STATUS CDK2_MS_ABI cdk2_graphics_console_entry(void *, struct system_table_view *);
 
 static UINTN installs, additions, removals, notifications, closes, frees, fail_install;
+static EFI_STATUS package_status;
+static EFI_STATUS locate_status;
+static event_notify_fn *saved_notify;
+static void *saved_context;
 static struct cdk2_hii_database_view database;
 static EFI_STATUS CDK2_MS_ABI allocate_pool(UINT32 type, UINTN size, void **buffer)
 { (void)type; *buffer = malloc(size); return *buffer == NULL ? EFI_OUT_OF_RESOURCES : EFI_SUCCESS; }
@@ -45,7 +49,7 @@ static EFI_STATUS CDK2_MS_ABI free_pool(void *buffer)
 { frees++; free(buffer); return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI create_event(UINT32 type, UINTN tpl,
 	event_notify_fn * notify, void *context, void **event)
-{ (void)type; (void)tpl; (void)notify; (void)context; *event = (void *)1; return EFI_SUCCESS; }
+{ (void)type; (void)tpl; saved_notify = notify; saved_context = context; *event = (void *)1; return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI close_event(void *event)
 { if (event == NULL) return EFI_INVALID_PARAMETER; closes++; return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI register_notify(const EFI_GUID * guid, void *event,
@@ -53,14 +57,22 @@ static EFI_STATUS CDK2_MS_ABI register_notify(const EFI_GUID * guid, void *event
 { if (guid == NULL || event == NULL) return EFI_INVALID_PARAMETER; notifications++; *registration = (void *)2; return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI locate_protocol(const EFI_GUID * guid, void *registration,
 	void **interface)
-{ (void)registration; if (guid == NULL) return EFI_INVALID_PARAMETER; *interface = &database; return EFI_SUCCESS; }
+{
+	(void)registration;
+	if (guid == NULL)
+		return EFI_INVALID_PARAMETER;
+	if (EFI_ERROR(locate_status))
+		return locate_status;
+	*interface = &database;
+	return EFI_SUCCESS;
+}
 static EFI_STATUS CDK2_MS_ABI install_multiple(void **handle, ...)
 { if (handle == NULL) return EFI_INVALID_PARAMETER; installs++; return installs == fail_install ? EFI_DEVICE_ERROR : EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI uninstall_multiple(void *handle, ...)
 { return handle == NULL ? EFI_INVALID_PARAMETER : EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI new_package(const struct cdk2_hii_database_view *self,
 	const void *list, void *driver, void **handle)
-{ (void)self; (void)driver; if (list == NULL) return EFI_INVALID_PARAMETER; additions++; *handle = (void *)3; return EFI_SUCCESS; }
+{ (void)self; (void)driver; if (list == NULL) return EFI_INVALID_PARAMETER; additions++; if (EFI_ERROR(package_status)) return package_status; *handle = (void *)3; return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI remove_package(const struct cdk2_hii_database_view *self,
 	void *handle)
 { (void)self; (void)handle; removals++; return EFI_SUCCESS; }
@@ -80,8 +92,24 @@ int main(void)
 	boot.locate_protocol = locate_protocol;
 	boot.install_multiple = install_multiple;
 	boot.uninstall_multiple = uninstall_multiple;
+	locate_status = EFI_NOT_FOUND;
+	if (cdk2_graphics_console_entry((void *)4, &system) != EFI_SUCCESS ||
+	    installs != 3U || notifications != 1U || additions != 0U || closes != 0U ||
+	    saved_notify == NULL)
+		return 1;
+	locate_status = EFI_SUCCESS;
+	saved_notify((void *)1, saved_context);
+	if (additions != 1U)
+		return 1;
+	installs = additions = notifications = removals = closes = frees = 0U;
 	if (cdk2_graphics_console_entry((void *)4, &system) != EFI_SUCCESS)
 		return 1;
+	installs = additions = notifications = removals = closes = frees = 0U;
+	package_status = EFI_OUT_OF_RESOURCES;
+	if (cdk2_graphics_console_entry((void *)4, &system) != EFI_OUT_OF_RESOURCES ||
+	    installs != 0U || additions != 1U || closes != 1U || frees != 1U)
+		return 1;
+	package_status = EFI_SUCCESS;
 	installs = additions = notifications = removals = closes = frees = 0U;
 	fail_install = 2U;
 	if (cdk2_graphics_console_entry((void *)4, &system) != EFI_DEVICE_ERROR)

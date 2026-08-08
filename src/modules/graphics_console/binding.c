@@ -83,14 +83,14 @@ static EFI_STATUS CDK2_MS_ABI text_test(struct cdk2_simple_text_output_view *tex
 		image = NULL;
 		status = binding->font->get_glyph(binding->font, *character, NULL,
 			&image, &baseline);
-		if (EFI_ERROR(status))
-			return EFI_UNSUPPORTED;
 		if (image != NULL) {
 			if (image->image.bitmap != NULL && binding->ops->release != NULL)
 				binding->ops->release(binding->context, image->image.bitmap);
 			if (binding->ops->release != NULL)
 				binding->ops->release(binding->context, image);
 		}
+		if (status != EFI_SUCCESS)
+			return EFI_UNSUPPORTED;
 	}
 	return EFI_SUCCESS;
 }
@@ -331,10 +331,15 @@ EFI_STATUS cdk2_graphics_binding_supported(struct cdk2_graphics_console_binding 
 	if (binding == NULL || binding->ops == NULL || binding->ops->open == NULL ||
 	    binding->ops->close == NULL)
 		return EFI_INVALID_PARAMETER;
+	status = binding->ops->open(binding->context, controller, &device_path_guid,
+		CDK2_OPEN_BY_DRIVER, &interface);
+	if (EFI_ERROR(status))
+		return status;
 	status = binding->ops->open(binding->context, controller, &gop_guid,
 		CDK2_OPEN_BY_DRIVER, &interface);
 	if (!EFI_ERROR(status))
 		binding->ops->close(binding->context, controller, &gop_guid);
+	binding->ops->close(binding->context, controller, &device_path_guid);
 	return status;
 }
 

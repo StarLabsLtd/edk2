@@ -448,9 +448,6 @@ native-graphics-console-test: $(CDK2_NATIVE_GRAPHICS_CONSOLE_TEST) $(CDK2_NATIVE
 	@"$(CDK2_NATIVE_GRAPHICS_PACKAGE_TEST)"
 	@"$(CDK2_NATIVE_GRAPHICS_ENTRY_TEST)"
 
-native-graphics-console-fv: $(CDK2_NATIVE_GRAPHICS_CONSOLE_FV)
-	@printf '%s\n' "native graphics console FV: $(CDK2_NATIVE_GRAPHICS_CONSOLE_FV)"
-
 native-pe-test: $(CDK2_NATIVE_PE_TEST)
 	@"$(CDK2_NATIVE_PE_TEST)"
 
@@ -1082,6 +1079,12 @@ $(CDK2_NATIVE_REMOVE_TCG1_FV): $(CDK2_NATIVE_PRE_REMOVE_TCG1_FV) \
 ifeq ($(CONFIG_CDK2_NATIVE_GRAPHICS_CONSOLE),y)
 CDK2_NATIVE_PRE_GRAPHICS_CONSOLE_FV := $(CDK2_NATIVE_FINAL_FV)
 CDK2_NATIVE_FINAL_FV := $(CDK2_NATIVE_GRAPHICS_CONSOLE_FV)
+
+native-graphics-console-fv: $(CDK2_NATIVE_GRAPHICS_CONSOLE_FV)
+	@printf '%s\n' "native graphics console FV: $(CDK2_NATIVE_GRAPHICS_CONSOLE_FV)"
+else
+native-graphics-console-fv:
+	@printf '%s\n' 'native GraphicsConsoleDxe: disabled by Kconfig'
 endif
 
 $(CDK2_NATIVE_BUILD_DIR)/graphics-console-%.o: \
@@ -1098,7 +1101,7 @@ $(CDK2_NATIVE_BUILD_DIR)/graphics-console-font_data.o: \
 	$(CDK2_DIR)/src/modules/graphics_console/font_data.inc
 
 $(CDK2_NATIVE_GRAPHICS_CONSOLE_PE): $(CDK2_NATIVE_GRAPHICS_CONSOLE_OBJS) $(CDK2_DIR)/src/modules/graphics_console/graphics_console.ld $(CDK2_NATIVE_PERELOCCHECK)
-	@$(LD) -mi386pep --subsystem 11 --entry cdk2_graphics_console_entry --image-base 0 \
+	@$(CDK2_NATIVE_LD) -mi386pep --subsystem 11 --entry cdk2_graphics_console_entry --image-base 0 \
 		--section-alignment 0x1000 --file-alignment 0x1000 --build-id=none \
 		--no-insert-timestamp -s --nxcompat \
 		-T "$(CDK2_DIR)/src/modules/graphics_console/graphics_console.ld" \
@@ -1109,9 +1112,11 @@ $(CDK2_NATIVE_GRAPHICS_CONSOLE_FFS): $(CDK2_NATIVE_GRAPHICS_CONSOLE_PE) $(CDK2_N
 	@"$(CDK2_NATIVE_FFSBUILD)" cccb0c28-4b24-11d5-9a5a-0090273fc14d \
 		GraphicsConsoleDxe 1.0 0x9056 "$<" "$@" -
 
+ifeq ($(CONFIG_CDK2_NATIVE_GRAPHICS_CONSOLE),y)
 $(CDK2_NATIVE_GRAPHICS_CONSOLE_FV): $(CDK2_NATIVE_PRE_GRAPHICS_CONSOLE_FV) $(CDK2_NATIVE_GRAPHICS_CONSOLE_FFS) $(CDK2_NATIVE_FVREPLACE)
 	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_PRE_GRAPHICS_CONSOLE_FV)" 0x2da328 \
 		"$(CDK2_NATIVE_GRAPHICS_CONSOLE_FFS)" "$@"
+endif
 
 ifeq ($(CONFIG_CDK2_NATIVE_ENGLISH),y)
 $(CDK2_NATIVE_ENGLISH_OBJ): $(CDK2_DIR)/src/modules/english/english.c $(CDK2_DIR)/include/cdk2/english.h | $(CDK2_NATIVE_BUILD_DIR)

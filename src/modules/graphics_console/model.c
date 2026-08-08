@@ -215,8 +215,10 @@ EFI_STATUS cdk2_graphics_console_output(struct cdk2_graphics_console *console,
 				console->column, console->row, console->attribute, console->wide);
 			if (status == EFI_WARN_UNKNOWN_GLYPH)
 				result = status;
-			else if (EFI_ERROR(status))
+			else if (EFI_ERROR(status)) {
+				(void)update_cursor(console, TRUE);
 				return status;
+			}
 			console->column += cells;
 		}
 		if (console->column >= mode->columns) {
