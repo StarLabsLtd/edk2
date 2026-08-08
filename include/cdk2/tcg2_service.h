@@ -84,6 +84,8 @@ EFI_STATUS cdk2_tcg2_service_init(struct cdk2_tcg2_service *service,
 	cdk2_tcg2_extend_ptr extend, UINT32 main_capacity, UINT32 final_capacity);
 EFI_STATUS cdk2_tcg2_get_capability(const struct cdk2_tcg2_service *service,
 	struct cdk2_tcg2_capability *capability);
+EFI_STATUS cdk2_tcg2_service_import_hobs(struct cdk2_tcg2_service *service,
+	const void *hob_list, const void *hob_end);
 EFI_STATUS cdk2_tcg2_get_event_log(struct cdk2_tcg2_service *service,
 	UINT32 format, efi_physical_address_ptr location,
 	efi_physical_address_ptr last_entry, efi_boolean_ptr truncated);

@@ -189,7 +189,7 @@ int main(void)
 		"immutable ACPI export is wrong");
 	failures += expect(cdk2_tcg2_get_event_log(&service,
 		CDK2_TCG2_EVENT_LOG_FORMAT_TCG_2, &location, &last, &truncated) ==
-		EFI_SUCCESS && location == export->log_base && last == 0 && !truncated,
+		EFI_SUCCESS && location == export->log_base && last == location && !truncated,
 		"GetEventLog failed");
 	failures += expect(cdk2_tcg2_hash_log_extend(&service, 7, 5, "abc", 3,
 		"event", 5, &code) == EFI_SUCCESS && code == 0 &&

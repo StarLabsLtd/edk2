@@ -8,6 +8,7 @@
 
 #define CDK2_TCG2_MAX_DIGEST_SIZE 64U
 #define CDK2_TCG2_MAX_DIGESTS HASH_COUNT
+#define CDK2_TCG2_EV_NO_ACTION 3U
 
 struct cdk2_tcg2_digest {
 	TPMI_ALG_HASH algorithm;
@@ -47,6 +48,8 @@ extern const EFI_GUID cdk2_tcg_event2_entry_hob_guid;
 
 EFI_STATUS cdk2_tcg2_log_init(struct cdk2_tcg2_log *log, void *buffer,
 	UINT32 capacity);
+EFI_STATUS cdk2_tcg2_write_specid(struct cdk2_tcg2_logs *logs,
+	const TPMI_ALG_HASH *algorithms, UINT32 algorithm_count, UINT8 uintn_size);
 EFI_STATUS cdk2_tcg2_append_event(struct cdk2_tcg2_logs *logs,
 	const struct cdk2_tcg2_event *event);
 EFI_STATUS cdk2_tcg2_append_event_spans(struct cdk2_tcg2_logs *logs,

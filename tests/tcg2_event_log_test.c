@@ -28,6 +28,7 @@ int main(void)
 	EFI_HOB_GUID_TYPE *guid_hob;
 	EFI_HOB_GENERIC_HEADER *end_hob;
 	UINT32 record_size;
+	TPMI_ALG_HASH algorithms[2] = { TPM_ALG_SHA1, TPM_ALG_SHA256 };
 	int failures = 0;
 
 	memset(hob_bytes, 0, sizeof(hob_bytes));
@@ -37,6 +38,13 @@ int main(void)
 		sizeof(main_buffer)) == EFI_SUCCESS &&
 		cdk2_tcg2_log_init(&logs.final, final_buffer,
 		sizeof(final_buffer)) == EFI_SUCCESS, "log initialization failed");
+	failures += expect(cdk2_tcg2_write_specid(&logs, algorithms, 2, 2) ==
+		EFI_SUCCESS && logs.main.used == 69 &&
+		memcmp(main_buffer + 32, "Spec ID Event03", 15) == 0 &&
+		main_buffer[55] == 2 && main_buffer[60] == TPM_ALG_SHA1 &&
+		main_buffer[61] == 0,
+		"SpecID Event03 header is wrong");
+	cdk2_tcg2_log_init(&logs.main, main_buffer, sizeof(main_buffer));
 	failures += expect(cdk2_tcg2_append_event(&logs, &event) == EFI_SUCCESS &&
 		logs.main.used == 16U + 2U + SHA1_DIGEST_SIZE + 2U +
 		SHA256_DIGEST_SIZE + sizeof(data) && logs.event_count == 1U,

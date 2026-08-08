@@ -250,6 +250,11 @@ EFI_STATUS cdk2_tcg2_service_init(struct cdk2_tcg2_service *service,
 				TPM_ALG_SHA512, TPM_ALG_SM3_256 })[index];
 	if (service->measurement.algorithm_count == 0)
 		return EFI_DEVICE_ERROR;
+	status = cdk2_tcg2_write_specid(&service->logs,
+		service->measurement.algorithms, service->measurement.algorithm_count,
+		sizeof(UINTN) == sizeof(UINT64) ? 2 : 1);
+	if (EFI_ERROR(status))
+		return status;
 	service->export = (struct cdk2_tcg2_acpi_export){
 		.revision = CDK2_TCG2_EXPORT_REVISION, .size = sizeof(service->export),
 		.active_interface = (UINT8)interface_export(transport->interface),
@@ -257,6 +262,14 @@ EFI_STATUS cdk2_tcg2_service_init(struct cdk2_tcg2_service *service,
 		.log_capacity = main_capacity,
 	};
 	return EFI_SUCCESS;
+}
+
+EFI_STATUS cdk2_tcg2_service_import_hobs(struct cdk2_tcg2_service *service,
+	const void *hob_list, const void *hob_end)
+{
+	if (service == NULL)
+		return EFI_INVALID_PARAMETER;
+	return cdk2_tcg2_import_event2_hobs(&service->logs, hob_list, hob_end);
 }
 
 EFI_STATUS cdk2_tcg2_get_capability(const struct cdk2_tcg2_service *service,

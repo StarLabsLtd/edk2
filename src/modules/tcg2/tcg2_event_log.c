@@ -59,6 +59,9 @@ static int guid_equal(const EFI_GUID *left, const EFI_GUID *right)
 	return 1;
 }
 
+static EFI_STATUS append_raw(struct cdk2_tcg2_log *log, const UINT8 *record,
+	UINT32 size);
+
 EFI_STATUS cdk2_tcg2_log_init(struct cdk2_tcg2_log *log, void *buffer,
 	UINT32 capacity)
 {
@@ -68,6 +71,51 @@ EFI_STATUS cdk2_tcg2_log_init(struct cdk2_tcg2_log *log, void *buffer,
 	log->last_entry_offset = 0;
 	log->truncated = FALSE;
 	return EFI_SUCCESS;
+}
+
+EFI_STATUS cdk2_tcg2_write_specid(struct cdk2_tcg2_logs *logs,
+	const TPMI_ALG_HASH *algorithms, UINT32 algorithm_count, UINT8 uintn_size)
+{
+	static const UINT8 signature[16] = "Spec ID Event03";
+	UINT8 record[32 + 29 + CDK2_TCG2_MAX_DIGESTS * 4];
+	UINT32 event_size;
+	UINT32 offset;
+	UINT32 index;
+	UINT16 size;
+
+	if (logs == NULL || algorithms == NULL || algorithm_count == 0 ||
+	    algorithm_count > CDK2_TCG2_MAX_DIGESTS ||
+	    (uintn_size != 1 && uintn_size != 2))
+		return EFI_INVALID_PARAMETER;
+	event_size = 29 + algorithm_count * 4;
+	for (index = 0; index < sizeof(record); index++)
+		record[index] = 0;
+	put32(record, 0);
+	put32(record + 4, CDK2_TCG2_EV_NO_ACTION);
+	put32(record + 28, event_size);
+	offset = 32;
+	copy_bytes(record + offset, signature, sizeof(signature));
+	offset += sizeof(signature);
+	put32(record + offset, 0);
+	offset += 4;
+	record[offset++] = 0;
+	record[offset++] = 2;
+	record[offset++] = 0;
+	record[offset++] = uintn_size;
+	put32(record + offset, algorithm_count);
+	offset += 4;
+	for (index = 0; index < algorithm_count; index++) {
+		size = digest_size(algorithms[index]);
+		if (size == 0)
+			return EFI_UNSUPPORTED;
+		put16(record + offset, algorithms[index]);
+		put16(record + offset + 2, size);
+		offset += 4;
+	}
+	record[offset++] = 0;
+	if (offset != 32 + event_size)
+		return EFI_COMPROMISED_DATA;
+	return append_raw(&logs->main, record, offset);
 }
 
 static EFI_STATUS append_raw(struct cdk2_tcg2_log *log, const UINT8 *record,
