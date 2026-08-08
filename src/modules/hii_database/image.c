@@ -71,7 +71,8 @@ EFI_STATUS cdk2_hii_set_image(struct cdk2_hii_database *database,
 	entry->package_handle = package_handle;
 	entry->id = image_id;
 	entry->image = (struct cdk2_hii_image_input) {
-		image->width, image->height, copy
+		.width = image->width, .height = image->height, .bitmap = copy,
+		.flags = image->flags
 	};
 	entry->active = TRUE;
 	return EFI_SUCCESS;
@@ -164,6 +165,7 @@ EFI_STATUS cdk2_hii_get_image(struct cdk2_hii_database *database,
 	__builtin_memcpy(image->bitmap, entry->image.bitmap, bytes);
 	image->width = entry->image.width;
 	image->height = entry->image.height;
+	image->flags = entry->image.flags;
 	return EFI_SUCCESS;
 }
 

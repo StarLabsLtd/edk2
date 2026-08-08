@@ -36,7 +36,9 @@ int main(void)
 	struct cdk2_hii_pixel pixels[4] = {
 		{ .blue = 1U }, { .blue = 2U }, { .blue = 3U }, { .blue = 4U }
 	};
-	struct cdk2_hii_image_input image = { 2U, 2U, pixels }, copy;
+	struct cdk2_hii_image_input image = {
+		.width = 2U, .height = 2U, .bitmap = pixels
+	}, copy;
 	struct cdk2_hii_image_output *output = NULL;
 	UINT8 png[2] = { 7U, 8U };
 	void *handle; UINT16 id = 0U; int failures = 0;

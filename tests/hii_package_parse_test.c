@@ -22,6 +22,7 @@ int main(void)
 	struct cdk2_hii_database database;
 	UINT8 list[81] = { 0 };
 	UINT8 image_list[55] = { 0 };
+	UINT8 palette_list[54] = { 0 };
 	struct cdk2_hii_image_input image;
 	CHAR16 text[3];
 	UINTN size = sizeof(text);
@@ -64,6 +65,22 @@ int main(void)
 		database.images[1].encoded_size == 2U &&
 		database.images[2].encoded_size == 2U,
 		"raw 24-bit/compressed/duplicate images were not retained");
+	release(NULL, image.bitmap);
+	write32(palette_list + 16U, sizeof(palette_list));
+	write32(palette_list + 20U, (0x06U << 24) | 30U);
+	write32(palette_list + 24U, 12U);
+	write32(palette_list + 28U, 20U);
+	palette_list[32] = 0x11U; palette_list[33] = 1U;
+	palette_list[34] = 2U; palette_list[36] = 1U;
+	palette_list[38] = 0x40U;
+	palette_list[40] = 1U; palette_list[42] = 6U;
+	palette_list[49] = 0xffU;
+	write32(palette_list + 50U, (CDK2_HII_PACKAGE_END << 24) | 4U);
+	failures += expect(cdk2_hii_new_package_list(&database, palette_list, NULL,
+		&handle) == EFI_SUCCESS && cdk2_hii_get_image(&database, handle, 1U,
+		&image) == EFI_SUCCESS && image.width == 2U && image.flags == 1U &&
+		image.bitmap[0].red == 0U && image.bitmap[1].red == 0xffU,
+		"paletted transparent image was not decoded faithfully");
 	release(NULL, image.bitmap);
 	return failures == 0 ? 0 : 1;
 }

@@ -164,7 +164,7 @@ static EFI_STATUS draw_glyph(struct cdk2_hii_database *database,
 	UINTN x, UINTN y, cdk2_hii_screen_blt_fn *screen_blt)
 {
 	struct cdk2_hii_image_input image = {
-		glyph->width, glyph->height, glyph->bitmap
+		.width = glyph->width, .height = glyph->height, .bitmap = glyph->bitmap
 	};
 
 	return cdk2_hii_draw_image(database, &image, 0U, output, x, y, screen_blt);

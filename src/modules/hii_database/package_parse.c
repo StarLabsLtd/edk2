@@ -176,7 +176,8 @@ static EFI_STATUS ingest_images(struct cdk2_hii_database *database, void *handle
 	struct cdk2_hii_image_input image;
 	struct cdk2_hii_pixel *pixels;
 	EFI_STATUS status;
-	UINT32 offset, encoded_size;
+	UINT32 offset, encoded_size, info_end;
+	UINT32 palette_offset;
 	UINT16 id = 1U, width, height, source_id;
 	UINT8 type;
 	UINTN index, pixel_count, bytes;
@@ -184,13 +185,85 @@ static EFI_STATUS ingest_images(struct cdk2_hii_database *database, void *handle
 	if (length < 12U)
 		return EFI_INVALID_PARAMETER;
 	offset = read32(package + 4U);
+	palette_offset = read32(package + 8U);
 	if (offset < 12U || offset >= length)
 		return EFI_INVALID_PARAMETER;
-	while (offset < length) {
+	if (palette_offset != 0U && (palette_offset <= offset || palette_offset >= length))
+		return EFI_INVALID_PARAMETER;
+	info_end = palette_offset == 0U ? length : palette_offset;
+	while (offset < info_end) {
 		type = package[offset++];
 		if (type == 0U)
-			return offset == length ? EFI_SUCCESS : EFI_INVALID_PARAMETER;
-		if (type == 0x16U || type == 0x17U) {
+			return offset == info_end ? EFI_SUCCESS : EFI_INVALID_PARAMETER;
+		if (type >= 0x10U && type <= 0x15U) {
+			const UINT8 *palette = NULL;
+			UINT16 palette_size, palette_count, palette_number;
+			UINTN row_bytes, x, y, palette_cursor;
+			UINT8 bits = type < 0x12U ? 1U : type < 0x14U ? 4U : 8U;
+			UINT8 palette_index, color;
+
+			if (offset + 5U > length || palette_offset == 0U ||
+			    palette_offset + 2U > length)
+				return EFI_INVALID_PARAMETER;
+			palette_index = package[offset++];
+			width = read16(package + offset);
+			height = read16(package + offset + 2U);
+			offset += 4U;
+			palette_count = read16(package + palette_offset);
+			palette_cursor = palette_offset + 2U;
+			for (palette_number = 1U; palette_number <= palette_count;
+			     palette_number++) {
+				if (palette_cursor + 2U > length)
+					return EFI_INVALID_PARAMETER;
+				palette_size = read16(package + palette_cursor);
+				if (palette_cursor + 2U + palette_size > length ||
+				    palette_size % 3U != 0U)
+					return EFI_INVALID_PARAMETER;
+				if (palette_number == palette_index) {
+					palette = package + palette_cursor + 2U;
+					break;
+				}
+				palette_cursor += 2U + palette_size;
+			}
+			if (palette == NULL || width == 0U || height == 0U)
+				return EFI_INVALID_PARAMETER;
+			row_bytes = ((UINTN)width * bits + 7U) / 8U;
+			if (row_bytes > (length - offset) / height)
+				return EFI_INVALID_PARAMETER;
+			pixel_count = (UINTN)width * height;
+			status = database->ops->allocate(database->context,
+				pixel_count * sizeof(*pixels), (void **)&pixels);
+			if (EFI_ERROR(status))
+				return status;
+			for (y = 0; y < height; y++)
+				for (x = 0; x < width; x++) {
+					if (bits == 1U)
+						color = (package[offset + y * row_bytes + x / 8U] >>
+							(7U - x % 8U)) & 1U;
+					else if (bits == 4U)
+						color = (package[offset + y * row_bytes + x / 2U] >>
+							((x & 1U) == 0U ? 4U : 0U)) & 0x0fU;
+					else
+						color = package[offset + y * row_bytes + x];
+					if ((UINTN)color * 3U + 3U > palette_size) {
+						database->ops->release(database->context, pixels);
+						return EFI_INVALID_PARAMETER;
+					}
+					pixels[y * width + x] = (struct cdk2_hii_pixel) {
+						palette[color * 3U], palette[color * 3U + 1U],
+						palette[color * 3U + 2U], 0U
+					};
+				}
+			image = (struct cdk2_hii_image_input) {
+				.width = width, .height = height, .bitmap = pixels,
+				.flags = (type & 1U) != 0U ? 1U : 0U
+			};
+			status = cdk2_hii_set_image(database, handle, id++, &image);
+			database->ops->release(database->context, pixels);
+			if (EFI_ERROR(status))
+				return status;
+			offset += row_bytes * height;
+		} else if (type == 0x16U || type == 0x17U) {
 			if (offset + 4U > length)
 				return EFI_INVALID_PARAMETER;
 			width = read16(package + offset);
@@ -211,7 +284,10 @@ static EFI_STATUS ingest_images(struct cdk2_hii_database *database, void *handle
 					package[offset + index * 3U + 1U],
 					package[offset + index * 3U + 2U], 0U
 				};
-			image = (struct cdk2_hii_image_input) { width, height, pixels };
+			image = (struct cdk2_hii_image_input) {
+				.width = width, .height = height, .bitmap = pixels,
+				.flags = type == 0x17U ? 1U : 0U
+			};
 			status = cdk2_hii_set_image(database, handle, id++, &image);
 			database->ops->release(database->context, pixels);
 			if (EFI_ERROR(status))

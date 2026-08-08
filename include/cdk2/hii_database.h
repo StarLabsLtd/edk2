@@ -85,6 +85,7 @@ struct cdk2_hii_pixel { UINT8 blue, green, red, reserved; };
 struct cdk2_hii_image_input {
 	UINT16 width, height;
 	struct cdk2_hii_pixel *bitmap;
+	UINT32 flags;
 };
 struct cdk2_hii_image_output {
 	UINT16 width, height;
