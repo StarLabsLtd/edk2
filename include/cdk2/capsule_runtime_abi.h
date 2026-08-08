@@ -12,11 +12,12 @@ struct cdk2_runtime_services_view {
 	void *set_variable, *get_next_high_mono, *reset_system;
 	void *update_capsule, *query_capsule, *query_variable_info;
 };
-typedef EFI_STATUS CDK2_MS_ABI (*cdk2_crc32_fn)(void *, UINTN, UINT32 *);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_crc32_fn(
+	void *data, UINTN size, UINT32 *crc32);
 struct cdk2_boot_services_view {
 	struct cdk2_table_header header;
 	void *slots_before_crc[40];
-	cdk2_crc32_fn calculate_crc32;
+	cdk2_crc32_fn *calculate_crc32;
 	void *copy_mem, *set_mem, *create_event_ex;
 };
 
@@ -32,6 +33,8 @@ typedef char cdk2_calculate_crc32_abi[
 typedef char cdk2_create_event_ex_abi[
 	(offsetof(struct cdk2_boot_services_view, create_event_ex) == 368) ? 1 : -1];
 
-EFI_STATUS cdk2_capsule_install_runtime_slots(struct cdk2_runtime_services_view *,
-	struct cdk2_boot_services_view *, void *, void *);
+EFI_STATUS cdk2_capsule_install_runtime_slots(
+	struct cdk2_runtime_services_view *runtime,
+	struct cdk2_boot_services_view *boot, void *update_capsule,
+	void *query_capsule);
 #endif

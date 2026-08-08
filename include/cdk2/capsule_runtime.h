@@ -23,15 +23,22 @@ struct cdk2_capsule_policy {
 	BOOLEAN process_at_runtime;
 };
 
-typedef EFI_STATUS (*cdk2_capsule_support_fn)(const struct cdk2_capsule_header *, void *);
+typedef EFI_STATUS cdk2_capsule_support_fn(
+	const struct cdk2_capsule_header *capsule, void *context);
+typedef EFI_STATUS cdk2_capsule_process_fn(
+	const struct cdk2_capsule_header *capsule, void *context);
+typedef EFI_STATUS cdk2_capsule_persist_fn(
+	UINTN sequence, UINT64 scatter_gather, void *context);
+typedef void cdk2_capsule_writeback_fn(UINT64 scatter_gather, void *context);
+typedef void cdk2_capsule_warm_reset_fn(void *context);
 struct cdk2_capsule_runtime {
 	UINTN sequence;
 	BOOLEAN at_runtime;
 	void *context;
-	EFI_STATUS (*process)(const struct cdk2_capsule_header *, void *);
-	EFI_STATUS (*persist)(UINTN, UINT64, void *);
-	void (*writeback)(UINT64, void *);
-	void (*warm_reset)(void *);
+	cdk2_capsule_process_fn *process;
+	cdk2_capsule_persist_fn *persist;
+	cdk2_capsule_writeback_fn *writeback;
+	cdk2_capsule_warm_reset_fn *warm_reset;
 };
 
 EFI_STATUS cdk2_capsule_query(const struct cdk2_capsule_header *const *capsules,
@@ -42,10 +49,11 @@ EFI_STATUS cdk2_capsule_preflight(const struct cdk2_capsule_header *const *capsu
 	UINTN count, UINT64 scatter_gather, BOOLEAN at_runtime,
 	const struct cdk2_capsule_policy *policy, cdk2_capsule_support_fn support,
 	void *context, BOOLEAN *needs_reset, BOOLEAN *initiate_reset);
-EFI_STATUS cdk2_capsule_update(struct cdk2_capsule_runtime *,
-	const struct cdk2_capsule_header *const *, UINTN, UINT64,
-	const struct cdk2_capsule_policy *, cdk2_capsule_support_fn);
-EFI_STATUS cdk2_capsule_convert_runtime(struct cdk2_capsule_runtime *,
-	EFI_STATUS (*)(void **, void *), void *);
+EFI_STATUS cdk2_capsule_update(struct cdk2_capsule_runtime *runtime,
+	const struct cdk2_capsule_header *const *capsules, UINTN count,
+	UINT64 scatter_gather, const struct cdk2_capsule_policy *policy,
+	cdk2_capsule_support_fn *support);
+EFI_STATUS cdk2_capsule_convert_runtime(struct cdk2_capsule_runtime *runtime,
+	EFI_STATUS (*convert)(void **pointer, void *context), void *context);
 
 #endif
