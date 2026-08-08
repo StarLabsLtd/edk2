@@ -27,13 +27,13 @@ struct cdk2_pcd_ex_map {
 	uint16_t local_token, guid_index;
 };
 
-typedef void (CDK2_MS_ABI *cdk2_pcd_callback)(const EFI_GUID *, uint32_t,
+typedef void CDK2_MS_ABI cdk2_pcd_callback(const EFI_GUID *, uint32_t,
 	void *, size_t);
 
 struct cdk2_pcd_callback_slot {
 	const EFI_GUID *space;
 	uint32_t token;
-	cdk2_pcd_callback callback;
+	cdk2_pcd_callback *callback;
 };
 
 struct cdk2_pcd_context {
@@ -41,6 +41,90 @@ struct cdk2_pcd_context {
 	size_t capacity;
 	struct cdk2_pcd_database_header *header;
 	struct cdk2_pcd_callback_slot callbacks[CDK2_PCD_MAX_CALLBACKS];
+};
+
+struct cdk2_pcd_info {
+	size_t pcd_type;
+	size_t pcd_size;
+	char *pcd_name;
+};
+
+typedef void CDK2_MS_ABI cdk2_pcd_set_sku_fn(size_t);
+typedef uint8_t CDK2_MS_ABI cdk2_pcd_get8_fn(size_t);
+typedef uint16_t CDK2_MS_ABI cdk2_pcd_get16_fn(size_t);
+typedef uint32_t CDK2_MS_ABI cdk2_pcd_get32_fn(size_t);
+typedef uint64_t CDK2_MS_ABI cdk2_pcd_get64_fn(size_t);
+typedef void *CDK2_MS_ABI cdk2_pcd_get_ptr_fn(size_t);
+typedef size_t CDK2_MS_ABI cdk2_pcd_get_size_fn(size_t);
+typedef uint64_t CDK2_MS_ABI cdk2_pcd_set8_fn(size_t, uint8_t);
+typedef uint64_t CDK2_MS_ABI cdk2_pcd_set16_fn(size_t, uint16_t);
+typedef uint64_t CDK2_MS_ABI cdk2_pcd_set32_fn(size_t, uint32_t);
+typedef uint64_t CDK2_MS_ABI cdk2_pcd_set64_fn(size_t, uint64_t);
+typedef uint64_t CDK2_MS_ABI cdk2_pcd_set_ptr_fn(size_t, size_t *, void *);
+typedef uint64_t CDK2_MS_ABI cdk2_pcd_get_next_fn(const EFI_GUID *, size_t *);
+typedef uint64_t CDK2_MS_ABI cdk2_pcd_next_space_fn(const EFI_GUID **);
+typedef uint64_t CDK2_MS_ABI cdk2_pcd_callback_fn(const EFI_GUID *, size_t,
+	cdk2_pcd_callback *);
+
+struct cdk2_pcd_protocol {
+	cdk2_pcd_set_sku_fn *set_sku;
+	cdk2_pcd_get8_fn *get8;
+	cdk2_pcd_get16_fn *get16;
+	cdk2_pcd_get32_fn *get32;
+	cdk2_pcd_get64_fn *get64;
+	cdk2_pcd_get_ptr_fn *get_ptr;
+	cdk2_pcd_get8_fn *get_bool;
+	cdk2_pcd_get_size_fn *get_size;
+	void *get_ex[7];
+	cdk2_pcd_set8_fn *set8;
+	cdk2_pcd_set16_fn *set16;
+	cdk2_pcd_set32_fn *set32;
+	cdk2_pcd_set64_fn *set64;
+	cdk2_pcd_set_ptr_fn *set_ptr;
+	cdk2_pcd_set8_fn *set_bool;
+	void *set_ex[6];
+	cdk2_pcd_callback_fn *callback_on_set;
+	cdk2_pcd_callback_fn *cancel_callback;
+	cdk2_pcd_get_next_fn *get_next_token;
+	cdk2_pcd_next_space_fn *get_next_token_space;
+};
+
+struct cdk2_efi_pcd_protocol {
+	cdk2_pcd_set_sku_fn *set_sku;
+	void *get_ex[7];
+	void *set_ex[6];
+	cdk2_pcd_callback_fn *callback_on_set;
+	cdk2_pcd_callback_fn *cancel_callback;
+	cdk2_pcd_get_next_fn *get_next_token;
+	cdk2_pcd_next_space_fn *get_next_token_space;
+};
+
+typedef uint64_t CDK2_MS_ABI cdk2_pcd_info_fn(size_t,
+	struct cdk2_pcd_info *);
+typedef uint64_t CDK2_MS_ABI cdk2_pcd_info_ex_fn(const EFI_GUID *, size_t,
+	struct cdk2_pcd_info *);
+typedef size_t CDK2_MS_ABI cdk2_pcd_sku_fn(void);
+
+struct cdk2_get_pcd_info_protocol {
+	cdk2_pcd_info_fn *get_info;
+	cdk2_pcd_info_ex_fn *get_info_ex;
+	cdk2_pcd_sku_fn *get_sku;
+};
+
+struct cdk2_efi_get_pcd_info_protocol {
+	cdk2_pcd_info_ex_fn *get_info;
+	cdk2_pcd_sku_fn *get_sku;
+};
+
+typedef uint64_t CDK2_MS_ABI cdk2_pcd_install_fn(void **,
+	const EFI_GUID *, void *, ...);
+typedef uint64_t CDK2_MS_ABI cdk2_pcd_uninstall_fn(void *,
+	const EFI_GUID *, void *, ...);
+
+struct cdk2_pcd_boot_services {
+	uint8_t before_install[328];
+	cdk2_pcd_install_fn *install_multiple_protocols;
+	cdk2_pcd_uninstall_fn *uninstall_multiple_protocols;
 };
 
 uint64_t cdk2_pcd_init(struct cdk2_pcd_context *context, void *database,
@@ -56,5 +140,9 @@ uint64_t cdk2_pcd_unregister(struct cdk2_pcd_context *context,
 uint64_t cdk2_pcd_next_token(struct cdk2_pcd_context *context,
 	const EFI_GUID *space, uint32_t *token);
 uint64_t cdk2_pcd_set_sku(struct cdk2_pcd_context *context, uint64_t sku);
+uint64_t cdk2_pcd_apply_sku_delta(struct cdk2_pcd_context *context,
+	uint64_t sku);
+uint64_t cdk2_pcd_publish(struct cdk2_pcd_context *context,
+	struct cdk2_pcd_boot_services *boot_services);
 
 #endif

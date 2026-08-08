@@ -269,3 +269,45 @@ uint64_t cdk2_pcd_set_sku(struct cdk2_pcd_context *context, uint64_t sku)
 		}
 	return PCD_NOT_FOUND;
 }
+
+uint64_t cdk2_pcd_apply_sku_delta(struct cdk2_pcd_context *context,
+	uint64_t sku)
+{
+	size_t cursor;
+
+	if (context == NULL || context->header == NULL)
+		return PCD_INVALID_PARAMETER;
+	cursor = context->header->length;
+	while (cursor < context->header->length_all_skus) {
+		uint64_t entry_sku, compared;
+		uint32_t length;
+		size_t delta;
+
+		if (!bounds(cursor, 1, 20, context->header->length_all_skus))
+			return PCD_INVALID_PARAMETER;
+		memcpy(&entry_sku, context->database + cursor, sizeof(entry_sku));
+		memcpy(&compared, context->database + cursor + 8, sizeof(compared));
+		memcpy(&length, context->database + cursor + 16, sizeof(length));
+		if (length < 20 || !bounds(cursor, 1, length,
+			    context->header->length_all_skus) || (length - 20) % 4 != 0)
+			return PCD_INVALID_PARAMETER;
+		if (entry_sku == sku) {
+			if (compared != 0 && compared != context->header->system_sku_id)
+				return PCD_UNSUPPORTED;
+			for (delta = cursor + 20; delta < cursor + length; delta += 4) {
+				uint32_t item;
+				uint32_t offset;
+
+				memcpy(&item, context->database + delta, sizeof(item));
+				offset = item & 0x00ffffffU;
+				if (offset >= context->header->length)
+					return PCD_INVALID_PARAMETER;
+				context->database[offset] = (uint8_t)(item >> 24);
+			}
+			context->header->system_sku_id = sku;
+			return EFI_SUCCESS;
+		}
+		cursor += length;
+	}
+	return PCD_NOT_FOUND;
+}

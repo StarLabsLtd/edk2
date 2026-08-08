@@ -1533,8 +1533,8 @@ $(CDK2_NATIVE_FFSBUILD_TEST): $(CDK2_DIR)/tests/ffsbuild_test.c | $(CDK2_NATIVE_
 $(CDK2_NATIVE_METRONOME_TEST): $(CDK2_DIR)/tests/metronome_test.c $(CDK2_DIR)/src/modules/metronome/metronome.c $(CDK2_DIR)/include/cdk2/metronome.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$<"
 
-$(CDK2_NATIVE_PCD_TEST): $(CDK2_DIR)/tests/pcd_test.c $(CDK2_DIR)/src/modules/pcd/pcd.c $(CDK2_DIR)/include/cdk2/pcd.h | $(CDK2_NATIVE_BUILD_DIR)
-	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" $(CDK2_DIR)/tests/pcd_test.c $(CDK2_DIR)/src/modules/pcd/pcd.c
+$(CDK2_NATIVE_PCD_TEST): $(CDK2_DIR)/tests/pcd_test.c $(CDK2_DIR)/src/modules/pcd/pcd.c $(CDK2_DIR)/src/modules/pcd/entry.c $(CDK2_DIR)/include/cdk2/pcd.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" $(CDK2_DIR)/tests/pcd_test.c $(CDK2_DIR)/src/modules/pcd/pcd.c $(CDK2_DIR)/src/modules/pcd/entry.c
 
 $(CDK2_NATIVE_WATCHDOG_TEST): $(CDK2_DIR)/tests/watchdog_test.c $(CDK2_DIR)/src/modules/watchdog/watchdog.c $(CDK2_DIR)/include/cdk2/watchdog.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$<"

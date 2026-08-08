@@ -12,6 +12,30 @@ static const EFI_GUID space = {
 	0x12345678, 0xabcd, 0xef01, { 1, 2, 3, 4, 5, 6, 7, 8 }
 };
 static unsigned callbacks;
+static unsigned installs, uninstalls;
+static uint64_t second_install_status;
+static struct cdk2_pcd_protocol *published_native;
+
+static uint64_t CDK2_MS_ABI mock_install(void **handle, const EFI_GUID *guid,
+	void *interface, ...)
+{
+	(void)guid;
+	*handle = (void *)1;
+	installs++;
+	if (installs == 1)
+		published_native = interface;
+	return installs == 2 ? second_install_status : EFI_SUCCESS;
+}
+
+static uint64_t CDK2_MS_ABI mock_uninstall(void *handle, const EFI_GUID *guid,
+	void *interface, ...)
+{
+	(void)handle;
+	(void)guid;
+	(void)interface;
+	uninstalls++;
+	return EFI_SUCCESS;
+}
 
 static void CDK2_MS_ABI changed(const EFI_GUID *guid, uint32_t token,
 	void *value, size_t size)
@@ -34,6 +58,12 @@ struct fixture {
 	EFI_GUID guid;
 	uint32_t value;
 	uint64_t wide;
+};
+
+struct delta_fixture {
+	struct fixture base;
+	uint64_t sku, compared;
+	uint32_t length, delta;
 };
 
 static void make_fixture(struct fixture *fixture)
@@ -67,13 +97,18 @@ static void make_fixture(struct fixture *fixture)
 int main(void)
 {
 	struct fixture fixture, bad;
+	struct delta_fixture delta_fixture;
 	struct cdk2_pcd_context context;
+	struct cdk2_pcd_boot_services boot_services;
 	void *value;
 	size_t size;
 	uint32_t replacement = 42, token = 0;
 	int failures = 0;
 
 	make_fixture(&fixture);
+	memset(&boot_services, 0, sizeof(boot_services));
+	boot_services.install_multiple_protocols = mock_install;
+	boot_services.uninstall_multiple_protocols = mock_uninstall;
 	failures += expect(cdk2_pcd_init(&context, &fixture, sizeof(fixture)) == EFI_SUCCESS,
 		"valid version-seven database accepted");
 	failures += expect(cdk2_pcd_get(&context, NULL, 2, &value, &size) == EFI_SUCCESS &&
@@ -93,6 +128,31 @@ int main(void)
 		fixture.header.system_sku_id == 9, "supported SKU selected once");
 	failures += expect(cdk2_pcd_set_sku(&context, 0) != EFI_SUCCESS,
 		"SKU cannot change after selection");
+	memset(&delta_fixture, 0, sizeof(delta_fixture));
+	make_fixture(&delta_fixture.base);
+	delta_fixture.base.header.length_all_skus = sizeof(delta_fixture);
+	delta_fixture.sku = 7;
+	delta_fixture.length = 24;
+	delta_fixture.delta = ((uint32_t)0x5a << 24) |
+		offsetof(struct fixture, value);
+	failures += expect(cdk2_pcd_init(&context, &delta_fixture,
+		sizeof(delta_fixture)) == EFI_SUCCESS &&
+		cdk2_pcd_apply_sku_delta(&context, 7) == EFI_SUCCESS &&
+		(delta_fixture.base.value & 0xff) == 0x5a,
+		"bounded generated SKU delta applied");
+	/* Restore the ordinary fixture for publication ABI checks. */
+	failures += expect(cdk2_pcd_init(&context, &fixture, sizeof(fixture)) == EFI_SUCCESS,
+		"base database restored");
+	second_install_status = EFI_SUCCESS;
+	failures += expect(cdk2_pcd_publish(&context, &boot_services) == EFI_SUCCESS &&
+		installs == 2 && published_native != NULL &&
+		published_native->get32(1) == replacement,
+		"four exact protocol interfaces published and callable");
+	installs = uninstalls = 0;
+	second_install_status = EFI_OUT_OF_RESOURCES;
+	failures += expect(cdk2_pcd_publish(&context, &boot_services) ==
+		EFI_OUT_OF_RESOURCES && installs == 2 && uninstalls == 1,
+		"second publication failure rolls back first pair");
 
 	make_fixture(&bad);
 	bad.header.signature.data1++;
