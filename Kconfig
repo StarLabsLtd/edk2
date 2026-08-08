@@ -320,6 +320,14 @@ config CDK2_NATIVE_GRAPHICS_CONSOLE
 	  Publish Simple Text Output on GOP controllers and own the HII narrow-font
 	  package used to render the complete UEFI console glyph repertoire.
 
+config CDK2_NATIVE_TCG2
+	bool "Build native TPM2 measured-boot services"
+	default y
+	depends on CDK2_NATIVE_STAGE && CDK2_TPM2 && CDK2_NATIVE_SECURITY_STUB
+	help
+	  Publish EFI_TCG2_PROTOCOL over the TPM2 interface described by ACPI,
+	  route Security2 image measurements, and import coreboot event HOBs.
+
 config CDK2_NATIVE_CAPSULE_RUNTIME
 	bool "Build native capsule runtime services"
 	default y

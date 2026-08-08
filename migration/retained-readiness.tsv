@@ -38,7 +38,6 @@ subsystem-sized	MdeModulePkg/Universal/HiiDatabaseDxe/HiiDatabaseDxe
 intentional-dependency	MdeModulePkg/Universal/PCD/Dxe/Pcd
 subsystem-sized	MdeModulePkg/Universal/Variable/RuntimeDxe/VariableRuntimeDxe
 hardware-gated	OvmfPkg/SioBusDxe/SioBusDxe
-hardware-gated	SecurityPkg/Tcg/Tcg2Dxe/Tcg2Dxe
 subsystem-sized	ShellPkg/Application/Shell/Shell
 hardware-gated	UefiCpuPkg/CpuDxe/CpuDxe
 hardware-gated	UefiCpuPkg/PiSmmCpuDxeSmm/PiSmmCpuDxeSmm

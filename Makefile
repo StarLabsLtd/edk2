@@ -61,6 +61,8 @@ CDK2_CONFIG_TARGETS := build check manifest modules native-stage \
 	native-local-apic-timer-test native-local-apic-timer-fv \
 	native-graphics-console-test native-graphics-console-fv \
 	native-capsule-runtime-test native-capsule-runtime-fv \
+	native-tcg2-transport-test native-tcg2-commands-test native-tcg2-event-log-test \
+	native-tcg2-measure-test native-tcg2-service-test native-tcg2-entry-test native-tcg2-fv \
 	manifest-check print
 
 CDK2_RECURSIVE_ARGS := \
@@ -104,6 +106,8 @@ CDK2_RECURSIVE_ARGS := \
 	native-local-apic-timer-test native-local-apic-timer-fv \
 	native-graphics-console-test native-graphics-console-fv \
 	native-capsule-runtime-test native-capsule-runtime-fv \
+	native-tcg2-transport-test native-tcg2-commands-test native-tcg2-event-log-test \
+	native-tcg2-measure-test native-tcg2-service-test native-tcg2-entry-test native-tcg2-fv \
 	native-elfcheck-test manifest-check print lint \
 	lint-stable lint-extended test-lint \
 	jenkins what-jenkins-does retained-fv-check coreboot-stage clean FORCE

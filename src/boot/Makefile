@@ -187,7 +187,7 @@ CDK2_NATIVE_TCG2_DEPEX_GEN ?= $(CDK2_NATIVE_BUILD_DIR)/tcg2-depex-gen
 CDK2_NATIVE_TCG2_DEPEX ?= $(CDK2_NATIVE_BUILD_DIR)/Tcg2Dxe.depex
 CDK2_NATIVE_TCG2_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/Tcg2Dxe.ffs
 CDK2_NATIVE_TCG2_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-tcg2.fv
-CDK2_NATIVE_PRE_TCG2_FV ?= $(CDK2_NATIVE_GRAPHICS_CONSOLE_FV)
+CDK2_NATIVE_PRE_TCG2_FV ?= $(CDK2_NATIVE_CAPSULE_RUNTIME_FV)
 HOSTCC ?= cc
 CDK2_NATIVE_CC ?= $(CC)
 CDK2_NATIVE_HOST_CC ?= $(HOSTCC)
@@ -270,7 +270,13 @@ CDK2_NATIVE_HOST_TOOLS := \
 	$(CDK2_NATIVE_GRAPHICS_ENTRY_TEST) \
 	$(CDK2_NATIVE_CAPSULE_RUNTIME_TEST) \
 	$(CDK2_NATIVE_CAPSULE_RUNTIME_ABI_TEST) \
-	$(CDK2_NATIVE_CAPSULE_RUNTIME_ENTRY_TEST)
+	$(CDK2_NATIVE_CAPSULE_RUNTIME_ENTRY_TEST) \
+	$(CDK2_NATIVE_TCG2_TRANSPORT_TEST) \
+	$(CDK2_NATIVE_TCG2_COMMANDS_TEST) \
+	$(CDK2_NATIVE_TCG2_EVENT_LOG_TEST) \
+	$(CDK2_NATIVE_TCG2_MEASURE_TEST) \
+	$(CDK2_NATIVE_TCG2_SERVICE_TEST) \
+	$(CDK2_NATIVE_TCG2_ENTRY_TEST)
 CDK2_NATIVE_LINK_FLAGS := -static -no-pie -nostdlib -nostartfiles -nodefaultlibs -Wl,-z,max-page-size=0x1000 -Wl,-z,common-page-size=0x1000 -Wl,-T,"$(CDK2_NATIVE_DIR)/cdk2.ld"
 CDK2_NATIVE_LINK_POST_MAP_FLAGS := -Wl,--gc-sections -Wl,--build-id=none
 
@@ -373,6 +379,12 @@ native-check: $(CDK2_CONFIG_HEADER) $(CDK2_NATIVE_ELF) $(CDK2_NATIVE_OVERRIDE_EL
 	@"$(CDK2_NATIVE_CAPSULE_RUNTIME_TEST)"
 	@"$(CDK2_NATIVE_CAPSULE_RUNTIME_ABI_TEST)"
 	@"$(CDK2_NATIVE_CAPSULE_RUNTIME_ENTRY_TEST)"
+	@"$(CDK2_NATIVE_TCG2_TRANSPORT_TEST)"
+	@"$(CDK2_NATIVE_TCG2_COMMANDS_TEST)"
+	@"$(CDK2_NATIVE_TCG2_EVENT_LOG_TEST)"
+	@"$(CDK2_NATIVE_TCG2_MEASURE_TEST)"
+	@"$(CDK2_NATIVE_TCG2_SERVICE_TEST)"
+	@"$(CDK2_NATIVE_TCG2_ENTRY_TEST)"
 	@"$(CDK2_NATIVE_ELF_CHECK_TEST)" "$(CDK2_NATIVE_ELF_CHECK)" "$(CDK2_NATIVE_BUILD_DIR)"
 	@printf '%s\n' "native cdk2 stage: $(CDK2_NATIVE_ELF)"
 	@printf '%s\n' "native cdk2 FV packer: $(CDK2_NATIVE_PACKER)"
@@ -1205,10 +1217,6 @@ native-graphics-console-fv:
 	@printf '%s\n' 'native GraphicsConsoleDxe: disabled by Kconfig'
 endif
 
-ifeq ($(CONFIG_CDK2_NATIVE_TCG2),y)
-CDK2_NATIVE_FINAL_FV := $(CDK2_NATIVE_TCG2_FV)
-endif
-
 $(CDK2_NATIVE_BUILD_DIR)/graphics-console-%.o: \
 	$(CDK2_DIR)/src/modules/graphics_console/%.c \
 	$(CDK2_DIR)/include/cdk2/graphics_console.h \
@@ -1245,6 +1253,10 @@ CDK2_NATIVE_PRE_CAPSULE_RUNTIME_FV := $(CDK2_NATIVE_FINAL_FV)
 CDK2_NATIVE_FINAL_FV := $(CDK2_NATIVE_CAPSULE_RUNTIME_FV)
 else
 CDK2_NATIVE_PRE_CAPSULE_RUNTIME_FV := $(CDK2_NATIVE_FINAL_FV)
+endif
+
+ifeq ($(CONFIG_CDK2_NATIVE_TCG2),y)
+CDK2_NATIVE_FINAL_FV := $(CDK2_NATIVE_TCG2_FV)
 endif
 
 ifeq ($(CONFIG_CDK2_NATIVE_ENGLISH),y)
@@ -1350,6 +1362,9 @@ $(CDK2_NATIVE_CAPSULE_RUNTIME_QEMU_OBJ): $(CDK2_DIR)/tests/capsule_runtime_qemu.
 $(CDK2_NATIVE_CAPSULE_RUNTIME_QEMU_PE): $(CDK2_NATIVE_CAPSULE_RUNTIME_QEMU_OBJ) $(CDK2_DIR)/tests/capsule_runtime_qemu.ld $(CDK2_NATIVE_PERELOCCHECK)
 	@$(LD) -mi386pep --subsystem 10 --entry capsule_runtime_qemu_entry --image-base 0 --section-alignment 0x1000 --file-alignment 0x1000 --build-id=none --no-insert-timestamp -s --nxcompat -T "$(CDK2_DIR)/tests/capsule_runtime_qemu.ld" -o "$@" "$<"
 	@"$(CDK2_NATIVE_PERELOCCHECK)" --subsystem 10 "$@"
+
+$(CDK2_NATIVE_TCG2_TRANSPORT_TEST): $(CDK2_DIR)/tests/tcg2_transport_test.c $(CDK2_DIR)/src/modules/tcg2/tcg2_transport.c $(CDK2_DIR)/include/cdk2/tcg2_transport.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_DIR)/tests/tcg2_transport_test.c" "$(CDK2_DIR)/src/modules/tcg2/tcg2_transport.c"
 
 $(CDK2_NATIVE_TCG2_COMMANDS_TEST): $(CDK2_DIR)/tests/tcg2_commands_test.c $(CDK2_DIR)/src/modules/tcg2/tcg2_commands.c $(CDK2_DIR)/src/modules/tcg2/tcg2_transport.c $(CDK2_DIR)/include/cdk2/tcg2_commands.h $(CDK2_DIR)/include/cdk2/tcg2_transport.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_DIR)/tests/tcg2_commands_test.c" "$(CDK2_DIR)/src/modules/tcg2/tcg2_commands.c" "$(CDK2_DIR)/src/modules/tcg2/tcg2_transport.c"
