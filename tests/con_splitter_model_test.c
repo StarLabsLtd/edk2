@@ -16,7 +16,20 @@ static EFI_STATUS output(void *context, const CHAR16 *string)
 	return statuses[index];
 }
 static EFI_STATUS query(void *context, UINTN mode, UINTN *columns, UINTN *rows)
-{ (void)context; (void)mode; *columns = 80; *rows = 25; return EFI_SUCCESS; }
+{
+	static const UINTN device3[][2] = { { 80, 25 }, { 80, 50 }, { 100, 31 } };
+	static const UINTN device4[][2] = {
+		{ 80, 25 }, { 80, 50 }, { 120, 40 }, { 100, 31 }
+	};
+	const UINTN (*modes)[2] = context == (void *)4 ? device4 : device3;
+	UINTN count = context == (void *)4 ? 4U : (context == (void *)3 ? 3U : 1U);
+
+	if (mode >= count)
+		return EFI_UNSUPPORTED;
+	*columns = modes[mode][0];
+	*rows = modes[mode][1];
+	return EFI_SUCCESS;
+}
 static EFI_STATUS value(void *context, UINTN value)
 { (void)context; last_value = value; return EFI_SUCCESS; }
 static EFI_STATUS clear(void *context)
@@ -34,6 +47,8 @@ int main(void)
 		output, output, query, value, value, clear, cursor, visible
 	};
 	struct cdk2_split_text_out splitter;
+	struct cdk2_split_text_out intersection;
+	UINTN columns, rows;
 	int failures = 0;
 
 	failures += expect(cdk2_split_text_out_init(&splitter, 2U, 2U) == EFI_SUCCESS,
@@ -63,5 +78,17 @@ int main(void)
 		!last_visible && !splitter.cursor_visible &&
 		cdk2_split_text_out_clear(&splitter) == EFI_SUCCESS && splitter.column == 0U &&
 		splitter.row == 0U, "cursor visibility or clear state is wrong");
+	failures += expect(cdk2_split_text_out_init(&intersection, 80U, 25U) == EFI_SUCCESS &&
+		cdk2_split_text_out_add(&intersection, &ops, (void *)3, 3U) == EFI_SUCCESS &&
+		cdk2_split_text_out_add(&intersection, &ops, (void *)4, 4U) == EFI_SUCCESS &&
+		intersection.mode_count == 3U &&
+		cdk2_split_text_out_query_mode(&intersection, 2U, &columns, &rows) ==
+		EFI_SUCCESS && columns == 100U && rows == 31U &&
+		intersection.modes[2].device_mode[0] == 2 &&
+		intersection.modes[2].device_mode[1] == 3,
+		"physical mode intersection/map is wrong");
+	failures += expect(cdk2_split_text_out_remove(&intersection, (void *)3) == EFI_SUCCESS &&
+		intersection.mode_count == 4U,
+		"mode map was not rebuilt after device removal");
 	return failures == 0 ? 0 : 1;
 }

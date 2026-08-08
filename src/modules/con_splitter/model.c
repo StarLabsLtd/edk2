@@ -70,6 +70,9 @@ EFI_STATUS cdk2_split_text_out_add(struct cdk2_split_text_out *splitter,
 					break;
 				}
 			}
+			if (index < 2U && index < max_mode &&
+			    new_modes[count].device_mode[splitter->device_count] < 0)
+				new_modes[count].device_mode[splitter->device_count] = (INT32)index;
 			if (index < 2U || new_modes[count].device_mode[splitter->device_count] >= 0)
 				count++;
 		}
@@ -88,6 +91,9 @@ EFI_STATUS cdk2_split_text_out_add(struct cdk2_split_text_out *splitter,
 EFI_STATUS cdk2_split_text_out_remove(struct cdk2_split_text_out *splitter,
 	void *context)
 {
+	struct cdk2_split_text_out_device remaining[CDK2_CON_SPLITTER_MAX_OUTPUTS];
+	UINTN old_columns, old_rows, count;
+	EFI_STATUS status;
 	UINTN index;
 
 	if (splitter == NULL || context == NULL)
@@ -98,6 +104,31 @@ EFI_STATUS cdk2_split_text_out_remove(struct cdk2_split_text_out *splitter,
 		for (; index + 1U < splitter->device_count; index++)
 			splitter->devices[index] = splitter->devices[index + 1U];
 		splitter->device_count--;
+		count = splitter->device_count;
+		__builtin_memcpy(remaining, splitter->devices,
+			count * sizeof(remaining[0]));
+		old_columns = splitter->columns;
+		old_rows = splitter->rows;
+		splitter->device_count = 0U;
+		splitter->mode_count = 1U;
+		splitter->mode = 0U;
+		splitter->modes[0] = (struct cdk2_split_text_mode) {
+			.columns = 80U, .rows = 25U
+		};
+		for (index = 0; index < count; index++) {
+			status = cdk2_split_text_out_add(splitter, remaining[index].ops,
+				remaining[index].context, remaining[index].max_mode);
+			if (EFI_ERROR(status))
+				return status;
+		}
+		for (index = 0; index < splitter->mode_count; index++)
+			if (splitter->modes[index].columns == old_columns &&
+			    splitter->modes[index].rows == old_rows) {
+				splitter->mode = index;
+				break;
+			}
+		splitter->columns = splitter->modes[splitter->mode].columns;
+		splitter->rows = splitter->modes[splitter->mode].rows;
 		return EFI_SUCCESS;
 	}
 	return EFI_NOT_FOUND;
