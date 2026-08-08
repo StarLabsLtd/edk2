@@ -4798,3 +4798,15 @@ $(CDK2_NATIVE_CON_PLATFORM_FFS): $(CDK2_NATIVE_CON_PLATFORM_PE) $(CDK2_NATIVE_FF
 		ConPlatformDxe 1.0 0x704e "$<" "$@" -
 
 native-check: native-con-platform-test
+
+CDK2_NATIVE_CON_SPLITTER_MODEL_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-con-splitter-model-test
+
+$(CDK2_NATIVE_CON_SPLITTER_MODEL_TEST): $(CDK2_DIR)/tests/con_splitter_model_test.c \
+		$(CDK2_DIR)/src/modules/con_splitter/model.c \
+		$(CDK2_DIR)/include/cdk2/con_splitter.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -fshort-wchar \
+		$(CDK2_NATIVE_INCLUDES) -o "$@" "$<" \
+		"$(CDK2_DIR)/src/modules/con_splitter/model.c"
+
+native-check: $(CDK2_NATIVE_CON_SPLITTER_MODEL_TEST)
+	@"$(CDK2_NATIVE_CON_SPLITTER_MODEL_TEST)"
