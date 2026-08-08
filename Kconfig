@@ -351,6 +351,26 @@ config CDK2_CAPSULE
 	default n
 	depends on CDK2_SMM && CDK2_ESRT && CDK2_GRAPHICS
 
+config CDK2_CAPSULE_MAX_NONPOPULATE_SIZE
+	hex "Maximum non-populate capsule size"
+	default 0x4000000
+	depends on CDK2_CAPSULE
+
+config CDK2_CAPSULE_MAX_POPULATE_SIZE
+	hex "Maximum populate capsule size"
+	default 0x4000000
+	depends on CDK2_CAPSULE
+
+config CDK2_CAPSULE_IN_RAM
+	bool "Support capsules passed in RAM"
+	default y
+	depends on CDK2_CAPSULE
+
+config CDK2_CAPSULE_PROCESS_AT_RUNTIME
+	bool "Process non-persistent capsules after ExitBootServices"
+	default n
+	depends on CDK2_CAPSULE
+
 config CDK2_CAPSULE_MAIN_FW_GUID
 	string "Capsule system firmware FMP GUID"
 	default ""
