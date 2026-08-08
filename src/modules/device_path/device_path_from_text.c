@@ -5,6 +5,8 @@
 #define HW 1U
 #define ACPI 2U
 #define MSG 3U
+#define MEDIA 4U
+#define BBS 5U
 
 struct slice {
 	const CHAR16 *p;
@@ -185,17 +187,30 @@ static void header(UINT8 *p, UINT8 type, UINT8 subtype, UINT16 length)
 static EFI_STATUS parse_raw(struct slice name, struct slice *a, UINTN n, UINT8 *out,
 			    UINTN *size)
 {
-	UINT64 subtype;
+	UINT64 type_value, subtype;
 	UINTN data = 0;
 	UINT8 type;
+	UINTN first = 0;
+
 	if (equal(name, "HardwarePath"))
 		type = HW;
 	else if (equal(name, "AcpiPath"))
 		type = ACPI;
-	else
+	else if (equal(name, "Msg"))
+		type = MSG;
+	else if (equal(name, "MediaPath"))
+		type = MEDIA;
+	else if (equal(name, "Path")) {
+		if ((n != 2 && n != 3) || !number(a[0], MAX_UINT8, &type_value))
+			return EFI_INVALID_PARAMETER;
+		type = (UINT8)type_value;
+		first = 1;
+	} else
 		return EFI_UNSUPPORTED;
-	if ((n != 1 && n != 2) || !number(a[0], MAX_UINT8, &subtype) ||
-	    (n == 2 && !bytes(a[1], out == NULL ? NULL : out + 4, &data)) ||
+	if ((n != first + 1 && n != first + 2) ||
+	    !number(a[first], MAX_UINT8, &subtype) ||
+	    (n == first + 2 &&
+	     !bytes(a[first + 1], out == NULL ? NULL : out + 4, &data)) ||
 	    data > MAX_UINT16 - 4)
 		return EFI_INVALID_PARAMETER;
 	*size = 4 + data;
@@ -996,6 +1011,207 @@ not_usb:
 	return EFI_UNSUPPORTED;
 }
 
+static EFI_STATUS parse_media_vendor(struct slice name, struct slice *a, UINTN n,
+				     UINT8 *out, UINTN *size)
+{
+	UINTN data = 0;
+
+	if (!equal(name, "VenMedia"))
+		return EFI_UNSUPPORTED;
+	if ((n != 1 && n != 2) || !guid(a[0], out ? out + 4 : NULL) ||
+	    (n == 2 && !bytes(a[1], out ? out + 20 : NULL, &data)) ||
+	    data > MAX_UINT16 - 20)
+		return EFI_INVALID_PARAMETER;
+	*size = 20 + data;
+	header(out, MEDIA, 3, (UINT16)*size);
+	return EFI_SUCCESS;
+}
+
+static EFI_STATUS parse_hd(struct slice *a, UINTN n, UINT8 *out, UINTN *size)
+{
+	UINT64 partition, start, length, signature_type;
+	UINT8 mbr_type;
+
+	if (n != 5 || !number(a[0], MAX_UINT32, &partition) ||
+	    !number(a[3], MAX_UINT64, &start) || !number(a[4], MAX_UINT64, &length))
+		return EFI_INVALID_PARAMETER;
+	if (equal(a[1], "MBR")) {
+		if (a[2].n != 10 || a[2].p[0] != '0' || a[2].p[1] != 'x' ||
+		    !hex_number((struct slice){a[2].p + 2, 8}, MAX_UINT32, &signature_type))
+			return EFI_INVALID_PARAMETER;
+		mbr_type = 1;
+	} else if (equal(a[1], "GPT")) {
+		if (!guid(a[2], out ? out + 24 : NULL))
+			return EFI_INVALID_PARAMETER;
+		signature_type = 2;
+		mbr_type = 2;
+	} else {
+		if (!number(a[1], MAX_UINT8, &signature_type) || !equal(a[2], "0"))
+			return EFI_INVALID_PARAMETER;
+		mbr_type = 0;
+	}
+	*size = 42;
+	header(out, MEDIA, 1, 42);
+	if (out) {
+		put32(out + 4, (UINT32)partition);
+		put64(out + 8, start);
+		put64(out + 16, length);
+		if (mbr_type == 1)
+			put32(out + 24, (UINT32)signature_type);
+		out[40] = mbr_type;
+		out[41] = mbr_type == 0 ? (UINT8)signature_type : mbr_type;
+	}
+	return EFI_SUCCESS;
+}
+
+static EFI_STATUS parse_ram_disk(struct slice name, struct slice *a, UINTN n,
+				 UINT8 *out, UINTN *size)
+{
+	static const UINT8 virtual_disk[8] = {0x55, 0x60, 0xf7, 0xb2, 0x81, 0xd1, 0xf9, 0x6e};
+	static const UINT8 virtual_cd[8] = {0x6d, 0x64, 0xd2, 0xad, 0xe5, 0x23, 0xc4, 0xbb};
+	static const UINT8 persistent_disk[8] = {0x26, 0x9f, 0x44, 0x96,
+						   0xfb, 0xe0, 0x96, 0xf9};
+	static const UINT8 persistent_cd[8] = {0x10, 0x0f, 0x53, 0x87,
+						 0xd5, 0x3d, 0xed, 0x3d};
+	UINT64 start, end, instance;
+	UINT32 d1;
+	UINT16 d2, d3;
+	const UINT8 *d4;
+
+	if (equal(name, "RamDisk")) {
+		if (n != 4 || !guid(a[3], out ? out + 20 : NULL))
+			return EFI_INVALID_PARAMETER;
+	} else if (equal(name, "VirtualDisk") || equal(name, "VirtualCD") ||
+		   equal(name, "PersistentVirtualDisk") ||
+		   equal(name, "PersistentVirtualCD")) {
+		if (n != 3)
+			return EFI_INVALID_PARAMETER;
+		if (equal(name, "VirtualDisk")) {
+			d1 = 0x77ab535a; d2 = 0x45fc; d3 = 0x624b; d4 = virtual_disk;
+		} else if (equal(name, "VirtualCD")) {
+			d1 = 0x3d5abd30; d2 = 0x4175; d3 = 0x87ce; d4 = virtual_cd;
+		} else if (equal(name, "PersistentVirtualDisk")) {
+			d1 = 0x5cea02c9; d2 = 0x4d07; d3 = 0x69d3; d4 = persistent_disk;
+		} else {
+			d1 = 0x08018188; d2 = 0x42cd; d3 = 0xbb48; d4 = persistent_cd;
+		}
+		fixed_guid(out ? out + 20 : NULL, d1, d2, d3, d4);
+	} else
+		return EFI_UNSUPPORTED;
+	if (!number(a[0], MAX_UINT64, &start) || !number(a[1], MAX_UINT64, &end) ||
+	    !number(a[2], MAX_UINT16, &instance))
+		return EFI_INVALID_PARAMETER;
+	*size = 38;
+	header(out, MEDIA, 9, 38);
+	if (out) {
+		put64(out + 4, start);
+		put64(out + 12, end);
+		put16(out + 36, (UINT16)instance);
+	}
+	return EFI_SUCCESS;
+}
+
+static EFI_STATUS parse_media(struct slice name, struct slice *a, UINTN n,
+			      UINT8 *out, UINTN *size)
+{
+	UINT64 x[3];
+	EFI_STATUS status;
+
+	status = parse_media_vendor(name, a, n, out, size);
+	if (status != EFI_UNSUPPORTED)
+		return status;
+	if (equal(name, "HD"))
+		return parse_hd(a, n, out, size);
+	if (equal(name, "CDROM")) {
+		if ((n != 1 && n != 3) || !number(a[0], MAX_UINT32, &x[0]) ||
+		    (n == 3 && (!number(a[1], MAX_UINT64, &x[1]) ||
+				 !number(a[2], MAX_UINT64, &x[2]))))
+			return EFI_INVALID_PARAMETER;
+		*size = 24;
+		header(out, MEDIA, 2, 24);
+		if (out) {
+			put32(out + 4, (UINT32)x[0]);
+			if (n == 3) {
+				put64(out + 8, x[1]);
+				put64(out + 16, x[2]);
+			}
+		}
+		return EFI_SUCCESS;
+	}
+	if (equal(name, "Media") || equal(name, "FvFile") || equal(name, "Fv")) {
+		UINT8 subtype = equal(name, "Media") ? 5 : equal(name, "FvFile") ? 6 : 7;
+		if (n != 1 || !guid(a[0], out ? out + 4 : NULL))
+			return EFI_INVALID_PARAMETER;
+		*size = 20;
+		header(out, MEDIA, subtype, 20);
+		return EFI_SUCCESS;
+	}
+	if (equal(name, "Offset")) {
+		if (n != 2 || !number(a[0], MAX_UINT64, &x[0]) ||
+		    !number(a[1], MAX_UINT64, &x[1]))
+			return EFI_INVALID_PARAMETER;
+		*size = 24;
+		header(out, MEDIA, 8, 24);
+		if (out) {
+			put64(out + 8, x[0]);
+			put64(out + 16, x[1]);
+		}
+		return EFI_SUCCESS;
+	}
+	return parse_ram_disk(name, a, n, out, size);
+}
+
+static EFI_STATUS parse_bbs(struct slice name, struct slice *a, UINTN n,
+			    UINT8 *out, UINTN *size)
+{
+	static const char *const kinds[] = {"", "Floppy", "HD", "CDROM",
+					  "PCMCIA", "USB", "Network"};
+	UINT64 type, status = 0;
+	UINTN i;
+
+	if (!equal(name, "BBS"))
+		return EFI_UNSUPPORTED;
+	if ((n != 2 && n != 3) || a[1].n > MAX_UINT16 - 9)
+		return EFI_INVALID_PARAMETER;
+	for (i = 1; i < ARRAY_SIZE(kinds) && !equal(a[0], kinds[i]); i++)
+		;
+	if (i < ARRAY_SIZE(kinds))
+		type = i;
+	else if (!number(a[0], MAX_UINT16, &type))
+		return EFI_INVALID_PARAMETER;
+	if (n == 3 && !number(a[2], MAX_UINT16, &status))
+		return EFI_INVALID_PARAMETER;
+	*size = 9 + a[1].n;
+	header(out, BBS, 1, (UINT16)*size);
+	if (out) {
+		put16(out + 4, (UINT16)type);
+		put16(out + 6, (UINT16)status);
+		for (i = 0; i < a[1].n; i++) {
+			if (a[1].p[i] > 255)
+				return EFI_INVALID_PARAMETER;
+			out[8 + i] = (UINT8)a[1].p[i];
+		}
+		out[8 + a[1].n] = 0;
+	}
+	return EFI_SUCCESS;
+}
+
+static EFI_STATUS parse_file_path(struct slice text, UINT8 *out, UINTN *size)
+{
+	UINTN i;
+
+	if (text.n > (MAX_UINT16 - 6) / 2)
+		return EFI_INVALID_PARAMETER;
+	*size = 6 + text.n * 2;
+	header(out, MEDIA, 4, (UINT16)*size);
+	if (out) {
+		for (i = 0; i < text.n; i++)
+			put16(out + 4 + i * 2, text.p[i]);
+		put16(out + 4 + text.n * 2, 0);
+	}
+	return EFI_SUCCESS;
+}
+
 static EFI_STATUS parse_node(struct slice text, UINT8 *out, UINTN *size)
 {
 	UINTN i, count;
@@ -1003,6 +1219,8 @@ static EFI_STATUS parse_node(struct slice text, UINT8 *out, UINTN *size)
 	EFI_STATUS status;
 	for (i = 0; i < text.n && text.p[i] != '('; i++)
 		;
+	if (i == text.n)
+		return parse_file_path(text, out, size);
 	if (i == 0 || i + 1 >= text.n || text.p[text.n - 1] != ')')
 		return EFI_INVALID_PARAMETER;
 	name = (struct slice){text.p, i};
@@ -1016,6 +1234,12 @@ static EFI_STATUS parse_node(struct slice text, UINT8 *out, UINTN *size)
 	if (status != EFI_UNSUPPORTED)
 		return status;
 	status = parse_msg(name, inside, a, count, out, size);
+	if (status != EFI_UNSUPPORTED)
+		return status;
+	status = parse_media(name, a, count, out, size);
+	if (status != EFI_UNSUPPORTED)
+		return status;
+	status = parse_bbs(name, a, count, out, size);
 	if (status != EFI_UNSUPPORTED)
 		return status;
 	status = parse_raw(name, a, count, out, size);

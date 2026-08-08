@@ -201,6 +201,67 @@ static int messaging_parser_tests(const struct cdk2_device_path_allocator *alloc
 	return failures;
 }
 
+static int media_bbs_parser_tests(const struct cdk2_device_path_allocator *allocator)
+{
+	static const char *const paths[] = {
+		"HD(1,MBR,0x12345678,0x1000,0x2000)",
+		"HD(2,GPT,11223344-5566-7788-0102-030405060708,0x3000,0x4000)",
+		"HD(3,7,0,0x5000,0x6000)", "CDROM(0x1,0x200,0x300)",
+		"VenMedia(11223344-5566-7788-0102-030405060708,aa05)",
+		"\\EFI\\BOOT\\BOOTX64.EFI",
+		"Media(11223344-5566-7788-0102-030405060708)",
+		"FvFile(11223344-5566-7788-0102-030405060708)",
+		"Fv(11223344-5566-7788-0102-030405060708)",
+		"Offset(0x123456789,0xabcdef)",
+		"RamDisk(0x1000,0x2000,3,11223344-5566-7788-0102-030405060708)",
+		"VirtualDisk(0x1000,0x2000,3)", "VirtualCD(0x1000,0x2000,3)",
+		"PersistentVirtualDisk(0x1000,0x2000,3)",
+		"PersistentVirtualCD(0x1000,0x2000,3)",
+		"BBS(HD,disk,0x7)", "BBS(0x1234,legacy,0xabcd)",
+		"MediaPath(126,aabb)/BBS(USB,boot,0x1),Path(5,126,ccdd)",
+	};
+	static const char *const display[] = {"CDROM(0x1)", "BBS(Network,net)"};
+	static const char *const malformed[] = {
+		"HD(1,MBR,0x1,0,0)", "HD(1,GPT,bad,0,0)", "CDROM(0,0)",
+		"VenMedia(bad)", "Media(bad)", "Offset(0x10000000000000000,0)",
+		"RamDisk(0,0,65536,00000000-0000-0000-0000-000000000000)",
+		"VirtualDisk(0,0)", "BBS(Bad,disk,0)", "BBS(HD,disk,65536)",
+	};
+	CHAR16 text[512];
+	CHAR16 overflow[(MAX_UINT16 - 6) / 2 + 2];
+	struct cdk2_device_path *path;
+	UINTN index, before;
+	int failures = 0;
+
+	for (index = 0; index < ARRAY_SIZE(paths); index++)
+		failures += expect_round_trip(paths[index], allocator);
+	for (index = 0; index < ARRAY_SIZE(display); index++) {
+		text16(text, display[index]);
+		path = NULL;
+		failures += expect(cdk2_device_path_from_text(text, allocator, &path) ==
+			EFI_SUCCESS, "media/BBS display form rejected");
+		if (path != NULL)
+			allocator->free(allocator->context, path);
+	}
+	for (index = 0; index < ARRAY_SIZE(malformed); index++) {
+		text16(text, malformed[index]);
+		path = (void *)(UINTN)1;
+		before = allocations;
+		failures += expect(cdk2_device_path_from_text(text, allocator, &path) ==
+			EFI_INVALID_PARAMETER && path == NULL && allocations == before,
+			"malformed media/BBS input accepted");
+	}
+	for (index = 0; index + 1 < ARRAY_SIZE(overflow); index++)
+		overflow[index] = 'x';
+	overflow[index] = 0;
+	path = (void *)(UINTN)1;
+	before = allocations;
+	failures += expect(cdk2_device_path_from_text(overflow, allocator, &path) ==
+		EFI_INVALID_PARAMETER && path == NULL && allocations == before,
+		"oversized media filepath accepted or allocated");
+	return failures;
+}
+
 static void put16(UINT8 *bytes, UINT16 value)
 {
 	bytes[0] = (UINT8)value;
@@ -585,6 +646,7 @@ int main(void)
 	failures += media_bbs_formatter_tests();
 	failures += parser_tests(&allocator);
 	failures += messaging_parser_tests(&allocator);
+	failures += media_bbs_parser_tests(&allocator);
 
 	set_node(first, 1, 1, 8);
 	set_node((void *)(first_bytes + 8), CDK2_DEVICE_PATH_END_TYPE,
