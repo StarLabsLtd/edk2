@@ -9,7 +9,8 @@ static BOOLEAN guid_equal(const EFI_GUID *a, const EFI_GUID *b)
 	const UINT8 *left = (const void *)a, *right = (const void *)b;
 	UINTN index;
 	for (index = 0; index < sizeof(*a); index++)
-		if (left[index] != right[index]) return FALSE;
+		if (left[index] != right[index])
+			return FALSE;
 	return TRUE;
 }
 

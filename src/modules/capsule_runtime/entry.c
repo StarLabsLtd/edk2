@@ -65,21 +65,22 @@ struct fmp_image_descriptor {
 	void *dependencies;
 };
 struct fmp_protocol {
-	EFI_STATUS (CDK2_MS_ABI *get_image_info)(void *, UINTN *, void *, UINT32 *,
+	EFI_STATUS(CDK2_MS_ABI *get_image_info)(void *, UINTN *, void *, UINT32 *,
 		UINT8 *, UINTN *, UINT32 *, CHAR16 **);
 	void *get_image;
-	EFI_STATUS (CDK2_MS_ABI *set_image)(void *, UINT8, const void *, UINTN,
+	EFI_STATUS(CDK2_MS_ABI *set_image)(void *, UINT8, const void *, UINTN,
 		const void *, void *, CHAR16 **);
-	EFI_STATUS (CDK2_MS_ABI *check_image)(void *, UINT8, const void *, UINTN,
+	EFI_STATUS(CDK2_MS_ABI *check_image)(void *, UINT8, const void *, UINTN,
 		UINT32 *);
 	void *get_package_info, *set_package_info;
 };
 
 static void *boot_slot(UINTN offset)
 {
-	return runtime.context == NULL ? NULL :
-		((struct cdk2_system_table_view *)runtime.context)->boot->
-		slots_before_locate_protocol[(offset - 24U) / sizeof(void *)];
+	struct cdk2_system_table_view *system = runtime.context;
+
+	return system == NULL ? NULL : system->boot->slots_before_locate_protocol[
+		(offset - 24U) / sizeof(void *)];
 }
 
 static BOOLEAN guid_equal(const EFI_GUID *a, const EFI_GUID *b)
@@ -87,7 +88,8 @@ static BOOLEAN guid_equal(const EFI_GUID *a, const EFI_GUID *b)
 	const UINT8 *left = (const void *)a, *right = (const void *)b;
 	UINTN index;
 	for (index = 0; index < sizeof(*a); index++)
-		if (left[index] != right[index]) return FALSE;
+		if (left[index] != right[index])
+			return FALSE;
 	return TRUE;
 }
 
@@ -105,11 +107,14 @@ EFI_STATUS __weak cdk2_capsule_cache_writeback_range_all_cpus(UINT64 address,
 	UINT64 length)
 {
 	UINT64 line, end;
-	if (length == 0U || address > MAX_UINT64 - length) return EFI_INVALID_PARAMETER;
-	line = address & ~63ULL; end = address + length;
+	if (length == 0U || address > MAX_UINT64 - length)
+		return EFI_INVALID_PARAMETER;
+	line = address & ~63ULL;
+	end = address + length;
 	for (;;) {
 		__asm__ volatile("clflush (%0)" : : "r"((UINTN)line) : "memory");
-		if (end - line <= 64U) break;
+		if (end - line <= 64U)
+			break;
 		line += 64U;
 	}
 	__asm__ volatile("mfence" : : : "memory");
@@ -141,7 +146,9 @@ static EFI_STATUS fmp_payload(const struct fmp_image_header *image, UINTN availa
 	handle_protocol_fn *handle_protocol = (void *)boot_slot(152U);
 	allocate_pool_fn *allocate_pool = (void *)boot_slot(64U);
 	free_pool_fn *free_pool = (void *)boot_slot(72U);
-	void **handles = NULL; UINTN count = 0, handle_index; EFI_STATUS result = EFI_UNSUPPORTED;
+	void **handles = NULL;
+	UINTN count = 0, handle_index;
+	EFI_STATUS result = EFI_UNSUPPORTED;
 	UINTN header_size = image->version >= 3U ? sizeof(*image) :
 		image->version == 2U ? offsetof(struct fmp_image_header, capsule_support) :
 		offsetof(struct fmp_image_header, hardware_instance);
@@ -154,16 +161,20 @@ static EFI_STATUS fmp_payload(const struct fmp_image_header *image, UINTN availa
 	    !locate_handles || !handle_protocol || !allocate_pool || !free_pool)
 		return EFI_INVALID_PARAMETER;
 	result = locate_handles(2U, &fmp_protocol_guid, NULL, &count, &handles);
-	if (EFI_ERROR(result)) return result;
+	if (EFI_ERROR(result))
+		return result;
 	result = EFI_UNSUPPORTED;
 	for (handle_index = 0; handle_index < count; handle_index++) {
-		struct fmp_protocol *fmp; struct fmp_image_descriptor *descriptors = NULL;
+		struct fmp_protocol *fmp;
+		struct fmp_image_descriptor *descriptors = NULL;
 		UINTN info_size = 0, descriptor_size = 0, descriptor_index;
-		UINT32 descriptor_version = 0, package_version = 0; UINT8 descriptor_count = 0;
+		UINT32 descriptor_version = 0, package_version = 0;
+		UINT8 descriptor_count = 0;
 		CHAR16 *package_name = NULL;
 		EFI_STATUS status = handle_protocol(handles[handle_index], &fmp_protocol_guid,
 			(void **)&fmp);
-		if (EFI_ERROR(status) || fmp == NULL || fmp->get_image_info == NULL) continue;
+		if (EFI_ERROR(status) || fmp == NULL || fmp->get_image_info == NULL)
+			continue;
 		status = fmp->get_image_info(fmp, &info_size, NULL, &descriptor_version,
 			&descriptor_count, &descriptor_size, &package_version, &package_name);
 		if (status != EFI_BUFFER_TOO_SMALL || !info_size ||
@@ -171,48 +182,65 @@ static EFI_STATUS fmp_payload(const struct fmp_image_header *image, UINTN availa
 		    descriptor_count > info_size / descriptor_size)
 			continue;
 		status = allocate_pool(4U, info_size, (void **)&descriptors);
-		if (EFI_ERROR(status)) { result = status; break; }
+		if (EFI_ERROR(status)) {
+			result = status;
+			break;
+		}
 		status = fmp->get_image_info(fmp, &info_size, descriptors, &descriptor_version,
 			&descriptor_count, &descriptor_size, &package_version, &package_name);
-		if (!EFI_ERROR(status)) for (descriptor_index = 0;
-		    descriptor_index < descriptor_count; descriptor_index++) {
-			struct fmp_image_descriptor *descriptor = (void *)
-				((UINT8 *)descriptors + descriptor_index * descriptor_size);
-			const EFI_GUID *image_type = (const void *)((const UINT8 *)image +
-				offsetof(struct fmp_image_header, image_type));
-			UINT64 hardware = descriptor_version >= 3U &&
-				descriptor_size >= offsetof(struct fmp_image_descriptor,
-				hardware_instance) + sizeof(descriptor->hardware_instance) ?
-				descriptor->hardware_instance : 0;
-			UINT32 updatable = 0;
-			if (descriptor->image_index != image->image_index ||
+		if (!EFI_ERROR(status)) {
+			for (descriptor_index = 0; descriptor_index < descriptor_count;
+			     descriptor_index++) {
+				struct fmp_image_descriptor *descriptor = (void *)
+					((UINT8 *)descriptors + descriptor_index * descriptor_size);
+				const EFI_GUID *image_type = (const void *)((const UINT8 *)image +
+					offsetof(struct fmp_image_header, image_type));
+				UINT64 hardware = descriptor_version >= 3U &&
+					descriptor_size >= offsetof(struct fmp_image_descriptor,
+					hardware_instance) + sizeof(descriptor->hardware_instance) ?
+					descriptor->hardware_instance : 0;
+				UINT32 updatable = 0;
+				if (descriptor->image_index != image->image_index ||
 			    !guid_equal(&descriptor->image_type, image_type) ||
 			    (image->version >= 2U && image->hardware_instance != 0U &&
-			     hardware != image->hardware_instance)) continue;
-			if (fmp->check_image != NULL)
-				status = fmp->check_image(fmp, image->image_index,
-					(const UINT8 *)image + header_size, image->image_size, &updatable);
-			else status = EFI_SUCCESS;
-			if (EFI_ERROR(status) || (fmp->check_image != NULL && updatable != 1U)) {
-				result = EFI_UNSUPPORTED; continue;
-			}
-			result = EFI_SUCCESS;
-			if (apply) {
-				CHAR16 *abort_reason = NULL;
-				if (fmp->set_image == NULL) result = EFI_UNSUPPORTED;
-				else result = fmp->set_image(fmp, image->image_index,
+			     hardware != image->hardware_instance))
+					continue;
+				if (fmp->check_image != NULL)
+					status = fmp->check_image(fmp, image->image_index,
+						(const UINT8 *)image + header_size, image->image_size,
+						&updatable);
+				else
+					status = EFI_SUCCESS;
+				if (EFI_ERROR(status) ||
+				    (fmp->check_image != NULL && updatable != 1U)) {
+					result = EFI_UNSUPPORTED;
+					continue;
+				}
+				result = EFI_SUCCESS;
+				if (apply) {
+					CHAR16 *abort_reason = NULL;
+
+					if (fmp->set_image == NULL)
+						result = EFI_UNSUPPORTED;
+					else
+						result = fmp->set_image(fmp, image->image_index,
 					(const UINT8 *)image + header_size, image->image_size,
 					(const UINT8 *)image + header_size + image->image_size,
 					NULL, &abort_reason);
-				if (abort_reason != NULL) (void)free_pool(abort_reason);
+					if (abort_reason != NULL)
+						(void)free_pool(abort_reason);
+				}
+				break;
 			}
-			break;
 		}
-		if (package_name != NULL) (void)free_pool(package_name);
+		if (package_name != NULL)
+			(void)free_pool(package_name);
 		(void)free_pool(descriptors);
-		if (!EFI_ERROR(result)) break;
+		if (!EFI_ERROR(result))
+			break;
 	}
-	if (handles != NULL) (void)free_pool(handles);
+	if (handles != NULL)
+		(void)free_pool(handles);
 	return result;
 }
 
@@ -220,8 +248,12 @@ static EFI_STATUS fmp_capsule(const struct cdk2_capsule_header *capsule, BOOLEAN
 {
 	const UINT8 *base = (const UINT8 *)capsule + capsule->header_size;
 	const struct fmp_capsule_header *header = (const void *)base;
-	const UINT8 *offsets; UINTN body_size, items, index; EFI_STATUS status;
-	if (!guid_equal(&capsule->guid, &fmp_capsule_guid)) return EFI_UNSUPPORTED;
+	const UINT8 *offsets;
+	UINTN body_size, items, index;
+	EFI_STATUS status;
+
+	if (!guid_equal(&capsule->guid, &fmp_capsule_guid))
+		return EFI_UNSUPPORTED;
 	if (capsule->image_size < capsule->header_size + sizeof(*header))
 		return EFI_INVALID_PARAMETER;
 	body_size = capsule->image_size - capsule->header_size;
@@ -241,10 +273,11 @@ static EFI_STATUS fmp_capsule(const struct cdk2_capsule_header *capsule, BOOLEAN
 		UINTN offset = (UINTN)read_u64(offsets + index * sizeof(UINT64));
 		UINTN end = index + 1U < items ? (UINTN)read_u64(offsets +
 			(index + 1U) * sizeof(UINT64)) : body_size;
-		if (end - offset < offsetof(struct fmp_image_header,
-		    hardware_instance)) return EFI_INVALID_PARAMETER;
+		if (end - offset < offsetof(struct fmp_image_header, hardware_instance))
+			return EFI_INVALID_PARAMETER;
 		status = fmp_payload((const void *)(base + offset), end - offset, apply);
-		if (EFI_ERROR(status)) return status;
+		if (EFI_ERROR(status))
+			return status;
 	}
 	return EFI_SUCCESS;
 }
@@ -271,12 +304,19 @@ static EFI_STATUS persist(UINTN sequence, UINT64 scatter_gather, void *context)
 	if (set_variable == NULL)
 		return EFI_OUT_OF_RESOURCES;
 	if (sequence != 0U) {
-		do { digits++; value /= 10U; } while (value != 0U);
-		if (index + digits >= sizeof(name) / sizeof(name[0]))
+		do {
+			digits++;
+			value /= 10U;
+		} while (value != 0U);
+		if (index + digits >= ARRAY_SIZE(name))
 			return EFI_OUT_OF_RESOURCES;
-		value = sequence; index += digits; name[index] = 0;
-		while (digits-- != 0U) { name[--index] = (CHAR16)(L'0' + value % 10U);
-			value /= 10U; }
+		value = sequence;
+		index += digits;
+		name[index] = 0;
+		while (digits-- != 0U) {
+			name[--index] = (CHAR16)(L'0' + value % 10U);
+			value /= 10U;
+		}
 	}
 	return set_variable(name, (EFI_GUID *)&capsule_vendor_guid, 7U,
 		sizeof(scatter_gather), &scatter_gather);
@@ -292,16 +332,20 @@ static EFI_STATUS writeback(UINT64 scatter_gather, void *context)
 	while (block != NULL && walked++ < SIZE_1MB / sizeof(*block)) {
 		status = cdk2_capsule_cache_writeback_range_all_cpus((UINT64)(UINTN)block,
 			sizeof(*block));
-		if (EFI_ERROR(status)) return status;
+		if (EFI_ERROR(status))
+			return status;
 		if (block->length == 0U) {
-			if (block->address == 0U) return EFI_SUCCESS;
+			if (block->address == 0U)
+				return EFI_SUCCESS;
 			block = (const void *)(UINTN)block->address;
 			continue;
 		}
-		if (block->address > MAX_UINT64 - block->length) return EFI_INVALID_PARAMETER;
+		if (block->address > MAX_UINT64 - block->length)
+			return EFI_INVALID_PARAMETER;
 		status = cdk2_capsule_cache_writeback_range_all_cpus(block->address,
 			block->length);
-		if (EFI_ERROR(status)) return status;
+		if (EFI_ERROR(status))
+			return status;
 		block++;
 	}
 	return EFI_INVALID_PARAMETER;
@@ -343,16 +387,19 @@ static void CDK2_MS_ABI virtual_address_change(void *event, void *context)
 	EFI_STATUS status;
 	(void)event;
 	(void)context;
-	if (!runtime_active) return;
+	if (!runtime_active)
+		return;
 	status = convert((void **)&runtime_services, NULL);
-	if (!EFI_ERROR(status)) (void)cdk2_capsule_convert_runtime(&runtime, convert, NULL);
+	if (!EFI_ERROR(status))
+		(void)cdk2_capsule_convert_runtime(&runtime, convert, NULL);
 }
 
 static void CDK2_MS_ABI exit_boot_services(void *event, void *context)
 {
 	(void)event;
 	(void)context;
-	if (!runtime_active) return;
+	if (!runtime_active)
+		return;
 	runtime.exited_boot_services = TRUE;
 }
 
@@ -372,7 +419,7 @@ EFI_STATUS CDK2_MS_ABI cdk2_capsule_runtime_entry(void *image,
 	uninstall_multiple_fn *uninstall_multiple;
 	void *old_update, *old_query;
 	UINT32 old_crc;
-	EFI_STATUS status;
+	EFI_STATUS status, uninstall_status;
 
 	(void)image;
 	if (system == NULL || system->boot == NULL || system->runtime == NULL)
@@ -410,25 +457,29 @@ EFI_STATUS CDK2_MS_ABI cdk2_capsule_runtime_entry(void *image,
 	va_event = NULL;
 	status = create_event_ex(EVT_NOTIFY_SIGNAL, TPL_NOTIFY, virtual_address_change,
 		NULL, &va_change_guid, &va_event);
-	if (EFI_ERROR(status)) goto uninstall;
+	if (EFI_ERROR(status))
+		goto uninstall;
 	ebs_event = NULL;
 	status = create_event_ex(EVT_NOTIFY_SIGNAL, TPL_NOTIFY, exit_boot_services,
 		NULL, &ebs_guid, &ebs_event);
-	if (!EFI_ERROR(status)) return EFI_SUCCESS;
+	if (!EFI_ERROR(status))
+		return EFI_SUCCESS;
 uninstall:
 	uninstall_multiple = system->boot->uninstall_multiple;
-	if (uninstall_multiple == NULL) return EFI_UNSUPPORTED;
-	{
-		EFI_STATUS uninstall_status = uninstall_multiple(capsule_handle,
-			&capsule_arch_guid, NULL, NULL);
-		if (EFI_ERROR(uninstall_status)) return uninstall_status;
-	}
+	if (uninstall_multiple == NULL)
+		return EFI_UNSUPPORTED;
+	uninstall_status = uninstall_multiple(capsule_handle, &capsule_arch_guid, NULL, NULL);
+	if (EFI_ERROR(uninstall_status))
+		return uninstall_status;
 	runtime_active = FALSE;
 	{
 		close_event_fn *close_event = (void *)boot_slot(112U);
-		if (close_event != NULL && va_event != NULL) (void)close_event(va_event);
-		if (close_event != NULL && ebs_event != NULL) (void)close_event(ebs_event);
-		va_event = NULL; ebs_event = NULL;
+		if (close_event != NULL && va_event != NULL)
+			(void)close_event(va_event);
+		if (close_event != NULL && ebs_event != NULL)
+			(void)close_event(ebs_event);
+		va_event = NULL;
+		ebs_event = NULL;
 	}
 	capsule_handle = NULL;
 restore:

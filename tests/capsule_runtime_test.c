@@ -4,14 +4,34 @@
 
 static EFI_STATUS supported(const struct cdk2_capsule_header *h, void *p)
 {
-	(void)h; (void)p; return EFI_SUCCESS;
+	(void)h;
+	(void)p;
+	return EFI_SUCCESS;
 }
 struct trace { UINTN process, persist, writeback, reset; EFI_STATUS error; };
-static EFI_STATUS process(const struct cdk2_capsule_header *h, void *p) { (void)h; ((struct trace *)p)->process++; return EFI_SUCCESS; }
-static EFI_STATUS persist(UINTN n, UINT64 sg, void *p) { (void)n; (void)sg; ((struct trace *)p)->persist++; return ((struct trace *)p)->error; }
-static EFI_STATUS writeback(UINT64 sg, void *p) { (void)sg;
-	((struct trace *)p)->writeback++; return ((struct trace *)p)->error; }
-static void warm_reset(void *p) { ((struct trace *)p)->reset++; }
+static EFI_STATUS process(const struct cdk2_capsule_header *h, void *p)
+{
+	(void)h;
+	((struct trace *)p)->process++;
+	return EFI_SUCCESS;
+}
+static EFI_STATUS persist(UINTN n, UINT64 sg, void *p)
+{
+	(void)n;
+	(void)sg;
+	((struct trace *)p)->persist++;
+	return ((struct trace *)p)->error;
+}
+static EFI_STATUS writeback(UINT64 sg, void *p)
+{
+	(void)sg;
+	((struct trace *)p)->writeback++;
+	return ((struct trace *)p)->error;
+}
+static void warm_reset(void *p)
+{
+	((struct trace *)p)->reset++;
+}
 
 int main(void)
 {
@@ -42,11 +62,12 @@ int main(void)
 	assert(r.sequence == 1 && t.reset == 1 && t.persist == 1);
 	t.error = EFI_SUCCESS; h.flags = BIT19;
 	assert(cdk2_capsule_query(a, 1, &p, supported, 0, &max, &reset) == EFI_INVALID_PARAMETER);
-	h.guid=(EFI_GUID){0x6dcbd5ed,0xe82d,0x4c44,
-		{0xbd,0xa1,0x71,0x94,0x19,0x9a,0xd9,0x2a}};
-	h.flags=CDK2_CAPSULE_PERSIST|CDK2_CAPSULE_POPULATE;
-	assert(cdk2_capsule_query(a,1,&p,supported,0,&max,&reset)==EFI_INVALID_PARAMETER);
-	h.guid=(EFI_GUID){0};
+	h.guid = (EFI_GUID) { 0x6dcbd5ed, 0xe82d, 0x4c44,
+		{ 0xbd, 0xa1, 0x71, 0x94, 0x19, 0x9a, 0xd9, 0x2a } };
+	h.flags = CDK2_CAPSULE_PERSIST | CDK2_CAPSULE_POPULATE;
+	assert(cdk2_capsule_query(a, 1, &p, supported, 0, &max, &reset) ==
+		EFI_INVALID_PARAMETER);
+	h.guid = (EFI_GUID) { 0 };
 	h.flags = 0;
 	assert(cdk2_capsule_query(a, 1, &p, supported, 0, &max, &reset) == EFI_SUCCESS &&
 		max == 4096 && reset == 0U);

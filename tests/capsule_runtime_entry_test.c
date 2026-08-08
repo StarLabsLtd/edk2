@@ -34,12 +34,12 @@ struct fmp_image_descriptor {
 	void *dependencies;
 };
 struct fmp_protocol {
-	EFI_STATUS (CDK2_MS_ABI *get_image_info)(void *, UINTN *, void *, UINT32 *,
+	EFI_STATUS(CDK2_MS_ABI *get_image_info)(void *, UINTN *, void *, UINT32 *,
 		UINT8 *, UINTN *, UINT32 *, CHAR16 **);
 	void *get_image;
-	EFI_STATUS (CDK2_MS_ABI *set_image)(void *, UINT8, const void *, UINTN,
+	EFI_STATUS(CDK2_MS_ABI *set_image)(void *, UINT8, const void *, UINTN,
 		const void *, void *, CHAR16 **);
-	EFI_STATUS (CDK2_MS_ABI *check_image)(void *, UINT8, const void *, UINTN,
+	EFI_STATUS(CDK2_MS_ABI *check_image)(void *, UINT8, const void *, UINTN,
 		UINT32 *);
 	void *get_package_info, *set_package_info;
 };
@@ -63,50 +63,114 @@ static void *fmp_handles[1] = { (void *)9 };
 static struct fmp_image_descriptor descriptor;
 
 EFI_STATUS cdk2_capsule_cache_writeback_range_all_cpus(UINT64 address, UINT64 length)
-{ assert(address != 0U && length != 0U); flushes++; return flush_status; }
+{
+	assert(address != 0U && length != 0U);
+	flushes++;
+	return flush_status;
+}
 
 static EFI_STATUS CDK2_MS_ABI allocate_pool(UINT32 type, UINTN size, void **buffer)
-{ (void)type; assert(size == sizeof(descriptor)); *buffer = &descriptor; return EFI_SUCCESS; }
+{
+	(void)type;
+	assert(size == sizeof(descriptor));
+	*buffer = &descriptor;
+	return EFI_SUCCESS;
+}
 static EFI_STATUS CDK2_MS_ABI free_pool(void *buffer)
-{ assert(buffer != NULL); return EFI_SUCCESS; }
+{
+	assert(buffer != NULL);
+	return EFI_SUCCESS;
+}
 static EFI_STATUS CDK2_MS_ABI locate_handles(UINT32 type, const EFI_GUID *guid,
 	void *key, UINTN *count, void ***buffer)
-{ (void)guid; (void)key; assert(type == 2U); *count = 1; *buffer = fmp_handles;
-	return EFI_SUCCESS; }
+{
+	(void)guid;
+	(void)key;
+	assert(type == 2U);
+	*count = 1;
+	*buffer = fmp_handles;
+	return EFI_SUCCESS;
+}
 static EFI_STATUS CDK2_MS_ABI handle_protocol(void *handle, const EFI_GUID *guid,
 	void **protocol)
-{ (void)guid; assert(handle == fmp_handles[0]); *protocol = &fmp; return EFI_SUCCESS; }
+{
+	(void)guid;
+	assert(handle == fmp_handles[0]);
+	*protocol = &fmp;
+	return EFI_SUCCESS;
+}
 static EFI_STATUS CDK2_MS_ABI get_image_info(void *self, UINTN *size, void *buffer,
 	UINT32 *version, UINT8 *count, UINTN *descriptor_size, UINT32 *package,
 	CHAR16 **package_name)
 {
-	(void)self; (void)package_name; *version=3U;*count=1U;
-	*descriptor_size=sizeof(descriptor);*package=0U;
-	if(buffer==NULL){*size=sizeof(descriptor);return EFI_BUFFER_TOO_SMALL;}
-	assert(*size>=sizeof(descriptor));memcpy(buffer,&descriptor,sizeof(descriptor));
+	(void)self;
+	(void)package_name;
+	*version = 3U;
+	*count = 1U;
+	*descriptor_size = sizeof(descriptor);
+	*package = 0U;
+	if (buffer == NULL) {
+		*size = sizeof(descriptor);
+		return EFI_BUFFER_TOO_SMALL;
+	}
+	assert(*size >= sizeof(descriptor));
+	memcpy(buffer, &descriptor, sizeof(descriptor));
 	return EFI_SUCCESS;
 }
 static EFI_STATUS CDK2_MS_ABI check_image(void *self, UINT8 index,
 	const void *image, UINTN size, UINT32 *updatable)
-{ (void)self; assert(index==1U&&image!=NULL&&size==4U);checks++;*updatable=1U;
-	return EFI_SUCCESS; }
+{
+	(void)self;
+	assert(index == 1U && image != NULL && size == 4U);
+	checks++;
+	*updatable = 1U;
+	return EFI_SUCCESS;
+}
 static EFI_STATUS CDK2_MS_ABI set_image(void *self, UINT8 index,
 	const void *image, UINTN size, const void *vendor, void *progress,
 	CHAR16 **abort_reason)
-{ (void)self;(void)vendor;(void)progress;assert(index==1U&&image!=NULL&&size==4U);
-	*abort_reason=NULL;sets++;return EFI_SUCCESS; }
+{
+	(void)self;
+	(void)vendor;
+	(void)progress;
+	assert(index == 1U && image != NULL && size == 4U);
+	*abort_reason = NULL;
+	sets++;
+	return EFI_SUCCESS;
+}
 static EFI_STATUS CDK2_MS_ABI set_variable(CHAR16 *name, EFI_GUID *guid,
 	UINT32 attributes, UINTN size, void *data)
-{ UINTN index=0;(void)guid;assert(attributes==7U&&size==8U&&data!=NULL);
-	do{last_name[index]=name[index];}while(name[index++]!=0);variables++;
-	return EFI_SUCCESS; }
+{
+	UINTN index = 0;
+
+	(void)guid;
+	assert(attributes == 7U && size == 8U && data != NULL);
+	do {
+		last_name[index] = name[index];
+	} while (name[index++] != 0);
+	variables++;
+	return EFI_SUCCESS;
+}
 
 static EFI_STATUS CDK2_MS_ABI crc32(void *table, UINTN size, cdk2_uint32_ptr crc)
-{ (void)table; (void)size; *crc = 0xabcdef01U; return EFI_SUCCESS; }
+{
+	(void)table;
+	(void)size;
+	*crc = 0xabcdef01U;
+	return EFI_SUCCESS;
+}
 static EFI_STATUS CDK2_MS_ABI install(void **handle, ...)
-{ installs++; *handle = (void *)1; return install_status; }
+{
+	installs++;
+	*handle = (void *)1;
+	return install_status;
+}
 static EFI_STATUS CDK2_MS_ABI uninstall(void *handle, ...)
-{ assert(handle == (void *)1); uninstalls++; return uninstall_status; }
+{
+	assert(handle == (void *)1);
+	uninstalls++;
+	return uninstall_status;
+}
 static EFI_STATUS CDK2_MS_ABI create_event(UINT32 type, UINTN tpl,
 	void (CDK2_MS_ABI *notify)(void *, void *), void *context,
 	cdk2_const_guid_ptr group, cdk2_void_ptr_ptr event)
@@ -114,13 +178,20 @@ static EFI_STATUS CDK2_MS_ABI create_event(UINT32 type, UINTN tpl,
 	(void)context;
 	assert(type == 0x200U && tpl == 16U && group != NULL);
 	EFI_STATUS status = event_status[events];
-	if (!EFI_ERROR(status)) { notification[events] = notify;
-		*event = (void *)(events + 2U); }
+
+	if (!EFI_ERROR(status)) {
+		notification[events] = notify;
+		*event = (void *)(events + 2U);
+	}
 	events++;
 	return status;
 }
 static EFI_STATUS CDK2_MS_ABI close_event(void *event)
-{ assert(event != NULL); closes++; return EFI_SUCCESS; }
+{
+	assert(event != NULL);
+	closes++;
+	return EFI_SUCCESS;
+}
 static EFI_STATUS CDK2_MS_ABI convert_pointer(UINTN disposition, void **pointer)
 {
 	(void)disposition;
@@ -173,59 +244,78 @@ int main(void)
 	assert(uninstalls == 1U && runtime.update_capsule == old_update &&
 		runtime.query_capsule == old_query && runtime.header.crc32 == 7U);
 	install_status = EFI_SUCCESS;
-	events = 0; event_status[1] = EFI_DEVICE_ERROR; uninstall_status = EFI_DEVICE_ERROR;
+	events = 0;
+	event_status[1] = EFI_DEVICE_ERROR;
+	uninstall_status = EFI_DEVICE_ERROR;
 	assert(cdk2_capsule_runtime_entry((void *)5, &system) == EFI_DEVICE_ERROR);
 	assert(runtime.update_capsule != old_update && runtime.query_capsule != old_query &&
 		runtime.header.crc32 == 0xabcdef01U && uninstalls == 2U && closes == 0U);
 	/* A coherent retry starts from the original table fixture. */
-	runtime.update_capsule = old_update; runtime.query_capsule = old_query;
-	runtime.header.crc32 = 7U; events = 0; uninstall_status = EFI_SUCCESS;
+	runtime.update_capsule = old_update;
+	runtime.query_capsule = old_query;
+	runtime.header.crc32 = 7U;
+	events = 0;
+	uninstall_status = EFI_SUCCESS;
 	event_status[1] = EFI_SUCCESS;
 	assert(cdk2_capsule_runtime_entry((void *)5, &system) == EFI_SUCCESS);
 	assert(installs == 4U && runtime.update_capsule != old_update &&
 		runtime.query_capsule != old_query && runtime.header.crc32 == 0xabcdef01U);
-	fmp.get_image_info=get_image_info;fmp.check_image=check_image;fmp.set_image=set_image;
-	descriptor.image_index=1U;descriptor.image_type=(EFI_GUID){.data1=0x12345678U};
-	descriptor.hardware_instance=7U;
-	capsule.outer.guid=(EFI_GUID){0x6dcbd5ed,0xe82d,0x4c44,
-		{0xbd,0xa1,0x71,0x94,0x19,0x9a,0xd9,0x2a}};
-	capsule.outer.header_size=sizeof(capsule.outer);capsule.outer.image_size=sizeof(capsule);
-	capsule.body.version=1U;capsule.body.payload_count=1U;capsule.body.offset=16U;
-	capsule.body.image_version=3U;memcpy(&capsule.body.image_type,
-		&descriptor.image_type,sizeof(descriptor.image_type));
-	capsule.body.image_index=1U;capsule.body.image_size=sizeof(capsule.body.image);
-	capsule.body.hardware_instance=7U;
-	blocks[0].length=sizeof(capsule.body.image);
-	blocks[0].address=(UINT64)(UINTN)capsule.body.image;
-	blocks[1].length=blocks[1].address=0U;
-	assert(((update_fn *)runtime.update_capsule)(capsules,1U,0U)==EFI_SUCCESS&&
-		checks==2U&&sets==1U);
+	fmp.get_image_info = get_image_info;
+	fmp.check_image = check_image;
+	fmp.set_image = set_image;
+	descriptor.image_index = 1U;
+	descriptor.image_type = (EFI_GUID) { .data1 = 0x12345678U };
+	descriptor.hardware_instance = 7U;
+	capsule.outer.guid = (EFI_GUID) { 0x6dcbd5ed, 0xe82d, 0x4c44,
+		{ 0xbd, 0xa1, 0x71, 0x94, 0x19, 0x9a, 0xd9, 0x2a } };
+	capsule.outer.header_size = sizeof(capsule.outer);
+	capsule.outer.image_size = sizeof(capsule);
+	capsule.body.version = 1U;
+	capsule.body.payload_count = 1U;
+	capsule.body.offset = 16U;
+	capsule.body.image_version = 3U;
+	memcpy(&capsule.body.image_type, &descriptor.image_type,
+		sizeof(descriptor.image_type));
+	capsule.body.image_index = 1U;
+	capsule.body.image_size = sizeof(capsule.body.image);
+	capsule.body.hardware_instance = 7U;
+	blocks[0].length = sizeof(capsule.body.image);
+	blocks[0].address = (UINT64)(UINTN)capsule.body.image;
+	blocks[1].length = 0U;
+	blocks[1].address = 0U;
+	assert(((update_fn *)runtime.update_capsule)(capsules, 1U, 0U) == EFI_SUCCESS &&
+		checks == 2U && sets == 1U);
 	{
-		UINT64 maximum=0;UINT32 reset_type=9U;
-		assert(((query_fn *)runtime.query_capsule)(capsules,1U,&maximum,&reset_type)==
-			EFI_SUCCESS&&maximum==0x123400U&&reset_type==0U);
+		UINT64 maximum = 0;
+		UINT32 reset_type = 9U;
+
+		assert(((query_fn *)runtime.query_capsule)(capsules, 1U, &maximum,
+			&reset_type) == EFI_SUCCESS && maximum == 0x123400U &&
+			reset_type == 0U);
 	}
-	capsule.body.capsule_support=4U;
-	assert(((query_fn *)runtime.query_capsule)(capsules,1U,
-		&(UINT64){0},&(UINT32){0})==EFI_INVALID_PARAMETER);
-	capsule.body.capsule_support=0U;
-	capsule.outer.flags=CDK2_CAPSULE_PERSIST;
-	flush_status=EFI_DEVICE_ERROR;
-	assert(((update_fn *)runtime.update_capsule)(capsules,1U,
-		(UINT64)(UINTN)blocks)==EFI_DEVICE_ERROR&&variables==0U);
-	flush_status=EFI_SUCCESS;flushes=0U;
-	for(UINTN sequence=0;sequence<12U;sequence++)
-		assert(((update_fn *)runtime.update_capsule)(capsules,1U,
-			(UINT64)(UINTN)blocks)==EFI_SUCCESS);
-	assert(variables==12U&&flushes==36U&&last_name[17]==L'1'&&last_name[18]==L'1'&&
-		last_name[19]==0);
+	capsule.body.capsule_support = 4U;
+	assert(((query_fn *)runtime.query_capsule)(capsules, 1U,
+		&(UINT64) { 0 }, &(UINT32) { 0 }) == EFI_INVALID_PARAMETER);
+	capsule.body.capsule_support = 0U;
+	capsule.outer.flags = CDK2_CAPSULE_PERSIST;
+	flush_status = EFI_DEVICE_ERROR;
+	assert(((update_fn *)runtime.update_capsule)(capsules, 1U,
+		(UINT64)(UINTN)blocks) == EFI_DEVICE_ERROR && variables == 0U);
+	flush_status = EFI_SUCCESS;
+	flushes = 0U;
+	for (UINTN sequence = 0; sequence < 12U; sequence++)
+		assert(((update_fn *)runtime.update_capsule)(capsules, 1U,
+			(UINT64)(UINTN)blocks) == EFI_SUCCESS);
+	assert(variables == 12U && flushes == 36U && last_name[17] == L'1' &&
+		last_name[18] == L'1' && last_name[19] == 0);
 	assert(notification[0] != NULL && notification[1] != NULL);
 	notification[1]((void *)3, NULL);
 	assert(converts == 0U);
-	capsule.outer.flags=0U;
-	assert(((update_fn *)runtime.update_capsule)(capsules,1U,0U)==EFI_OUT_OF_RESOURCES);
-	assert(sets==1U);
+	capsule.outer.flags = 0U;
+	assert(((update_fn *)runtime.update_capsule)(capsules, 1U, 0U) ==
+		EFI_OUT_OF_RESOURCES);
+	assert(sets == 1U);
 	notification[0]((void *)2, NULL);
-	assert(converts == 6U&&runtime_pointer_converted);
+	assert(converts == 6U && runtime_pointer_converted);
 	return 0;
 }
