@@ -1534,8 +1534,8 @@ $(CDK2_NATIVE_ESRT_FV): $(CDK2_NATIVE_PRE_ESRT_FV) $(CDK2_NATIVE_ESRT_FFS) $(CDK
 	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_PRE_ESRT_FV)" 0x519ca8 \
 		"$(CDK2_NATIVE_ESRT_FFS)" "$@"
 
-$(CDK2_NATIVE_DEVICE_PATH_TEST): $(CDK2_DIR)/tests/device_path_test.c $(CDK2_DIR)/src/modules/device_path/device_path.c $(CDK2_DIR)/include/cdk2/device_path.h | $(CDK2_NATIVE_BUILD_DIR)
-	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_DIR)/tests/device_path_test.c" "$(CDK2_DIR)/src/modules/device_path/device_path.c"
+$(CDK2_NATIVE_DEVICE_PATH_TEST): $(CDK2_DIR)/tests/device_path_test.c $(CDK2_DIR)/src/modules/device_path/device_path.c $(CDK2_DIR)/src/modules/device_path/device_path_to_text.c $(CDK2_DIR)/include/cdk2/device_path.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_DIR)/tests/device_path_test.c" "$(CDK2_DIR)/src/modules/device_path/device_path.c" "$(CDK2_DIR)/src/modules/device_path/device_path_to_text.c"
 
 FORCE:
 

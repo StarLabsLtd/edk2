@@ -53,4 +53,12 @@ EFI_STATUS cdk2_device_path_create_node(UINT8 type, UINT8 subtype, UINT16 length
 	const struct cdk2_device_path_allocator *allocator,
 	struct cdk2_device_path **node);
 
+/* required_chars includes the terminating NUL. */
+EFI_STATUS cdk2_device_path_node_to_text(const struct cdk2_device_path *node,
+	UINTN node_size, BOOLEAN display_only, BOOLEAN allow_shortcuts,
+	CHAR16 *text, UINTN text_chars, UINTN *required_chars);
+EFI_STATUS cdk2_device_path_to_text(const struct cdk2_device_path *path,
+	UINTN path_size, BOOLEAN display_only, BOOLEAN allow_shortcuts,
+	CHAR16 *text, UINTN text_chars, UINTN *required_chars);
+
 #endif
