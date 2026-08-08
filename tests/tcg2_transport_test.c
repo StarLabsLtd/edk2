@@ -17,6 +17,7 @@ struct mock_io {
 	int started;
 	int locality;
 	int ready;
+	int omit_status_valid;
 	int force_start_timeout;
 };
 
@@ -43,7 +44,9 @@ static UINT32 mock_read32(void *context, UINT64 address)
 	if (offset == 0)
 		return mock->locality ? 0xa0U : 0;
 	if (offset == 0x18U) {
-		UINT32 value = 0x80U | 0x4000U;
+		UINT32 value = 0x4000U;
+		if (!mock->omit_status_valid)
+			value |= 0x80U;
 		if (mock->ready)
 			value |= 0x40U;
 		if (mock->command_size < 12U && !mock->started)
@@ -153,6 +156,8 @@ int main(void)
 		EFI_COMPROMISED_DATA, "invalid response tag accepted");
 
 	memset(&mock, 0, sizeof(mock));
+	/* QEMU reports COMMAND_READY without STS_VALID during this transition. */
+	mock.omit_status_valid = 1;
 	memcpy(mock.response, (UINT8[]){ 0x80, 0x01, 0, 0, 0, 10, 0, 0, 0, 0 }, 10);
 	io = (struct cdk2_tpm2_io){
 		.context = &mock, .read8 = mock_read8, .read32 = mock_read32,
