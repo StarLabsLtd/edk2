@@ -62,12 +62,58 @@ struct cdk2_con_boot_services {
 	uninstall_multiple_fn *uninstall_multiple;
 };
 
+struct usb_device_descriptor {
+	UINT8 length, descriptor_type;
+	UINT16 bcd_usb;
+	UINT8 device_class, device_subclass, device_protocol, max_packet_size;
+	UINT16 vendor, product, bcd_device;
+	UINT8 manufacturer, product_string, serial_number, configurations;
+} __packed;
+
+struct usb_interface_descriptor {
+	UINT8 length, descriptor_type, interface_number, alternate_setting;
+	UINT8 endpoints, interface_class, interface_subclass, interface_protocol, interface;
+} __packed;
+
+struct usb_io_view;
+typedef EFI_STATUS CDK2_MS_ABI usb_get_device_fn(struct usb_io_view *,
+	struct usb_device_descriptor *);
+typedef EFI_STATUS CDK2_MS_ABI usb_get_interface_fn(struct usb_io_view *,
+	struct usb_interface_descriptor *);
+typedef EFI_STATUS CDK2_MS_ABI usb_get_string_fn(struct usb_io_view *, UINT16, UINT8,
+	CHAR16 **);
+typedef EFI_STATUS CDK2_MS_ABI usb_get_languages_fn(struct usb_io_view *, UINT16 **,
+	UINT16 *);
+struct usb_io_view {
+	void *control, *bulk, *async_interrupt, *sync_interrupt, *isochronous,
+		*async_isochronous;
+	usb_get_device_fn *get_device_descriptor;
+	void *get_config_descriptor;
+	usb_get_interface_fn *get_interface_descriptor;
+	void *get_endpoint_descriptor;
+	usb_get_string_fn *get_string_descriptor;
+	usb_get_languages_fn *get_supported_languages;
+	void *port_reset;
+};
+
+struct con_entry_context;
+struct con_instance {
+	struct cdk2_con_binding model;
+	struct con_instance *next;
+	struct con_entry_context *entry;
+};
+
+struct con_driver {
+	struct cdk2_con_driver_binding protocol;
+	enum cdk2_con_direction direction;
+	struct con_instance *instances;
+};
+
 struct con_entry_context {
 	struct cdk2_con_boot_services *boot;
 	struct runtime_services_view *runtime;
 	void *image, *input_handle, *output_handle;
-	struct cdk2_con_driver_binding input, output;
-	struct cdk2_con_binding input_model, output_model;
+	struct con_driver input, output;
 	struct cdk2_con_component_name name, name2;
 };
 
@@ -87,6 +133,9 @@ static const EFI_GUID device_path_guid = { 0x09576e91, 0x6d3f, 0x11d2,
 	{ 0x8e, 0x39, 0, 0xa0, 0xc9, 0x69, 0x72, 0x3b } };
 static const EFI_GUID gop_guid = { 0x9042a9de, 0x23dc, 0x4a38,
 	{ 0x96, 0xfb, 0x7a, 0xde, 0xd0, 0x80, 0x51, 0x6a } };
+static const EFI_GUID usb_io_guid = { 0x2b2f68d6, 0x0cd2, 0x44cf,
+	{ 0x8e, 0x8b, 0xbb, 0xa2, 0x0b, 0x1b, 0x5b, 0x75 } };
+static const struct cdk2_con_binding_ops binding_ops;
 
 static UINTN path_size(const void *path)
 {
@@ -119,40 +168,82 @@ static BOOLEAN bytes_equal(const void *left, const void *right, UINTN size)
 	return TRUE;
 }
 
-static struct cdk2_con_binding *model_from_driver(struct cdk2_con_driver_binding *driver)
+static struct con_driver *owner_from_driver(struct cdk2_con_driver_binding *driver)
 {
-	return driver == &entry.input ? &entry.input_model : &entry.output_model;
+	return driver == &entry.input.protocol ? &entry.input : &entry.output;
 }
 
 static EFI_STATUS CDK2_MS_ABI driver_supported(struct cdk2_con_driver_binding *driver,
 	void *controller, void *remaining)
 {
+	struct con_driver *owner = owner_from_driver(driver);
+	struct con_instance temporary = {
+		.model = { .ops = &binding_ops, .direction = owner->direction },
+		.entry = &entry,
+	};
+
 	(void)remaining;
-	return cdk2_con_binding_supported(model_from_driver(driver), controller);
+	temporary.model.context = &temporary;
+	return cdk2_con_binding_supported(&temporary.model, controller);
 }
 
 static EFI_STATUS CDK2_MS_ABI driver_start(struct cdk2_con_driver_binding *driver,
 	void *controller, void *remaining)
 {
+	struct con_driver *owner = owner_from_driver(driver);
+	struct con_instance *instance;
+	EFI_STATUS status;
+
 	(void)remaining;
-	return cdk2_con_binding_start(model_from_driver(driver), controller);
+	for (instance = owner->instances; instance != NULL; instance = instance->next)
+		if (instance->model.controller == controller)
+			return CDK2_CON_ALREADY_STARTED;
+	status = entry.boot->allocate_pool(4U, sizeof(*instance), (void **)&instance);
+	if (EFI_ERROR(status))
+		return status;
+	__builtin_memset(instance, 0, sizeof(*instance));
+	instance->entry = &entry;
+	instance->model = (struct cdk2_con_binding) {
+		.ops = &binding_ops, .context = instance, .direction = owner->direction
+	};
+	status = cdk2_con_binding_start(&instance->model, controller);
+	if (EFI_ERROR(status)) {
+		(void)entry.boot->free_pool(instance);
+		return status;
+	}
+	instance->next = owner->instances;
+	owner->instances = instance;
+	return EFI_SUCCESS;
 }
 
 static EFI_STATUS CDK2_MS_ABI driver_stop(struct cdk2_con_driver_binding *driver,
 	void *controller, UINTN children, void **child_buffer)
 {
-	struct cdk2_con_binding *model = model_from_driver(driver);
+	struct con_driver *owner = owner_from_driver(driver);
+	struct con_instance **link = &owner->instances, *instance;
+	EFI_STATUS status;
 
 	(void)child_buffer;
-	if (children != 0U || model->controller != controller)
+	if (children != 0U)
 		return EFI_INVALID_PARAMETER;
-	return cdk2_con_binding_stop(model);
+	while (*link != NULL && (*link)->model.controller != controller)
+		link = &(*link)->next;
+	if (*link == NULL)
+		return EFI_INVALID_PARAMETER;
+	instance = *link;
+	status = cdk2_con_binding_stop(&instance->model);
+	if (EFI_ERROR(status))
+		return status;
+	*link = instance->next;
+	(void)entry.boot->free_pool(instance);
+	return EFI_SUCCESS;
 }
 
 static EFI_STATUS open(void *context, void *controller, const EFI_GUID *protocol,
 	UINT32 attributes, void **interface)
 {
-	struct con_entry_context *state = context;
+	struct con_instance *instance = context;
+	struct con_entry_context *state = instance->entry;
 
 	EFI_STATUS status = state->boot->open_protocol(controller, protocol, interface, state->image,
 		controller, attributes);
@@ -162,22 +253,21 @@ static EFI_STATUS open(void *context, void *controller, const EFI_GUID *protocol
 
 		if (size == 0U)
 			return EFI_DEVICE_ERROR;
-		state->input_model.path_size = size;
-		state->output_model.path_size = size;
+		instance->model.path_size = size;
 	}
 	return status;
 }
 
 static EFI_STATUS close(void *context, void *controller, const EFI_GUID *protocol)
 {
-	struct con_entry_context *state = context;
+	struct con_entry_context *state = ((struct con_instance *)context)->entry;
 
 	return state->boot->close_protocol(controller, protocol, state->image, controller);
 }
 
 static EFI_STATUS install_marker(void *context, void *controller, const EFI_GUID *protocol)
 {
-	struct con_entry_context *state = context;
+	struct con_entry_context *state = ((struct con_instance *)context)->entry;
 
 	return state->boot->install_multiple(&controller, protocol, NULL, NULL);
 }
@@ -185,14 +275,14 @@ static EFI_STATUS install_marker(void *context, void *controller, const EFI_GUID
 static EFI_STATUS uninstall_marker(void *context, void *controller,
 	const EFI_GUID *protocol)
 {
-	struct con_entry_context *state = context;
+	struct con_entry_context *state = ((struct con_instance *)context)->entry;
 
 	return state->boot->uninstall_multiple(controller, protocol, NULL, NULL);
 }
 
 static EFI_STATUS variable_read(void *context, const CHAR16 *name, void **data, UINTN *size)
 {
-	struct con_entry_context *state = context;
+	struct con_entry_context *state = ((struct con_instance *)context)->entry;
 	EFI_STATUS status;
 
 	*data = NULL;
@@ -216,22 +306,64 @@ static EFI_STATUS variable_read(void *context, const CHAR16 *name, void **data, 
 static EFI_STATUS variable_write(void *context, const CHAR16 *name, const void *data,
 	UINTN size)
 {
-	struct con_entry_context *state = context;
+	struct con_entry_context *state = ((struct con_instance *)context)->entry;
 	return state->runtime->set_variable((CHAR16 *)name, &global_variable_guid,
 		6U, size, data);
 }
 
 static void release_pool(void *context, void *data)
 {
-	struct con_entry_context *state = context;
+	struct con_entry_context *state = ((struct con_instance *)context)->entry;
 	(void)state->boot->free_pool(data);
+}
+
+static BOOLEAN usb_identity(void *context, const void *path,
+	struct cdk2_usb_identity *identity, CHAR16 **serial)
+{
+	struct con_entry_context *state = ((struct con_instance *)context)->entry;
+	struct usb_device_descriptor device;
+	struct usb_interface_descriptor interface;
+	struct usb_io_view *usb;
+	void *remaining = (void *)path, *handle;
+	UINT16 *languages = NULL, language_count = 0U;
+
+	*serial = NULL;
+	if (state->boot->locate_device_path == NULL || state->boot->handle_protocol == NULL ||
+	    EFI_ERROR(state->boot->locate_device_path(&usb_io_guid, &remaining, &handle)) ||
+	    EFI_ERROR(state->boot->handle_protocol(handle, &usb_io_guid, (void **)&usb)) ||
+	    usb == NULL || usb->get_device_descriptor == NULL ||
+	    usb->get_interface_descriptor == NULL ||
+	    EFI_ERROR(usb->get_device_descriptor(usb, &device)) ||
+	    EFI_ERROR(usb->get_interface_descriptor(usb, &interface)))
+		return FALSE;
+	*identity = (struct cdk2_usb_identity) {
+		.vendor = device.vendor, .product = device.product,
+		.device_class = device.device_class,
+		.device_subclass = device.device_subclass,
+		.device_protocol = device.device_protocol,
+		.interface_number = interface.interface_number,
+		.interface_class = interface.interface_class,
+		.interface_subclass = interface.interface_subclass,
+		.interface_protocol = interface.interface_protocol,
+	};
+	if (device.serial_number != 0U && usb->get_supported_languages != NULL &&
+	    usb->get_string_descriptor != NULL &&
+	    !EFI_ERROR(usb->get_supported_languages(usb, &languages, &language_count)) &&
+	    language_count != 0U && languages != NULL &&
+	    !EFI_ERROR(usb->get_string_descriptor(usb, languages[0], device.serial_number,
+		serial)))
+		identity->serial = *serial;
+	return TRUE;
 }
 
 static EFI_STATUS edit_path(void *context, const void *current, UINTN current_size,
 	const void *path, UINTN size, enum cdk2_con_variable_operation operation,
 	void **result, UINTN *result_size)
 {
-	struct con_entry_context *state = context;
+	struct con_entry_context *state = ((struct con_instance *)context)->entry;
+	struct cdk2_usb_identity usb;
+	CHAR16 *serial;
+	BOOLEAN have_usb = usb_identity(context, path, &usb, &serial);
 	const UINT8 *source = current;
 	UINT8 *copy, *destination;
 	UINTN remaining = current_size, instance_size, kept = 0U;
@@ -245,22 +377,23 @@ static EFI_STATUS edit_path(void *context, const void *current, UINTN current_si
 		for (;;) {
 			UINT16 length;
 			if (remaining - instance_size < sizeof(*node))
-				return EFI_INVALID_PARAMETER;
+				goto invalid_path;
 			length = node->length;
 			if (length < sizeof(*node) || length > remaining - instance_size)
-				return EFI_INVALID_PARAMETER;
+				goto invalid_path;
 			instance_size += length;
 			if (node->type == CDK2_DP_END)
 				break;
 			node = (const void *)((const UINT8 *)node + length);
 		}
-		if (instance_size == size &&
-		    (bytes_equal(source, path, size - sizeof(*node)) ||
-		     cdk2_con_gop_siblings(source, instance_size, path, size)))
+		if (cdk2_con_path_instance_match(path, size, source, instance_size,
+		    have_usb ? &usb : NULL))
 			found = TRUE;
 		source += instance_size;
 		remaining -= instance_size;
 	}
+	if (serial != NULL)
+		(void)state->boot->free_pool(serial);
 	if (operation == CDK2_CON_CHECK)
 		return found ? EFI_SUCCESS : EFI_NOT_FOUND;
 	if (operation == CDK2_CON_APPEND && found)
@@ -304,6 +437,11 @@ static EFI_STATUS edit_path(void *context, const void *current, UINTN current_si
 	__builtin_memcpy(copy + current_size, path, size);
 	*result_size = current_size + size;
 	return EFI_SUCCESS;
+
+invalid_path:
+	if (serial != NULL)
+		(void)state->boot->free_pool(serial);
+	return EFI_INVALID_PARAMETER;
 }
 
 static EFI_STATUS update_variable(void *context, const CHAR16 *name,
@@ -317,7 +455,7 @@ static EFI_STATUS update_variable(void *context, const CHAR16 *name,
 
 static BOOLEAN update_gop_candidates(void *context, const void *path, UINTN size)
 {
-	struct con_entry_context *state = context;
+	struct con_entry_context *state = ((struct con_instance *)context)->entry;
 	void *remaining = (void *)path, *gop_handle;
 	void **handles = NULL;
 	UINTN count = 0U, index;
@@ -355,6 +493,10 @@ static BOOLEAN update_gop_candidates(void *context, const void *path, UINTN size
 	(void)state->boot->free_pool(handles);
 	return TRUE;
 }
+
+static const struct cdk2_con_binding_ops binding_ops = {
+	open, close, install_marker, uninstall_marker, update_variable, update_gop_candidates
+};
 
 static EFI_STATUS CDK2_MS_ABI get_name(struct cdk2_con_component_name *component,
 	CHAR8 * language, cdk2_con_name_ptr * name)
@@ -418,37 +560,28 @@ EFI_STATUS CDK2_MS_ABI cdk2_con_platform_entry(void *image,
 	entry.runtime = system->runtime;
 	entry.image = image;
 	entry.input_handle = image;
-	entry.input = (struct cdk2_con_driver_binding) {
-		driver_supported, driver_start, driver_stop, 0x0aU, image, image
+	entry.input = (struct con_driver) {
+		.protocol = { driver_supported, driver_start, driver_stop, 0x0aU, image, image },
+		.direction = CDK2_CON_INPUT,
 	};
-	entry.output = entry.input;
+	entry.output = (struct con_driver) {
+		.protocol = { driver_supported, driver_start, driver_stop, 0x0aU, image, image },
+		.direction = CDK2_CON_OUTPUT,
+	};
 	entry.name = (struct cdk2_con_component_name) {
 		get_name, get_controller_name, "eng"
 	};
 	entry.name2 = (struct cdk2_con_component_name) {
 		get_name, get_controller_name, "en"
 	};
-	{
-		static const struct cdk2_con_binding_ops ops = {
-			open, close, install_marker, uninstall_marker, update_variable,
-			update_gop_candidates
-		};
-
-		entry.input_model = (struct cdk2_con_binding) {
-			.ops = &ops, .context = &entry, .direction = CDK2_CON_INPUT
-		};
-		entry.output_model = (struct cdk2_con_binding) {
-			.ops = &ops, .context = &entry, .direction = CDK2_CON_OUTPUT
-		};
-	}
-	status = publish_binding(&entry.input_handle, &entry.input);
+	status = publish_binding(&entry.input_handle, &entry.input.protocol);
 	if (EFI_ERROR(status))
 		return status;
-	status = publish_binding(&entry.output_handle, &entry.output);
+	status = publish_binding(&entry.output_handle, &entry.output.protocol);
 	if (EFI_ERROR(status)) {
 		unpublish(entry.input_handle, &component_name2_guid, &entry.name2);
 		unpublish(entry.input_handle, &component_name_guid, &entry.name);
-		unpublish(entry.input_handle, &driver_binding_guid, &entry.input);
+		unpublish(entry.input_handle, &driver_binding_guid, &entry.input.protocol);
 	}
 	return status;
 }

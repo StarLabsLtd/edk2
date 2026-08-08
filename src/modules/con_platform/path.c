@@ -25,7 +25,7 @@ static const struct cdk2_dp_node *next_node(const struct cdk2_dp_node *node)
 	return (const void *)((const UINT8 *)node + read16(&node->length));
 }
 
-BOOLEAN cdk2_con_path_valid(const void *path, UINTN size)
+static BOOLEAN path_valid(const void *path, UINTN size, BOOLEAN allow_instance)
 {
 	const struct cdk2_dp_node *node = path;
 	const UINT8 *end = (const UINT8 *)path + size;
@@ -37,11 +37,18 @@ BOOLEAN cdk2_con_path_valid(const void *path, UINTN size)
 		length = read16(&node->length);
 		if (length < sizeof(*node) || (const UINT8 *)node + length > end)
 			return FALSE;
-		if (node->type == CDK2_DP_END && node->subtype == CDK2_DP_END_ENTIRE)
+		if (node->type == CDK2_DP_END &&
+		    (node->subtype == CDK2_DP_END_ENTIRE ||
+		     (allow_instance && node->subtype == CDK2_DP_END_INSTANCE)))
 			return (const UINT8 *)node + length == end;
 		node = next_node(node);
 	}
 	return FALSE;
+}
+
+BOOLEAN cdk2_con_path_valid(const void *path, UINTN size)
+{
+	return path_valid(path, size, FALSE);
 }
 
 static const UINT8 *gop_prefix_end(const void *path, UINTN size)
@@ -163,7 +170,7 @@ BOOLEAN cdk2_con_path_instance_match(const void *single, UINTN single_size,
 	const void *instance, UINTN instance_size, const struct cdk2_usb_identity *usb)
 {
 	if (!cdk2_con_path_valid(single, single_size) ||
-	    !cdk2_con_path_valid(instance, instance_size))
+	    !path_valid(instance, instance_size, TRUE))
 		return FALSE;
 	if (single_size == instance_size &&
 	    bytes_equal(single, instance, single_size))

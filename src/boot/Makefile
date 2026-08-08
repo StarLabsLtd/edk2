@@ -728,7 +728,8 @@ endif
 $(CDK2_NATIVE_BUILD_DIR)/device-path-driver.o: $(CDK2_DIR)/src/modules/device_path/driver.c $(CDK2_DIR)/include/cdk2/device_path.h $(CDK2_DIR)/include/uefi.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
 		-mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args \
-		$(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+		$(CDK2_NATIVE_INCLUDES) -MMD -MP -MF "$(@:.o=.d)" -MT "$@" \
+		-c "$<" -o "$@"
 
 $(CDK2_NATIVE_BUILD_DIR)/device-path-%.o: $(CDK2_DIR)/src/modules/device_path/%.c $(CDK2_DIR)/include/cdk2/device_path.h $(CDK2_DIR)/include/uefi.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \

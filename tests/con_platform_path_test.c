@@ -32,6 +32,10 @@ int main(void)
 		"GOP children with the same parent did not match");
 	failures += expect(cdk2_con_usb_short_match(&usb, class_path, sizeof(class_path)),
 		"USB class wildcard/IAD match failed");
+	class_path[12] = CDK2_DP_END_INSTANCE;
+	failures += expect(cdk2_con_path_instance_match(gop_a, sizeof(gop_a), class_path,
+		sizeof(class_path), &usb), "USB short-form instance terminator was rejected");
+	class_path[12] = CDK2_DP_END_ENTIRE;
 	failures += expect(cdk2_con_usb_short_match(&usb, wwid_path, sizeof(wwid_path)),
 		"USB WWID serial suffix match failed");
 	wwid_path[10] = '9';
