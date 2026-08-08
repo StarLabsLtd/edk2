@@ -2,6 +2,8 @@
 
 #include <cdk2/sata_controller.h>
 
+#include <string.h>
+
 EFI_STATUS cdk2_sata_geometry(UINT8 base_class, UINT8 sub_class,
 	UINT32 cap, UINT32 ports, struct cdk2_sata_geometry *geometry)
 {
@@ -84,4 +86,67 @@ EFI_STATUS cdk2_sata_calculate_mode(const struct cdk2_ata_identify *identify,
 		&selected->udma_mode);
 	selected->udma_valid = !EFI_ERROR(status);
 	return EFI_SUCCESS;
+}
+
+static EFI_STATUS index_of(const struct cdk2_sata_controller *controller,
+	UINT8 channel, UINT8 device, UINTN *index)
+{
+	if (controller == NULL || index == NULL ||
+	    channel >= controller->geometry.channels ||
+	    device >= controller->geometry.devices)
+		return EFI_INVALID_PARAMETER;
+	*index = (UINTN)channel * controller->geometry.devices + device;
+	return EFI_SUCCESS;
+}
+
+EFI_STATUS cdk2_sata_controller_init(struct cdk2_sata_controller *controller,
+	const struct cdk2_sata_geometry *geometry)
+{
+	if (controller == NULL || geometry == NULL || geometry->channels == 0U ||
+	    geometry->channels > CDK2_SATA_MAX_CHANNELS || geometry->devices == 0U ||
+	    geometry->devices > CDK2_SATA_MAX_DEVICES)
+		return EFI_INVALID_PARAMETER;
+	memset(controller, 0, sizeof(*controller)); controller->geometry = *geometry;
+	return EFI_SUCCESS;
+}
+
+EFI_STATUS cdk2_sata_get_channel(const struct cdk2_sata_controller *controller,
+	UINT8 channel, BOOLEAN *enabled, UINT8 *devices)
+{
+	if (controller == NULL || enabled == NULL || devices == NULL)
+		return EFI_INVALID_PARAMETER;
+	if (channel >= controller->geometry.channels) {
+		*enabled = FALSE; return EFI_INVALID_PARAMETER;
+	}
+	*enabled = TRUE; *devices = controller->geometry.devices; return EFI_SUCCESS;
+}
+
+EFI_STATUS cdk2_sata_submit(struct cdk2_sata_controller *controller, UINT8 channel,
+	UINT8 device, const struct cdk2_ata_identify *identify)
+{
+	UINTN index; EFI_STATUS status = index_of(controller, channel, device, &index);
+	if (EFI_ERROR(status)) return status;
+	controller->identify_valid[index] = identify != NULL;
+	if (identify != NULL) controller->identify[index] = *identify;
+	return EFI_SUCCESS;
+}
+
+EFI_STATUS cdk2_sata_disqualify(struct cdk2_sata_controller *controller, UINT8 channel,
+	UINT8 device, const struct cdk2_ata_mode *bad)
+{
+	UINTN index; EFI_STATUS status;
+	if (bad == NULL) return EFI_INVALID_PARAMETER;
+	status = index_of(controller, channel, device, &index);
+	if (!EFI_ERROR(status)) controller->bad[index] = *bad;
+	return status;
+}
+
+EFI_STATUS cdk2_sata_mode(struct cdk2_sata_controller *controller, UINT8 channel,
+	UINT8 device, struct cdk2_ata_mode *selected)
+{
+	UINTN index; EFI_STATUS status = index_of(controller, channel, device, &index);
+	if (EFI_ERROR(status) || selected == NULL) return EFI_INVALID_PARAMETER;
+	if (!controller->identify_valid[index]) return EFI_NOT_READY;
+	return cdk2_sata_calculate_mode(&controller->identify[index],
+		&controller->bad[index], selected);
 }
