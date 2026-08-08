@@ -4,6 +4,12 @@
 #include <stdio.h>
 
 static UINTN reads[2], resets;
+static UINTN notifications;
+static EFI_STATUS notified(struct cdk2_split_key_data *key)
+{
+	notifications++;
+	return key->key.unicode == L'K' ? EFI_SUCCESS : EFI_DEVICE_ERROR;
+}
 static EFI_STATUS read_key(void *context, struct cdk2_split_key *key)
 {
 	UINTN index = (UINTN)context - 1U;
@@ -39,6 +45,10 @@ int main(void)
 {
 	struct cdk2_split_text_in text = { 0 };
 	struct cdk2_split_key key;
+	struct cdk2_split_key_data key_data = { 0 };
+	struct cdk2_split_key_data match = { .key = { 0U, L'K' } };
+	void *notify_handle;
+	UINT8 toggle = 4U;
 	struct cdk2_split_pointer pointer = {
 		.devices = {
 			{ pointer_state, (void *)1, 10U, 1U, 1U },
@@ -70,6 +80,15 @@ int main(void)
 		"partial key handling did not continue to the next device");
 	failures += expect(cdk2_split_text_in_reset(&text, TRUE) == EFI_DEVICE_ERROR &&
 		resets == 2U, "reset did not visit every input and return the last error");
+	reads[0] = reads[1] = 0U;
+	failures += expect(cdk2_split_text_in_set_state(&text, &toggle) == EFI_SUCCESS &&
+		cdk2_split_text_in_register_notify(&text, &match, notified,
+			&notify_handle) == EFI_SUCCESS &&
+		cdk2_split_text_in_read_ex(&text, &key_data) == EFI_SUCCESS &&
+		key_data.key.unicode == L'K' && key_data.state.toggle_state == 4U &&
+		notifications == 1U &&
+		cdk2_split_text_in_unregister_notify(&text, notify_handle) == EFI_SUCCESS,
+		"TextInEx state or key notification semantics are wrong");
 	failures += expect(cdk2_split_pointer_get_state(&pointer, &relative) == EFI_SUCCESS &&
 		relative.x == 40 && relative.y == 4 && relative.left && relative.right,
 		"relative pointer scaling/aggregation is wrong");

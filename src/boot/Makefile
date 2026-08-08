@@ -4823,21 +4823,44 @@ native-check: $(CDK2_NATIVE_CON_SPLITTER_INPUT_TEST)
 	@"$(CDK2_NATIVE_CON_SPLITTER_INPUT_TEST)"
 
 CDK2_NATIVE_CON_SPLITTER_ENTRY_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-con-splitter-entry-test
+CDK2_NATIVE_CON_SPLITTER_GOP_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-con-splitter-gop-test
+CDK2_NATIVE_CON_SPLITTER_BINDING_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-con-splitter-binding-test
 CDK2_NATIVE_CON_SPLITTER_OBJS := $(CDK2_NATIVE_BUILD_DIR)/con-splitter-model.o \
 	$(CDK2_NATIVE_BUILD_DIR)/con-splitter-input.o \
+	$(CDK2_NATIVE_BUILD_DIR)/con-splitter-gop.o \
+	$(CDK2_NATIVE_BUILD_DIR)/con-splitter-binding.o \
 	$(CDK2_NATIVE_BUILD_DIR)/con-splitter-entry.o
 CDK2_NATIVE_CON_SPLITTER_PE ?= $(CDK2_NATIVE_BUILD_DIR)/ConSplitterDxe.efi
 CDK2_NATIVE_CON_SPLITTER_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/ConSplitterDxe.ffs
 
 .PHONY: native-con-splitter-test native-con-splitter-fv
 native-con-splitter-test: $(CDK2_NATIVE_CON_SPLITTER_MODEL_TEST) \
-		$(CDK2_NATIVE_CON_SPLITTER_INPUT_TEST) $(CDK2_NATIVE_CON_SPLITTER_ENTRY_TEST)
+		$(CDK2_NATIVE_CON_SPLITTER_INPUT_TEST) $(CDK2_NATIVE_CON_SPLITTER_GOP_TEST) \
+		$(CDK2_NATIVE_CON_SPLITTER_BINDING_TEST) \
+		$(CDK2_NATIVE_CON_SPLITTER_ENTRY_TEST)
 	@"$(CDK2_NATIVE_CON_SPLITTER_MODEL_TEST)"
 	@"$(CDK2_NATIVE_CON_SPLITTER_INPUT_TEST)"
+	@"$(CDK2_NATIVE_CON_SPLITTER_GOP_TEST)"
+	@"$(CDK2_NATIVE_CON_SPLITTER_BINDING_TEST)"
 	@"$(CDK2_NATIVE_CON_SPLITTER_ENTRY_TEST)"
 
 native-con-splitter-fv: $(CDK2_NATIVE_CON_SPLITTER_FFS)
 	@printf '%s\n' "native console splitter FFS: $(CDK2_NATIVE_CON_SPLITTER_FFS)"
+
+$(CDK2_NATIVE_CON_SPLITTER_GOP_TEST): $(CDK2_DIR)/tests/con_splitter_gop_test.c \
+		$(CDK2_DIR)/src/modules/con_splitter/gop.c \
+		$(CDK2_DIR)/include/cdk2/con_splitter.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -fshort-wchar \
+		$(CDK2_NATIVE_INCLUDES) -o "$@" "$<" \
+		"$(CDK2_DIR)/src/modules/con_splitter/gop.c"
+
+$(CDK2_NATIVE_CON_SPLITTER_BINDING_TEST): \
+		$(CDK2_DIR)/tests/con_splitter_binding_test.c \
+		$(CDK2_DIR)/src/modules/con_splitter/binding.c \
+		$(CDK2_DIR)/include/cdk2/con_splitter_binding.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -fshort-wchar \
+		$(CDK2_NATIVE_INCLUDES) -o "$@" "$<" \
+		"$(CDK2_DIR)/src/modules/con_splitter/binding.c"
 
 $(CDK2_NATIVE_CON_SPLITTER_ENTRY_TEST): $(CDK2_DIR)/tests/con_splitter_entry_test.c \
 		$(CDK2_DIR)/src/modules/con_splitter/model.c \
@@ -4849,6 +4872,7 @@ $(CDK2_NATIVE_CON_SPLITTER_ENTRY_TEST): $(CDK2_DIR)/tests/con_splitter_entry_tes
 		$(CDK2_NATIVE_INCLUDES) -o "$@" "$<" \
 		"$(CDK2_DIR)/src/modules/con_splitter/model.c" \
 		"$(CDK2_DIR)/src/modules/con_splitter/input.c" \
+		"$(CDK2_DIR)/src/modules/con_splitter/gop.c" \
 		"$(CDK2_DIR)/src/modules/con_splitter/entry.c"
 
 $(CDK2_NATIVE_BUILD_DIR)/con-splitter-%.o: \

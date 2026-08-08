@@ -78,6 +78,102 @@ EFI_STATUS cdk2_split_text_in_reset(struct cdk2_split_text_in *splitter,
 	return result;
 }
 
+static BOOLEAN key_matches(const struct cdk2_split_key_data *match,
+	const struct cdk2_split_key_data *key)
+{
+	return match->key.scan_code == key->key.scan_code &&
+		match->key.unicode == key->key.unicode &&
+		(match->state.shift_state == 0U ||
+		 match->state.shift_state == key->state.shift_state) &&
+		(match->state.toggle_state == 0U ||
+		 match->state.toggle_state == key->state.toggle_state);
+}
+
+static BOOLEAN same_key_data(const struct cdk2_split_key_data *left,
+	const struct cdk2_split_key_data *right)
+{
+	return left->key.scan_code == right->key.scan_code &&
+		left->key.unicode == right->key.unicode &&
+		left->state.shift_state == right->state.shift_state &&
+		left->state.toggle_state == right->state.toggle_state;
+}
+
+EFI_STATUS cdk2_split_text_in_read_ex(struct cdk2_split_text_in *splitter,
+	struct cdk2_split_key_data *key)
+{
+	EFI_STATUS status;
+	UINTN index;
+
+	if (splitter == NULL || key == NULL)
+		return EFI_INVALID_PARAMETER;
+	key->state = splitter->state;
+	status = cdk2_split_text_in_read(splitter, &key->key);
+	if (EFI_ERROR(status))
+		return status;
+	for (index = 0; index < splitter->notify_count; index++)
+		if (splitter->notifies[index].active &&
+		    key_matches(&splitter->notifies[index].match, key))
+			(void)splitter->notifies[index].callback(key);
+	return EFI_SUCCESS;
+}
+
+EFI_STATUS cdk2_split_text_in_set_state(struct cdk2_split_text_in *splitter,
+	const UINT8 *toggle_state)
+{
+	if (splitter == NULL || toggle_state == NULL)
+		return EFI_INVALID_PARAMETER;
+	splitter->state.toggle_state = *toggle_state;
+	return EFI_SUCCESS;
+}
+
+EFI_STATUS cdk2_split_text_in_register_notify(struct cdk2_split_text_in *splitter,
+	const struct cdk2_split_key_data *match, cdk2_split_key_notify_fn *callback,
+	void **handle)
+{
+	UINTN index;
+
+	if (splitter == NULL || match == NULL || callback == NULL || handle == NULL)
+		return EFI_INVALID_PARAMETER;
+	for (index = 0; index < splitter->notify_count; index++) {
+		if (splitter->notifies[index].active &&
+		    same_key_data(&splitter->notifies[index].match, match) &&
+		    splitter->notifies[index].callback == callback) {
+			*handle = &splitter->notifies[index];
+			return EFI_SUCCESS;
+		}
+	}
+	for (index = 0; index < splitter->notify_count; index++)
+		if (!splitter->notifies[index].active)
+			break;
+	if (index == splitter->notify_count) {
+		if (splitter->notify_count == CDK2_CON_SPLITTER_MAX_KEY_NOTIFIES)
+			return EFI_OUT_OF_RESOURCES;
+		splitter->notify_count++;
+	}
+	splitter->notifies[index] = (struct cdk2_split_key_notify) {
+		*match, callback, TRUE
+	};
+	*handle = &splitter->notifies[index];
+	return EFI_SUCCESS;
+}
+
+EFI_STATUS cdk2_split_text_in_unregister_notify(struct cdk2_split_text_in *splitter,
+	void *handle)
+{
+	UINTN index;
+
+	if (splitter == NULL || handle == NULL)
+		return EFI_INVALID_PARAMETER;
+	for (index = 0; index < splitter->notify_count; index++) {
+		if (handle != &splitter->notifies[index] ||
+		    !splitter->notifies[index].active)
+			continue;
+		splitter->notifies[index].active = FALSE;
+		return EFI_SUCCESS;
+	}
+	return EFI_INVALID_PARAMETER;
+}
+
 static INT32 scale_relative(INT32 value, UINT64 virtual_resolution,
 	UINT64 device_resolution)
 {

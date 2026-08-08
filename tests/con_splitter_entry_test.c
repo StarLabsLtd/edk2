@@ -12,7 +12,7 @@ struct boot_services_view {
 	uninstall_multiple_fn *uninstall_multiple;
 };
 struct cdk2_split_system_table {
-	UINT8 header[24]; CHAR16 *vendor; UINT32 revision, padding;
+	UINT8 header[24]; CHAR16 * vendor; UINT32 revision, padding;
 	void *input_handle; struct cdk2_split_text_in_protocol *input;
 	void *output_handle; struct cdk2_split_text_out_protocol *output;
 	void *error_handle; struct cdk2_split_text_out_protocol *error;
@@ -35,14 +35,14 @@ int main(void)
 	int failures = 0;
 
 	failures += expect(cdk2_con_splitter_entry((void *)1, &system) == EFI_SUCCESS &&
-		installs == 5U && system.input != NULL && system.output != NULL &&
+		installs == 7U && system.input != NULL && system.output != NULL &&
 		system.error != NULL, "virtual console protocols were not published");
 	failures += expect(system.output->query(system.output, 0U, &columns, &rows) ==
 		EFI_SUCCESS && columns == 80U && rows == 25U &&
 		system.output->output(system.output, L"A") == EFI_SUCCESS &&
 		system.output->mode->cursor_column == 1,
 		"virtual SimpleTextOut ABI did not delegate to the model");
-	for (index = 1; index <= 5; index++) {
+	for (index = 1; index <= 7; index++) {
 		installs = uninstalls = 0U; fail_at = index;
 		failures += expect(cdk2_con_splitter_entry((void *)1, &system) ==
 			EFI_DEVICE_ERROR && uninstalls == index - 1U,
