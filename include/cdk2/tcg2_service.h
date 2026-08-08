@@ -5,13 +5,24 @@
 
 #include <cdk2/tcg2_commands.h>
 #include <cdk2/tcg2_measure.h>
+#include <protocol/tcg2.h>
 
 #define CDK2_TCG2_EVENT_LOG_FORMAT_TCG_2 2U
 #define CDK2_TCG2_FINAL_EVENTS_VERSION 1U
 #define CDK2_TCG2_EXPORT_REVISION 1U
 
-typedef EFI_STATUS cdk2_tcg2_allocate_fn(void *context, EFI_MEMORY_TYPE type,
-	UINT32 size, void **buffer, EFI_PHYSICAL_ADDRESS *address);
+typedef UINT64 * cdk2_physical_address_ptr;
+typedef const struct efi_guid *cdk2_const_guid_ptr;
+
+typedef EFI_STATUS cdk2_tcg2_allocate_fn(
+	void *context, EFI_MEMORY_TYPE type, UINT32 size,
+	void **buffer, cdk2_physical_address_ptr address);
+typedef EFI_STATUS cdk2_tcg2_install_protocol_fn(
+	void *context, cdk2_const_guid_ptr guid, void *interface);
+typedef EFI_STATUS cdk2_tcg2_install_config_fn(
+	void *context, cdk2_const_guid_ptr guid, void *table);
+typedef EFI_STATUS cdk2_tcg2_set_banks_fn(
+	void *context, UINT32 active, void *response);
 
 struct cdk2_tcg2_capability {
 	UINT8 structure_version_major;
@@ -46,6 +57,7 @@ struct cdk2_tcg2_acpi_export {
 };
 
 struct cdk2_tcg2_service {
+	EFI_TCG2_PROTOCOL protocol;
 	struct cdk2_tpm2_transport transport;
 	struct cdk2_tcg2_logs logs;
 	struct cdk2_tcg2_measurement measurement;
@@ -54,6 +66,10 @@ struct cdk2_tcg2_service {
 	struct cdk2_tcg2_final_events_table *final_table;
 	EFI_PHYSICAL_ADDRESS main_address;
 	EFI_PHYSICAL_ADDRESS final_address;
+	void *protocol_context;
+	cdk2_tcg2_set_banks_fn *set_banks;
+	UINT32 set_operation_present;
+	UINT32 set_response;
 };
 
 EFI_STATUS cdk2_tcg2_service_init(struct cdk2_tcg2_service *service,
@@ -74,5 +90,9 @@ EFI_STATUS cdk2_tcg2_submit_command(struct cdk2_tcg2_service *service,
 	UINT32 *response_size, UINT32 *response_code);
 const struct cdk2_tcg2_acpi_export *cdk2_tcg2_acpi_info(
 	const struct cdk2_tcg2_service *service);
+EFI_STATUS cdk2_tcg2_publish_protocols(struct cdk2_tcg2_service *service,
+	void *context, cdk2_tcg2_install_protocol_fn *install_protocol,
+	cdk2_tcg2_install_config_fn *install_config,
+	cdk2_tcg2_set_banks_fn *set_banks);
 
 #endif

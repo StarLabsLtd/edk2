@@ -29,7 +29,7 @@ typedef UINTN EFI_STATUS;
 typedef UINT64 EFI_PHYSICAL_ADDRESS;
 typedef UINT64 EFI_VIRTUAL_ADDRESS;
 
-typedef struct {
+typedef struct efi_guid {
 	UINT32 data1;
 	UINT16 data2;
 	UINT16 data3;

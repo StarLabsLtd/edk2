@@ -32,9 +32,15 @@ EFI_STATUS cdk2_tcg2_measure_spans(struct cdk2_tcg2_measurement *measurement,
 	TPM_PCRINDEX pcr_index, UINT32 event_type,
 	const struct cdk2_tcg2_span *spans, UINT32 span_count,
 	const void *event, UINT32 event_size, UINT32 *response_code);
+EFI_STATUS cdk2_tcg2_extend_spans(struct cdk2_tcg2_measurement *measurement,
+	TPM_PCRINDEX pcr_index, const struct cdk2_tcg2_span *spans,
+	UINT32 span_count, UINT32 *response_code);
 EFI_STATUS cdk2_tcg2_measure_pe(struct cdk2_tcg2_measurement *measurement,
 	TPM_PCRINDEX pcr_index, UINT32 event_type, const void *image,
 	UINT32 image_size, const void *event, UINT32 event_size,
+	UINT32 *response_code);
+EFI_STATUS cdk2_tcg2_extend_pe(struct cdk2_tcg2_measurement *measurement,
+	TPM_PCRINDEX pcr_index, const void *image, UINT32 image_size,
 	UINT32 *response_code);
 EFI_STATUS cdk2_tcg2_measure_variable(struct cdk2_tcg2_measurement *measurement,
 	TPM_PCRINDEX pcr_index, UINT32 event_type, const EFI_GUID *vendor,

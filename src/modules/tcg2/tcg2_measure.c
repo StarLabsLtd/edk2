@@ -36,7 +36,7 @@ static EFI_STATUS measure_parts(struct cdk2_tcg2_measurement *measurement,
 	TPM_PCRINDEX pcr_index, UINT32 event_type,
 	const struct cdk2_tcg2_span *spans, UINT32 span_count,
 	const struct cdk2_tcg2_data_span *event_spans, UINT32 event_span_count,
-	UINT32 event_size, UINT32 *response_code)
+	UINT32 event_size, UINT32 *response_code, BOOLEAN append)
 {
 	struct cdk2_tcg2_digest digests[CDK2_TCG2_MAX_DIGESTS];
 	struct cdk2_tcg2_event log_event;
@@ -61,6 +61,8 @@ static EFI_STATUS measure_parts(struct cdk2_tcg2_measurement *measurement,
 	status = measurement->extend(measurement->context, pcr_index, digests,
 		measurement->algorithm_count, response_code);
 	if (EFI_ERROR(status)) return status;
+	if (!append)
+		return EFI_SUCCESS;
 	log_event = (struct cdk2_tcg2_event){
 		.pcr_index = pcr_index, .event_type = event_type,
 		.digest_count = measurement->algorithm_count, .digests = digests,
@@ -78,7 +80,17 @@ EFI_STATUS cdk2_tcg2_measure_spans(struct cdk2_tcg2_measurement *measurement,
 	struct cdk2_tcg2_data_span event_span = { event, event_size };
 	if (event_size != 0 && event == NULL) return EFI_INVALID_PARAMETER;
 	return measure_parts(measurement, pcr_index, event_type, spans, span_count,
-		&event_span, 1, event_size, response_code);
+		&event_span, 1, event_size, response_code, 1);
+}
+
+EFI_STATUS cdk2_tcg2_extend_spans(struct cdk2_tcg2_measurement *measurement,
+	TPM_PCRINDEX pcr_index, const struct cdk2_tcg2_span *spans,
+	UINT32 span_count, UINT32 *response_code)
+{
+	struct cdk2_tcg2_data_span unused = { NULL, 0 };
+
+	return measure_parts(measurement, pcr_index, 0, spans, span_count,
+		&unused, 1, 0, response_code, 0);
 }
 
 static EFI_STATUS add_span(struct cdk2_tcg2_span *spans, UINT32 *count,
@@ -178,6 +190,31 @@ EFI_STATUS cdk2_tcg2_measure_pe(struct cdk2_tcg2_measurement *measurement,
 		span_count, event, event_size, response_code);
 }
 
+EFI_STATUS cdk2_tcg2_extend_pe(struct cdk2_tcg2_measurement *measurement,
+	TPM_PCRINDEX pcr_index, const void *image, UINT32 image_size,
+	UINT32 *response_code)
+{
+	/* Reuse the Authenticode span parser without admitting an event. */
+	struct cdk2_tcg2_logs *logs;
+	UINT32 main_used;
+	UINT32 final_used;
+	UINT64 final_count;
+	EFI_STATUS status;
+
+	if (measurement == NULL || measurement->logs == NULL)
+		return EFI_INVALID_PARAMETER;
+	logs = measurement->logs;
+	main_used = logs->main.used;
+	final_used = logs->final.used;
+	final_count = logs->final_event_count;
+	status = cdk2_tcg2_measure_pe(measurement, pcr_index, 0, image,
+		image_size, NULL, 0, response_code);
+	logs->main.used = main_used;
+	logs->final.used = final_used;
+	logs->final_event_count = final_count;
+	return status;
+}
+
 EFI_STATUS cdk2_tcg2_measure_variable(struct cdk2_tcg2_measurement *measurement,
 	TPM_PCRINDEX pcr_index, UINT32 event_type, const EFI_GUID *vendor,
 	const CHAR16 *name, UINT32 name_bytes, const void *data, UINT32 data_size,
@@ -205,7 +242,7 @@ EFI_STATUS cdk2_tcg2_measure_variable(struct cdk2_tcg2_measurement *measurement,
 	event_spans[1] = (struct cdk2_tcg2_data_span){ (const UINT8 *)name, name_bytes };
 	event_spans[2] = (struct cdk2_tcg2_data_span){ data, data_size };
 	return measure_parts(measurement, pcr_index, event_type, spans, 3,
-		event_spans, 3, total_size, response_code);
+		event_spans, 3, total_size, response_code, 1);
 }
 
 EFI_STATUS cdk2_tcg2_measure_action(struct cdk2_tcg2_measurement *measurement,
