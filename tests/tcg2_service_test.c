@@ -6,6 +6,8 @@
 
 static UINT8 main_memory[1024], final_memory[1024];
 static UINT32 allocation_count;
+static UINT32 free_count;
+static UINT32 fail_allocation_number = MAX_UINT32;
 static UINT32 extend_count;
 static BOOLEAN fail_protocol_install;
 static UINT32 physical_presence_changes;
@@ -53,9 +55,18 @@ static EFI_STATUS allocate(void *context, EFI_MEMORY_TYPE type, UINT32 size,
 	(void)context;
 	if (type != efi_acpi_memory_nvs || size > sizeof(main_memory))
 		return EFI_OUT_OF_RESOURCES;
+	if (allocation_count == fail_allocation_number) {
+		allocation_count++;
+		return EFI_OUT_OF_RESOURCES;
+	}
 	*buffer = allocation_count++ == 0 ? main_memory : final_memory;
 	*address = (EFI_PHYSICAL_ADDRESS)(UINTN)*buffer;
 	return EFI_SUCCESS;
+}
+
+static EFI_STATUS release(void *context, EFI_PHYSICAL_ADDRESS address, UINT32 size)
+{
+	(void)context; (void)address; (void)size; free_count++; return EFI_SUCCESS;
 }
 
 static EFI_STATUS hash(void *context, TPMI_ALG_HASH algorithm,
@@ -164,9 +175,18 @@ int main(void)
 	extend_event->header.header_version = EFI_TCG2_EVENT_HEADER_VERSION;
 	extend_event->header.pcr_index = 7;
 	extend_event->header.event_type = 5;
+	fail_allocation_number = 1;
+	failures += expect(cdk2_tcg2_service_init(&service, &transport, NULL,
+		allocate, release, hash, extend, 768, 768) == EFI_OUT_OF_RESOURCES &&
+		free_count == 1 && service.main_address == 0,
+		"partial event-log allocation was not rolled back");
+	allocation_count = 0;
+	free_count = 0;
+	fail_allocation_number = MAX_UINT32;
 
 	failures += expect(cdk2_tcg2_service_init(&service, &transport, NULL,
-		allocate, hash, extend, 768, 768) == EFI_SUCCESS && allocation_count == 2,
+		allocate, release, hash, extend, 768, 768) == EFI_SUCCESS &&
+		allocation_count == 2,
 		"service initialization failed");
 	failures += expect(cdk2_tcg2_get_capability(&service, &capability) ==
 		EFI_SUCCESS && capability.tpm_present &&
@@ -248,5 +268,9 @@ int main(void)
 	failures += expect(cdk2_tcg2_submit_command(&service, command, sizeof(command),
 		response, &size, &code) == EFI_SUCCESS && code == 0x143U,
 		"raw SubmitCommand lost TPM response code");
+	cdk2_tcg2_service_release(&service);
+	failures += expect(free_count == 2 && service.main_address == 0 &&
+		service.final_address == 0,
+		"service release did not free both event-log allocations");
 	return failures == 0 ? 0 : 1;
 }

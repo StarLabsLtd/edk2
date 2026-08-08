@@ -17,6 +17,8 @@ typedef const EFI_GUID cdk2_const_guid_ptr[1];
 typedef EFI_STATUS cdk2_tcg2_allocate_fn(
 	void *context, EFI_MEMORY_TYPE type, UINT32 size,
 	void **buffer, cdk2_physical_address_ptr address);
+typedef EFI_STATUS cdk2_tcg2_free_fn(
+	void *context, EFI_PHYSICAL_ADDRESS address, UINT32 size);
 typedef EFI_STATUS cdk2_tcg2_install_protocol_fn(
 	void *context, cdk2_const_guid_ptr guid, void *interface);
 typedef EFI_STATUS cdk2_tcg2_install_config_fn(
@@ -26,6 +28,7 @@ typedef EFI_STATUS cdk2_tcg2_set_banks_fn(
 typedef EFI_STATUS cdk2_tcg2_physical_presence_fn(void *context, BOOLEAN asserted);
 typedef EFI_STATUS cdk2_tcg2_reset_fn(void *context);
 typedef cdk2_tcg2_allocate_fn * cdk2_tcg2_allocate_ptr;
+typedef cdk2_tcg2_free_fn * cdk2_tcg2_free_ptr;
 typedef cdk2_tcg2_install_protocol_fn * cdk2_tcg2_install_protocol_ptr;
 typedef cdk2_tcg2_install_config_fn * cdk2_tcg2_install_config_ptr;
 typedef cdk2_tcg2_set_banks_fn * cdk2_tcg2_set_banks_ptr;
@@ -77,7 +80,13 @@ struct cdk2_tcg2_service {
 	struct cdk2_tcg2_final_events_table *final_table;
 	EFI_PHYSICAL_ADDRESS main_address;
 	EFI_PHYSICAL_ADDRESS final_address;
+	UINT32 main_capacity;
+	UINT32 final_allocation_size;
+	BOOLEAN main_allocated;
+	BOOLEAN final_allocated;
 	void *protocol_context;
+	void *allocation_context;
+	cdk2_tcg2_free_ptr free;
 	cdk2_tcg2_set_banks_ptr set_banks;
 	cdk2_tcg2_physical_presence_ptr physical_presence;
 	cdk2_tcg2_reset_ptr reset;
@@ -87,8 +96,10 @@ struct cdk2_tcg2_service {
 
 EFI_STATUS cdk2_tcg2_service_init(struct cdk2_tcg2_service *service,
 	const struct cdk2_tpm2_transport *transport, void *context,
-	cdk2_tcg2_allocate_ptr allocate, cdk2_tcg2_hash_ptr hash,
+	cdk2_tcg2_allocate_ptr allocate, cdk2_tcg2_free_ptr free,
+	cdk2_tcg2_hash_ptr hash,
 	cdk2_tcg2_extend_ptr extend, UINT32 main_capacity, UINT32 final_capacity);
+void cdk2_tcg2_service_release(struct cdk2_tcg2_service *service);
 EFI_STATUS cdk2_tcg2_get_capability(const struct cdk2_tcg2_service *service,
 	struct cdk2_tcg2_capability *capability);
 EFI_STATUS cdk2_tcg2_service_import_hobs(struct cdk2_tcg2_service *service,

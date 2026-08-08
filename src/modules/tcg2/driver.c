@@ -14,6 +14,7 @@
 
 typedef EFI_STATUS CDK2_MS_ABI allocate_pages_fn(UINT32, EFI_MEMORY_TYPE,
 	UINTN, EFI_PHYSICAL_ADDRESS *);
+typedef EFI_STATUS CDK2_MS_ABI free_pages_fn(EFI_PHYSICAL_ADDRESS, UINTN);
 typedef EFI_STATUS CDK2_MS_ABI allocate_pool_fn(EFI_MEMORY_TYPE, UINTN, void **);
 typedef EFI_STATUS CDK2_MS_ABI free_pool_fn(void *);
 typedef EFI_STATUS CDK2_MS_ABI create_event_fn(UINT32, UINTN,
@@ -30,7 +31,8 @@ typedef EFI_STATUS CDK2_MS_ABI get_variable_fn(const CHAR16 *, const EFI_GUID *,
 struct boot_services_view {
 	UINT8 header[40];
 	allocate_pages_fn *allocate_pages;
-	UINT8 before_allocate_pool[16];
+	free_pages_fn *free_pages;
+	UINT8 before_allocate_pool[8];
 	allocate_pool_fn *allocate_pool;
 	free_pool_fn *free_pool;
 	create_event_fn *create_event;
@@ -195,6 +197,12 @@ static EFI_STATUS allocate_log(void *context, EFI_MEMORY_TYPE type, UINT32 size,
 	return status;
 }
 
+static EFI_STATUS free_log(void *context, EFI_PHYSICAL_ADDRESS address, UINT32 size)
+{
+	(void)context;
+	return boot_services->free_pages(address, (size + 4095U) / 4096U);
+}
+
 static EFI_STATUS install_protocol(void *context, cdk2_const_guid_ptr guid,
 	void *interface)
 {
@@ -324,7 +332,7 @@ EFI_STATUS CDK2_MS_ABI cdk2_tcg2_entry(void *image,
 	tpm_io = (struct cdk2_tpm2_io){ NULL, mmio_read8, mmio_read32, mmio_read64,
 		mmio_write8, mmio_write32, mmio_write64, tpm_stall };
 	transport = (struct cdk2_tpm2_transport){ interface, tpm_base, 2000000U, &tpm_io };
-	status = cdk2_tcg2_service_init(&service, &transport, NULL, allocate_log,
+	status = cdk2_tcg2_service_init(&service, &transport, NULL, allocate_log, free_log,
 		NULL, NULL, LOG_CAPACITY, LOG_CAPACITY);
 	if (EFI_ERROR(status))
 		return status;

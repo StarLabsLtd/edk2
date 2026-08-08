@@ -189,7 +189,8 @@ static UINT32 interface_export(enum cdk2_tpm2_interface interface)
 
 EFI_STATUS cdk2_tcg2_service_init(struct cdk2_tcg2_service *service,
 	const struct cdk2_tpm2_transport *transport, void *context,
-	cdk2_tcg2_allocate_ptr allocate, cdk2_tcg2_hash_ptr hash,
+	cdk2_tcg2_allocate_ptr allocate, cdk2_tcg2_free_ptr free,
+	cdk2_tcg2_hash_ptr hash,
 	cdk2_tcg2_extend_ptr extend, UINT32 main_capacity, UINT32 final_capacity)
 {
 	EFI_PHYSICAL_ADDRESS main_address;
@@ -204,12 +205,16 @@ EFI_STATUS cdk2_tcg2_service_init(struct cdk2_tcg2_service *service,
 	UINT32 index;
 	EFI_STATUS status;
 
-	if (service == NULL || transport == NULL || allocate == NULL ||
+	if (service == NULL || transport == NULL || allocate == NULL || free == NULL ||
 	    ((hash == NULL) != (extend == NULL)) || main_capacity == 0 ||
 	    final_capacity == 0 ||
 	    final_capacity > MAX_UINT32 - sizeof(*service->final_table))
 		return EFI_INVALID_PARAMETER;
 	*service = (struct cdk2_tcg2_service){0};
+	service->allocation_context = context;
+	service->free = free;
+	service->main_capacity = main_capacity;
+	service->final_allocation_size = final_capacity + sizeof(*service->final_table);
 	service->protocol = (EFI_TCG2_PROTOCOL){
 		.get_capability = protocol_get_capability,
 		.get_event_log = protocol_get_event_log,
@@ -223,30 +228,34 @@ EFI_STATUS cdk2_tcg2_service_init(struct cdk2_tcg2_service *service,
 		&main_address);
 	if (EFI_ERROR(status))
 		return status;
+	service->main_address = main_address;
+	service->main_allocated = TRUE;
 	status = allocate(context, efi_acpi_memory_nvs,
 		final_capacity + sizeof(*service->final_table), &final_buffer,
 		&final_address);
 	if (EFI_ERROR(status))
-		return status;
+		goto fail;
+	service->final_address = final_address;
+	service->final_allocated = TRUE;
 	service->transport = *transport;
 	status = cdk2_tpm2_request_locality(&service->transport);
 	if (EFI_ERROR(status))
-		return status;
+		goto fail;
 	status = cdk2_tpm2_startup(&service->transport, CDK2_TPM2_SU_CLEAR,
 		&response_code);
 	if (EFI_ERROR(status))
-		return status;
+		goto fail;
 	status = cdk2_tpm2_get_property(&service->transport, TPM2_PT_MANUFACTURER,
 		&manufacturer, &response_code);
 	if (EFI_ERROR(status))
-		return status;
+		goto fail;
 	status = cdk2_tpm2_get_pcr_banks(&service->transport, &supported, &active,
 		&banks, &response_code);
 	if (EFI_ERROR(status))
-		return status;
+		goto fail;
 	status = cdk2_tcg2_log_init(&service->logs.main, main_buffer, main_capacity);
 	if (EFI_ERROR(status))
-		return status;
+		goto fail;
 	service->final_table = final_buffer;
 	service->final_table->version = CDK2_TCG2_FINAL_EVENTS_VERSION;
 	service->final_table->number_of_events = 0;
@@ -254,8 +263,7 @@ EFI_STATUS cdk2_tcg2_service_init(struct cdk2_tcg2_service *service,
 	status = cdk2_tcg2_log_init(&service->logs.final,
 		service->final_table->events, final_capacity);
 	if (EFI_ERROR(status))
-		return status;
-	service->main_address = main_address; service->final_address = final_address;
+		goto fail;
 	service->capability = (struct cdk2_tcg2_capability){
 		.structure_version_major = 1, .structure_version_minor = 1,
 		.protocol_version_major = 1, .protocol_version_minor = 1,
@@ -276,13 +284,15 @@ EFI_STATUS cdk2_tcg2_service_init(struct cdk2_tcg2_service *service,
 			service->measurement.algorithms[service->measurement.algorithm_count++] =
 				((TPMI_ALG_HASH[]) { TPM_ALG_SHA1, TPM_ALG_SHA256, TPM_ALG_SHA384,
 				TPM_ALG_SHA512, TPM_ALG_SM3_256 })[index];
-	if (service->measurement.algorithm_count == 0)
-		return EFI_DEVICE_ERROR;
+	if (service->measurement.algorithm_count == 0) {
+		status = EFI_DEVICE_ERROR;
+		goto fail;
+	}
 	status = cdk2_tcg2_write_specid(&service->logs,
 		service->measurement.algorithms, service->measurement.algorithm_count,
 		sizeof(UINTN) == sizeof(UINT64) ? 2 : 1);
 	if (EFI_ERROR(status))
-		return status;
+		goto fail;
 	service->export = (struct cdk2_tcg2_acpi_export){
 		.revision = CDK2_TCG2_EXPORT_REVISION, .size = sizeof(service->export),
 		.active_interface = (UINT8)interface_export(transport->interface),
@@ -290,6 +300,22 @@ EFI_STATUS cdk2_tcg2_service_init(struct cdk2_tcg2_service *service,
 		.log_capacity = main_capacity,
 	};
 	return EFI_SUCCESS;
+fail:
+	cdk2_tcg2_service_release(service);
+	return status;
+}
+
+void cdk2_tcg2_service_release(struct cdk2_tcg2_service *service)
+{
+	if (service == NULL || service->free == NULL)
+		return;
+	if (service->final_allocated)
+		service->free(service->allocation_context, service->final_address,
+			service->final_allocation_size);
+	if (service->main_allocated)
+		service->free(service->allocation_context, service->main_address,
+			service->main_capacity);
+	*service = (struct cdk2_tcg2_service){0};
 }
 
 EFI_STATUS cdk2_tcg2_service_import_hobs(struct cdk2_tcg2_service *service,
