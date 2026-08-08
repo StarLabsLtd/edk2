@@ -81,22 +81,28 @@ static const EFI_GUID keyboard_event_guid = { 0x14982a4f, 0xb0ed, 0x45b8,
 static const EFI_GUID config_access_guid = { 0x330d4706, 0xf2a0, 0x4e4f,
 	{ 0xa3, 0x69, 0xb6, 0x6f, 0xa8, 0xd5, 0x43, 0x85 } };
 
+typedef EFI_STATUS CDK2_MS_ABI decoder_names_fn(void *, EFI_GUID **, UINT16 *);
+typedef EFI_STATUS CDK2_MS_ABI decoder_decode_fn(void *, void *, UINTN,
+	struct cdk2_efi_image_output **, BOOLEAN);
 struct decoder_protocol {
-	EFI_STATUS (CDK2_MS_ABI *get_names)(void *, EFI_GUID **, UINT16 *);
+	decoder_names_fn *get_names;
 	void *get_info;
-	EFI_STATUS (CDK2_MS_ABI *decode)(void *, void *, UINTN,
-		struct cdk2_efi_image_output **, BOOLEAN);
+	decoder_decode_fn *decode;
 };
+typedef EFI_STATUS CDK2_MS_ABI gop_blt_fn(void *, struct cdk2_efi_pixel *, UINTN,
+	UINTN, UINTN, UINTN, UINTN, UINTN, UINTN, UINTN);
 struct gop_protocol {
 	void *query_mode, *set_mode;
-	EFI_STATUS (CDK2_MS_ABI *blt)(void *, struct cdk2_efi_pixel *, UINTN,
-		UINTN, UINTN, UINTN, UINTN, UINTN, UINTN, UINTN);
+	gop_blt_fn *blt;
 	void *mode;
 };
+typedef EFI_STATUS CDK2_MS_ABI config_extract_fn(
+	const void *, const CHAR16 *, cdk2_hii_char16_ptr *, cdk2_hii_char16_ptr *);
+typedef EFI_STATUS CDK2_MS_ABI config_route_fn(
+	const void *, const CHAR16 *, cdk2_hii_char16_ptr *);
 struct config_access_protocol {
-	EFI_STATUS (CDK2_MS_ABI *extract)(const void *, const CHAR16 *, CHAR16 **,
-		CHAR16 **);
-	EFI_STATUS (CDK2_MS_ABI *route)(const void *, const CHAR16 *, CHAR16 **);
+	config_extract_fn *extract;
+	config_route_fn *route;
 	void *callback;
 };
 
