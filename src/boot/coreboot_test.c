@@ -10,6 +10,7 @@
 
 #include <guid/acpi_board_info.h>
 #include <guid/memory_allocation_hob.h>
+#include <guid/smram_memory.h>
 #include <industry_standard/acpi.h>
 #include <industry_standard/mcfg.h>
 #include <industry_standard/tpm20.h>
@@ -90,6 +91,11 @@ EFI_STATUS
 EFIAPI
 cdk2_coreboot_test_append_smbios_hob(void *handoff,
 				     const struct cdk2_coreboot_handoff *coreboot);
+
+EFI_STATUS
+EFIAPI
+cdk2_coreboot_test_append_smram_hob(void *handoff,
+	const struct cdk2_coreboot_handoff *coreboot);
 
 void EFIAPI cdk2_platform_late_init(void)
 {
@@ -295,6 +301,20 @@ static UINTN build_smbios_cbmem_table(UINT8 *storage, UINTN storage_size,
 	entry->id = CBMEM_ID_SMBIOS;
 
 	return finalize_table(storage, storage_size, entry->size, 1);
+}
+
+static UINTN build_smram_table(UINT8 *storage, UINTN storage_size,
+	EFI_PHYSICAL_ADDRESS base, UINT64 size)
+{
+	struct cb_smram *smram;
+
+	memset(storage, 0, storage_size);
+	smram = (struct cb_smram *)(void *)(storage + sizeof(struct cb_header));
+	smram->tag = CB_TAG_SMRAM;
+	smram->size = sizeof(*smram);
+	smram->physical_start = base;
+	smram->physical_size = size;
+	return finalize_table(storage, storage_size, smram->size, 1);
 }
 
 static UINTN build_forward_table(UINT8 *storage, UINTN storage_size, const void *target)
@@ -1133,6 +1153,7 @@ int main(void)
 	UINTN tight_payload_resource_free_top;
 	UINTN smbios2_guid_count;
 	UINTN smbios3_guid_count;
+	UINTN smram_guid_count;
 	UINTN walker_count;
 	UINTN code_allocation_count;
 	UINTN module_count;
@@ -1160,6 +1181,7 @@ int main(void)
 	EFI_GUID tcg_event_guid;
 	EFI_GUID smbios_table_guid;
 	EFI_GUID smbios3_table_guid;
+	EFI_GUID smram_memory_guid;
 	EFI_ACPI_3_0_ROOT_SYSTEM_DESCRIPTION_POINTER rsdp;
 	struct test_acpi_root xsdt;
 	EFI_ACPI_3_0_FIXED_ACPI_DESCRIPTION_TABLE fadt;
@@ -1167,6 +1189,7 @@ int main(void)
 	ACPI_BOARD_INFO board_info;
 	struct test_tpm2_table tpm2_table;
 	CDK2_SMBIOS_TABLE_HOB *smbios_table;
+	EFI_SMRAM_HOB_DESCRIPTOR_BLOCK *smram_block;
 	UINT8 test_data[4];
 	struct cdk2_native_context transfer_context;
 	EFI_HOB_HANDOFF_INFO_TABLE *transfer_hob;
@@ -1188,6 +1211,10 @@ int main(void)
 	};
 	smbios3_table_guid = (EFI_GUID){
 		0x92b7896c, 0x3362, 0x46ce, {0x99, 0xb3, 0x4f, 0x5e, 0x3c, 0x34, 0xeb, 0x42}
+	};
+	smram_memory_guid = (EFI_GUID){
+		0x6dadf1d1, 0xd4cc, 0x4910,
+		{0xbb, 0x6e, 0x82, 0xb1, 0xfd, 0x80, 0xff, 0x3d}
 	};
 	table_size = build_memory_table(storage, sizeof(storage));
 	status = cdk2_coreboot_parse_table(storage, table_size, &handoff);
@@ -2346,6 +2373,46 @@ int main(void)
 
 	failures += expect(END_OF_HOB_LIST(hob_walker), "HOB traversal missed the end marker");
 	failures += expect(api_guid_count == 1, "HOB traversal missed the GUID HOB");
+
+	table_size = build_smram_table(storage, sizeof(storage), 0x1ff00000, 0x100000);
+	status = cdk2_coreboot_parse_table(storage, table_size, &handoff);
+	failures += expect(status == EFI_SUCCESS, "SMRAM table rejected");
+	status = cdk2_coreboot_build_hobs(&handoff, hob_storage,
+		hob_storage + sizeof(hob_storage), hob_storage,
+		hob_storage + sizeof(hob_storage), FALSE, (void **)&hob_info);
+	failures += expect(status == EFI_SUCCESS, "SMRAM HOB base construction failed");
+	status = cdk2_coreboot_test_append_smram_hob(hob_info, &handoff);
+	failures += expect(status == EFI_SUCCESS, "SMRAM HOB append failed");
+	smram_guid_count = 0;
+	hob_cursor = (UINTN)(void *)hob_info;
+	while (hob_cursor < (UINTN)hob_info->efi_end_of_hob_list) {
+		hob = (EFI_HOB_GENERIC_HEADER *)(UINTN)hob_cursor;
+		if (hob->hob_type == EFI_HOB_TYPE_GUID_EXTENSION) {
+			EFI_HOB_GUID_TYPE *guid_hob = (EFI_HOB_GUID_TYPE *)(void *)hob;
+
+			if (memcmp(&guid_hob->name, &smram_memory_guid,
+				   sizeof(smram_memory_guid)) == 0) {
+				smram_block = (EFI_SMRAM_HOB_DESCRIPTOR_BLOCK *)(void *)(guid_hob + 1);
+				failures += expect(smram_block->number_of_smm_reserved_regions == 1 &&
+					smram_block->descriptor[0].physical_start == 0x1ff00000 &&
+					smram_block->descriptor[0].physical_size == 0x100000 &&
+					(smram_block->descriptor[0].region_state &
+					 (EFI_SMRAM_CLOSED | EFI_CACHEABLE)) ==
+					 (EFI_SMRAM_CLOSED | EFI_CACHEABLE),
+					"SMRAM descriptor HOB is wrong");
+				smram_guid_count++;
+			}
+		}
+		hob_cursor += (hob->hob_length + 7U) & ~(UINTN)7U;
+	}
+	failures += expect(smram_guid_count == 1, "SMRAM GUID HOB count is wrong");
+
+	table_size = build_smram_table(storage, sizeof(storage), MAX_UINT64 - 0xfff, 0x2000);
+	status = cdk2_coreboot_parse_table(storage, table_size, &handoff);
+	failures += expect(status == EFI_SUCCESS, "overflow SMRAM fixture parse failed");
+	status = cdk2_coreboot_test_append_smram_hob(hob_info, &handoff);
+	failures += expect(status == EFI_COMPROMISED_DATA,
+		"overflowing SMRAM range was accepted");
 
 	memset(smbios2_entry, 0, sizeof(smbios2_entry));
 	memcpy(smbios2_entry, "_SM_", 4);

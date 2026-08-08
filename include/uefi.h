@@ -171,6 +171,7 @@ typedef EFI_GUID GUID;
 #define EFI_SUCCESS            0
 #define EFI_INVALID_PARAMETER  EFIERR(2)
 #define EFI_UNSUPPORTED        EFIERR(3)
+#define EFI_BUFFER_TOO_SMALL   EFIERR(5)
 #define EFI_NOT_READY          EFIERR(6)
 #define EFI_DEVICE_ERROR       EFIERR(7)
 #define EFI_OUT_OF_RESOURCES   EFIERR(9)

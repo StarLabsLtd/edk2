@@ -52,7 +52,6 @@ hardware-gated	UefiPayloadPkg/BlSupportSmm/BlSupportSmm
 hardware-gated	UefiPayloadPkg/EcAcpiBatteryStatusDxe/EcAcpiBatteryStatusDxe
 hardware-gated	UefiPayloadPkg/GraphicsOutputDxe/GraphicsOutputDxe
 hardware-gated	UefiPayloadPkg/PchSmiDispatchSmm/PchSmiDispatchSmm
-hardware-gated	UefiPayloadPkg/SmmAccessDxe/SmmAccessDxe
 hardware-gated	UefiPayloadPkg/SmmControlRuntimeDxe/SmmControlRuntimeDxe
 hardware-gated	UefiPayloadPkg/SmmStoreFvb/SmmStoreFvbRuntimeDxe
 hardware-gated	UefiPayloadPkg/Tpm2AcpiTableDxe/Tpm2AcpiTableDxe

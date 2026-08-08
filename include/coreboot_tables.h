@@ -162,6 +162,15 @@ struct cb_smmstorev2 {
 	UINT8 unused[3];
 } __packed;
 
+#define CB_TAG_SMRAM 0x004cU
+
+struct cb_smram {
+	UINT32 tag;
+	UINT32 size;
+	UINT64 physical_start;
+	UINT64 physical_size;
+} __packed;
+
 #define CB_TAG_TPM_PPI_HANDOFF 0x003aU
 
 enum lb_tmp_ppi_tpm_version {

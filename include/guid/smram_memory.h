@@ -1,0 +1,27 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
+
+#ifndef CDK2_ABI_SMRAM_MEMORY_GUID_H_
+#define CDK2_ABI_SMRAM_MEMORY_GUID_H_
+
+#include <uefi.h>
+
+#define EFI_SMRAM_OPEN 0x0000000000000001ULL
+#define EFI_SMRAM_CLOSED 0x0000000000000002ULL
+#define EFI_SMRAM_LOCKED 0x0000000000000004ULL
+#define EFI_CACHEABLE 0x0000000000000008ULL
+#define EFI_ALLOCATED 0x0000000000000010ULL
+
+typedef struct {
+	EFI_PHYSICAL_ADDRESS physical_start;
+	EFI_PHYSICAL_ADDRESS cpu_start;
+	UINT64 physical_size;
+	UINT64 region_state;
+} EFI_SMRAM_DESCRIPTOR;
+
+typedef struct {
+	UINT32 number_of_smm_reserved_regions;
+	UINT32 reserved;
+	EFI_SMRAM_DESCRIPTOR descriptor[1];
+} EFI_SMRAM_HOB_DESCRIPTOR_BLOCK;
+
+#endif

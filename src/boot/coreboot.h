@@ -25,6 +25,8 @@
 	CDK2_COREBOOT_RECORD_FIELD_END(struct cb_framebuffer, reserved_mask_size)
 #define CDK2_COREBOOT_SMMSTOREV2_MIN_SIZE \
 	CDK2_COREBOOT_RECORD_FIELD_END(struct cb_smmstorev2, apm_cmd)
+#define CDK2_COREBOOT_SMRAM_MIN_SIZE \
+	CDK2_COREBOOT_RECORD_FIELD_END(struct cb_smram, physical_size)
 #define CDK2_COREBOOT_FW_INFO_MIN_SIZE \
 	CDK2_COREBOOT_RECORD_FIELD_END(struct lb_efi_fw_info, fw_size)
 #define CDK2_COREBOOT_TPM_PPI_MIN_SIZE \

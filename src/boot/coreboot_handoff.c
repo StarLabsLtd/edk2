@@ -12,6 +12,7 @@
 #include <guid/graphics_info_hob.h>
 #include <guid/serial_port_info.h>
 #include <guid/smmstore_info.h>
+#include <guid/smram_memory.h>
 #include <industry_standard/acpi.h>
 #include <industry_standard/mcfg.h>
 #include <industry_standard/tpm20.h>
@@ -89,6 +90,12 @@ static const EFI_GUID m_cdk2_smm_store_info_hob_guid = {
 	0x881b,
 	0x44fb,
 	{0x3f, 0x3d, 0x81, 0x89, 0x7c, 0x57, 0xbb, 0x01}
+};
+static const EFI_GUID m_cdk2_smram_memory_guid = {
+	0x6dadf1d1,
+	0xd4cc,
+	0x4910,
+	{0xbb, 0x6e, 0x82, 0xb1, 0xfd, 0x80, 0xff, 0x3d}
 };
 static const EFI_GUID m_cdk2_firmware_info_hob_guid = {
 	0xe0653829,
@@ -560,6 +567,34 @@ static EFI_STATUS cdk2_coreboot_append_acpi_table_hob(EFI_HOB_HANDOFF_INFO_TABLE
 
 	return cdk2_coreboot_append_guid_hob(handoff, &m_cdk2_acpi_table_guid, &acpi_table,
 					     sizeof(acpi_table));
+}
+
+static EFI_STATUS cdk2_coreboot_append_smram_hob(
+	EFI_HOB_HANDOFF_INFO_TABLE *handoff,
+	const struct cdk2_coreboot_handoff *coreboot)
+{
+	const struct cb_smram *smram;
+	const void *record;
+	EFI_SMRAM_HOB_DESCRIPTOR_BLOCK smram_info;
+	EFI_STATUS status;
+
+	status = cdk2_coreboot_find_record(coreboot, CB_TAG_SMRAM,
+		CDK2_COREBOOT_SMRAM_MIN_SIZE, &record);
+	if (EFI_ERROR(status))
+		return status;
+	smram = (const struct cb_smram *)record;
+	if (smram->physical_start == 0 || smram->physical_size == 0 ||
+	    smram->physical_start > MAX_UINT64 - smram->physical_size)
+		return EFI_COMPROMISED_DATA;
+
+	smram_info = (EFI_SMRAM_HOB_DESCRIPTOR_BLOCK){0};
+	smram_info.number_of_smm_reserved_regions = 1;
+	smram_info.descriptor[0].physical_start = smram->physical_start;
+	smram_info.descriptor[0].cpu_start = smram->physical_start;
+	smram_info.descriptor[0].physical_size = smram->physical_size;
+	smram_info.descriptor[0].region_state = EFI_SMRAM_CLOSED | EFI_CACHEABLE;
+	return cdk2_coreboot_append_guid_hob(handoff, &m_cdk2_smram_memory_guid,
+		&smram_info, sizeof(smram_info));
 }
 
 static UINT16 cdk2_coreboot_tpm_digest_size(TPMI_ALG_HASH hash_alg)
@@ -1882,6 +1917,10 @@ static EFI_STATUS EFIAPI cdk2_coreboot_build_platform_hobs(struct cdk2_native_co
 		return status;
 	}
 
+	status = cdk2_coreboot_append_smram_hob(hob, &m_coreboot_handoff);
+	if (status != EFI_SUCCESS && status != EFI_NOT_FOUND)
+		return status;
+
 	status = cdk2_coreboot_find_record(&m_coreboot_handoff, CB_TAG_FW_INFO,
 					   CDK2_COREBOOT_FW_INFO_MIN_SIZE, &record);
 	if (!EFI_ERROR(status)) {
@@ -2313,6 +2352,15 @@ cdk2_coreboot_test_append_smbios_hob(void *handoff,
 {
 	return cdk2_coreboot_append_smbios_hob((EFI_HOB_HANDOFF_INFO_TABLE *)handoff,
 					       coreboot);
+}
+
+EFI_STATUS
+EFIAPI
+cdk2_coreboot_test_append_smram_hob(void *handoff,
+	const struct cdk2_coreboot_handoff *coreboot)
+{
+	return cdk2_coreboot_append_smram_hob(
+		(EFI_HOB_HANDOFF_INFO_TABLE *)handoff, coreboot);
 }
 
 EFI_STATUS

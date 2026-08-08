@@ -54,6 +54,7 @@ CDK2_CONFIG_TARGETS := build check manifest modules native-stage \
 	native-smbios-test native-smbios-fv \
 	native-reset-system-test native-reset-system-fv \
 	native-pcat-rtc-test native-pcat-rtc-fv \
+	native-smm-access-test native-smm-access-fv \
 	manifest-check print
 
 CDK2_RECURSIVE_ARGS := \
@@ -90,6 +91,7 @@ CDK2_RECURSIVE_ARGS := \
 	native-smbios-test native-smbios-fv \
 	native-reset-system-test native-reset-system-fv \
 	native-pcat-rtc-test native-pcat-rtc-fv \
+	native-smm-access-test native-smm-access-fv \
 	native-elfcheck-test manifest-check print lint \
 	lint-stable lint-extended test-lint \
 	jenkins what-jenkins-does retained-fv-check coreboot-stage clean FORCE

@@ -270,6 +270,14 @@ config CDK2_NATIVE_PCAT_RTC
 	  Publish the real-time-clock architectural protocol and provide runtime
 	  time and wake-alarm services through the PC/AT CMOS register interface.
 
+config CDK2_NATIVE_SMM_ACCESS
+	bool "Build native SMM Access 2 services"
+	default y
+	depends on CDK2_NATIVE_STAGE && CDK2_SMM
+	help
+	  Publish the SMM Access 2 protocol from the SMRAM descriptor supplied by
+	  coreboot and translated into the PI SMRAM GUID HOB.
+
 config CDK2_BUILD_DEBUG
 	bool "Build a debug payload"
 	default n
