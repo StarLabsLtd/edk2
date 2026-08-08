@@ -351,14 +351,15 @@ native-tcg2-fv:
 	@printf '%s\n' 'native TCG2: disabled by Kconfig'
 endif
 
+ifeq ($(CONFIG_CDK2_NATIVE_TCG2),y)
 native-tpm2-acpi-table-fv: $(CDK2_NATIVE_TPM2_ACPI_TABLE_FV)
 	@printf '%s\n' "native TPM2 ACPI table FV: $(CDK2_NATIVE_TPM2_ACPI_TABLE_FV)"
 
 $(CDK2_NATIVE_BUILD_DIR)/tpm2-acpi-driver.o: $(CDK2_DIR)/src/modules/tpm2_acpi_table/driver.c | $(CDK2_NATIVE_BUILD_DIR)
-	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) -mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args $(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) -mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args $(CDK2_NATIVE_INCLUDES) -MMD -MP -MF "$(@:.o=.d)" -MT "$@" -c "$<" -o "$@"
 
 $(CDK2_NATIVE_BUILD_DIR)/tpm2-acpi-table.o: $(CDK2_DIR)/src/modules/tpm2_acpi_table/tpm2_acpi_table.c | $(CDK2_NATIVE_BUILD_DIR)
-	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) -mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args $(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) -mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args $(CDK2_NATIVE_INCLUDES) -MMD -MP -MF "$(@:.o=.d)" -MT "$@" -c "$<" -o "$@"
 
 $(CDK2_NATIVE_TPM2_ACPI_TABLE_PE): $(CDK2_NATIVE_TPM2_ACPI_TABLE_OBJS) $(CDK2_DIR)/src/modules/tpm2_acpi_table/tpm2_acpi_table.ld $(CDK2_NATIVE_PERELOCCHECK)
 	@$(CDK2_NATIVE_LD) -mi386pep --subsystem 11 --entry cdk2_tpm2_acpi_entry --image-base 0 --section-alignment 0x1000 --file-alignment 0x1000 --build-id=none --no-insert-timestamp -s --nxcompat -T "$(CDK2_DIR)/src/modules/tpm2_acpi_table/tpm2_acpi_table.ld" -o "$@" $(CDK2_NATIVE_TPM2_ACPI_TABLE_OBJS)
@@ -375,6 +376,10 @@ $(CDK2_NATIVE_TPM2_ACPI_TABLE_FFS): $(CDK2_NATIVE_TPM2_ACPI_TABLE_PE) $(CDK2_NAT
 
 $(CDK2_NATIVE_TPM2_ACPI_TABLE_FV): $(CDK2_NATIVE_TCG2_FV) $(CDK2_NATIVE_TPM2_ACPI_TABLE_FFS) $(CDK2_NATIVE_FVREPLACE)
 	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_TCG2_FV)" 0x3a18c8 "$(CDK2_NATIVE_TPM2_ACPI_TABLE_FFS)" "$@"
+else
+native-tpm2-acpi-table-fv:
+	@printf '%s\n' 'native TPM2 ACPI table: disabled by Kconfig'
+endif
 native-check: $(CDK2_CONFIG_HEADER) $(CDK2_NATIVE_ELF) $(CDK2_NATIVE_OVERRIDE_ELF) \
 		$(CDK2_NATIVE_COREBOOT_ELF) $(CDK2_NATIVE_COREBOOT_ENTRY) \
 		$(CDK2_NATIVE_HOST_TOOLS)
