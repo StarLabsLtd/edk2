@@ -203,6 +203,14 @@ config CDK2_NATIVE_CPU_IO2
 	help
 	  Replace CpuIo2Dxe with CDK2-owned MMIO and x86 port-I/O services.
 
+config CDK2_NATIVE_DEVICE_PATH
+	bool "Build native device-path services"
+	default y
+	depends on CDK2_NATIVE_STAGE
+	help
+	  Publish the UEFI Device Path Utilities, To Text, and From Text
+	  protocols from the native DXE driver.
+
 config CDK2_NATIVE_STATUS_CODE_HANDLER
 	bool "Build the native release status-code handler"
 	default y

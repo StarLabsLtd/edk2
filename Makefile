@@ -67,7 +67,7 @@ CDK2_CONFIG_TARGETS := build check manifest modules native-stage \
 	native-tpm2-acpi-table-test native-tpm2-acpi-table-fv \
 	native-esrt-test native-esrt-ffs native-esrt-fv \
 	native-pcd-fv \
-	native-device-path-test \
+	native-device-path-test native-device-path-fv \
 	manifest-check print
 
 CDK2_RECURSIVE_ARGS := \
@@ -117,7 +117,7 @@ CDK2_RECURSIVE_ARGS := \
 	native-tcg2-measure-test native-tcg2-service-test native-tcg2-entry-test native-tcg2-fv \
 	native-tpm2-acpi-table-test native-tpm2-acpi-table-fv \
 	native-esrt-test native-esrt-ffs native-esrt-fv \
-	native-device-path-test \
+	native-device-path-test native-device-path-fv \
 	native-elfcheck-test manifest-check print lint \
 	lint-stable lint-extended test-lint \
 	jenkins what-jenkins-does retained-fv-check coreboot-stage clean FORCE
