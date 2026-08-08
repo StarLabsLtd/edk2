@@ -15,6 +15,11 @@ int main(void)
 	struct cdk2_hii_database database;
 	struct cdk2_hii_pixel pixels[8] = { 0 };
 	struct cdk2_hii_image_output *output = NULL;
+	struct cdk2_hii_image_output clipped = { 2U, 4U, { NULL } };
+	struct cdk2_hii_image_output *clipped_output = &clipped;
+	struct cdk2_hii_pixel clipped_pixels[8] = { 0 };
+	struct cdk2_hii_pixel foreground = { .red = 0xaaU };
+	struct cdk2_hii_pixel background = { .blue = 0xbbU };
 	struct cdk2_hii_row_info *rows = NULL;
 	UINTN row_count = 0U, column = 0U;
 	struct cdk2_hii_font_info *font_info = NULL;
@@ -23,6 +28,8 @@ int main(void)
 
 	(void)cdk2_hii_database_init(&database, &ops, NULL);
 	(void)cdk2_hii_register_glyph(&database, L'A', 2U, 4U, 3U, pixels);
+	pixels[0].red = 0xffU;
+	(void)cdk2_hii_register_glyph(&database, L'C', 2U, 4U, 3U, pixels);
 	failures += expect(cdk2_hii_string_to_image(&database, 0U, L"AA\nA", &output,
 		0U, 0U, &rows, &row_count, &column, NULL) == EFI_SUCCESS &&
 		row_count == 2U && rows[0].line_width == 4U && column == 4U,
@@ -44,5 +51,12 @@ int main(void)
 	failures += expect(cdk2_hii_get_font_info(&database, &font_handle, NULL,
 		&font_info, L"AB") == EFI_NOT_FOUND,
 		"font lacking a requested glyph was returned");
+	clipped.image.bitmap = clipped_pixels;
+	column = 0U;
+	failures += expect(cdk2_hii_string_to_image_colored(&database, 0x01U, L"CC",
+		&clipped_output, 0U, 0U, NULL, NULL, &column, NULL, &foreground,
+		&background) == EFI_SUCCESS && clipped_pixels[0].red == 0xaaU &&
+		clipped_pixels[1].blue == 0xbbU && column == 2U,
+		"font color or horizontal clipping semantics failed");
 	return failures == 0 ? 0 : 1;
 }

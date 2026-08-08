@@ -161,19 +161,51 @@ EFI_STATUS cdk2_hii_get_font_info(struct cdk2_hii_database *database,
 
 static EFI_STATUS draw_glyph(struct cdk2_hii_database *database,
 	struct cdk2_hii_glyph *glyph, struct cdk2_hii_image_output **output,
-	UINTN x, UINTN y, cdk2_hii_screen_blt_fn *screen_blt)
+	UINTN x, UINTN y, cdk2_hii_screen_blt_fn *screen_blt, UINTN flags,
+	const struct cdk2_hii_pixel *foreground,
+	const struct cdk2_hii_pixel *background)
 {
 	struct cdk2_hii_image_input image = {
 		.width = glyph->width, .height = glyph->height, .bitmap = glyph->bitmap
 	};
+	struct cdk2_hii_pixel *colored = NULL;
+	EFI_STATUS status;
+	UINTN index, count = (UINTN)glyph->width * glyph->height;
 
-	return cdk2_hii_draw_image(database, &image, 0U, output, x, y, screen_blt);
+	if (foreground != NULL && background != NULL) {
+		status = database->ops->allocate(database->context,
+			count * sizeof(*colored), (void **)&colored);
+		if (EFI_ERROR(status))
+			return status;
+		for (index = 0; index < count; index++)
+			colored[index] = (glyph->bitmap[index].red |
+				glyph->bitmap[index].green | glyph->bitmap[index].blue) != 0U ?
+				*foreground : *background;
+		image.bitmap = colored;
+	}
+
+	status = cdk2_hii_draw_image(database, &image,
+		(flags & 0x10U) != 0U ? 1U : 0U, output, x, y, screen_blt);
+	if (colored != NULL)
+		database->ops->release(database->context, colored);
+	return status;
 }
 
 EFI_STATUS cdk2_hii_string_to_image(struct cdk2_hii_database *database,
 	UINTN flags, const CHAR16 *string, struct cdk2_hii_image_output **output,
 	UINTN x, UINTN y, struct cdk2_hii_row_info **rows, UINTN *row_count,
 	UINTN *column, cdk2_hii_screen_blt_fn *screen_blt)
+{
+	return cdk2_hii_string_to_image_colored(database, flags, string, output, x, y,
+		rows, row_count, column, screen_blt, NULL, NULL);
+}
+
+EFI_STATUS cdk2_hii_string_to_image_colored(struct cdk2_hii_database *database,
+	UINTN flags, const CHAR16 *string, struct cdk2_hii_image_output **output,
+	UINTN x, UINTN y, struct cdk2_hii_row_info **rows, UINTN *row_count,
+	UINTN *column, cdk2_hii_screen_blt_fn *screen_blt,
+	const struct cdk2_hii_pixel *foreground,
+	const struct cdk2_hii_pixel *background)
 {
 	struct cdk2_hii_row_info row_buffer[128];
 	struct cdk2_hii_glyph *glyph;
@@ -243,7 +275,8 @@ EFI_STATUS cdk2_hii_string_to_image(struct cdk2_hii_database *database,
 			index++;
 			continue;
 		}
-		if (line_x != x && line_x + glyph->width > max_width) {
+		if ((flags & 0x02U) != 0U && line_x != x &&
+		    line_x + glyph->width > max_width) {
 			if (count == 128U)
 				return EFI_OUT_OF_RESOURCES;
 			row_buffer[count++] = (struct cdk2_hii_row_info) {
@@ -252,7 +285,17 @@ EFI_STATUS cdk2_hii_string_to_image(struct cdk2_hii_database *database,
 			line_y += height; line_x = x; start = index;
 			height = baseline = 0U;
 		}
-		status = draw_glyph(database, glyph, output, line_x, line_y, screen_blt);
+		if ((flags & 0x01U) != 0U && line_x + glyph->width > max_width) {
+			index++;
+			continue;
+		}
+		if ((flags & 0x01U) != 0U &&
+		    line_y + glyph->height > (*output)->height) {
+			index++;
+			continue;
+		}
+		status = draw_glyph(database, glyph, output, line_x, line_y, screen_blt,
+			flags, foreground, background);
 		if (EFI_ERROR(status)) {
 			*column = index;
 			return status;

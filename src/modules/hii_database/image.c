@@ -177,7 +177,7 @@ EFI_STATUS cdk2_hii_draw_image(struct cdk2_hii_database *database,
 	struct cdk2_hii_image_output *target;
 	struct cdk2_hii_pixel pixel, transparent;
 	EFI_STATUS status;
-	UINTN bytes, row, column, target_index, source_index;
+	UINTN bytes, row, column, target_index, source_index, draw_width, draw_height;
 
 	if (database == NULL || output == NULL)
 		return EFI_INVALID_PARAMETER;
@@ -209,12 +209,23 @@ EFI_STATUS cdk2_hii_draw_image(struct cdk2_hii_database *database,
 			(UINTN)target->width * target->height * sizeof(pixel));
 		*output = target;
 	}
-	if (target->image.bitmap == NULL || x + image->width > target->width ||
-	    y + image->height > target->height)
+	if (target->image.bitmap == NULL)
 		return EFI_INVALID_PARAMETER;
+	if (x >= target->width || y >= target->height)
+		return (flags & 0x02U) != 0U ? EFI_SUCCESS : EFI_INVALID_PARAMETER;
+	draw_width = image->width;
+	draw_height = image->height;
+	if (x + draw_width > target->width || y + draw_height > target->height) {
+		if ((flags & 0x02U) == 0U)
+			return EFI_INVALID_PARAMETER;
+		if (x + draw_width > target->width)
+			draw_width = target->width - x;
+		if (y + draw_height > target->height)
+			draw_height = target->height - y;
+	}
 	transparent = image->bitmap[0];
-	for (row = 0; row < image->height; row++)
-		for (column = 0; column < image->width; column++) {
+	for (row = 0; row < draw_height; row++)
+		for (column = 0; column < draw_width; column++) {
 			source_index = row * image->width + column;
 			pixel = image->bitmap[source_index];
 			if ((flags & HII_DRAW_TRANSPARENT) != 0U &&

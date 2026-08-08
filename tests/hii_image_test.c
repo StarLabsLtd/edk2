@@ -56,5 +56,8 @@ int main(void)
 	failures += expect(cdk2_hii_draw_image_id(&database, handle, id, 0U, &output,
 		1U, 1U, NULL) == EFI_SUCCESS && output->width == 3U &&
 		output->image.bitmap[8].blue == 4U, "bitmap composition failed");
+	failures += expect(cdk2_hii_draw_image_id(&database, handle, id, 2U, &output,
+		2U, 2U, NULL) == EFI_SUCCESS && output->image.bitmap[8].blue == 1U,
+		"clipped bitmap composition failed");
 	return failures == 0 ? 0 : 1;
 }

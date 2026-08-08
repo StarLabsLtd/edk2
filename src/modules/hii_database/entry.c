@@ -50,8 +50,6 @@ struct hii_entry_context {
 	struct cdk2_efi_hii_font_protocol font_protocol;
 	struct cdk2_efi_hii_config_routing_protocol config_protocol;
 	struct cdk2_efi_config_keyword_protocol keyword_protocol;
-	struct cdk2_efi_pixel foreground, background;
-	BOOLEAN font_colors;
 	struct {
 		cdk2_efi_hii_notify_fn *notify;
 		void *source_handle;
@@ -171,27 +169,11 @@ static EFI_STATUS screen_blt(void *screen, struct cdk2_hii_pixel *bitmap,
 	UINTN x, UINTN y, UINTN width, UINTN height)
 {
 	struct gop_protocol *gop = screen;
-	struct cdk2_efi_pixel *colored = NULL, *source =
-		(struct cdk2_efi_pixel *)bitmap;
-	EFI_STATUS status;
-	UINTN index, count = width * height;
+	struct cdk2_efi_pixel *source = (struct cdk2_efi_pixel *)bitmap;
 	if (gop == NULL || gop->blt == NULL)
 		return EFI_INVALID_PARAMETER;
-	if (context.font_colors) {
-		status = allocate(&context, count * sizeof(*colored), (void **)&colored);
-		if (EFI_ERROR(status))
-			return status;
-		for (index = 0; index < count; index++)
-			colored[index] = (source[index].red | source[index].green |
-				source[index].blue) != 0U ? context.foreground :
-				context.background;
-		source = colored;
-	}
-	status = gop->blt(gop, source, 2U, 0U, 0U,
+	return gop->blt(gop, source, 2U, 0U, 0U,
 		x, y, width, height, 0U);
-	if (colored != NULL)
-		release(&context, colored);
-	return status;
 }
 
 static EFI_STATUS CDK2_MS_ABI new_package(const void *self, const void *list,
@@ -395,19 +377,36 @@ static EFI_STATUS CDK2_MS_ABI draw_image(const void *self, UINT32 flags,
 	struct cdk2_efi_image_output **output, UINTN x, UINTN y)
 {
 	struct cdk2_hii_image_input input;
+	UINTN core_flags;
 	(void)self;
 	if (image == NULL)
 		return EFI_INVALID_PARAMETER;
 	input = core_image(image);
-	return cdk2_hii_draw_image(&context.database, &input, flags,
+	core_flags = (flags & 0x01U) != 0U ? 2U : 0U;
+	if ((flags & 0x30U) == 0x10U ||
+	    ((flags & 0x30U) == 0U && (image->flags & 1U) != 0U))
+		core_flags |= 1U;
+	return cdk2_hii_draw_image(&context.database, &input, core_flags,
 		(struct cdk2_hii_image_output **)output, x, y,
 		(flags & 0x80U) != 0U ? screen_blt : NULL);
 }
 static EFI_STATUS CDK2_MS_ABI draw_image_id(const void *self, UINT32 flags,
 	void *handle, UINT16 id, struct cdk2_efi_image_output **output, UINTN x, UINTN y)
 {
+	UINTN index, core_flags = (flags & 0x01U) != 0U ? 2U : 0U;
 	(void)self;
-	return cdk2_hii_draw_image_id(&context.database, handle, id, flags,
+	if ((flags & 0x30U) == 0x10U)
+		core_flags |= 1U;
+	else if ((flags & 0x30U) == 0U)
+		for (index = 0; index < CDK2_HII_MAX_IMAGES; index++)
+			if (context.database.images[index].active &&
+			    context.database.images[index].package_handle == handle &&
+			    context.database.images[index].id == id &&
+			    (context.database.images[index].image.flags & 1U) != 0U) {
+				core_flags |= 1U;
+				break;
+			}
+	return cdk2_hii_draw_image_id(&context.database, handle, id, core_flags,
 		(struct cdk2_hii_image_output **)output, x, y,
 		(flags & 0x80U) != 0U ? screen_blt : NULL);
 }
@@ -422,16 +421,14 @@ static EFI_STATUS CDK2_MS_ABI string_to_image(const void *self, UINT32 flags,
 	UINTN index, count = 0U;
 
 	(void)self;
-	if (display != NULL) {
-		context.foreground = display->foreground;
-		context.background = display->background;
-		context.font_colors = TRUE;
-	}
-	status = cdk2_hii_string_to_image(&context.database, flags, string,
+	status = cdk2_hii_string_to_image_colored(&context.database, flags, string,
 		(struct cdk2_hii_image_output **)output, x, y, &core_rows,
 		rows == NULL ? NULL : &count, column,
-		(flags & 0x80U) != 0U ? screen_blt : NULL);
-	context.font_colors = FALSE;
+		(flags & 0x80U) != 0U ? screen_blt : NULL,
+		display == NULL ? NULL :
+		(const struct cdk2_hii_pixel *)&display->foreground,
+		display == NULL ? NULL :
+		(const struct cdk2_hii_pixel *)&display->background);
 	if (EFI_ERROR(status) || rows == NULL)
 		return status;
 	status = allocate(&context, count * sizeof(**rows), (void **)rows);
@@ -500,6 +497,8 @@ static EFI_STATUS CDK2_MS_ABI get_font_info(const void *self, void **handle,
 	struct cdk2_efi_font_display_info **output, const CHAR16 *string)
 {
 	struct cdk2_hii_font_info *core = NULL;
+	struct { UINT32 style; UINT16 size; CHAR16 name[128]; } wanted_storage;
+	struct cdk2_hii_font_info *wanted = (void *)&wanted_storage;
 	struct cdk2_efi_font_display_info *result;
 	EFI_STATUS status;
 	UINTN length = 0U, size;
@@ -507,9 +506,22 @@ static EFI_STATUS CDK2_MS_ABI get_font_info(const void *self, void **handle,
 	(void)self;
 	while (requested != NULL && requested->font.name[length] != 0U)
 		length++;
+	if (requested != NULL) {
+		if (length >= ARRAY_SIZE(wanted_storage.name))
+			return EFI_INVALID_PARAMETER;
+		wanted->style = requested->font.style;
+		wanted->size = requested->font.size;
+		__builtin_memcpy(wanted->name, requested->font.name,
+			(length + 1U) * sizeof(CHAR16));
+		if ((requested->mask & (0x00000001U | 0x00010000U)) != 0U)
+			wanted->name[0] = 0U;
+		if ((requested->mask & (0x00000002U | 0x00020000U)) != 0U)
+			wanted->size = 0U;
+		if ((requested->mask & (0x00000004U | 0x00040000U)) != 0U)
+			wanted->style = 0U;
+	}
 	status = cdk2_hii_get_font_info(&context.database, handle,
-		requested == NULL ? NULL :
-		(const struct cdk2_hii_font_info *)&requested->font, &core, string);
+		requested == NULL ? NULL : wanted, &core, string);
 	if (EFI_ERROR(status))
 		return status;
 	length = 0U;
@@ -523,6 +535,10 @@ static EFI_STATUS CDK2_MS_ABI get_font_info(const void *self, void **handle,
 	}
 	__builtin_memset(result, 0, size);
 	result->mask = requested == NULL ? 0U : requested->mask;
+	if (requested != NULL) {
+		result->foreground = requested->foreground;
+		result->background = requested->background;
+	}
 	result->font.style = core->style;
 	result->font.size = core->size;
 	__builtin_memcpy(result->font.name, core->name,

@@ -209,6 +209,12 @@ EFI_STATUS cdk2_hii_string_to_image(struct cdk2_hii_database *database,
 	UINTN flags, const CHAR16 *string, struct cdk2_hii_image_output **output,
 	UINTN x, UINTN y, struct cdk2_hii_row_info **rows, UINTN *row_count,
 	UINTN *column, cdk2_hii_screen_blt_fn *screen_blt);
+EFI_STATUS cdk2_hii_string_to_image_colored(struct cdk2_hii_database *database,
+	UINTN flags, const CHAR16 *string, struct cdk2_hii_image_output **output,
+	UINTN x, UINTN y, struct cdk2_hii_row_info **rows, UINTN *row_count,
+	UINTN *column, cdk2_hii_screen_blt_fn *screen_blt,
+	const struct cdk2_hii_pixel *foreground,
+	const struct cdk2_hii_pixel *background);
 EFI_STATUS cdk2_hii_add_keyboard_layout(struct cdk2_hii_database *database,
 	const EFI_GUID *layout);
 EFI_STATUS cdk2_hii_add_keyboard_layout_record(struct cdk2_hii_database *database,
