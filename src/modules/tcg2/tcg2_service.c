@@ -176,8 +176,9 @@ EFI_STATUS cdk2_tcg2_service_init(struct cdk2_tcg2_service *service,
 	UINT32 index;
 	EFI_STATUS status;
 
-	if (service == NULL || transport == NULL || allocate == NULL || hash == NULL ||
-	    extend == NULL || main_capacity == 0 || final_capacity == 0 ||
+	if (service == NULL || transport == NULL || allocate == NULL ||
+	    ((hash == NULL) != (extend == NULL)) || main_capacity == 0 ||
+	    final_capacity == 0 ||
 	    final_capacity > MAX_UINT32 - sizeof(*service->final_table))
 		return EFI_INVALID_PARAMETER;
 	*service = (struct cdk2_tcg2_service){0};
@@ -230,7 +231,10 @@ EFI_STATUS cdk2_tcg2_service_init(struct cdk2_tcg2_service *service,
 		.number_of_pcr_banks = banks, .active_pcr_banks = active,
 	};
 	service->measurement = (struct cdk2_tcg2_measurement){
-		.logs = &service->logs, .context = context, .hash = hash, .extend = extend,
+		.logs = &service->logs,
+		.context = hash == NULL ? &service->transport : context,
+		.hash = hash == NULL ? cdk2_tpm2_hash_spans : hash,
+		.extend = extend == NULL ? cdk2_tpm2_extend_digests : extend,
 	};
 	for (index = 0; index < HASH_COUNT; index++)
 		if ((active & (1U << index)) != 0)

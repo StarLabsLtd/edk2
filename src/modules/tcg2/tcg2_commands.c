@@ -341,3 +341,49 @@ EFI_STATUS cdk2_tpm2_pcr_extend(const struct cdk2_tpm2_transport *transport,
 	*response_code = result.response_code;
 	return result.response_code == 0 ? EFI_SUCCESS : EFI_DEVICE_ERROR;
 }
+
+EFI_STATUS cdk2_tpm2_hash_spans(void *context, TPMI_ALG_HASH algorithm,
+	const struct cdk2_tcg2_span *spans, UINT32 span_count, UINT8 *digest,
+	UINT16 digest_size)
+{
+	const struct cdk2_tpm2_transport *transport = context;
+	UINT32 handle;
+	UINT32 code;
+	UINT32 span_index;
+	UINT32 offset;
+	UINT32 chunk;
+	UINT16 returned;
+	EFI_STATUS status;
+
+	if (transport == NULL || spans == NULL || span_count == 0 || digest == NULL)
+		return EFI_INVALID_PARAMETER;
+	status = cdk2_tpm2_hash_sequence_start(transport, algorithm, &handle, &code);
+	if (EFI_ERROR(status))
+		return status;
+	for (span_index = 0; span_index < span_count; span_index++) {
+		if (spans[span_index].size != 0 && spans[span_index].data == NULL)
+			return EFI_INVALID_PARAMETER;
+		for (offset = 0; offset < spans[span_index].size; offset += chunk) {
+			chunk = spans[span_index].size - offset;
+			if (chunk > CDK2_TPM2_SEQUENCE_CHUNK)
+				chunk = CDK2_TPM2_SEQUENCE_CHUNK;
+			status = cdk2_tpm2_sequence_update(transport, handle,
+				spans[span_index].data + offset, (UINT16)chunk, &code);
+			if (EFI_ERROR(status))
+				return status;
+		}
+	}
+	status = cdk2_tpm2_sequence_complete(transport, handle, NULL, 0,
+		digest, digest_size, &returned, &code);
+	if (EFI_ERROR(status))
+		return status;
+	return returned == digest_size ? EFI_SUCCESS : EFI_COMPROMISED_DATA;
+}
+
+EFI_STATUS cdk2_tpm2_extend_digests(void *context, TPM_PCRINDEX pcr_index,
+	const struct cdk2_tcg2_digest *digests, UINT32 digest_count,
+	UINT32 *response_code)
+{
+	return cdk2_tpm2_pcr_extend(context, pcr_index, digests, digest_count,
+		response_code);
+}

@@ -127,6 +127,10 @@ int main(void)
 		.algorithm = TPM_ALG_SHA256,
 		.size = SHA256_DIGEST_SIZE,
 	};
+	struct cdk2_tcg2_span hash_spans[2] = {
+		{ (const UINT8 *)"abc", 3 },
+		{ (const UINT8 *)"def", 3 },
+	};
 	int failures = 0;
 
 	failures += expect(cdk2_tpm2_startup(&transport, CDK2_TPM2_SU_CLEAR, &code) ==
@@ -154,6 +158,11 @@ int main(void)
 	memset(extend_digest.bytes, 0xa5, extend_digest.size);
 	failures += expect(cdk2_tpm2_pcr_extend(&transport, 7, &extend_digest, 1,
 		&code) == EFI_SUCCESS && code == 0, "PCR_Extend failed");
+	failures += expect(cdk2_tpm2_hash_spans(&transport, TPM_ALG_SHA256,
+		hash_spans, 2, digest, sizeof(digest)) == EFI_SUCCESS &&
+		digest[0] == 0xa5, "native TPM hashing failed");
+	failures += expect(cdk2_tpm2_extend_digests(&transport, 7, &extend_digest, 1,
+		&code) == EFI_SUCCESS && code == 0, "native TPM extension failed");
 	mock.response_code = 0x143U;
 	failures += expect(cdk2_tpm2_get_property(&transport, 0x105U, &value, &code) ==
 		EFI_DEVICE_ERROR && code == 0x143U, "TPM error code was lost");

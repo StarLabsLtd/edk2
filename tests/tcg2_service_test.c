@@ -72,6 +72,19 @@ static EFI_STATUS extend(void *context, TPM_PCRINDEX pcr,
 	return EFI_SUCCESS;
 }
 
+EFI_STATUS cdk2_tpm2_hash_spans(void *context, TPMI_ALG_HASH algorithm,
+	const struct cdk2_tcg2_span *spans, UINT32 span_count, UINT8 *digest,
+	UINT16 digest_size)
+{
+	return hash(context, algorithm, spans, span_count, digest, digest_size);
+}
+
+EFI_STATUS cdk2_tpm2_extend_digests(void *context, TPM_PCRINDEX pcr,
+	const struct cdk2_tcg2_digest *digests, UINT32 count, UINT32 *code)
+{
+	return extend(context, pcr, digests, count, code);
+}
+
 static EFI_STATUS install_protocol(void *context, const EFI_GUID *guid,
 	void *interface)
 {

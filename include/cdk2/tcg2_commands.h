@@ -3,7 +3,7 @@
 #ifndef CDK2_TCG2_COMMANDS_H_
 #define CDK2_TCG2_COMMANDS_H_
 
-#include <cdk2/tcg2_event_log.h>
+#include <cdk2/tcg2_measure.h>
 #include <cdk2/tcg2_transport.h>
 
 #define CDK2_TPM2_RC_SUCCESS 0U
@@ -57,5 +57,11 @@ EFI_STATUS cdk2_tpm2_sequence_complete(
 EFI_STATUS cdk2_tpm2_pcr_extend(const struct cdk2_tpm2_transport *transport,
 	TPM_PCRINDEX pcr_index, const struct cdk2_tcg2_digest *digests,
 	UINT32 digest_count, UINT32 *response_code);
+EFI_STATUS cdk2_tpm2_hash_spans(void *context, TPMI_ALG_HASH algorithm,
+	const struct cdk2_tcg2_span *spans, UINT32 span_count, UINT8 *digest,
+	UINT16 digest_size);
+EFI_STATUS cdk2_tpm2_extend_digests(void *context, TPM_PCRINDEX pcr_index,
+	const struct cdk2_tcg2_digest *digests, UINT32 digest_count,
+	UINT32 *response_code);
 
 #endif
