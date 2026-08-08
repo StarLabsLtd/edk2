@@ -29,6 +29,7 @@ typedef cdk2_tcg2_install_config_fn * cdk2_tcg2_install_config_ptr;
 typedef cdk2_tcg2_set_banks_fn * cdk2_tcg2_set_banks_ptr;
 typedef cdk2_tcg2_hash_fn * cdk2_tcg2_hash_ptr;
 typedef cdk2_tcg2_extend_fn * cdk2_tcg2_extend_ptr;
+typedef const CHAR16 cdk2_const_char16[1];
 
 struct cdk2_tcg2_capability {
 	UINT8 structure_version_major;
@@ -86,6 +87,18 @@ EFI_STATUS cdk2_tcg2_get_capability(const struct cdk2_tcg2_service *service,
 	struct cdk2_tcg2_capability *capability);
 EFI_STATUS cdk2_tcg2_service_import_hobs(struct cdk2_tcg2_service *service,
 	const void *hob_list, const void *hob_end);
+EFI_STATUS cdk2_tcg2_measure_image(struct cdk2_tcg2_service *service,
+	TPM_PCRINDEX pcr_index, UINT32 event_type, const void *image,
+	UINT32 image_size, const void *event, UINT32 event_size,
+	UINT32 *response_code);
+EFI_STATUS cdk2_tcg2_measure_boot_variable(struct cdk2_tcg2_service *service,
+	TPM_PCRINDEX pcr_index, UINT32 event_type, const EFI_GUID *vendor,
+	cdk2_const_char16 name, UINT32 name_bytes, const void *data, UINT32 data_size,
+	UINT32 *response_code);
+EFI_STATUS cdk2_tcg2_boot_attempt(struct cdk2_tcg2_service *service,
+	BOOLEAN returning, UINT32 *response_code);
+EFI_STATUS cdk2_tcg2_exit_boot_services(struct cdk2_tcg2_service *service,
+	BOOLEAN returned, BOOLEAN success, UINT32 *response_code);
 EFI_STATUS cdk2_tcg2_get_event_log(struct cdk2_tcg2_service *service,
 	UINT32 format, efi_physical_address_ptr location,
 	efi_physical_address_ptr last_entry, efi_boolean_ptr truncated);

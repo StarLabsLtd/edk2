@@ -126,6 +126,8 @@ int main(void)
 	UINT32 size, code;
 	EFI_TCG2_BOOT_SERVICE_CAPABILITY abi_capability;
 	UINT32 operation;
+	EFI_GUID variable_guid = {0};
+	CHAR16 variable_name[2] = { 'X', 0 };
 	UINT8 extend_event_buffer[OFFSET_OF(EFI_TCG2_EVENT, event) + 4] = {0};
 	EFI_TCG2_EVENT *extend_event = (EFI_TCG2_EVENT *)extend_event_buffer;
 	int failures = 0;
@@ -136,7 +138,7 @@ int main(void)
 	extend_event->header.event_type = 5;
 
 	failures += expect(cdk2_tcg2_service_init(&service, &transport, NULL,
-		allocate, hash, extend, 512, 512) == EFI_SUCCESS && allocation_count == 2,
+		allocate, hash, extend, 768, 768) == EFI_SUCCESS && allocation_count == 2,
 		"service initialization failed");
 	failures += expect(cdk2_tcg2_get_capability(&service, &capability) ==
 		EFI_SUCCESS && capability.tpm_present &&
@@ -184,7 +186,7 @@ int main(void)
 	fail_protocol_install = 0;
 	export = cdk2_tcg2_acpi_info(&service);
 	failures += expect(export != NULL && export->active_interface == 1U &&
-		export->tpm_base == 0xfed40000U && export->log_capacity == 512U &&
+		export->tpm_base == 0xfed40000U && export->log_capacity == 768U &&
 		export->log_base == (EFI_PHYSICAL_ADDRESS)(UINTN)main_memory,
 		"immutable ACPI export is wrong");
 	failures += expect(cdk2_tcg2_get_event_log(&service,
@@ -195,6 +197,19 @@ int main(void)
 		"event", 5, &code) == EFI_SUCCESS && code == 0 &&
 		service.final_table->number_of_events == 1U && service.logs.final.used != 0,
 		"post-GetEventLog final event was not published");
+	{
+		UINT64 before = service.final_table->number_of_events;
+		failures += expect(cdk2_tcg2_measure_boot_variable(&service, 7,
+			EV_EFI_VARIABLE_BOOT, &variable_guid, variable_name,
+			sizeof(variable_name), "v", 1, &code) == EFI_SUCCESS &&
+			cdk2_tcg2_boot_attempt(&service, FALSE, &code) == EFI_SUCCESS &&
+			cdk2_tcg2_boot_attempt(&service, TRUE, &code) == EFI_SUCCESS &&
+			cdk2_tcg2_exit_boot_services(&service, FALSE, FALSE, &code) ==
+			EFI_SUCCESS && cdk2_tcg2_exit_boot_services(&service, TRUE, TRUE,
+			&code) == EFI_SUCCESS &&
+			service.final_table->number_of_events == before + 5,
+			"measured-boot lifecycle events were not recorded");
+	}
 	size = sizeof(response);
 	failures += expect(cdk2_tcg2_submit_command(&service, command, sizeof(command),
 		response, &size, &code) == EFI_SUCCESS && code == 0x143U,

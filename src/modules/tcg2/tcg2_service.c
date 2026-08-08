@@ -272,6 +272,64 @@ EFI_STATUS cdk2_tcg2_service_import_hobs(struct cdk2_tcg2_service *service,
 	return cdk2_tcg2_import_event2_hobs(&service->logs, hob_list, hob_end);
 }
 
+EFI_STATUS cdk2_tcg2_measure_image(struct cdk2_tcg2_service *service,
+	TPM_PCRINDEX pcr_index, UINT32 event_type, const void *image,
+	UINT32 image_size, const void *event, UINT32 event_size,
+	UINT32 *response_code)
+{
+	if (service == NULL)
+		return EFI_INVALID_PARAMETER;
+	if (event_type != EV_EFI_BOOT_SERVICES_APPLICATION &&
+	    event_type != EV_EFI_BOOT_SERVICES_DRIVER &&
+	    event_type != EV_EFI_RUNTIME_SERVICES_DRIVER)
+		return EFI_INVALID_PARAMETER;
+	return cdk2_tcg2_measure_pe(&service->measurement, pcr_index, event_type,
+		image, image_size, event, event_size, response_code);
+}
+
+EFI_STATUS cdk2_tcg2_measure_boot_variable(struct cdk2_tcg2_service *service,
+	TPM_PCRINDEX pcr_index, UINT32 event_type, const EFI_GUID *vendor,
+	cdk2_const_char16 name, UINT32 name_bytes, const void *data, UINT32 data_size,
+	UINT32 *response_code)
+{
+	if (service == NULL || (event_type != EV_EFI_VARIABLE_DRIVER_CONFIG &&
+	    event_type != EV_EFI_VARIABLE_BOOT &&
+	    event_type != EV_EFI_VARIABLE_AUTHORITY))
+		return EFI_INVALID_PARAMETER;
+	return cdk2_tcg2_measure_variable(&service->measurement, pcr_index,
+		event_type, vendor, name, name_bytes, data, data_size, response_code);
+}
+
+EFI_STATUS cdk2_tcg2_boot_attempt(struct cdk2_tcg2_service *service,
+	BOOLEAN returning, UINT32 *response_code)
+{
+	const char *action = returning ?
+		"Returning from EFI Application from Boot Option" :
+		"Calling EFI Application from Boot Option";
+
+	if (service == NULL)
+		return EFI_INVALID_PARAMETER;
+	return cdk2_tcg2_measure_action(&service->measurement, 5, EV_EFI_ACTION,
+		action, response_code);
+}
+
+EFI_STATUS cdk2_tcg2_exit_boot_services(struct cdk2_tcg2_service *service,
+	BOOLEAN returned, BOOLEAN success, UINT32 *response_code)
+{
+	const char *action;
+
+	if (service == NULL || (!returned && success))
+		return EFI_INVALID_PARAMETER;
+	if (!returned)
+		action = "Exit Boot Services Invocation";
+	else if (success)
+		action = "Exit Boot Services Returned with Success";
+	else
+		action = "Exit Boot Services Returned with Failure";
+	return cdk2_tcg2_measure_action(&service->measurement, 5, EV_EFI_ACTION,
+		action, response_code);
+}
+
 EFI_STATUS cdk2_tcg2_get_capability(const struct cdk2_tcg2_service *service,
 	struct cdk2_tcg2_capability *capability)
 {
