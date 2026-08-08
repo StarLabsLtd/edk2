@@ -26,8 +26,8 @@ static const EFI_GUID acpi_table_protocol_guid = {
 	0xffe06bdd, 0x6107, 0x46a6,
 	{ 0x7b, 0xb2, 0x5a, 0x9c, 0x7e, 0xc5, 0x27, 0x5c }
 };
-static const EFI_GUID acpi_sdt_protocol_guid = {
-	0xeb97088e, 0xc6df, 0x49cf,
+const EFI_GUID cdk2_acpi_sdt_protocol_guid = {
+	0xeb97088e, 0xcfdf, 0x49c6,
 	{ 0xbe, 0x4b, 0xd9, 0x06, 0xa5, 0xb2, 0x0e, 0x86 }
 };
 static const EFI_GUID tcg2_protocol_guid = {
@@ -110,18 +110,18 @@ static EFI_STATUS CDK2_MS_ABI get_table(UINTN index,
 	cdk2_acpi_header_ptr table, cdk2_uintn_ptr key)
 {
 	UINT32 version;
-	return acpi_sdt->get_table(index, table, &version, key);
+	return acpi_sdt->get_table(acpi_sdt, index, table, &version, key);
 }
 
 static EFI_STATUS CDK2_MS_ABI uninstall_table(UINTN key)
 {
-	return acpi_table->uninstall(key);
+	return acpi_table->uninstall(acpi_table, key);
 }
 
 static EFI_STATUS CDK2_MS_ABI install_table(const void *table, UINTN size,
 	cdk2_uintn_ptr key)
 {
-	return acpi_table->install(table, size, key);
+	return acpi_table->install(acpi_table, table, size, key);
 }
 
 static EFI_STATUS install_from_protocols(cdk2_tcg2_protocol_ptr tcg2,
@@ -150,7 +150,7 @@ static EFI_STATUS install_from_protocols(cdk2_tcg2_protocol_ptr tcg2,
 		return EFI_INVALID_PARAMETER;
 	acpi_table = table_protocol;
 	acpi_sdt = sdt_protocol;
-	for (index = 0; !EFI_ERROR(acpi_sdt->get_table(index, &header,
+	for (index = 0; !EFI_ERROR(acpi_sdt->get_table(acpi_sdt, index, &header,
 	     &version, &key)); index++) {
 		if (header == NULL || header->length < sizeof(*header))
 			return EFI_COMPROMISED_DATA;
@@ -197,7 +197,7 @@ EFI_STATUS CDK2_MS_ABI cdk2_tpm2_acpi_entry(void *image,
 		NULL, (void **)&acpi_table);
 	if (EFI_ERROR(status))
 		return status;
-	status = system->boot_services->locate_protocol(&acpi_sdt_protocol_guid,
+	status = system->boot_services->locate_protocol(&cdk2_acpi_sdt_protocol_guid,
 		NULL, (void **)&acpi_sdt);
 	if (EFI_ERROR(status))
 		return status;

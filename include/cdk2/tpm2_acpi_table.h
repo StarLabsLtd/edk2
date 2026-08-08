@@ -7,7 +7,10 @@
 #include <protocol/tcg2.h>
 
 struct cdk2_tcg2_acpi_export;
+struct cdk2_acpi_table_protocol;
+struct cdk2_acpi_sdt_protocol;
 struct cdk2_config_table_view { EFI_GUID guid; void *table; };
+extern const EFI_GUID cdk2_acpi_sdt_protocol_guid;
 typedef EFI_ACPI_DESCRIPTION_HEADER * cdk2_acpi_header_ptr[1];
 typedef UINTN cdk2_uintn_ptr[1];
 typedef UINT32 cdk2_uint32_ptr[1];
@@ -51,6 +54,15 @@ typedef EFI_STATUS CDK2_MS_ABI cdk2_acpi_install_table_fn(const void *table,
 typedef EFI_STATUS CDK2_MS_ABI cdk2_acpi_sdt_get_table_fn(UINTN index,
 	cdk2_acpi_header_ptr table, cdk2_uint32_ptr version,
 	cdk2_uintn_ptr table_key);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_acpi_protocol_install_fn(
+	struct cdk2_acpi_table_protocol *this, const void *table, UINTN size,
+	cdk2_uintn_ptr table_key);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_acpi_protocol_uninstall_fn(
+	struct cdk2_acpi_table_protocol *this, UINTN table_key);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_acpi_protocol_get_table_fn(
+	struct cdk2_acpi_sdt_protocol *this, UINTN index,
+	cdk2_acpi_header_ptr table, cdk2_uint32_ptr version,
+	cdk2_uintn_ptr table_key);
 
 struct cdk2_acpi_table_services {
 	cdk2_acpi_get_table_fn *get_table;
@@ -59,12 +71,12 @@ struct cdk2_acpi_table_services {
 };
 
 struct cdk2_acpi_table_protocol {
-	cdk2_acpi_install_table_fn *install;
-	cdk2_acpi_uninstall_table_fn *uninstall;
+	cdk2_acpi_protocol_install_fn *install;
+	cdk2_acpi_protocol_uninstall_fn *uninstall;
 };
 
 struct cdk2_acpi_sdt_protocol {
-	cdk2_acpi_sdt_get_table_fn *get_table;
+	cdk2_acpi_protocol_get_table_fn *get_table;
 };
 
 EFI_STATUS cdk2_tpm2_acpi_build(const struct cdk2_tpm2_acpi_info *info,

@@ -45,9 +45,29 @@ static EFI_STATUS CDK2_MS_ABI install_table(const void *table, UINTN size,
 	installed_size = size; *key = 0x55U; return install_status;
 }
 
-static EFI_STATUS CDK2_MS_ABI sdt_get_table(UINTN index,
+static struct cdk2_acpi_table_protocol *seen_table_this;
+static struct cdk2_acpi_sdt_protocol *seen_sdt_this;
+
+static EFI_STATUS CDK2_MS_ABI protocol_install(
+	struct cdk2_acpi_table_protocol *this, const void *table, UINTN size,
+	cdk2_uintn_ptr key)
+{
+	seen_table_this = this;
+	return install_table(table, size, key);
+}
+
+static EFI_STATUS CDK2_MS_ABI protocol_uninstall(
+	struct cdk2_acpi_table_protocol *this, UINTN key)
+{
+	seen_table_this = this;
+	return uninstall_table(key);
+}
+
+static EFI_STATUS CDK2_MS_ABI sdt_get_table(
+	struct cdk2_acpi_sdt_protocol *this, UINTN index,
 	cdk2_acpi_header_ptr table, cdk2_uint32_ptr version, cdk2_uintn_ptr key)
 {
+	seen_sdt_this = this;
 	*version = 0;
 	*key = index + 20;
 	if (index == 0)
@@ -89,6 +109,10 @@ static void reset_mocks(void)
 
 int main(void)
 {
+	static const EFI_GUID expected_sdt_guid = {
+		0xeb97088e, 0xcfdf, 0x49c6,
+		{ 0xbe, 0x4b, 0xd9, 0x06, 0xa5, 0xb2, 0x0e, 0x86 }
+	};
 	const struct cdk2_acpi_table_services services = {
 		.get_table = get_table, .uninstall_table = uninstall_table,
 		.install_table = install_table,
@@ -98,6 +122,8 @@ int main(void)
 	UINTN key = 0, index;
 	int failures = 0;
 	UINT8 checksum = 0;
+	failures += expect(memcmp(&cdk2_acpi_sdt_protocol_guid, &expected_sdt_guid,
+		sizeof(expected_sdt_guid)) == 0, "ACPI SDT protocol GUID is wrong");
 
 	failures += expect(sizeof(table) == 76U, "revision-4 table size changed");
 	failures += expect(cdk2_tpm2_acpi_build(&info, &table) == EFI_SUCCESS,
@@ -240,12 +266,14 @@ int main(void)
 	{
 		struct cdk2_tcg2_service native_service = {0};
 		struct cdk2_acpi_table_protocol table_protocol = {
-			.install = install_table, .uninstall = uninstall_table,
+			.install = protocol_install, .uninstall = protocol_uninstall,
 		};
 		struct cdk2_acpi_sdt_protocol sdt_protocol = {
 			.get_table = sdt_get_table,
 		};
 		reset_mocks();
+		seen_table_this = NULL;
+		seen_sdt_this = NULL;
 		driver_platform = table.table.header;
 		driver_platform.length = sizeof(driver_platform);
 		driver_tpm = table.table;
@@ -262,6 +290,9 @@ int main(void)
 			installed.event_log_length == 0x8000 &&
 			installed.table.start_method == CDK2_TPM2_START_METHOD_CRB,
 			"DXE adapter did not consume native TCG2 export");
+		failures += expect(seen_table_this == &table_protocol &&
+			seen_sdt_this == &sdt_protocol,
+			"ACPI protocol This argument was not preserved");
 	}
 	return failures == 0 ? 0 : 1;
 }
