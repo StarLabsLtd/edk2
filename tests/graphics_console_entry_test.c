@@ -48,7 +48,7 @@ static EFI_STATUS CDK2_MS_ABI allocate_pool(UINT32 type, UINTN size, void **buff
 static EFI_STATUS CDK2_MS_ABI free_pool(void *buffer)
 { frees++; free(buffer); return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI create_event(UINT32 type, UINTN tpl,
-	event_notify_fn * notify, void *context, void **event)
+	event_notify_fn *notify, void *context, void **event)
 { (void)type; (void)tpl; saved_notify = notify; saved_context = context; *event = (void *)1; return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI close_event(void *event)
 { if (event == NULL) return EFI_INVALID_PARAMETER; closes++; return EFI_SUCCESS; }
