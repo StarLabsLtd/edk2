@@ -1,0 +1,78 @@
+/* SPDX-License-Identifier: BSD-2-Clause-Patent */
+
+#ifndef CDK2_TCG2_SERVICE_H_
+#define CDK2_TCG2_SERVICE_H_
+
+#include <cdk2/tcg2_commands.h>
+#include <cdk2/tcg2_measure.h>
+
+#define CDK2_TCG2_EVENT_LOG_FORMAT_TCG_2 2U
+#define CDK2_TCG2_FINAL_EVENTS_VERSION 1U
+#define CDK2_TCG2_EXPORT_REVISION 1U
+
+typedef EFI_STATUS cdk2_tcg2_allocate_fn(void *context, EFI_MEMORY_TYPE type,
+	UINT32 size, void **buffer, EFI_PHYSICAL_ADDRESS *address);
+
+struct cdk2_tcg2_capability {
+	UINT8 structure_version_major;
+	UINT8 structure_version_minor;
+	UINT8 protocol_version_major;
+	UINT8 protocol_version_minor;
+	UINT32 hash_algorithm_bitmap;
+	UINT32 supported_event_logs;
+	BOOLEAN tpm_present;
+	UINT16 max_command_size;
+	UINT16 max_response_size;
+	UINT32 manufacturer_id;
+	UINT32 number_of_pcr_banks;
+	UINT32 active_pcr_banks;
+};
+
+struct cdk2_tcg2_final_events_table {
+	UINT64 version;
+	UINT64 number_of_events;
+	UINT8 events[];
+};
+
+struct cdk2_tcg2_acpi_export {
+	UINT16 revision;
+	UINT16 size;
+	UINT8 active_interface;
+	UINT8 reserved[3];
+	UINT64 tpm_base;
+	EFI_PHYSICAL_ADDRESS log_base;
+	UINT32 log_capacity;
+	UINT32 reserved2;
+};
+
+struct cdk2_tcg2_service {
+	struct cdk2_tpm2_transport transport;
+	struct cdk2_tcg2_logs logs;
+	struct cdk2_tcg2_measurement measurement;
+	struct cdk2_tcg2_capability capability;
+	struct cdk2_tcg2_acpi_export export;
+	struct cdk2_tcg2_final_events_table *final_table;
+	EFI_PHYSICAL_ADDRESS main_address;
+	EFI_PHYSICAL_ADDRESS final_address;
+};
+
+EFI_STATUS cdk2_tcg2_service_init(struct cdk2_tcg2_service *service,
+	const struct cdk2_tpm2_transport *transport, void *context,
+	cdk2_tcg2_allocate_fn *allocate, cdk2_tcg2_hash_fn *hash,
+	cdk2_tcg2_extend_fn *extend, UINT32 main_capacity, UINT32 final_capacity);
+EFI_STATUS cdk2_tcg2_get_capability(const struct cdk2_tcg2_service *service,
+	struct cdk2_tcg2_capability *capability);
+EFI_STATUS cdk2_tcg2_get_event_log(struct cdk2_tcg2_service *service,
+	UINT32 format, EFI_PHYSICAL_ADDRESS *location,
+	EFI_PHYSICAL_ADDRESS *last_entry, BOOLEAN *truncated);
+EFI_STATUS cdk2_tcg2_hash_log_extend(struct cdk2_tcg2_service *service,
+	TPM_PCRINDEX pcr_index, UINT32 event_type, const void *data,
+	UINT32 data_size, const void *event, UINT32 event_size,
+	UINT32 *response_code);
+EFI_STATUS cdk2_tcg2_submit_command(struct cdk2_tcg2_service *service,
+	const UINT8 *command, UINT32 command_size, UINT8 *response,
+	UINT32 *response_size, UINT32 *response_code);
+const struct cdk2_tcg2_acpi_export *cdk2_tcg2_acpi_info(
+	const struct cdk2_tcg2_service *service);
+
+#endif

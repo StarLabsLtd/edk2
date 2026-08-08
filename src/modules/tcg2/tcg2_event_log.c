@@ -63,6 +63,7 @@ EFI_STATUS cdk2_tcg2_log_init(struct cdk2_tcg2_log *log, void *buffer,
 	if (log == NULL || buffer == NULL || capacity == 0)
 		return EFI_INVALID_PARAMETER;
 	log->buffer = buffer; log->capacity = capacity; log->used = 0;
+	log->last_entry_offset = 0;
 	log->truncated = FALSE;
 	return EFI_SUCCESS;
 }
@@ -75,6 +76,7 @@ static EFI_STATUS append_raw(struct cdk2_tcg2_log *log, const UINT8 *record,
 		return EFI_VOLUME_FULL;
 	}
 	copy_bytes(log->buffer + log->used, record, size); log->used += size;
+	log->last_entry_offset = log->used - size;
 	return EFI_SUCCESS;
 }
 
@@ -174,6 +176,7 @@ EFI_STATUS cdk2_tcg2_append_event_spans(struct cdk2_tcg2_logs *logs,
 		logs->main.buffer + logs->main.used,
 		logs->main.capacity - logs->main.used, &written);
 	if (EFI_ERROR(status) || written != size) return EFI_COMPROMISED_DATA;
+	logs->main.last_entry_offset = logs->main.used;
 	logs->main.used += size;
 	logs->event_count++;
 	if (logs->final_active) {
@@ -186,7 +189,11 @@ EFI_STATUS cdk2_tcg2_append_event_spans(struct cdk2_tcg2_logs *logs,
 				logs->final.capacity - logs->final.used, &written);
 			if (EFI_ERROR(final_status) || written != size)
 				return EFI_COMPROMISED_DATA;
+			logs->final.last_entry_offset = logs->final.used;
 			logs->final.used += size;
+			logs->final_event_count++;
+			if (logs->final_count_export != NULL)
+				*logs->final_count_export = logs->final_event_count;
 		}
 	}
 	return status;

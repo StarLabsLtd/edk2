@@ -179,6 +179,7 @@ CDK2_NATIVE_TCG2_TRANSPORT_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-tcg2-transport-
 CDK2_NATIVE_TCG2_COMMANDS_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-tcg2-commands-test
 CDK2_NATIVE_TCG2_EVENT_LOG_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-tcg2-event-log-test
 CDK2_NATIVE_TCG2_MEASURE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-tcg2-measure-test
+CDK2_NATIVE_TCG2_SERVICE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-tcg2-service-test
 HOSTCC ?= cc
 CDK2_NATIVE_CC ?= $(CC)
 CDK2_NATIVE_HOST_CC ?= $(HOSTCC)
@@ -464,6 +465,9 @@ native-tcg2-event-log-test: $(CDK2_NATIVE_TCG2_EVENT_LOG_TEST)
 	@"$<"
 
 native-tcg2-measure-test: $(CDK2_NATIVE_TCG2_MEASURE_TEST)
+	@"$<"
+
+native-tcg2-service-test: $(CDK2_NATIVE_TCG2_SERVICE_TEST)
 	@"$<"
 
 native-pch-smi-dispatch-fv: $(CDK2_NATIVE_PCH_SMI_DISPATCH_FV)
@@ -1304,6 +1308,9 @@ $(CDK2_NATIVE_TCG2_EVENT_LOG_TEST): $(CDK2_DIR)/tests/tcg2_event_log_test.c $(CD
 
 $(CDK2_NATIVE_TCG2_MEASURE_TEST): $(CDK2_DIR)/tests/tcg2_measure_test.c $(CDK2_DIR)/src/modules/tcg2/tcg2_measure.c $(CDK2_DIR)/src/modules/tcg2/tcg2_event_log.c $(CDK2_DIR)/include/cdk2/tcg2_measure.h $(CDK2_DIR)/include/cdk2/tcg2_event_log.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_DIR)/tests/tcg2_measure_test.c" "$(CDK2_DIR)/src/modules/tcg2/tcg2_measure.c" "$(CDK2_DIR)/src/modules/tcg2/tcg2_event_log.c"
+
+$(CDK2_NATIVE_TCG2_SERVICE_TEST): $(CDK2_DIR)/tests/tcg2_service_test.c $(CDK2_DIR)/src/modules/tcg2/tcg2_service.c $(CDK2_DIR)/src/modules/tcg2/tcg2_measure.c $(CDK2_DIR)/src/modules/tcg2/tcg2_event_log.c $(CDK2_DIR)/include/cdk2/tcg2_service.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_DIR)/tests/tcg2_service_test.c" "$(CDK2_DIR)/src/modules/tcg2/tcg2_service.c" "$(CDK2_DIR)/src/modules/tcg2/tcg2_measure.c" "$(CDK2_DIR)/src/modules/tcg2/tcg2_event_log.c"
 
 FORCE:
 

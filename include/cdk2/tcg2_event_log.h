@@ -30,6 +30,7 @@ struct cdk2_tcg2_log {
 	UINT8 *buffer;
 	UINT32 capacity;
 	UINT32 used;
+	UINT32 last_entry_offset;
 	BOOLEAN truncated;
 };
 
@@ -38,6 +39,8 @@ struct cdk2_tcg2_logs {
 	struct cdk2_tcg2_log final;
 	BOOLEAN final_active;
 	UINT64 event_count;
+	UINT64 final_event_count;
+	UINT64 *final_count_export;
 };
 
 extern const EFI_GUID cdk2_tcg_event2_entry_hob_guid;

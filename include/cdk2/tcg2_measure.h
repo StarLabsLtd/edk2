@@ -7,7 +7,10 @@
 
 #define CDK2_TCG2_MAX_SPANS 100U
 
-struct cdk2_tcg2_span { const UINT8 *data; UINT32 size; };
+struct cdk2_tcg2_span {
+	const UINT8 *data;
+	UINT32 size;
+};
 
 typedef EFI_STATUS cdk2_tcg2_hash_fn(void *context, TPMI_ALG_HASH algorithm,
 	const struct cdk2_tcg2_span *spans, UINT32 span_count, UINT8 *digest,
