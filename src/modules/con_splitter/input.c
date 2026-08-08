@@ -87,6 +87,51 @@ static INT32 scale_relative(INT32 value, UINT64 virtual_resolution,
 		(INT64)device_resolution);
 }
 
+EFI_STATUS cdk2_split_pointer_add(struct cdk2_split_pointer *splitter,
+	const struct cdk2_split_pointer_device *device)
+{
+	UINTN index;
+
+	if (splitter == NULL || device == NULL || device->get_state == NULL ||
+	    device->context == NULL)
+		return EFI_INVALID_PARAMETER;
+	for (index = 0; index < splitter->device_count; index++)
+		if (splitter->devices[index].context == device->context)
+			return CDK2_CON_SPLITTER_ALREADY_STARTED;
+	if (splitter->device_count == CDK2_CON_SPLITTER_MAX_INPUTS)
+		return EFI_OUT_OF_RESOURCES;
+	splitter->devices[splitter->device_count++] = *device;
+	if (device->resolution_x > splitter->resolution_x)
+		splitter->resolution_x = device->resolution_x;
+	if (device->resolution_y > splitter->resolution_y)
+		splitter->resolution_y = device->resolution_y;
+	if (device->resolution_z > splitter->resolution_z)
+		splitter->resolution_z = device->resolution_z;
+	return EFI_SUCCESS;
+}
+
+EFI_STATUS cdk2_split_pointer_remove(struct cdk2_split_pointer *splitter, void *context)
+{
+	struct cdk2_split_pointer_device remaining[CDK2_CON_SPLITTER_MAX_INPUTS];
+	UINTN count, index;
+
+	if (splitter == NULL || context == NULL)
+		return EFI_INVALID_PARAMETER;
+	for (index = 0; index < splitter->device_count; index++)
+		if (splitter->devices[index].context == context)
+			break;
+	if (index == splitter->device_count)
+		return EFI_NOT_FOUND;
+	for (; index + 1U < splitter->device_count; index++)
+		splitter->devices[index] = splitter->devices[index + 1U];
+	count = --splitter->device_count;
+	__builtin_memcpy(remaining, splitter->devices, count * sizeof(remaining[0]));
+	__builtin_memset(splitter, 0, sizeof(*splitter));
+	for (index = 0; index < count; index++)
+		(void)cdk2_split_pointer_add(splitter, &remaining[index]);
+	return EFI_SUCCESS;
+}
+
 EFI_STATUS cdk2_split_pointer_get_state(struct cdk2_split_pointer *splitter,
 	struct cdk2_split_pointer_state *state)
 {
@@ -125,6 +170,57 @@ static UINT64 scale_absolute(UINT64 value, UINT64 source_min, UINT64 source_max,
 		return 0U;
 	return target_min + ((value - source_min) * (target_max - target_min)) /
 		(source_max - source_min);
+}
+
+EFI_STATUS cdk2_split_absolute_add(struct cdk2_split_absolute *splitter,
+	const struct cdk2_split_absolute_device *device)
+{
+	UINTN index;
+
+	if (splitter == NULL || device == NULL || device->get_state == NULL ||
+	    device->context == NULL)
+		return EFI_INVALID_PARAMETER;
+	for (index = 0; index < splitter->device_count; index++)
+		if (splitter->devices[index].context == device->context)
+			return CDK2_CON_SPLITTER_ALREADY_STARTED;
+	if (splitter->device_count == CDK2_CON_SPLITTER_MAX_INPUTS)
+		return EFI_OUT_OF_RESOURCES;
+	splitter->devices[splitter->device_count++] = *device;
+	if (splitter->device_count == 1U) {
+		splitter->min_x = device->min_x; splitter->min_y = device->min_y;
+		splitter->min_z = device->min_z; splitter->max_x = device->max_x;
+		splitter->max_y = device->max_y; splitter->max_z = device->max_z;
+	} else {
+		if (device->min_x < splitter->min_x) splitter->min_x = device->min_x;
+		if (device->min_y < splitter->min_y) splitter->min_y = device->min_y;
+		if (device->min_z < splitter->min_z) splitter->min_z = device->min_z;
+		if (device->max_x > splitter->max_x) splitter->max_x = device->max_x;
+		if (device->max_y > splitter->max_y) splitter->max_y = device->max_y;
+		if (device->max_z > splitter->max_z) splitter->max_z = device->max_z;
+	}
+	return EFI_SUCCESS;
+}
+
+EFI_STATUS cdk2_split_absolute_remove(struct cdk2_split_absolute *splitter, void *context)
+{
+	struct cdk2_split_absolute_device remaining[CDK2_CON_SPLITTER_MAX_INPUTS];
+	UINTN count, index;
+
+	if (splitter == NULL || context == NULL)
+		return EFI_INVALID_PARAMETER;
+	for (index = 0; index < splitter->device_count; index++)
+		if (splitter->devices[index].context == context)
+			break;
+	if (index == splitter->device_count)
+		return EFI_NOT_FOUND;
+	for (; index + 1U < splitter->device_count; index++)
+		splitter->devices[index] = splitter->devices[index + 1U];
+	count = --splitter->device_count;
+	__builtin_memcpy(remaining, splitter->devices, count * sizeof(remaining[0]));
+	__builtin_memset(splitter, 0, sizeof(*splitter));
+	for (index = 0; index < count; index++)
+		(void)cdk2_split_absolute_add(splitter, &remaining[index]);
+	return EFI_SUCCESS;
 }
 
 EFI_STATUS cdk2_split_absolute_get_state(struct cdk2_split_absolute *splitter,

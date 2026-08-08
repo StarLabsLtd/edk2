@@ -54,6 +54,13 @@ int main(void)
 	};
 	struct cdk2_split_absolute_state position;
 	int failures = 0;
+	struct cdk2_split_pointer rebuilt_pointer = { 0 };
+	struct cdk2_split_pointer_device pointer_one = {
+		pointer_state, (void *)1, 10U, 1U, 1U
+	};
+	struct cdk2_split_pointer_device pointer_two = {
+		pointer_state, (void *)2, 20U, 2U, 1U
+	};
 
 	failures += expect(cdk2_split_text_in_add(&text, read_key, reset, (void *)1) ==
 		EFI_SUCCESS && cdk2_split_text_in_add(&text, read_key, reset, (void *)2) ==
@@ -69,5 +76,10 @@ int main(void)
 	failures += expect(cdk2_split_absolute_get_state(&absolute, &position) == EFI_SUCCESS &&
 		position.x == 110U && position.y == 70U && position.buttons == 3U,
 		"absolute pointer scaling is wrong");
+	failures += expect(cdk2_split_pointer_add(&rebuilt_pointer, &pointer_one) == EFI_SUCCESS &&
+		cdk2_split_pointer_add(&rebuilt_pointer, &pointer_two) == EFI_SUCCESS &&
+		cdk2_split_pointer_remove(&rebuilt_pointer, (void *)2) == EFI_SUCCESS &&
+		rebuilt_pointer.device_count == 1U && rebuilt_pointer.resolution_x == 10U,
+		"relative pointer mode was not rebuilt after removal");
 	return failures == 0 ? 0 : 1;
 }

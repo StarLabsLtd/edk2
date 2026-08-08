@@ -103,6 +103,9 @@ struct cdk2_split_pointer {
 };
 EFI_STATUS cdk2_split_pointer_get_state(struct cdk2_split_pointer *splitter,
 	struct cdk2_split_pointer_state *state);
+EFI_STATUS cdk2_split_pointer_add(struct cdk2_split_pointer *splitter,
+	const struct cdk2_split_pointer_device *device);
+EFI_STATUS cdk2_split_pointer_remove(struct cdk2_split_pointer *splitter, void *context);
 
 struct cdk2_split_absolute_state { UINT64 x, y, z; UINT32 buttons; };
 struct cdk2_split_absolute_device {
@@ -117,5 +120,8 @@ struct cdk2_split_absolute {
 };
 EFI_STATUS cdk2_split_absolute_get_state(struct cdk2_split_absolute *splitter,
 	struct cdk2_split_absolute_state *state);
+EFI_STATUS cdk2_split_absolute_add(struct cdk2_split_absolute *splitter,
+	const struct cdk2_split_absolute_device *device);
+EFI_STATUS cdk2_split_absolute_remove(struct cdk2_split_absolute *splitter, void *context);
 
 #endif
