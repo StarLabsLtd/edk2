@@ -11,7 +11,7 @@ static int expect(int condition, const char *message)
 { if (!condition) fprintf(stderr, "HII font test: %s\n", message); return !condition; }
 int main(void)
 {
-	static const struct cdk2_hii_database_ops ops = { allocate, release };
+	static const struct cdk2_hii_database_ops ops = { .allocate = allocate, .release = release };
 	struct cdk2_hii_database database;
 	struct cdk2_hii_pixel pixels[8] = { 0 };
 	struct cdk2_hii_image_output *output = NULL;

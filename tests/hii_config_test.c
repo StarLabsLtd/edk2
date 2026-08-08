@@ -18,7 +18,7 @@ static EFI_STATUS route(void *context, const CHAR16 *configuration,
 { (void)context; routes++; *progress = configuration; return EFI_SUCCESS; }
 int main(void)
 {
-	static const struct cdk2_hii_database_ops ops = { allocate, release };
+	static const struct cdk2_hii_database_ops ops = { .allocate = allocate, .release = release };
 	struct cdk2_hii_database database;
 	UINT8 source[8] = { 0U, 1U, 2U, 3U, 4U, 5U, 6U, 7U };
 	UINT8 destination[8] = { 0 };

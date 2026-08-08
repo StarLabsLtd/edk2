@@ -15,7 +15,7 @@ static void release(void *context, void *buffer)
 { (void)context; free(buffer); }
 int main(void)
 {
-	static const struct cdk2_hii_database_ops ops = { allocate, release };
+	static const struct cdk2_hii_database_ops ops = { .allocate = allocate, .release = release };
 	struct cdk2_hii_database database = { 0 };
 	struct cdk2_hii_database raw_database;
 	UINT8 record[37] = { 37U, 0U };

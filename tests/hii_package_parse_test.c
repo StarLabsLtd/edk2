@@ -18,9 +18,11 @@ static int expect(int condition, const char *message)
 
 int main(void)
 {
-	static const struct cdk2_hii_database_ops ops = { allocate, release };
+	static const struct cdk2_hii_database_ops ops = { .allocate = allocate, .release = release };
 	struct cdk2_hii_database database;
 	UINT8 list[81] = { 0 };
+	UINT8 image_list[55] = { 0 };
+	struct cdk2_hii_image_input image;
 	CHAR16 text[3];
 	UINTN size = sizeof(text);
 	void *handle = NULL;
@@ -45,5 +47,23 @@ int main(void)
 	failures += expect(cdk2_hii_new_package_list(&database, list, NULL, &handle) ==
 		EFI_INVALID_PARAMETER && handle == NULL,
 		"unterminated raw string was admitted");
+	write32(image_list + 16U, sizeof(image_list));
+	write32(image_list + 20U, (0x06U << 24) | 31U);
+	write32(image_list + 24U, 12U);
+	image_list[32] = 0x16U;
+	image_list[33] = 1U; image_list[35] = 1U;
+	image_list[37] = 3U; image_list[38] = 2U; image_list[39] = 1U;
+	image_list[40] = 0x19U;
+	write32(image_list + 41U, 2U);
+	image_list[45] = 0x89U; image_list[46] = 0x50U;
+	image_list[47] = 0x20U; image_list[48] = 2U;
+	write32(image_list + 51U, (CDK2_HII_PACKAGE_END << 24) | 4U);
+	failures += expect(cdk2_hii_new_package_list(&database, image_list, NULL,
+		&handle) == EFI_SUCCESS && cdk2_hii_get_image(&database, handle, 1U,
+		&image) == EFI_SUCCESS && image.width == 1U && image.bitmap[0].red == 1U &&
+		database.images[1].encoded_size == 2U &&
+		database.images[2].encoded_size == 2U,
+		"raw 24-bit/compressed/duplicate images were not retained");
+	release(NULL, image.bitmap);
 	return failures == 0 ? 0 : 1;
 }

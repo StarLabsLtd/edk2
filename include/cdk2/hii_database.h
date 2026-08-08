@@ -16,6 +16,8 @@
 #define CDK2_HII_MAX_KEYWORDS 128U
 #define CDK2_HII_PACKAGE_END 0xdfU
 
+struct cdk2_hii_image_input;
+
 struct cdk2_hii_package_list_header {
 	EFI_GUID guid;
 	UINT32 length;
@@ -25,12 +27,15 @@ struct cdk2_hii_package_header {
 };
 typedef EFI_STATUS cdk2_hii_allocate_fn(void *context, UINTN size, void **buffer);
 typedef void cdk2_hii_release_fn(void *context, void *buffer);
+typedef EFI_STATUS cdk2_hii_decode_image_fn(void *context, UINT8 image_type,
+	const void *encoded, UINTN encoded_size, struct cdk2_hii_image_input *image);
 typedef EFI_STATUS cdk2_hii_notify_fn(void *context, UINT8 package_type,
 	const EFI_GUID *package_guid, const void *package_list, void *handle,
 	UINTN notify_type);
 struct cdk2_hii_database_ops {
 	cdk2_hii_allocate_fn *allocate;
 	cdk2_hii_release_fn *release;
+	cdk2_hii_decode_image_fn *decode_image;
 };
 struct cdk2_hii_list {
 	void *data, *driver_handle;
@@ -88,6 +93,9 @@ struct cdk2_hii_image_output {
 struct cdk2_hii_image_entry {
 	void *package_handle;
 	struct cdk2_hii_image_input image;
+	void *encoded;
+	UINT32 encoded_size;
+	UINT8 encoded_type;
 	UINT16 id;
 	BOOLEAN active;
 };
@@ -168,6 +176,9 @@ EFI_STATUS cdk2_hii_get_image(struct cdk2_hii_database *database,
 EFI_STATUS cdk2_hii_set_image(struct cdk2_hii_database *database,
 	void *package_handle, UINT16 image_id,
 	const struct cdk2_hii_image_input *image);
+EFI_STATUS cdk2_hii_set_encoded_image(struct cdk2_hii_database *database,
+	void *package_handle, UINT16 image_id, UINT8 image_type,
+	const void *encoded, UINT32 encoded_size);
 EFI_STATUS cdk2_hii_draw_image(struct cdk2_hii_database *database,
 	const struct cdk2_hii_image_input *image, UINTN flags,
 	struct cdk2_hii_image_output **output, UINTN x, UINTN y,

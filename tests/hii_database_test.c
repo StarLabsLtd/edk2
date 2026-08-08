@@ -23,7 +23,7 @@ static int expect(int condition, const char *message)
 
 int main(void)
 {
-	static const struct cdk2_hii_database_ops ops = { allocate, release };
+	static const struct cdk2_hii_database_ops ops = { .allocate = allocate, .release = release };
 	struct cdk2_hii_database database;
 	struct fixture_list package = {
 		.list = { .guid = { 1U, 2U, 3U, { 4U } }, .length = sizeof(package) },

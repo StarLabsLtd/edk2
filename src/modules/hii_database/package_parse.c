@@ -4,6 +4,7 @@
 
 #define HII_SIMPLE_FONTS 0x07U
 #define HII_STRINGS 0x04U
+#define HII_IMAGES 0x06U
 #define HII_KEYBOARD_LAYOUT 0x09U
 #define NARROW_HEIGHT 19U
 struct simple_font_header { UINT32 length_type; UINT16 narrow_count, wide_count; };
@@ -169,6 +170,112 @@ static EFI_STATUS ingest_strings(struct cdk2_hii_database *database, void *handl
 	return EFI_INVALID_PARAMETER;
 }
 
+static EFI_STATUS ingest_images(struct cdk2_hii_database *database, void *handle,
+	const UINT8 *package, UINT32 length)
+{
+	struct cdk2_hii_image_input image;
+	struct cdk2_hii_pixel *pixels;
+	EFI_STATUS status;
+	UINT32 offset, encoded_size;
+	UINT16 id = 1U, width, height, source_id;
+	UINT8 type;
+	UINTN index, pixel_count, bytes;
+
+	if (length < 12U)
+		return EFI_INVALID_PARAMETER;
+	offset = read32(package + 4U);
+	if (offset < 12U || offset >= length)
+		return EFI_INVALID_PARAMETER;
+	while (offset < length) {
+		type = package[offset++];
+		if (type == 0U)
+			return offset == length ? EFI_SUCCESS : EFI_INVALID_PARAMETER;
+		if (type == 0x16U || type == 0x17U) {
+			if (offset + 4U > length)
+				return EFI_INVALID_PARAMETER;
+			width = read16(package + offset);
+			height = read16(package + offset + 2U);
+			offset += 4U;
+			pixel_count = (UINTN)width * height;
+			if (width == 0U || height == 0U || pixel_count >
+			    (length - offset) / 3U)
+				return EFI_INVALID_PARAMETER;
+			bytes = pixel_count * sizeof(*pixels);
+			status = database->ops->allocate(database->context, bytes,
+				(void **)&pixels);
+			if (EFI_ERROR(status))
+				return status;
+			for (index = 0; index < pixel_count; index++)
+				pixels[index] = (struct cdk2_hii_pixel) {
+					package[offset + index * 3U],
+					package[offset + index * 3U + 1U],
+					package[offset + index * 3U + 2U], 0U
+				};
+			image = (struct cdk2_hii_image_input) { width, height, pixels };
+			status = cdk2_hii_set_image(database, handle, id++, &image);
+			database->ops->release(database->context, pixels);
+			if (EFI_ERROR(status))
+				return status;
+			offset += pixel_count * 3U;
+		} else if (type == 0x18U || type == 0x19U) {
+			if (offset + 4U > length)
+				return EFI_INVALID_PARAMETER;
+			encoded_size = read32(package + offset); offset += 4U;
+			if (encoded_size == 0U || encoded_size > length - offset)
+				return EFI_INVALID_PARAMETER;
+			status = cdk2_hii_set_encoded_image(database, handle, id++, type,
+				package + offset, encoded_size);
+			if (EFI_ERROR(status))
+				return status;
+			offset += encoded_size;
+		} else if (type == 0x20U) {
+			struct cdk2_hii_image_entry *source = NULL;
+
+			if (offset + 2U > length)
+				return EFI_INVALID_PARAMETER;
+			source_id = read16(package + offset); offset += 2U;
+			for (index = 0; index < CDK2_HII_MAX_IMAGES; index++)
+				if (database->images[index].active &&
+				    database->images[index].package_handle == handle &&
+				    database->images[index].id == source_id) {
+					source = &database->images[index];
+					break;
+				}
+			if (source == NULL)
+				return EFI_INVALID_PARAMETER;
+			if (source->encoded != NULL)
+				status = cdk2_hii_set_encoded_image(database, handle, id++,
+					source->encoded_type, source->encoded, source->encoded_size);
+			else
+				status = cdk2_hii_set_image(database, handle, id++, &source->image);
+			if (EFI_ERROR(status))
+				return status;
+		} else if (type == 0x21U || type == 0x22U) {
+			if (offset + (type == 0x21U ? 2U : 1U) > length)
+				return EFI_INVALID_PARAMETER;
+			source_id = type == 0x21U ? read16(package + offset) : package[offset];
+			offset += type == 0x21U ? 2U : 1U;
+			if ((UINT32)id + source_id > 0xffffU)
+				return EFI_INVALID_PARAMETER;
+			id = (UINT16)(id + source_id);
+		} else if (type >= 0x30U && type <= 0x32U) {
+			UINT32 extension;
+			UINTN size_width = type == 0x30U ? 1U : type == 0x31U ? 2U : 4U;
+			if (offset + 1U + size_width > length)
+				return EFI_INVALID_PARAMETER;
+			extension = size_width == 1U ? package[offset + 1U] :
+				size_width == 2U ? read16(package + offset + 1U) :
+				read32(package + offset + 1U);
+			if (extension < 2U + size_width || offset - 1U + extension > length)
+				return EFI_INVALID_PARAMETER;
+			offset = offset - 1U + extension;
+		} else {
+			return EFI_UNSUPPORTED;
+		}
+	}
+	return EFI_INVALID_PARAMETER;
+}
+
 EFI_STATUS cdk2_hii_ingest_package_list(struct cdk2_hii_database *database,
 	void *package_handle)
 {
@@ -185,6 +292,11 @@ EFI_STATUS cdk2_hii_ingest_package_list(struct cdk2_hii_database *database,
 		package = (const void *)((const UINT8 *)list->data + offset);
 		if (package_type(package) == HII_STRINGS) {
 			status = ingest_strings(database, list, (const UINT8 *)package,
+				package_length(package));
+			if (EFI_ERROR(status))
+				goto ingest_failed;
+		} else if (package_type(package) == HII_IMAGES) {
+			status = ingest_images(database, list, (const UINT8 *)package,
 				package_length(package));
 			if (EFI_ERROR(status))
 				goto ingest_failed;

@@ -11,7 +11,7 @@ static int expect(int condition, const char *message)
 { if (!condition) fprintf(stderr, "HII keyword test: %s\n", message); return !condition; }
 int main(void)
 {
-	static const struct cdk2_hii_database_ops ops = { allocate, release };
+	static const struct cdk2_hii_database_ops ops = { .allocate = allocate, .release = release };
 	struct cdk2_hii_database database;
 	CHAR16 *value;
 	int failures = 0;

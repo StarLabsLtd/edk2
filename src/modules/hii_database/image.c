@@ -66,13 +66,55 @@ EFI_STATUS cdk2_hii_set_image(struct cdk2_hii_database *database,
 		return status;
 	__builtin_memcpy(copy, image->bitmap, bytes);
 	if (entry->active)
-		database->ops->release(database->context, entry->image.bitmap);
+		database->ops->release(database->context,
+			entry->encoded != NULL ? entry->encoded : entry->image.bitmap);
 	entry->package_handle = package_handle;
 	entry->id = image_id;
 	entry->image = (struct cdk2_hii_image_input) {
 		image->width, image->height, copy
 	};
 	entry->active = TRUE;
+	return EFI_SUCCESS;
+}
+
+EFI_STATUS cdk2_hii_set_encoded_image(struct cdk2_hii_database *database,
+	void *package_handle, UINT16 image_id, UINT8 image_type,
+	const void *encoded, UINT32 encoded_size)
+{
+	struct cdk2_hii_image_entry *entry = NULL;
+	void *copy;
+	EFI_STATUS status;
+	UINTN index;
+
+	if (database == NULL || !valid_handle(database, package_handle) ||
+	    image_id == 0U || (image_type != 0x18U && image_type != 0x19U) ||
+	    encoded == NULL || encoded_size == 0U)
+		return EFI_INVALID_PARAMETER;
+	status = database->ops->allocate(database->context, encoded_size, &copy);
+	if (EFI_ERROR(status))
+		return status;
+	for (index = 0; index < CDK2_HII_MAX_IMAGES; index++)
+		if (database->images[index].active &&
+		    database->images[index].package_handle == package_handle &&
+		    database->images[index].id == image_id) {
+			entry = &database->images[index];
+			break;
+		} else if (entry == NULL && !database->images[index].active) {
+			entry = &database->images[index];
+		}
+	if (entry == NULL) {
+		database->ops->release(database->context, copy);
+		return EFI_OUT_OF_RESOURCES;
+	}
+	__builtin_memcpy(copy, encoded, encoded_size);
+	if (entry->active)
+		database->ops->release(database->context,
+			entry->encoded != NULL ? entry->encoded : entry->image.bitmap);
+	*entry = (struct cdk2_hii_image_entry) {
+		.package_handle = package_handle, .encoded = copy,
+		.encoded_size = encoded_size, .encoded_type = image_type,
+		.id = image_id, .active = TRUE
+	};
 	return EFI_SUCCESS;
 }
 
@@ -106,6 +148,12 @@ EFI_STATUS cdk2_hii_get_image(struct cdk2_hii_database *database,
 	entry = find_image(database, package_handle, image_id);
 	if (entry == NULL)
 		return EFI_NOT_FOUND;
+	if (entry->encoded != NULL) {
+		if (database->ops->decode_image == NULL)
+			return EFI_UNSUPPORTED;
+		return database->ops->decode_image(database->context,
+			entry->encoded_type, entry->encoded, entry->encoded_size, image);
+	}
 	status = image_bytes(&entry->image, &bytes);
 	if (EFI_ERROR(status))
 		return status;
@@ -183,12 +231,27 @@ EFI_STATUS cdk2_hii_draw_image_id(struct cdk2_hii_database *database,
 	cdk2_hii_screen_blt_fn *screen_blt)
 {
 	struct cdk2_hii_image_entry *entry;
+	struct cdk2_hii_image_input decoded;
+	EFI_STATUS status;
 
 	if (database == NULL || !valid_handle(database, package_handle))
 		return EFI_INVALID_PARAMETER;
 	entry = find_image(database, package_handle, image_id);
-	return entry == NULL ? EFI_NOT_FOUND : cdk2_hii_draw_image(database,
-		&entry->image, flags, output, x, y, screen_blt);
+	if (entry == NULL)
+		return EFI_NOT_FOUND;
+	if (entry->encoded == NULL)
+		return cdk2_hii_draw_image(database, &entry->image, flags, output, x, y,
+			screen_blt);
+	if (database->ops->decode_image == NULL)
+		return EFI_UNSUPPORTED;
+	status = database->ops->decode_image(database->context, entry->encoded_type,
+		entry->encoded, entry->encoded_size, &decoded);
+	if (EFI_ERROR(status))
+		return status;
+	status = cdk2_hii_draw_image(database, &decoded, flags, output, x, y,
+		screen_blt);
+	database->ops->release(database->context, decoded.bitmap);
+	return status;
 }
 
 void cdk2_hii_remove_images(struct cdk2_hii_database *database,
@@ -201,6 +264,8 @@ void cdk2_hii_remove_images(struct cdk2_hii_database *database,
 		if (database->images[index].active &&
 		    database->images[index].package_handle == package_handle) {
 			database->ops->release(database->context,
+				database->images[index].encoded != NULL ?
+				database->images[index].encoded :
 				database->images[index].image.bitmap);
 			database->images[index] = (struct cdk2_hii_image_entry) { 0 };
 		}
