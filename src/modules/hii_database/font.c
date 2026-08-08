@@ -21,6 +21,14 @@ EFI_STATUS cdk2_hii_register_glyph(struct cdk2_hii_database *database,
 	CHAR16 character, UINT16 width, UINT16 height, UINT16 baseline,
 	const struct cdk2_hii_pixel *bitmap)
 {
+	return cdk2_hii_register_package_glyph(database, NULL, character, width,
+		height, baseline, bitmap);
+}
+
+EFI_STATUS cdk2_hii_register_package_glyph(struct cdk2_hii_database *database,
+	void *package_handle, CHAR16 character, UINT16 width, UINT16 height,
+	UINT16 baseline, const struct cdk2_hii_pixel *bitmap)
+{
 	struct cdk2_hii_glyph *glyph = NULL;
 	struct cdk2_hii_pixel *copy;
 	EFI_STATUS status;
@@ -48,9 +56,25 @@ EFI_STATUS cdk2_hii_register_glyph(struct cdk2_hii_database *database,
 	if (glyph->active)
 		database->ops->release(database->context, glyph->bitmap);
 	*glyph = (struct cdk2_hii_glyph) {
-		character, width, height, baseline, copy, TRUE
+		package_handle, character, width, height, baseline, copy, TRUE
 	};
 	return EFI_SUCCESS;
+}
+
+void cdk2_hii_remove_glyphs(struct cdk2_hii_database *database,
+	void *package_handle)
+{
+	UINTN index;
+
+	if (database == NULL)
+		return;
+	for (index = 0; index < CDK2_HII_MAX_GLYPHS; index++)
+		if (database->glyphs[index].active &&
+		    database->glyphs[index].package_handle == package_handle) {
+			database->ops->release(database->context,
+				database->glyphs[index].bitmap);
+			database->glyphs[index] = (struct cdk2_hii_glyph) { 0 };
+		}
 }
 
 EFI_STATUS cdk2_hii_get_glyph(struct cdk2_hii_database *database,

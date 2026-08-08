@@ -176,6 +176,13 @@ EFI_STATUS cdk2_hii_new_package_list(struct cdk2_hii_database *database,
 	list->driver_handle = driver_handle;
 	list->active = TRUE;
 	*handle = list;
+	status = cdk2_hii_ingest_package_list(database, list);
+	if (EFI_ERROR(status)) {
+		database->ops->release(database->context, list->data);
+		*list = (struct cdk2_hii_list) { 0 };
+		*handle = NULL;
+		return status;
+	}
 	notify_list(database, list, HII_NOTIFY_NEW);
 	return EFI_SUCCESS;
 }
@@ -191,6 +198,7 @@ EFI_STATUS cdk2_hii_remove_package_list(struct cdk2_hii_database *database,
 	notify_list(database, list, HII_NOTIFY_REMOVE);
 	cdk2_hii_remove_strings(database, list);
 	cdk2_hii_remove_images(database, list);
+	cdk2_hii_remove_glyphs(database, list);
 	database->ops->release(database->context, list->data);
 	*list = (struct cdk2_hii_list) { 0 };
 	return EFI_SUCCESS;

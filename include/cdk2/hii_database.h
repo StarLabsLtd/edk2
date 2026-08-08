@@ -93,6 +93,7 @@ struct cdk2_hii_image_entry {
 typedef EFI_STATUS cdk2_hii_screen_blt_fn(void *screen,
 	struct cdk2_hii_pixel *bitmap, UINTN x, UINTN y, UINTN width, UINTN height);
 struct cdk2_hii_glyph {
+	void *package_handle;
 	CHAR16 character;
 	UINT16 width, height, baseline;
 	struct cdk2_hii_pixel *bitmap;
@@ -172,6 +173,13 @@ void cdk2_hii_remove_images(struct cdk2_hii_database *database,
 EFI_STATUS cdk2_hii_register_glyph(struct cdk2_hii_database *database,
 	CHAR16 character, UINT16 width, UINT16 height, UINT16 baseline,
 	const struct cdk2_hii_pixel *bitmap);
+EFI_STATUS cdk2_hii_register_package_glyph(struct cdk2_hii_database *database,
+	void *package_handle, CHAR16 character, UINT16 width, UINT16 height,
+	UINT16 baseline, const struct cdk2_hii_pixel *bitmap);
+void cdk2_hii_remove_glyphs(struct cdk2_hii_database *database,
+	void *package_handle);
+EFI_STATUS cdk2_hii_ingest_package_list(struct cdk2_hii_database *database,
+	void *package_handle);
 EFI_STATUS cdk2_hii_get_glyph(struct cdk2_hii_database *database,
 	CHAR16 character, struct cdk2_hii_image_output **image, UINTN *baseline);
 EFI_STATUS cdk2_hii_string_to_image(struct cdk2_hii_database *database,
