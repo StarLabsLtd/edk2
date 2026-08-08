@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: BSD-2-Clause-Patent */
-ENTRY(cdk2_tpm2_acpi_entry)
+ENTRY(cdk2_tpm2_acpi_replace)
 SECTIONS {
 	. = 0x1000;
 	.text ALIGN(0x1000) : { *(.text .text.*) *(.rodata .rodata.*) }

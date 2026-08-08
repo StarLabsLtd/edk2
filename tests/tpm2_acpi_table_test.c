@@ -10,8 +10,6 @@ static struct mock_table tables[4];
 static UINTN table_count, fail_key, installed_size;
 static EFI_STATUS install_status;
 static struct cdk2_tpm2_acpi_table installed;
-static EFI_ACPI_DESCRIPTION_HEADER driver_platform;
-static EFI_TPM2_ACPI_TABLE driver_tpm;
 
 static EFI_STATUS CDK2_MS_ABI get_table(UINTN index,
 	EFI_ACPI_DESCRIPTION_HEADER **table, UINTN *key)
@@ -39,20 +37,6 @@ static EFI_STATUS CDK2_MS_ABI install_table(const void *table, UINTN size,
 {
 	if (size == sizeof(installed)) memcpy(&installed, table, size);
 	installed_size = size; *key = 0x55U; return install_status;
-}
-
-static EFI_STATUS CDK2_MS_ABI sdt_get_table(UINTN index,
-	EFI_ACPI_DESCRIPTION_HEADER **table, UINT32 *version, UINTN *key)
-{
-	*version = 0;
-	*key = index + 20;
-	if (index == 0)
-		*table = &driver_platform;
-	else if (index == 1)
-		*table = &driver_tpm.header;
-	else
-		return EFI_NOT_FOUND;
-	return EFI_SUCCESS;
 }
 
 static int expect(int condition, const char *message)
@@ -188,31 +172,5 @@ int main(void)
 		EFI_OUT_OF_RESOURCES, "install status lost");
 	failures += expect(cdk2_tpm2_acpi_replace(&info, NULL, &key) ==
 		EFI_INVALID_PARAMETER, "NULL services accepted");
-	{
-		struct cdk2_tcg2_service native_service = {0};
-		struct cdk2_acpi_table_protocol table_protocol = {
-			.install = install_table, .uninstall = uninstall_table,
-		};
-		struct cdk2_acpi_sdt_protocol sdt_protocol = {
-			.get_table = sdt_get_table,
-		};
-		reset_mocks();
-		driver_platform = table.table.header;
-		driver_platform.length = sizeof(driver_platform);
-		driver_tpm = table.table;
-		driver_tpm.header.length = sizeof(driver_tpm);
-		native_service.export = (struct cdk2_tcg2_acpi_export){
-			.revision = CDK2_TCG2_EXPORT_REVISION,
-			.size = sizeof(native_service.export), .active_interface = 1,
-			.tpm_base = 0xfed40000, .log_base = 0x22345000,
-			.log_capacity = 0x8000,
-		};
-		failures += expect(cdk2_tpm2_acpi_install_from_protocols(
-			&native_service.protocol, &table_protocol, &sdt_protocol) ==
-			EFI_SUCCESS && installed.event_log_address == 0x22345000 &&
-			installed.event_log_length == 0x8000 &&
-			installed.table.start_method == CDK2_TPM2_START_METHOD_CRB,
-			"DXE adapter did not consume native TCG2 export");
-	}
 	return failures == 0 ? 0 : 1;
 }

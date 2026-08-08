@@ -7,9 +7,6 @@
 #include <protocol/tcg2.h>
 
 struct cdk2_tcg2_acpi_export;
-typedef EFI_ACPI_DESCRIPTION_HEADER * cdk2_acpi_header_ptr[1];
-typedef UINTN cdk2_uintn_ptr[1];
-typedef UINT32 cdk2_uint32_ptr[1];
 
 #define CDK2_TPM2_ACPI_INTERFACE_TIS 0U
 #define CDK2_TPM2_ACPI_INTERFACE_CRB 1U
@@ -41,28 +38,23 @@ struct cdk2_tpm2_acpi_table {
 	UINT64 event_log_address;
 } __packed;
 
-typedef EFI_STATUS CDK2_MS_ABI cdk2_acpi_get_table_fn(UINTN index,
-	cdk2_acpi_header_ptr table, cdk2_uintn_ptr table_key);
-typedef EFI_STATUS CDK2_MS_ABI cdk2_acpi_uninstall_table_fn(UINTN table_key);
-typedef EFI_STATUS CDK2_MS_ABI cdk2_acpi_install_table_fn(const void *table,
-	UINTN size, cdk2_uintn_ptr table_key);
-typedef EFI_STATUS CDK2_MS_ABI cdk2_acpi_sdt_get_table_fn(UINTN index,
-	cdk2_acpi_header_ptr table, cdk2_uint32_ptr version,
-	cdk2_uintn_ptr table_key);
-
 struct cdk2_acpi_table_services {
-	cdk2_acpi_get_table_fn *get_table;
-	cdk2_acpi_uninstall_table_fn *uninstall_table;
-	cdk2_acpi_install_table_fn *install_table;
+	EFI_STATUS (*get_table)(UINTN index, EFI_ACPI_DESCRIPTION_HEADER **table,
+		UINTN *table_key) CDK2_MS_ABI;
+	EFI_STATUS (*uninstall_table)(UINTN table_key) CDK2_MS_ABI;
+	EFI_STATUS (*install_table)(const void *table, UINTN size,
+		UINTN *table_key) CDK2_MS_ABI;
 };
 
 struct cdk2_acpi_table_protocol {
-	cdk2_acpi_install_table_fn *install;
-	cdk2_acpi_uninstall_table_fn *uninstall;
+	EFI_STATUS (CDK2_MS_ABI *install)(const void *table, UINTN size,
+		UINTN *table_key);
+	EFI_STATUS (CDK2_MS_ABI *uninstall)(UINTN table_key);
 };
 
 struct cdk2_acpi_sdt_protocol {
-	cdk2_acpi_sdt_get_table_fn *get_table;
+	EFI_STATUS (CDK2_MS_ABI *get_table)(UINTN index,
+		EFI_ACPI_DESCRIPTION_HEADER **table, UINT32 *version, UINTN *table_key);
 };
 
 EFI_STATUS cdk2_tpm2_acpi_build(const struct cdk2_tpm2_acpi_info *info,
@@ -72,8 +64,5 @@ EFI_STATUS cdk2_tpm2_acpi_replace(const struct cdk2_tpm2_acpi_info *info,
 EFI_STATUS cdk2_tpm2_acpi_from_export(const struct cdk2_tcg2_acpi_export *export,
 	const EFI_ACPI_DESCRIPTION_HEADER *platform_table,
 	const EFI_TPM2_ACPI_TABLE *existing, struct cdk2_tpm2_acpi_info *info);
-EFI_STATUS cdk2_tpm2_acpi_install_from_protocols(EFI_TCG2_PROTOCOL *tcg2,
-	struct cdk2_acpi_table_protocol *table_protocol,
-	struct cdk2_acpi_sdt_protocol *sdt_protocol);
 
 #endif
