@@ -139,6 +139,22 @@ static EFI_STATUS wait32(const struct cdk2_tpm2_transport *transport,
 	return EFI_TIMEOUT;
 }
 
+static EFI_STATUS wait8(const struct cdk2_tpm2_transport *transport,
+	UINT64 offset, UINT8 set, UINT8 clear)
+{
+	UINT32 elapsed;
+	UINT8 value;
+
+	for (elapsed = 0; elapsed < transport->timeout_us; elapsed += TPM_POLL_US) {
+		value = transport->io->read8(transport->io->context,
+			transport->base + offset);
+		if ((value & set) == set && (value & clear) == 0)
+			return EFI_SUCCESS;
+		transport->io->stall(transport->io->context, TPM_POLL_US);
+	}
+	return EFI_TIMEOUT;
+}
+
 EFI_STATUS cdk2_tpm2_request_locality(const struct cdk2_tpm2_transport *transport)
 {
 	EFI_STATUS status = validate_transport(transport);
@@ -157,7 +173,7 @@ EFI_STATUS cdk2_tpm2_request_locality(const struct cdk2_tpm2_transport *transpor
 		return EFI_UNSUPPORTED;
 	transport->io->write8(transport->io->context,
 		transport->base + FIFO_ACCESS, FIFO_ACCESS_REQUEST);
-	return wait32(transport, FIFO_ACCESS,
+	return wait8(transport, FIFO_ACCESS,
 		FIFO_ACCESS_VALID | FIFO_ACCESS_ACTIVE, 0);
 }
 

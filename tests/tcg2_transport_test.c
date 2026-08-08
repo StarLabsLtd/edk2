@@ -26,7 +26,7 @@ static UINT8 mock_read8(void *context, UINT64 address)
 	UINT64 offset = address - TEST_BASE;
 
 	if (offset == 0)
-		return 0;
+		return mock->locality ? 0xa0U : 0;
 	if ((mock->interface == CDK2_TPM2_INTERFACE_FIFO ||
 	     mock->interface == CDK2_TPM2_INTERFACE_TIS) && offset == 0x24U)
 		return mock->response[mock->response_index++];
