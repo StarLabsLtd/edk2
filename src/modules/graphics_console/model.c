@@ -73,16 +73,27 @@ EFI_STATUS cdk2_graphics_console_set_mode(struct cdk2_graphics_console *console,
 	UINT32 mode)
 {
 	const struct cdk2_graphics_text_mode *text_mode;
+	BOOLEAN visible;
+	EFI_STATUS status;
 
 	if (console == NULL || mode >= console->mode_count)
 		return EFI_UNSUPPORTED;
+	status = update_cursor(console, FALSE);
+	if (EFI_ERROR(status))
+		return status;
+	visible = console->cursor_visible;
+	console->cursor_visible = FALSE;
 	console->mode = mode;
 	console->column = 0;
 	console->row = 0;
 	console->wide = FALSE;
 	text_mode = current_mode(console);
-	return console->ops->fill(console->context, 0, 0, text_mode->columns,
+	status = console->ops->fill(console->context, 0, 0, text_mode->columns,
 		text_mode->rows, console->attribute);
+	console->cursor_visible = visible;
+	if (EFI_ERROR(status))
+		return status;
+	return update_cursor(console, TRUE);
 }
 
 EFI_STATUS cdk2_graphics_console_set_attribute(struct cdk2_graphics_console *console,
@@ -178,6 +189,12 @@ EFI_STATUS cdk2_graphics_console_output(struct cdk2_graphics_console *console,
 			if (console->column + cells > mode->columns) {
 				console->column = 0;
 				console->row++;
+			}
+			if (console->row >= mode->rows) {
+				status = scroll(console);
+				if (EFI_ERROR(status))
+					return status;
+				console->row = mode->rows - 1U;
 			}
 			status = console->ops->draw(console->context, character,
 				console->column, console->row, console->attribute, console->wide);

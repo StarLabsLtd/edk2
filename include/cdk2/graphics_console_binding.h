@@ -65,7 +65,7 @@ typedef EFI_STATUS cdk2_binding_install_fn(void *context, void *controller,
 	const EFI_GUID * protocol, void *interface);
 typedef EFI_STATUS cdk2_binding_uninstall_fn(void *context, void *controller,
 	const EFI_GUID * protocol, void *interface);
-typedef EFI_STATUS cdk2_binding_blt_fn(void *gop, void *buffer, UINTN operation,
+typedef EFI_STATUS CDK2_MS_ABI cdk2_binding_blt_fn(void *gop, void *buffer, UINTN operation,
 	UINTN source_x, UINTN source_y, UINTN destination_x, UINTN destination_y,
 	UINTN width, UINTN height, UINTN delta);
 typedef EFI_STATUS cdk2_binding_publish_fn(void *, void *, const EFI_GUID *, void *);

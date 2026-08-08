@@ -53,7 +53,8 @@ static EFI_STATUS uninstall(void *context, void *controller, const EFI_GUID *gui
 { (void)context; (void)controller; (void)guid; (void)interface; uninstalls++; return EFI_SUCCESS; }
 static EFI_STATUS locate(void *context, const EFI_GUID *guid, void **interface)
 { (void)context; (void)guid; *interface = &font; return EFI_SUCCESS; }
-static EFI_STATUS blt(void *graphics, void *buffer, UINTN operation, UINTN sx, UINTN sy,
+static EFI_STATUS CDK2_MS_ABI blt(void *graphics, void *buffer, UINTN operation,
+	UINTN sx, UINTN sy,
 	UINTN dx, UINTN dy, UINTN width, UINTN height, UINTN delta)
 { (void)graphics; (void)buffer; (void)operation; (void)sx; (void)sy; (void)dx; (void)dy; (void)width; (void)height; (void)delta; blts++; return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI render(const struct cdk2_hii_font_view *hii, UINT32 flags,
@@ -94,7 +95,7 @@ int main(void)
 		binding.text.mode->max_mode == 1 && binding.text.mode->mode == 0 && fills == 1U,
 		"SimpleTextOut methods and mode were not prepared");
 	failures += expect(binding.text.output_string(&binding.text, L"A") == EFI_SUCCESS &&
-		draws == 1U && binding.text.mode->cursor_column == 1 && cursors == 2U,
+		draws == 1U && binding.text.mode->cursor_column == 1 && cursors == 4U,
 		"SimpleTextOut OutputString did not delegate to the text model");
 	failures += expect(cdk2_graphics_binding_publish(&binding, &binding, publish, notify,
 		NULL) == EFI_SUCCESS && publishes == 3U && notifications == 1U &&
