@@ -214,6 +214,7 @@ else
 CDK2_NATIVE_PRE_TCG2_FV := $(CDK2_NATIVE_REMOVE_TCG1_FV)
 endif
 CDK2_NATIVE_TPM2_ACPI_TABLE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-tpm2-acpi-table-test
+CDK2_NATIVE_DEVICE_PATH_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-device-path-test
 CDK2_NATIVE_TPM2_ACPI_TABLE_OBJS := $(CDK2_NATIVE_BUILD_DIR)/tpm2-acpi-driver.o \
 	$(CDK2_NATIVE_BUILD_DIR)/tpm2-acpi-table.o
 CDK2_NATIVE_TPM2_ACPI_TABLE_PE ?= $(CDK2_NATIVE_BUILD_DIR)/Tpm2AcpiTableDxe.efi
@@ -313,13 +314,15 @@ CDK2_NATIVE_HOST_TOOLS := \
 	$(CDK2_NATIVE_TCG2_ENTRY_TEST) \
 	$(CDK2_NATIVE_TPM2_ACPI_TABLE_TEST) \
 	$(CDK2_NATIVE_ESRT_TEST) \
-	$(CDK2_NATIVE_ESRT_ENTRY_TEST)
+	$(CDK2_NATIVE_ESRT_ENTRY_TEST) \
+	$(CDK2_NATIVE_DEVICE_PATH_TEST)
 CDK2_NATIVE_LINK_FLAGS := -static -no-pie -nostdlib -nostartfiles -nodefaultlibs -Wl,-z,max-page-size=0x1000 -Wl,-z,common-page-size=0x1000 -Wl,-T,"$(CDK2_NATIVE_DIR)/cdk2.ld"
 CDK2_NATIVE_LINK_POST_MAP_FLAGS := -Wl,--gc-sections -Wl,--build-id=none
 
 .PHONY: native-stage native-coreboot-stage native-coreboot-image native-pcd-package native-metronome-fv native-security-stub-fv native-null-memory-test-fv native-null-memory-test-test native-watchdog-fv native-monotonic-counter-fv native-status-code-router-fv native-status-code-router-test native-status-code-handler-fv native-status-code-handler-test native-cpu-io2-fv native-cpu-io2-test native-english-test native-english-fv native-disk-io-fv native-disk-io-test native-serial-io-fv native-serial-io-test native-smbios-fv native-smbios-test native-reset-system-fv native-reset-system-test native-pcat-rtc-fv native-pcat-rtc-test native-smm-access-fv native-smm-access-test native-smm-control-fv native-smm-control-test native-cpu-io2-smm-fv native-cpu-io2-smm-test native-pch-smi-dispatch-test native-pch-smi-dispatch-fv native-local-apic-timer-test native-local-apic-timer-fv native-graphics-console-test native-graphics-console-fv native-capsule-runtime-test native-capsule-runtime-fv native-check native-pack native-service-test native-coreboot-test native-fv-test native-fvpack-test native-fvinfo native-fvinfo-test native-ffsbuild-test native-pe-test native-module-test native-security-stub-test native-elfcheck-test FORCE
 .PHONY: native-tpm2-acpi-table-test native-tpm2-acpi-table-fv native-esrt-test native-esrt-ffs native-esrt-fv
 .PHONY: native-pcd-package native-pcd-fv
+.PHONY: native-device-path-test
 
 ifeq ($(CONFIG_CDK2_NATIVE_STAGE),y)
 CDK2_NATIVE_STAGE_DEPS := $(CDK2_NATIVE_ELF)
@@ -462,6 +465,7 @@ native-check: $(CDK2_CONFIG_HEADER) $(CDK2_NATIVE_ELF) $(CDK2_NATIVE_OVERRIDE_EL
 	@"$(CDK2_NATIVE_TPM2_ACPI_TABLE_TEST)"
 	@"$(CDK2_NATIVE_ESRT_TEST)"
 	@"$(CDK2_NATIVE_ESRT_ENTRY_TEST)"
+	@"$(CDK2_NATIVE_DEVICE_PATH_TEST)"
 	@"$(CDK2_NATIVE_ELF_CHECK_TEST)" "$(CDK2_NATIVE_ELF_CHECK)" "$(CDK2_NATIVE_BUILD_DIR)"
 	@printf '%s\n' "native cdk2 stage: $(CDK2_NATIVE_ELF)"
 	@printf '%s\n' "native cdk2 FV packer: $(CDK2_NATIVE_PACKER)"
@@ -607,6 +611,9 @@ native-tcg2-entry-test: $(CDK2_NATIVE_TCG2_ENTRY_TEST)
 	@"$<"
 
 native-tpm2-acpi-table-test: $(CDK2_NATIVE_TPM2_ACPI_TABLE_TEST)
+	@"$<"
+
+native-device-path-test: $(CDK2_NATIVE_DEVICE_PATH_TEST)
 	@"$<"
 
 native-pch-smi-dispatch-fv: $(CDK2_NATIVE_PCH_SMI_DISPATCH_FV)
@@ -1526,6 +1533,9 @@ $(CDK2_NATIVE_ESRT_FFS): $(CDK2_NATIVE_ESRT_PE) $(CDK2_NATIVE_ESRT_DEPEX) $(CDK2
 $(CDK2_NATIVE_ESRT_FV): $(CDK2_NATIVE_PRE_ESRT_FV) $(CDK2_NATIVE_ESRT_FFS) $(CDK2_NATIVE_FVREPLACE)
 	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_PRE_ESRT_FV)" 0x519ca8 \
 		"$(CDK2_NATIVE_ESRT_FFS)" "$@"
+
+$(CDK2_NATIVE_DEVICE_PATH_TEST): $(CDK2_DIR)/tests/device_path_test.c $(CDK2_DIR)/src/modules/device_path/device_path.c $(CDK2_DIR)/include/cdk2/device_path.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_DIR)/tests/device_path_test.c" "$(CDK2_DIR)/src/modules/device_path/device_path.c"
 
 FORCE:
 
