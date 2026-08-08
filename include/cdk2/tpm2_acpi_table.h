@@ -76,8 +76,13 @@ struct cdk2_acpi_table_protocol {
 };
 
 struct cdk2_acpi_sdt_protocol {
+	UINT32 acpi_version;
+	UINT32 reserved;
 	cdk2_acpi_protocol_get_table_fn *get_table;
 };
+
+typedef char cdk2_acpi_sdt_get_table_offset_check[
+	OFFSET_OF(struct cdk2_acpi_sdt_protocol, get_table) == 8 ? 1 : -1];
 
 EFI_STATUS cdk2_tpm2_acpi_build(const struct cdk2_tpm2_acpi_info *info,
 	struct cdk2_tpm2_acpi_table *table);

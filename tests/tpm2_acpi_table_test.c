@@ -269,6 +269,7 @@ int main(void)
 			.install = protocol_install, .uninstall = protocol_uninstall,
 		};
 		struct cdk2_acpi_sdt_protocol sdt_protocol = {
+			.acpi_version = 0x510,
 			.get_table = sdt_get_table,
 		};
 		reset_mocks();
@@ -291,7 +292,7 @@ int main(void)
 			installed.table.start_method == CDK2_TPM2_START_METHOD_CRB,
 			"DXE adapter did not consume native TCG2 export");
 		failures += expect(seen_table_this == &table_protocol &&
-			seen_sdt_this == &sdt_protocol,
+			seen_sdt_this == &sdt_protocol && sdt_protocol.acpi_version == 0x510,
 			"ACPI protocol This argument was not preserved");
 	}
 	return failures == 0 ? 0 : 1;
