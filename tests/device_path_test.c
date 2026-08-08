@@ -234,6 +234,95 @@ static int formatter_tests(void)
 	return failures;
 }
 
+static int messaging_formatter_tests(void)
+{
+	struct fixture {
+		UINT8 subtype;
+		UINT16 length;
+		BOOLEAN display_only;
+		const char *text;
+	};
+	static const struct fixture fixtures[] = {
+		{0x01, 8, FALSE, "Ata(Primary,Master,0x0)"},
+		{0x02, 8, FALSE, "Scsi(0x0,0x0)"},
+		{0x03, 24, FALSE, "Fibre(0x0,0x0)"},
+		{0x04, 16, FALSE, "I1394(0000000000000000)"},
+		{0x05, 6, FALSE, "USB(0x0,0x0)"},
+		{0x06, 8, FALSE, "I2O(0x0)"},
+		{0x09, 48, FALSE,
+			"Infiniband(0x0,00000000-0000-0000-0000-000000000000,0x0,0x0,0x0)"},
+		{0x0b, 37, FALSE, "MAC(000000000000,0x0)"},
+		{0x0c, 27, TRUE, "IPv4(0.0.0.0)"},
+		{0x0d, 60, TRUE, "IPv6(0000:0000:0000:0000:0000:0000:0000:0000)"},
+		{0x0e, 19, FALSE, "Uart(DEFAULT,DEFAULT,D,D)"},
+		{0x0f, 11, FALSE, "UsbClass(0x0,0x0,0x0,0x0,0x0)"},
+		{0x10, 10, FALSE, "UsbWwid(0x0,0x0,0x0,\"\")"},
+		{0x11, 5, FALSE, "Unit(0x0)"},
+		{0x12, 10, FALSE, "Sata(0x0,0x0,0x0)"},
+		{0x13, 19, FALSE, "iSCSI(,0x0,0x0000000000000000,None,None,CHAP_BI,TCP)"},
+		{0x14, 6, FALSE, "Vlan(0)"},
+		{0x15, 24, FALSE, "FibreEx(0x0000000000000000,0x0000000000000000)"},
+		{0x16, 24, FALSE,
+			"SasEx(0x0000000000000000,0x0000000000000000,0x0,NoTopology,0,0,0)"},
+		{0x17, 16, FALSE, "NVMe(0x0,00-00-00-00-00-00-00-00)"},
+		{0x18, 4, FALSE, "Uri()"},
+		{0x19, 6, FALSE, "UFS(0x0,0x0)"},
+		{0x1a, 5, FALSE, "SD(0x0)"},
+		{0x1b, 10, FALSE, "Bluetooth(000000000000)"},
+		{0x1c, 36, FALSE, "Wi-Fi()"},
+		{0x1d, 5, FALSE, "eMMC(0x0)"},
+		{0x1e, 11, FALSE, "BluetoothLE(000000000000,0x0)"},
+		{0x1f, 5, FALSE, "Dns()"},
+	};
+	UINT8 node[64];
+	CHAR16 output[16] = {0x7777};
+	UINTN required;
+	int failures = 0;
+	UINTN index;
+	for (index = 0; index < ARRAY_SIZE(fixtures); index++) {
+		memset(node, 0, sizeof(node));
+		set_node((void *)node, 3, fixtures[index].subtype, fixtures[index].length);
+		failures += expect_text(node, fixtures[index].length,
+			fixtures[index].display_only, TRUE, fixtures[index].text,
+			"messaging handler fixture");
+		set_node((void *)node, 3, fixtures[index].subtype,
+			(UINT16)(fixtures[index].length - 1));
+		failures += expect(cdk2_device_path_node_to_text((void *)node,
+			fixtures[index].length, fixtures[index].display_only, TRUE,
+			output, ARRAY_SIZE(output), &required) == EFI_COMPROMISED_DATA,
+			"short messaging node accepted");
+	}
+	memset(node, 0, sizeof(node));
+	set_node((void *)node, 3, 1, 8);
+	failures += expect_text(node, 8, TRUE, TRUE, "Ata(0x0)", "ATA display variant");
+	set_node((void *)node, 3, 0x0c, 27);
+	node[8] = 192; node[9] = 0; node[10] = 2; node[11] = 1;
+	failures += expect_text(node, 27, FALSE, TRUE,
+		"IPv4(192.0.2.1,0x0,DHCP,0.0.0.0,0.0.0.0,0.0.0.0)",
+		"IPv4 full variant");
+	set_node((void *)node, 3, 0x18, 7);
+	memcpy(node + 4, "abc", 3);
+	failures += expect_text(node, 7, FALSE, TRUE, "Uri(abc)", "bounded URI");
+	memset(node, 0, sizeof(node));
+	set_node((void *)node, 3, 0x0f, 11);
+	node[8] = 3; node[9] = 1; node[10] = 2;
+	failures += expect_text(node, 11, FALSE, TRUE,
+		"UsbHID(0x0,0x0,0x1,0x2)", "USB class alias");
+	node[8] = 0xfe; node[9] = 1;
+	failures += expect_text(node, 11, FALSE, TRUE,
+		"UsbDeviceFirmwareUpdate(0x0,0x0,0x2)", "USB reserved class alias");
+	memset(node, 0, sizeof(node));
+	set_node((void *)node, 3, 0x0e, 19);
+	put64(node + 8, 115200); node[16] = 8; node[17] = 1; node[18] = 1;
+	failures += expect_text(node, 19, FALSE, TRUE,
+		"Uart(115200,8,N,1)", "UART explicit variant");
+	memset(node, 0, sizeof(node));
+	set_node((void *)node, 3, 0x1f, 21);
+	node[5] = 8; node[6] = 8; node[7] = 4; node[8] = 4;
+	failures += expect_text(node, 21, FALSE, TRUE, "Dns(8.8.4.4)", "DNS IPv4 fixture");
+	return failures;
+}
+
 int main(void)
 {
 	struct cdk2_device_path_allocator allocator = {
@@ -249,6 +338,7 @@ int main(void)
 	UINTN size;
 	int failures = 0;
 	failures += formatter_tests();
+	failures += messaging_formatter_tests();
 
 	set_node(first, 1, 1, 8);
 	set_node((void *)(first_bytes + 8), CDK2_DEVICE_PATH_END_TYPE,

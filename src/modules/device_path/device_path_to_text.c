@@ -90,6 +90,57 @@ static void put_dec(struct writer *writer, UINT8 value)
 	put(writer, (CHAR16)('0' + value % 10));
 }
 
+static void put_uint(struct writer *writer, UINT64 value)
+{
+	CHAR16 digits[20];
+	UINTN count = 0;
+	do {
+		digits[count++] = (CHAR16)('0' + value % 10);
+		value /= 10;
+	} while (value != 0);
+	while (count != 0)
+		put(writer, digits[--count]);
+}
+
+static void put_bytes(struct writer *writer, const UINT8 *bytes, UINTN count)
+{
+	UINTN index;
+	for (index = 0; index < count; index++)
+		put_hex(writer, bytes[index], 2, FALSE);
+}
+
+static void put_ipv4(struct writer *writer, const UINT8 *address)
+{
+	UINTN index;
+	for (index = 0; index < 4; index++) {
+		if (index != 0)
+			put(writer, '.');
+		put_uint(writer, address[index]);
+	}
+}
+
+static void put_ipv6(struct writer *writer, const UINT8 *address)
+{
+	UINTN index;
+	for (index = 0; index < 16; index++) {
+		if (index != 0 && (index & 1) == 0)
+			put(writer, ':');
+		put_hex(writer, address[index], 2, FALSE);
+	}
+}
+
+static void put_0x(struct writer *writer, UINT64 value);
+
+static void put_protocol(struct writer *writer, UINT16 protocol)
+{
+	if (protocol == 6)
+		puts8(writer, "TCP");
+	else if (protocol == 17)
+		puts8(writer, "UDP");
+	else
+		put_0x(writer, protocol);
+}
+
 static void put_0x(struct writer *writer, UINT64 value)
 {
 	puts8(writer, "0x");
@@ -323,6 +374,266 @@ static EFI_STATUS render_acpi_ex(struct writer *writer, const UINT8 *node,
 	return EFI_SUCCESS;
 }
 
+static EFI_STATUS render_messaging(struct writer *writer, const UINT8 *node,
+	UINT16 length, BOOLEAN display_only, BOOLEAN shortcuts)
+{
+	UINTN index;
+	UINT16 value;
+	const char *name;
+	(void)shortcuts;
+	switch (node[1]) {
+	case 0x01:
+		if (length != 8)
+			return EFI_COMPROMISED_DATA;
+		puts8(writer, "Ata(");
+		if (!display_only) {
+			puts8(writer, node[4] == 1 ? "Secondary," : "Primary,");
+			puts8(writer, node[5] == 1 ? "Slave," : "Master,");
+		}
+		put_0x(writer, read16(node + 6)); put(writer, ')'); return EFI_SUCCESS;
+	case 0x02:
+		if (length != 8)
+			return EFI_COMPROMISED_DATA;
+		puts8(writer, "Scsi("); put_0x(writer, read16(node + 4)); put(writer, ',');
+		put_0x(writer, read16(node + 6)); put(writer, ')'); return EFI_SUCCESS;
+	case 0x03:
+		if (length != 24)
+			return EFI_COMPROMISED_DATA;
+		puts8(writer, "Fibre("); put_0x(writer, read64(node + 8)); put(writer, ',');
+		put_0x(writer, read64(node + 16)); put(writer, ')'); return EFI_SUCCESS;
+	case 0x04:
+		if (length != 16)
+			return EFI_COMPROMISED_DATA;
+		puts8(writer, "I1394("); put_hex(writer, read64(node + 8), 16, FALSE);
+		put(writer, ')'); return EFI_SUCCESS;
+	case 0x05:
+		if (length != 6)
+			return EFI_COMPROMISED_DATA;
+		puts8(writer, "USB("); put_0x(writer, node[4]); put(writer, ',');
+		put_0x(writer, node[5]); put(writer, ')'); return EFI_SUCCESS;
+	case 0x06:
+		if (length != 8)
+			return EFI_COMPROMISED_DATA;
+		puts8(writer, "I2O("); put_0x(writer, read32(node + 4)); put(writer, ')');
+		return EFI_SUCCESS;
+	case 0x09:
+		if (length != 48)
+			return EFI_COMPROMISED_DATA;
+		puts8(writer, "Infiniband("); put_0x(writer, read32(node + 4)); put(writer, ',');
+		put_guid(writer, node + 8); put(writer, ','); put_0x(writer, read64(node + 24));
+		put(writer, ','); put_0x(writer, read64(node + 32)); put(writer, ',');
+		put_0x(writer, read64(node + 40)); put(writer, ')'); return EFI_SUCCESS;
+	case MSG_VENDOR_DP:
+		return render_vendor(writer, node, length, shortcuts);
+	case 0x0b:
+		if (length != 37)
+			return EFI_COMPROMISED_DATA;
+		puts8(writer, "MAC("); put_bytes(writer, node + 4,
+			(node[36] == 0 || node[36] == 1) ? 6 : 32);
+		put(writer, ','); put_0x(writer, node[36]); put(writer, ')'); return EFI_SUCCESS;
+	case 0x0c:
+		if (length != 19 && length != 27)
+			return EFI_COMPROMISED_DATA;
+		puts8(writer, "IPv4("); put_ipv4(writer, node + 8);
+		if (!display_only) {
+			put(writer, ','); put_protocol(writer, read16(node + 16)); put(writer, ',');
+			puts8(writer, node[18] ? "Static," : "DHCP,"); put_ipv4(writer, node + 4);
+			if (length == 27) {
+				put(writer, ','); put_ipv4(writer, node + 19);
+				put(writer, ','); put_ipv4(writer, node + 23);
+			}
+		}
+		put(writer, ')'); return EFI_SUCCESS;
+	case 0x0d:
+		if (length != 44 && length != 60)
+			return EFI_COMPROMISED_DATA;
+		puts8(writer, "IPv6("); put_ipv6(writer, node + 20);
+		if (!display_only) {
+			put(writer, ','); put_protocol(writer, read16(node + 40)); put(writer, ',');
+			puts8(writer, node[42] == 0 ? "Static," :
+				node[42] == 1 ? "StatelessAutoConfigure," : "StatefulAutoConfigure,");
+			put_ipv6(writer, node + 4);
+			if (length == 60) {
+				put(writer, ','); put_0x(writer, node[43]); put(writer, ',');
+				put_ipv6(writer, node + 44);
+			}
+		}
+		put(writer, ')'); return EFI_SUCCESS;
+	case 0x0e:
+		if (length != 19)
+			return EFI_COMPROMISED_DATA;
+		puts8(writer, "Uart(");
+		if (read64(node + 8) == 0) {
+			puts8(writer, "DEFAULT,");
+		} else {
+			put_uint(writer, read64(node + 8));
+			put(writer, ',');
+		}
+		if (node[16] == 0) {
+			puts8(writer, "DEFAULT,");
+		} else {
+			put_uint(writer, node[16]);
+			put(writer, ',');
+		}
+		name = node[17] == 0 ? "D" : node[17] == 1 ? "N" : node[17] == 2 ? "E" :
+			node[17] == 3 ? "O" : node[17] == 4 ? "M" : node[17] == 5 ? "S" : "x";
+		puts8(writer, name); put(writer, ',');
+		name = node[18] == 0 ? "D" : node[18] == 1 ? "1" :
+			node[18] == 2 ? "1.5" : node[18] == 3 ? "2" : "x";
+		puts8(writer, name); put(writer, ')'); return EFI_SUCCESS;
+	case 0x0f:
+		if (length != 11)
+			return EFI_COMPROMISED_DATA;
+		name = node[8] == 1 ? "UsbAudio" : node[8] == 2 ? "UsbCDCControl" :
+			node[8] == 3 ? "UsbHID" : node[8] == 6 ? "UsbImage" :
+			node[8] == 7 ? "UsbPrinter" : node[8] == 8 ? "UsbMassStorage" :
+			node[8] == 9 ? "UsbHub" : node[8] == 10 ? "UsbCDCData" :
+			node[8] == 11 ? "UsbSmartCard" : node[8] == 14 ? "UsbVideo" :
+			node[8] == 0xdc ? "UsbDiagnostic" : node[8] == 0xe0 ? "UsbWireless" : NULL;
+		if (node[8] == 0xfe && node[9] >= 1 && node[9] <= 3) {
+			name = node[9] == 1 ? "UsbDeviceFirmwareUpdate" :
+				node[9] == 2 ? "UsbIrdaBridge" : "UsbTestAndMeasurement";
+			puts8(writer, name); put(writer, '('); put_0x(writer, read16(node + 4));
+			put(writer, ','); put_0x(writer, read16(node + 6)); put(writer, ',');
+			put_0x(writer, node[10]); put(writer, ')'); return EFI_SUCCESS;
+		}
+		if (name != NULL) {
+			puts8(writer, name); put(writer, '('); put_0x(writer, read16(node + 4));
+			put(writer, ','); put_0x(writer, read16(node + 6)); put(writer, ',');
+			put_0x(writer, node[9]); put(writer, ','); put_0x(writer, node[10]);
+		} else {
+			puts8(writer, "UsbClass("); put_0x(writer, read16(node + 4)); put(writer, ',');
+			put_0x(writer, read16(node + 6)); put(writer, ','); put_0x(writer, node[8]);
+			put(writer, ','); put_0x(writer, node[9]); put(writer, ','); put_0x(writer, node[10]);
+		}
+		put(writer, ')'); return EFI_SUCCESS;
+	case 0x10:
+		if (length < 10 || ((length - 10) & 1) != 0)
+			return EFI_COMPROMISED_DATA;
+		puts8(writer, "UsbWwid("); put_0x(writer, read16(node + 6)); put(writer, ',');
+		put_0x(writer, read16(node + 8)); put(writer, ','); put_0x(writer, read16(node + 4));
+		puts8(writer, ",\"");
+		for (index = 10; index + 1 < length && read16(node + index) != 0; index += 2)
+			put(writer, read16(node + index));
+		puts8(writer, "\")"); return EFI_SUCCESS;
+	case 0x11:
+		if (length != 5)
+			return EFI_COMPROMISED_DATA;
+		puts8(writer, "Unit("); put_0x(writer, node[4]); put(writer, ')'); return EFI_SUCCESS;
+	case 0x12:
+		if (length != 10)
+			return EFI_COMPROMISED_DATA;
+		puts8(writer, "Sata("); put_0x(writer, read16(node + 4)); put(writer, ',');
+		put_0x(writer, read16(node + 6)); put(writer, ','); put_0x(writer, read16(node + 8));
+		put(writer, ')'); return EFI_SUCCESS;
+	case 0x13:
+		if (length < 18)
+			return EFI_COMPROMISED_DATA;
+		for (index = 18; index < length && node[index] != 0; index++)
+			;
+		if (index == length)
+			return EFI_COMPROMISED_DATA;
+		puts8(writer, "iSCSI("); put_ascii(writer, node + 18); put(writer, ',');
+		put_0x(writer, read16(node + 16)); puts8(writer, ",0x"); put_bytes(writer, node + 8, 8);
+		value = read16(node + 6); put(writer, ','); puts8(writer, value & 2 ? "CRC32C," : "None,");
+		puts8(writer, value & 8 ? "CRC32C," : "None,");
+		puts8(writer, value & 0x0800 ? "None," : value & 0x1000 ? "CHAP_UNI," : "CHAP_BI,");
+		puts8(writer, read16(node + 4) == 0 ? "TCP)" : "reserved)"); return EFI_SUCCESS;
+	case 0x14:
+		if (length != 6)
+			return EFI_COMPROMISED_DATA;
+		puts8(writer, "Vlan("); put_uint(writer, read16(node + 4)); put(writer, ')');
+		return EFI_SUCCESS;
+	case 0x15:
+		if (length != 24)
+			return EFI_COMPROMISED_DATA;
+		puts8(writer, "FibreEx(0x"); put_bytes(writer, node + 8, 8); puts8(writer, ",0x");
+		put_bytes(writer, node + 16, 8); put(writer, ')'); return EFI_SUCCESS;
+	case 0x16:
+		if (length != 24)
+			return EFI_COMPROMISED_DATA;
+		puts8(writer, "SasEx(0x"); put_bytes(writer, node + 4, 8); puts8(writer, ",0x");
+		put_bytes(writer, node + 12, 8); put(writer, ','); put_0x(writer, read16(node + 22));
+		put(writer, ','); value = read16(node + 20);
+		if ((value & 0x0f) == 0 && (value & 0x80) == 0) {
+			puts8(writer, "NoTopology,0,0,0");
+		} else if ((value & 0x0f) <= 2 && (value & 0x80) == 0) {
+			puts8(writer, value & 0x10 ? "SATA," : "SAS,");
+			puts8(writer, value & 0x20 ? "External," : "Internal,");
+			puts8(writer, value & 0x40 ? "Expanded," : "Direct,");
+			if ((value & 0x0f) == 1)
+				put(writer, '0');
+			else
+				put_0x(writer, ((value >> 8) & 0xff) + 1);
+		} else {
+			put_0x(writer, value); puts8(writer, ",0,0,0");
+		}
+		put(writer, ')'); return EFI_SUCCESS;
+	case 0x17:
+		if (length != 16)
+			return EFI_COMPROMISED_DATA;
+		puts8(writer, "NVMe("); put_0x(writer, read32(node + 4)); put(writer, ',');
+		for (index = 0; index < 8; index++) {
+			if (index != 0)
+				put(writer, '-');
+			put_hex(writer, node[15 - index], 2, FALSE);
+		}
+		put(writer, ')'); return EFI_SUCCESS;
+	case 0x18:
+		if (length < 4)
+			return EFI_COMPROMISED_DATA;
+		puts8(writer, "Uri(");
+		for (index = 4; index < length && node[index] != 0; index++)
+			put(writer, node[index]);
+		put(writer, ')'); return EFI_SUCCESS;
+	case 0x19:
+		if (length != 6)
+			return EFI_COMPROMISED_DATA;
+		puts8(writer, "UFS("); put_0x(writer, node[4]); put(writer, ',');
+		put_0x(writer, node[5]); put(writer, ')'); return EFI_SUCCESS;
+	case 0x1a:
+		if (length != 5)
+			return EFI_COMPROMISED_DATA;
+		puts8(writer, "SD("); put_0x(writer, node[4]); put(writer, ')'); return EFI_SUCCESS;
+	case 0x1b:
+		if (length != 10)
+			return EFI_COMPROMISED_DATA;
+		puts8(writer, "Bluetooth("); put_bytes(writer, node + 4, 6); put(writer, ')');
+		return EFI_SUCCESS;
+	case 0x1c:
+		if (length != 36)
+			return EFI_COMPROMISED_DATA;
+		puts8(writer, "Wi-Fi(");
+		for (index = 4; index < 36 && node[index] != 0; index++)
+			put(writer, node[index]);
+		put(writer, ')'); return EFI_SUCCESS;
+	case 0x1d:
+		if (length != 5)
+			return EFI_COMPROMISED_DATA;
+		puts8(writer, "eMMC("); put_0x(writer, node[4]); put(writer, ')'); return EFI_SUCCESS;
+	case 0x1e:
+		if (length != 11)
+			return EFI_COMPROMISED_DATA;
+		puts8(writer, "BluetoothLE("); put_bytes(writer, node + 4, 6); put(writer, ',');
+		put_0x(writer, node[10]); put(writer, ')'); return EFI_SUCCESS;
+	case 0x1f:
+		if (length < 5 || (length - 5) % 16 != 0)
+			return EFI_COMPROMISED_DATA;
+		puts8(writer, "Dns(");
+		for (index = 5; index < length; index += 16) {
+			if (index != 5)
+				put(writer, ',');
+			if (node[4] == 0)
+				put_ipv4(writer, node + index);
+			else
+				put_ipv6(writer, node + index);
+		}
+		put(writer, ')'); return EFI_SUCCESS;
+	default:
+		return EFI_UNSUPPORTED;
+	}
+}
+
 static EFI_STATUS render_node(struct writer *writer, const UINT8 *node,
 	UINT16 length, BOOLEAN display_only, BOOLEAN shortcuts)
 {
@@ -361,6 +672,12 @@ static EFI_STATUS render_node(struct writer *writer, const UINT8 *node,
 	if ((node[0] == MESSAGING_DEVICE_PATH && node[1] == MSG_VENDOR_DP) ||
 	    (node[0] == MEDIA_DEVICE_PATH && node[1] == MEDIA_VENDOR_DP))
 		return render_vendor(writer, node, length, shortcuts);
+	if (node[0] == MESSAGING_DEVICE_PATH) {
+		EFI_STATUS status = render_messaging(writer, node, length, display_only,
+			shortcuts);
+		if (status != EFI_UNSUPPORTED)
+			return status;
+	}
 	if (node[0] == ACPI_DEVICE_PATH) {
 		switch (node[1]) {
 		case ACPI_DP:
