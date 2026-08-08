@@ -25,11 +25,29 @@ static void write_be32(UINT8 *bytes, UINT32 value)
 	bytes[2] = (UINT8)(value >> 8); bytes[3] = (UINT8)value;
 }
 
+static void copy_bytes(UINT8 *destination, const UINT8 *source, UINT32 size)
+{
+	UINT32 index;
+
+	for (index = 0; index < size; index++)
+		destination[index] = source[index];
+}
+
 static void command_header(UINT8 *command, UINT32 size, UINT32 code)
 {
 	write_be16(command, CDK2_TPM2_ST_NO_SESSIONS);
 	write_be32(command + 2, size);
 	write_be32(command + 6, code);
+}
+
+static UINT32 password_session(UINT8 *command)
+{
+	write_be32(command, 9);
+	write_be32(command + 4, CDK2_TPM2_RS_PW);
+	write_be16(command + 8, 0);
+	command[10] = 0;
+	write_be16(command + 11, 0);
+	return 13;
 }
 
 EFI_STATUS cdk2_tpm2_execute(const struct cdk2_tpm2_transport *transport,
@@ -173,4 +191,153 @@ EFI_STATUS cdk2_tpm2_get_pcr_banks(const struct cdk2_tpm2_transport *transport,
 			if (response[offset++] != 0) *active |= bit;
 	}
 	return EFI_SUCCESS;
+}
+
+EFI_STATUS cdk2_tpm2_hash_sequence_start(
+	const struct cdk2_tpm2_transport *transport, TPMI_ALG_HASH algorithm,
+	UINT32 *handle, UINT32 *response_code)
+{
+	UINT8 command[14];
+	UINT8 response[14];
+	UINT32 size = sizeof(response);
+	struct cdk2_tpm2_result result;
+	EFI_STATUS status;
+
+	if (handle == NULL || response_code == NULL)
+		return EFI_INVALID_PARAMETER;
+	command_header(command, sizeof(command), CDK2_TPM2_CC_HASH_SEQUENCE_START);
+	write_be16(command + 10, 0);
+	write_be16(command + 12, algorithm);
+	status = cdk2_tpm2_execute(transport, command, sizeof(command), response,
+		&size, &result);
+	if (EFI_ERROR(status))
+		return status;
+	*response_code = result.response_code;
+	if (result.response_code != 0)
+		return EFI_DEVICE_ERROR;
+	if (size != sizeof(response))
+		return EFI_COMPROMISED_DATA;
+	*handle = read_be32(response + 10);
+	return EFI_SUCCESS;
+}
+
+EFI_STATUS cdk2_tpm2_sequence_update(
+	const struct cdk2_tpm2_transport *transport, UINT32 handle,
+	const void *data_buffer, UINT16 data_size, UINT32 *response_code)
+{
+	const UINT8 *data = data_buffer;
+	UINT8 command[10 + 4 + 13 + 2 + CDK2_TPM2_SEQUENCE_CHUNK];
+	UINT8 response[10];
+	UINT32 size = sizeof(response);
+	UINT32 offset;
+	struct cdk2_tpm2_result result;
+	EFI_STATUS status;
+
+	if (response_code == NULL || data_size > CDK2_TPM2_SEQUENCE_CHUNK ||
+	    (data_size != 0 && data == NULL))
+		return EFI_INVALID_PARAMETER;
+	offset = 10;
+	write_be32(command + offset, handle);
+	offset += 4;
+	offset += password_session(command + offset);
+	write_be16(command + offset, data_size);
+	offset += 2;
+	copy_bytes(command + offset, data, data_size);
+	offset += data_size;
+	command_header(command, offset, CDK2_TPM2_CC_SEQUENCE_UPDATE);
+	command[0] = 0x80;
+	command[1] = 0x02;
+	status = cdk2_tpm2_execute(transport, command, offset, response, &size, &result);
+	if (EFI_ERROR(status))
+		return status;
+	*response_code = result.response_code;
+	return result.response_code == 0 ? EFI_SUCCESS : EFI_DEVICE_ERROR;
+}
+
+EFI_STATUS cdk2_tpm2_sequence_complete(
+	const struct cdk2_tpm2_transport *transport, UINT32 handle,
+	const void *data_buffer, UINT16 data_size, UINT8 *digest,
+	UINT16 digest_capacity, UINT16 *digest_size, UINT32 *response_code)
+{
+	const UINT8 *data = data_buffer;
+	UINT8 command[10 + 4 + 13 + 2 + CDK2_TPM2_SEQUENCE_CHUNK + 4];
+	UINT8 response[14 + SHA512_DIGEST_SIZE];
+	UINT32 size = sizeof(response);
+	UINT32 offset = 10;
+	UINT16 returned;
+	struct cdk2_tpm2_result result;
+	EFI_STATUS status;
+
+	if (digest == NULL || digest_size == NULL || response_code == NULL ||
+	    data_size > CDK2_TPM2_SEQUENCE_CHUNK ||
+	    (data_size != 0 && data == NULL))
+		return EFI_INVALID_PARAMETER;
+	write_be32(command + offset, handle);
+	offset += 4;
+	offset += password_session(command + offset);
+	write_be16(command + offset, data_size);
+	offset += 2;
+	copy_bytes(command + offset, data, data_size);
+	offset += data_size;
+	write_be32(command + offset, CDK2_TPM2_RH_NULL);
+	offset += 4;
+	command_header(command, offset, CDK2_TPM2_CC_SEQUENCE_COMPLETE);
+	command[0] = 0x80;
+	command[1] = 0x02;
+	status = cdk2_tpm2_execute(transport, command, offset, response, &size, &result);
+	if (EFI_ERROR(status))
+		return status;
+	*response_code = result.response_code;
+	if (result.response_code != 0)
+		return EFI_DEVICE_ERROR;
+	if (size < 16 || read_be32(response + 10) > size - 14)
+		return EFI_COMPROMISED_DATA;
+	returned = read_be16(response + 14);
+	*digest_size = returned;
+	if (returned > digest_capacity)
+		return EFI_BUFFER_TOO_SMALL;
+	if (returned > size - 16)
+		return EFI_COMPROMISED_DATA;
+	copy_bytes(digest, response + 16, returned);
+	return EFI_SUCCESS;
+}
+
+EFI_STATUS cdk2_tpm2_pcr_extend(const struct cdk2_tpm2_transport *transport,
+	TPM_PCRINDEX pcr_index, const struct cdk2_tcg2_digest *digests,
+	UINT32 digest_count, UINT32 *response_code)
+{
+	UINT8 command[10 + 4 + 13 + 4 +
+		CDK2_TCG2_MAX_DIGESTS * (2 + SHA512_DIGEST_SIZE)];
+	UINT8 response[10];
+	UINT32 size = sizeof(response);
+	UINT32 offset = 10;
+	UINT32 index;
+	struct cdk2_tpm2_result result;
+	EFI_STATUS status;
+
+	if (response_code == NULL || digests == NULL || digest_count == 0 ||
+	    digest_count > CDK2_TCG2_MAX_DIGESTS || pcr_index > 23)
+		return EFI_INVALID_PARAMETER;
+	write_be32(command + offset, pcr_index);
+	offset += 4;
+	offset += password_session(command + offset);
+	write_be32(command + offset, digest_count);
+	offset += 4;
+	for (index = 0; index < digest_count; index++) {
+		if (digests[index].size == 0 ||
+		    digests[index].size > sizeof(digests[index].bytes))
+			return EFI_INVALID_PARAMETER;
+		write_be16(command + offset, digests[index].algorithm);
+		offset += 2;
+		copy_bytes(command + offset, digests[index].bytes, digests[index].size);
+		offset += digests[index].size;
+	}
+	command_header(command, offset, CDK2_TPM2_CC_PCR_EXTEND);
+	command[0] = 0x80;
+	command[1] = 0x02;
+	status = cdk2_tpm2_execute(transport, command, offset, response, &size, &result);
+	if (EFI_ERROR(status))
+		return status;
+	*response_code = result.response_code;
+	return result.response_code == 0 ? EFI_SUCCESS : EFI_DEVICE_ERROR;
 }

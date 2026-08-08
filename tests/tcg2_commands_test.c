@@ -60,6 +60,26 @@ static void write32(void *context, UINT64 address, UINT32 value)
 	if (address - BASE != 0x4cU || value != 1U) return;
 	code = be32(mock->data + 6);
 	if (code == CDK2_TPM2_CC_STARTUP) { make_header(mock, 10); return; }
+	if (code == CDK2_TPM2_CC_HASH_SEQUENCE_START) {
+		make_header(mock, 14);
+		put32(mock->data + 10, 0x80000001U);
+		return;
+	}
+	if (code == CDK2_TPM2_CC_SEQUENCE_COMPLETE) {
+		make_header(mock, 48);
+		mock->data[0] = 0x80;
+		mock->data[1] = 0x02;
+		put32(mock->data + 10, 34);
+		mock->data[14] = 0;
+		mock->data[15] = SHA256_DIGEST_SIZE;
+		memset(mock->data + 16, 0xa5, SHA256_DIGEST_SIZE);
+		return;
+	}
+	if (code == CDK2_TPM2_CC_SEQUENCE_UPDATE ||
+	    code == CDK2_TPM2_CC_PCR_EXTEND) {
+		make_header(mock, 10);
+		return;
+	}
 	property = be32(mock->data + 14);
 	if (property != 0) {
 		make_header(mock, 27); mock->data[10] = 0;
@@ -100,6 +120,13 @@ int main(void)
 	struct cdk2_tpm2_transport transport = {
 		CDK2_TPM2_INTERFACE_CRB, BASE, 120, &io };
 	UINT32 code, value, supported, active, banks;
+	UINT32 handle;
+	UINT16 digest_size;
+	UINT8 digest[SHA256_DIGEST_SIZE];
+	struct cdk2_tcg2_digest extend_digest = {
+		.algorithm = TPM_ALG_SHA256,
+		.size = SHA256_DIGEST_SIZE,
+	};
 	int failures = 0;
 
 	failures += expect(cdk2_tpm2_startup(&transport, CDK2_TPM2_SU_CLEAR, &code) ==
@@ -114,6 +141,19 @@ int main(void)
 	failures += expect(cdk2_tpm2_get_pcr_banks(&transport, &supported, &active,
 		&banks, &code) == EFI_SUCCESS && banks == 2U && supported == 3U &&
 		active == 3U, "PCR bank capability failed");
+	failures += expect(cdk2_tpm2_hash_sequence_start(&transport, TPM_ALG_SHA256,
+		&handle, &code) == EFI_SUCCESS && handle == 0x80000001U && code == 0,
+		"HashSequenceStart failed");
+	failures += expect(cdk2_tpm2_sequence_update(&transport, handle, "abc", 3,
+		&code) == EFI_SUCCESS && code == 0,
+		"SequenceUpdate failed");
+	failures += expect(cdk2_tpm2_sequence_complete(&transport, handle, NULL, 0,
+		digest, sizeof(digest), &digest_size, &code) == EFI_SUCCESS &&
+		digest_size == sizeof(digest) && digest[0] == 0xa5,
+		"SequenceComplete failed");
+	memset(extend_digest.bytes, 0xa5, extend_digest.size);
+	failures += expect(cdk2_tpm2_pcr_extend(&transport, 7, &extend_digest, 1,
+		&code) == EFI_SUCCESS && code == 0, "PCR_Extend failed");
 	mock.response_code = 0x143U;
 	failures += expect(cdk2_tpm2_get_property(&transport, 0x105U, &value, &code) ==
 		EFI_DEVICE_ERROR && code == 0x143U, "TPM error code was lost");
