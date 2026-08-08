@@ -24,6 +24,14 @@ CDK2_NATIVE_FFSBUILD_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ffsbuild-test
 CDK2_NATIVE_FVREPLACE ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-fvreplace
 CDK2_NATIVE_PERELOCCHECK ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-pereloccheck
 CDK2_NATIVE_METRONOME_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-metronome-test
+CDK2_NATIVE_SCSI_BUS_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-scsi-bus-test
+CDK2_NATIVE_SCSI_BINDING_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-scsi-binding-test
+CDK2_NATIVE_SCSI_ENTRY_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-scsi-entry-test
+CDK2_NATIVE_SCSI_BUS_OBJS := $(CDK2_NATIVE_BUILD_DIR)/scsi-bus-model.o \
+	$(CDK2_NATIVE_BUILD_DIR)/scsi-bus-binding.o \
+	$(CDK2_NATIVE_BUILD_DIR)/scsi-bus-entry.o
+CDK2_NATIVE_SCSI_BUS_PE ?= $(CDK2_NATIVE_BUILD_DIR)/ScsiBusDxe.efi
+CDK2_NATIVE_SCSI_BUS_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/ScsiBusDxe.ffs
 CDK2_NATIVE_SATA_CONTROLLER_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-sata-controller-test
 CDK2_NATIVE_ATA_ATAPI_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-atapi-test
 CDK2_NATIVE_ATA_ATAPI_BINDING_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-atapi-binding-test
@@ -409,6 +417,9 @@ CDK2_NATIVE_HOST_TOOLS := \
 	$(CDK2_NATIVE_FVREPLACE) \
 	$(CDK2_NATIVE_PERELOCCHECK) \
 	$(CDK2_NATIVE_METRONOME_TEST) \
+	$(CDK2_NATIVE_SCSI_BUS_TEST) \
+	$(CDK2_NATIVE_SCSI_BINDING_TEST) \
+	$(CDK2_NATIVE_SCSI_ENTRY_TEST) \
 	$(CDK2_NATIVE_SATA_CONTROLLER_TEST) \
 	$(CDK2_NATIVE_ATA_ATAPI_TEST) \
 	$(CDK2_NATIVE_ATA_ATAPI_BINDING_TEST) \
@@ -717,6 +728,9 @@ native-check: $(CDK2_CONFIG_HEADER) $(CDK2_NATIVE_ELF) $(CDK2_NATIVE_OVERRIDE_EL
 	@"$(CDK2_NATIVE_FVINFO_TEST)" "$(CDK2_NATIVE_FVINFO)" "$(CDK2_NATIVE_BUILD_DIR)"
 	@"$(CDK2_NATIVE_FFSBUILD_TEST)" "$(CDK2_NATIVE_FFSBUILD)" "$(CDK2_NATIVE_BUILD_DIR)"
 	@"$(CDK2_NATIVE_METRONOME_TEST)"
+	@"$(CDK2_NATIVE_SCSI_BUS_TEST)"
+	@"$(CDK2_NATIVE_SCSI_BINDING_TEST)"
+	@"$(CDK2_NATIVE_SCSI_ENTRY_TEST)"
 	@"$(CDK2_NATIVE_SATA_CONTROLLER_TEST)"
 	@"$(CDK2_NATIVE_ATA_ATAPI_TEST)"
 	@"$(CDK2_NATIVE_ATA_ATAPI_BINDING_TEST)"
@@ -1059,6 +1073,15 @@ native-graphics-console-test: $(CDK2_NATIVE_GRAPHICS_CONSOLE_TEST) $(CDK2_NATIVE
 	@"$(CDK2_NATIVE_GRAPHICS_CONSOLE_TEST)"
 	@"$(CDK2_NATIVE_GRAPHICS_PACKAGE_TEST)"
 	@"$(CDK2_NATIVE_GRAPHICS_ENTRY_TEST)"
+
+native-scsi-bus-test: $(CDK2_NATIVE_SCSI_BUS_TEST) $(CDK2_NATIVE_SCSI_BINDING_TEST) \
+		$(CDK2_NATIVE_SCSI_ENTRY_TEST)
+	@"$(CDK2_NATIVE_SCSI_BUS_TEST)"
+	@"$(CDK2_NATIVE_SCSI_BINDING_TEST)"
+	@"$(CDK2_NATIVE_SCSI_ENTRY_TEST)"
+
+native-scsi-bus-package: $(CDK2_NATIVE_SCSI_BUS_FFS)
+	@printf '%s\n' "native SCSI bus FFS: $(CDK2_NATIVE_SCSI_BUS_FFS)"
 
 native-hii-database-test: $(CDK2_NATIVE_HII_DATABASE_TEST) \
 		$(CDK2_NATIVE_HII_PACKAGE_PARSE_TEST) $(CDK2_NATIVE_HII_DATABASE_MODEL_TEST)
@@ -2294,6 +2317,49 @@ $(CDK2_NATIVE_FFSBUILD_TEST): $(CDK2_DIR)/tests/ffsbuild_test.c | $(CDK2_NATIVE_
 
 $(CDK2_NATIVE_METRONOME_TEST): $(CDK2_DIR)/tests/metronome_test.c $(CDK2_DIR)/src/modules/metronome/metronome.c $(CDK2_DIR)/include/cdk2/metronome.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$<"
+
+$(CDK2_NATIVE_SCSI_BUS_TEST): $(CDK2_DIR)/tests/scsi_bus_test.c $(CDK2_DIR)/src/modules/scsi_bus/model.c $(CDK2_DIR)/include/cdk2/scsi_bus.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" $(CDK2_DIR)/tests/scsi_bus_test.c $(CDK2_DIR)/src/modules/scsi_bus/model.c
+
+$(CDK2_NATIVE_SCSI_BINDING_TEST): $(CDK2_DIR)/tests/scsi_bus_binding_test.c \
+		$(CDK2_DIR)/src/modules/scsi_bus/binding.c \
+		$(CDK2_DIR)/src/modules/scsi_bus/model.c \
+		$(CDK2_DIR)/include/cdk2/scsi_bus_binding.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) \
+		-o "$@" $(CDK2_DIR)/tests/scsi_bus_binding_test.c \
+		$(CDK2_DIR)/src/modules/scsi_bus/binding.c \
+		$(CDK2_DIR)/src/modules/scsi_bus/model.c
+
+$(CDK2_NATIVE_SCSI_ENTRY_TEST): $(CDK2_DIR)/tests/scsi_bus_entry_test.c \
+		$(CDK2_DIR)/src/modules/scsi_bus/entry.c \
+		$(CDK2_DIR)/src/modules/scsi_bus/binding.c \
+		$(CDK2_DIR)/src/modules/scsi_bus/model.c | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) \
+		-o "$@" $(CDK2_DIR)/tests/scsi_bus_entry_test.c \
+		$(CDK2_DIR)/src/modules/scsi_bus/entry.c \
+		$(CDK2_DIR)/src/modules/scsi_bus/binding.c \
+		$(CDK2_DIR)/src/modules/scsi_bus/model.c
+
+$(CDK2_NATIVE_BUILD_DIR)/scsi-bus-%.o: \
+		$(CDK2_DIR)/src/modules/scsi_bus/%.c \
+		$(CDK2_DIR)/include/cdk2/scsi_bus.h \
+		$(CDK2_DIR)/include/cdk2/scsi_bus_binding.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
+		-mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args \
+		$(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+
+$(CDK2_NATIVE_SCSI_BUS_PE): $(CDK2_NATIVE_SCSI_BUS_OBJS) \
+		$(CDK2_DIR)/src/modules/scsi_bus/scsi_bus.ld $(CDK2_NATIVE_PERELOCCHECK)
+	@$(LD) -mi386pep --subsystem 11 --entry cdk2_scsi_bus_entry --image-base 0 \
+		--section-alignment 0x1000 --file-alignment 0x1000 --build-id=none \
+		--no-insert-timestamp -s --nxcompat \
+		-T "$(CDK2_DIR)/src/modules/scsi_bus/scsi_bus.ld" \
+		-o "$@" $(CDK2_NATIVE_SCSI_BUS_OBJS)
+	@"$(CDK2_NATIVE_PERELOCCHECK)" --subsystem 11 "$@"
+
+$(CDK2_NATIVE_SCSI_BUS_FFS): $(CDK2_NATIVE_SCSI_BUS_PE) $(CDK2_NATIVE_FFSBUILD)
+	@"$(CDK2_NATIVE_FFSBUILD)" 0167ccc4-d0f7-4f21-a3ef-9e64b7cdce8b \
+		ScsiBusDxe 1.0 0x703e "$<" "$@" -
 
 $(CDK2_NATIVE_SATA_CONTROLLER_TEST): $(CDK2_DIR)/tests/sata_controller_test.c $(CDK2_DIR)/src/modules/sata_controller/model.c $(CDK2_DIR)/include/cdk2/sata_controller.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" $(CDK2_DIR)/tests/sata_controller_test.c $(CDK2_DIR)/src/modules/sata_controller/model.c

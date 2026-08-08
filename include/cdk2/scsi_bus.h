@@ -15,11 +15,11 @@ struct cdk2_scsi_request {
 	void *cdb;
 	UINT32 in_length;
 	UINT32 out_length;
-	UINT8 sense_length;
 	UINT8 cdb_length;
 	UINT8 data_direction;
 	UINT8 host_status;
 	UINT8 target_status;
+	UINT8 sense_length;
 };
 typedef EFI_STATUS cdk2_scsi_pass_fn(void *, const UINT8 *, UINT64,
 	struct cdk2_scsi_request *, void *);
