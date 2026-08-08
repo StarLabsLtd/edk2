@@ -10,6 +10,7 @@ struct cdk2_tcg2_acpi_export;
 typedef EFI_ACPI_DESCRIPTION_HEADER * cdk2_acpi_header_ptr[1];
 typedef UINTN cdk2_uintn_ptr[1];
 typedef UINT32 cdk2_uint32_ptr[1];
+typedef EFI_TCG2_PROTOCOL cdk2_tcg2_protocol_ptr[1];
 
 #define CDK2_TPM2_ACPI_INTERFACE_TIS 0U
 #define CDK2_TPM2_ACPI_INTERFACE_CRB 1U
@@ -72,7 +73,7 @@ EFI_STATUS cdk2_tpm2_acpi_replace(const struct cdk2_tpm2_acpi_info *info,
 EFI_STATUS cdk2_tpm2_acpi_from_export(const struct cdk2_tcg2_acpi_export *export,
 	const EFI_ACPI_DESCRIPTION_HEADER *platform_table,
 	const EFI_TPM2_ACPI_TABLE *existing, struct cdk2_tpm2_acpi_info *info);
-EFI_STATUS cdk2_tpm2_acpi_install_from_protocols(EFI_TCG2_PROTOCOL *tcg2,
+EFI_STATUS cdk2_tpm2_acpi_install_from_protocols(cdk2_tcg2_protocol_ptr tcg2,
 	struct cdk2_acpi_table_protocol *table_protocol,
 	struct cdk2_acpi_sdt_protocol *sdt_protocol);
 

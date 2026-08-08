@@ -14,9 +14,10 @@ static EFI_ACPI_DESCRIPTION_HEADER driver_platform;
 static EFI_TPM2_ACPI_TABLE driver_tpm;
 
 static EFI_STATUS CDK2_MS_ABI get_table(UINTN index,
-	EFI_ACPI_DESCRIPTION_HEADER **table, UINTN *key)
+	cdk2_acpi_header_ptr table, cdk2_uintn_ptr key)
 {
-	if (index >= table_count) return EFI_NOT_FOUND;
+	if (index >= table_count)
+		return EFI_NOT_FOUND;
 	*table = &tables[index].header; *key = tables[index].key;
 	return EFI_SUCCESS;
 }
@@ -24,9 +25,11 @@ static EFI_STATUS CDK2_MS_ABI get_table(UINTN index,
 static EFI_STATUS CDK2_MS_ABI uninstall_table(UINTN key)
 {
 	UINTN index;
-	if (key == fail_key) return EFI_DEVICE_ERROR;
+	if (key == fail_key)
+		return EFI_DEVICE_ERROR;
 	for (index = 0; index < table_count; index++) {
-		if (tables[index].key != key) continue;
+		if (tables[index].key != key)
+			continue;
 		memmove(&tables[index], &tables[index + 1],
 			(table_count - index - 1U) * sizeof(tables[0]));
 		table_count--; return EFI_SUCCESS;
@@ -35,14 +38,15 @@ static EFI_STATUS CDK2_MS_ABI uninstall_table(UINTN key)
 }
 
 static EFI_STATUS CDK2_MS_ABI install_table(const void *table, UINTN size,
-	UINTN *key)
+	cdk2_uintn_ptr key)
 {
-	if (size == sizeof(installed)) memcpy(&installed, table, size);
+	if (size == sizeof(installed))
+		memcpy(&installed, table, size);
 	installed_size = size; *key = 0x55U; return install_status;
 }
 
 static EFI_STATUS CDK2_MS_ABI sdt_get_table(UINTN index,
-	EFI_ACPI_DESCRIPTION_HEADER **table, UINT32 *version, UINTN *key)
+	cdk2_acpi_header_ptr table, cdk2_uint32_ptr version, cdk2_uintn_ptr key)
 {
 	*version = 0;
 	*key = index + 20;
@@ -57,7 +61,8 @@ static EFI_STATUS CDK2_MS_ABI sdt_get_table(UINTN index,
 
 static int expect(int condition, const char *message)
 {
-	if (!condition) fprintf(stderr, "tpm2-acpi-table test: %s\n", message);
+	if (!condition)
+		fprintf(stderr, "tpm2-acpi-table test: %s\n", message);
 	return !condition;
 }
 

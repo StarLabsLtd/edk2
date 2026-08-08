@@ -37,7 +37,7 @@ static struct cdk2_acpi_table_protocol *acpi_table;
 static struct cdk2_acpi_sdt_protocol *acpi_sdt;
 
 static EFI_STATUS CDK2_MS_ABI get_table(UINTN index,
-	EFI_ACPI_DESCRIPTION_HEADER **table, UINTN *key)
+	cdk2_acpi_header_ptr table, cdk2_uintn_ptr key)
 {
 	UINT32 version;
 	return acpi_sdt->get_table(index, table, &version, key);
@@ -49,12 +49,12 @@ static EFI_STATUS CDK2_MS_ABI uninstall_table(UINTN key)
 }
 
 static EFI_STATUS CDK2_MS_ABI install_table(const void *table, UINTN size,
-	UINTN *key)
+	cdk2_uintn_ptr key)
 {
 	return acpi_table->install(table, size, key);
 }
 
-EFI_STATUS cdk2_tpm2_acpi_install_from_protocols(EFI_TCG2_PROTOCOL *tcg2,
+EFI_STATUS cdk2_tpm2_acpi_install_from_protocols(cdk2_tcg2_protocol_ptr tcg2,
 	struct cdk2_acpi_table_protocol *table_protocol,
 	struct cdk2_acpi_sdt_protocol *sdt_protocol)
 {
