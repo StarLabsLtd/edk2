@@ -13,14 +13,14 @@ static EFI_STATUS target_read(void *context, UINT64 lba, void *data, UINTN bytes
 static EFI_STATUS target_erase(void *context, UINT64 lba)
 { struct cdk2_ftw_fvb *a = context;
 	if (a->target_is_boot) return EFI_SUCCESS;
-	return a->ops->erase(a->context, a->target_volume, lba, 1); }
+	return a->ops->erase(a->context, a->target_volume, lba, a->block_count); }
 static EFI_STATUS target_write(void *context, UINT64 lba, const void *data, UINTN bytes)
 {
 	struct cdk2_ftw_fvb *a = context;
 	if (a->target_is_boot) {
 		if (!a->ops->swap) return EFI_UNSUPPORTED;
 		return a->ops->swap(a->context, a->spare_volume, a->spare_lba,
-			a->target_volume, lba, 1);
+			a->target_volume, lba, a->block_count);
 	}
 	UINTN i, block = bytes / a->block_count;
 	for (i = 0; i < a->block_count; i++) { EFI_STATUS s = a->ops->write(a->context,
@@ -63,11 +63,17 @@ EFI_STATUS cdk2_ftw_fvb_initialize(struct cdk2_ftw_fvb *a, UINT8 *scratch)
 }
 EFI_STATUS cdk2_ftw_fvb_select_target(struct cdk2_ftw_fvb *a, void *volume, UINT64 lba)
 {
-	UINTN size; EFI_STATUS status;
+	UINTN size, first_size, index; EFI_STATUS status;
 	if (!a || !volume) return EFI_INVALID_PARAMETER;
-	status = a->ops->get_block_size(a->context, volume, lba, &size);
+	status = a->ops->get_block_size(a->context, volume, lba, &first_size);
 	if (EFI_ERROR(status)) return status;
-	if (size * a->block_count != a->core.block_size) return EFI_BAD_BUFFER_SIZE;
+	if (!first_size) return EFI_BAD_BUFFER_SIZE;
+	if (first_size * a->block_count != a->core.block_size) return EFI_BAD_BUFFER_SIZE;
+	for (index = 1; index < a->block_count; index++) {
+		status = a->ops->get_block_size(a->context, volume, lba + index, &size);
+		if (EFI_ERROR(status)) return status;
+		if (size != first_size) return EFI_BAD_BUFFER_SIZE;
+	}
 	a->target_volume = volume;
 	a->target_is_boot = a->ops->is_boot ? a->ops->is_boot(a->context, volume) : FALSE;
 	return EFI_SUCCESS;

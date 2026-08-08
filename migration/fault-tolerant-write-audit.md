@@ -39,6 +39,26 @@ recover a spare-complete record, reject torn headers and illegal zero-to-one
 updates, exhaust the queue to exercise reclaim, and run every core write crash
 boundary through the PI codec.
 
+## Native DXE envelope
+
+The source-owned DXE entry locates the authoritative SMMSTORE GUID HOB from
+the UEFI HOB-list configuration table, validates the derived geometry, and
+enumerates FVB handles by the PI FVB protocol.  It matches the FVB physical
+range containing the exact working and spare regions, uses FVB reads, writes,
+and erases for both the journal and transaction adapter, and publishes the PI
+fault-tolerant-write protocol only after RuntimeArch is present and pending PI
+journal recovery succeeds.  If the admitted FVB has not arrived, it registers
+a protocol notification; event, pool, and failed-publication paths roll back
+their owned resources.
+
+The inventory-neutral build emits a relocatable EFI boot-service-driver PE and
+an exact `0x8096`-byte FFS with GUID
+`fe5cea76-4f72-49e8-986f-2cd899dffe5d`, file type `0x07`, UI name
+`FaultTolerantWriteDxe`, and the admitted 58-byte triple dependency expression
+documented above.  Native checks execute the DXE entry fault matrix, validate
+the PE relocation contract, and pin the final FFS size.  No FV replacement or
+retained-inventory transition is wired in this source commit.
+
 ## Admitted Q35 geometry
 
 The admitted Q35 trace reports `NvStorageBase:0xFF800000,
