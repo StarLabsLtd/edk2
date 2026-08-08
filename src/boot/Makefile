@@ -176,6 +176,7 @@ CDK2_NATIVE_GRAPHICS_CONSOLE_PE ?= $(CDK2_NATIVE_BUILD_DIR)/GraphicsConsoleDxe.e
 CDK2_NATIVE_GRAPHICS_CONSOLE_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/GraphicsConsoleDxe.ffs
 CDK2_NATIVE_GRAPHICS_CONSOLE_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-graphics-console.fv
 CDK2_NATIVE_TCG2_TRANSPORT_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-tcg2-transport-test
+CDK2_NATIVE_TCG2_COMMANDS_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-tcg2-commands-test
 HOSTCC ?= cc
 CDK2_NATIVE_CC ?= $(CC)
 CDK2_NATIVE_HOST_CC ?= $(HOSTCC)
@@ -452,6 +453,9 @@ native-pch-smi-dispatch-test: $(CDK2_NATIVE_PCH_SMI_DISPATCH_TEST)
 	@"$<"
 
 native-tcg2-transport-test: $(CDK2_NATIVE_TCG2_TRANSPORT_TEST)
+	@"$<"
+
+native-tcg2-commands-test: $(CDK2_NATIVE_TCG2_COMMANDS_TEST)
 	@"$<"
 
 native-pch-smi-dispatch-fv: $(CDK2_NATIVE_PCH_SMI_DISPATCH_FV)
@@ -1283,6 +1287,9 @@ $(CDK2_NATIVE_CAPSULE_RUNTIME_QEMU_OBJ): $(CDK2_DIR)/tests/capsule_runtime_qemu.
 $(CDK2_NATIVE_CAPSULE_RUNTIME_QEMU_PE): $(CDK2_NATIVE_CAPSULE_RUNTIME_QEMU_OBJ) $(CDK2_DIR)/tests/capsule_runtime_qemu.ld $(CDK2_NATIVE_PERELOCCHECK)
 	@$(LD) -mi386pep --subsystem 10 --entry capsule_runtime_qemu_entry --image-base 0 --section-alignment 0x1000 --file-alignment 0x1000 --build-id=none --no-insert-timestamp -s --nxcompat -T "$(CDK2_DIR)/tests/capsule_runtime_qemu.ld" -o "$@" "$<"
 	@"$(CDK2_NATIVE_PERELOCCHECK)" --subsystem 10 "$@"
+
+$(CDK2_NATIVE_TCG2_COMMANDS_TEST): $(CDK2_DIR)/tests/tcg2_commands_test.c $(CDK2_DIR)/src/modules/tcg2/tcg2_commands.c $(CDK2_DIR)/src/modules/tcg2/tcg2_transport.c $(CDK2_DIR)/include/cdk2/tcg2_commands.h $(CDK2_DIR)/include/cdk2/tcg2_transport.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_DIR)/tests/tcg2_commands_test.c" "$(CDK2_DIR)/src/modules/tcg2/tcg2_commands.c" "$(CDK2_DIR)/src/modules/tcg2/tcg2_transport.c"
 
 FORCE:
 

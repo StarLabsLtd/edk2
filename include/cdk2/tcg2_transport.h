@@ -22,15 +22,23 @@ struct cdk2_tpm2_response {
 	UINT32 code;
 };
 
+typedef UINT8 cdk2_tpm2_read8_fn(void *context, UINT64 address);
+typedef UINT32 cdk2_tpm2_read32_fn(void *context, UINT64 address);
+typedef UINT64 cdk2_tpm2_read64_fn(void *context, UINT64 address);
+typedef void cdk2_tpm2_write8_fn(void *context, UINT64 address, UINT8 value);
+typedef void cdk2_tpm2_write32_fn(void *context, UINT64 address, UINT32 value);
+typedef void cdk2_tpm2_write64_fn(void *context, UINT64 address, UINT64 value);
+typedef void cdk2_tpm2_stall_fn(void *context, UINT32 microseconds);
+
 struct cdk2_tpm2_io {
 	void *context;
-	UINT8 (*read8)(void *context, UINT64 address);
-	UINT32 (*read32)(void *context, UINT64 address);
-	UINT64 (*read64)(void *context, UINT64 address);
-	void (*write8)(void *context, UINT64 address, UINT8 value);
-	void (*write32)(void *context, UINT64 address, UINT32 value);
-	void (*write64)(void *context, UINT64 address, UINT64 value);
-	void (*stall)(void *context, UINT32 microseconds);
+	cdk2_tpm2_read8_fn *read8;
+	cdk2_tpm2_read32_fn *read32;
+	cdk2_tpm2_read64_fn *read64;
+	cdk2_tpm2_write8_fn *write8;
+	cdk2_tpm2_write32_fn *write32;
+	cdk2_tpm2_write64_fn *write64;
+	cdk2_tpm2_stall_fn *stall;
 };
 
 struct cdk2_tpm2_transport {
