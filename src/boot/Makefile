@@ -151,6 +151,17 @@ CDK2_NATIVE_LOCAL_APIC_TIMER_DEPEX ?= $(CDK2_NATIVE_BUILD_DIR)/LocalApicTimerDxe
 CDK2_NATIVE_LOCAL_APIC_TIMER_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/LocalApicTimerDxe.ffs
 CDK2_NATIVE_LOCAL_APIC_TIMER_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-local-apic-timer.fv
 CDK2_NATIVE_REMOVE_TCG1_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-without-tcg1.fv
+CDK2_NATIVE_GRAPHICS_CONSOLE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-graphics-console-test
+CDK2_NATIVE_GRAPHICS_PACKAGE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-graphics-package-test
+CDK2_NATIVE_GRAPHICS_ENTRY_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-graphics-entry-test
+CDK2_NATIVE_GRAPHICS_CONSOLE_OBJS := $(CDK2_NATIVE_BUILD_DIR)/graphics-console-model.o \
+	$(CDK2_NATIVE_BUILD_DIR)/graphics-console-binding.o \
+	$(CDK2_NATIVE_BUILD_DIR)/graphics-console-entry.o \
+	$(CDK2_NATIVE_BUILD_DIR)/graphics-console-font_package.o \
+	$(CDK2_NATIVE_BUILD_DIR)/graphics-console-font_data.o
+CDK2_NATIVE_GRAPHICS_CONSOLE_PE ?= $(CDK2_NATIVE_BUILD_DIR)/GraphicsConsoleDxe.efi
+CDK2_NATIVE_GRAPHICS_CONSOLE_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/GraphicsConsoleDxe.ffs
+CDK2_NATIVE_GRAPHICS_CONSOLE_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-graphics-console.fv
 HOSTCC ?= cc
 CDK2_NATIVE_CC ?= $(CC)
 CDK2_NATIVE_HOST_CC ?= $(HOSTCC)
@@ -231,7 +242,7 @@ CDK2_NATIVE_HOST_TOOLS := \
 CDK2_NATIVE_LINK_FLAGS := -static -no-pie -nostdlib -nostartfiles -nodefaultlibs -Wl,-z,max-page-size=0x1000 -Wl,-z,common-page-size=0x1000 -Wl,-T,"$(CDK2_NATIVE_DIR)/cdk2.ld"
 CDK2_NATIVE_LINK_POST_MAP_FLAGS := -Wl,--gc-sections -Wl,--build-id=none
 
-.PHONY: native-stage native-coreboot-stage native-coreboot-image native-metronome-fv native-security-stub-fv native-null-memory-test-fv native-null-memory-test-test native-watchdog-fv native-monotonic-counter-fv native-status-code-router-fv native-status-code-router-test native-status-code-handler-fv native-status-code-handler-test native-cpu-io2-fv native-cpu-io2-test native-english-test native-english-fv native-disk-io-fv native-disk-io-test native-serial-io-fv native-serial-io-test native-smbios-fv native-smbios-test native-reset-system-fv native-reset-system-test native-pcat-rtc-fv native-pcat-rtc-test native-smm-access-fv native-smm-access-test native-smm-control-fv native-smm-control-test native-cpu-io2-smm-fv native-cpu-io2-smm-test native-pch-smi-dispatch-test native-pch-smi-dispatch-fv native-local-apic-timer-test native-local-apic-timer-fv native-check native-pack native-service-test native-coreboot-test native-fv-test native-fvpack-test native-fvinfo native-fvinfo-test native-ffsbuild-test native-pe-test native-module-test native-security-stub-test native-elfcheck-test FORCE
+.PHONY: native-stage native-coreboot-stage native-coreboot-image native-metronome-fv native-security-stub-fv native-null-memory-test-fv native-null-memory-test-test native-watchdog-fv native-monotonic-counter-fv native-status-code-router-fv native-status-code-router-test native-status-code-handler-fv native-status-code-handler-test native-cpu-io2-fv native-cpu-io2-test native-english-test native-english-fv native-disk-io-fv native-disk-io-test native-serial-io-fv native-serial-io-test native-smbios-fv native-smbios-test native-reset-system-fv native-reset-system-test native-pcat-rtc-fv native-pcat-rtc-test native-smm-access-fv native-smm-access-test native-smm-control-fv native-smm-control-test native-cpu-io2-smm-fv native-cpu-io2-smm-test native-pch-smi-dispatch-test native-pch-smi-dispatch-fv native-local-apic-timer-test native-local-apic-timer-fv native-graphics-console-test native-graphics-console-fv native-check native-pack native-service-test native-coreboot-test native-fv-test native-fvpack-test native-fvinfo native-fvinfo-test native-ffsbuild-test native-pe-test native-module-test native-security-stub-test native-elfcheck-test FORCE
 
 ifeq ($(CONFIG_CDK2_NATIVE_STAGE),y)
 CDK2_NATIVE_STAGE_DEPS := $(CDK2_NATIVE_ELF)
@@ -422,6 +433,14 @@ native-local-apic-timer-test: $(CDK2_NATIVE_LOCAL_APIC_TIMER_TEST)
 
 native-local-apic-timer-fv: $(CDK2_NATIVE_LOCAL_APIC_TIMER_FV)
 	@printf '%s\n' "native local APIC timer FV: $(CDK2_NATIVE_LOCAL_APIC_TIMER_FV)"
+
+native-graphics-console-test: $(CDK2_NATIVE_GRAPHICS_CONSOLE_TEST) $(CDK2_NATIVE_GRAPHICS_PACKAGE_TEST) $(CDK2_NATIVE_GRAPHICS_ENTRY_TEST)
+	@"$(CDK2_NATIVE_GRAPHICS_CONSOLE_TEST)"
+	@"$(CDK2_NATIVE_GRAPHICS_PACKAGE_TEST)"
+	@"$(CDK2_NATIVE_GRAPHICS_ENTRY_TEST)"
+
+native-graphics-console-fv: $(CDK2_NATIVE_GRAPHICS_CONSOLE_FV)
+	@printf '%s\n' "native graphics console FV: $(CDK2_NATIVE_GRAPHICS_CONSOLE_FV)"
 
 native-pe-test: $(CDK2_NATIVE_PE_TEST)
 	@"$(CDK2_NATIVE_PE_TEST)"
@@ -1051,6 +1070,35 @@ $(CDK2_NATIVE_REMOVE_TCG1_FV): $(CDK2_NATIVE_PRE_REMOVE_TCG1_FV) \
 	@"$(CDK2_NATIVE_FVINFO)" "$@" | grep -qi \
 		'fdff263d-5f68-4591-87ba-b768f445a9af'
 
+ifeq ($(CONFIG_CDK2_NATIVE_GRAPHICS_CONSOLE),y)
+CDK2_NATIVE_PRE_GRAPHICS_CONSOLE_FV := $(CDK2_NATIVE_FINAL_FV)
+CDK2_NATIVE_FINAL_FV := $(CDK2_NATIVE_GRAPHICS_CONSOLE_FV)
+endif
+
+$(CDK2_NATIVE_BUILD_DIR)/graphics-console-%.o: $(CDK2_DIR)/src/modules/graphics_console/%.c | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
+		-mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args \
+		$(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+
+$(CDK2_NATIVE_BUILD_DIR)/graphics-console-font_data.o: \
+	$(CDK2_DIR)/src/modules/graphics_console/font_data.inc
+
+$(CDK2_NATIVE_GRAPHICS_CONSOLE_PE): $(CDK2_NATIVE_GRAPHICS_CONSOLE_OBJS) $(CDK2_DIR)/src/modules/graphics_console/graphics_console.ld $(CDK2_NATIVE_PERELOCCHECK)
+	@$(LD) -mi386pep --subsystem 11 --entry cdk2_graphics_console_entry --image-base 0 \
+		--section-alignment 0x1000 --file-alignment 0x1000 --build-id=none \
+		--no-insert-timestamp -s --nxcompat \
+		-T "$(CDK2_DIR)/src/modules/graphics_console/graphics_console.ld" \
+		-o "$@" $(CDK2_NATIVE_GRAPHICS_CONSOLE_OBJS)
+	@"$(CDK2_NATIVE_PERELOCCHECK)" --subsystem 11 "$@"
+
+$(CDK2_NATIVE_GRAPHICS_CONSOLE_FFS): $(CDK2_NATIVE_GRAPHICS_CONSOLE_PE) $(CDK2_NATIVE_FFSBUILD)
+	@"$(CDK2_NATIVE_FFSBUILD)" cccb0c28-4b24-11d5-9a5a-0090273fc14d \
+		GraphicsConsoleDxe 1.0 0x9056 "$<" "$@" -
+
+$(CDK2_NATIVE_GRAPHICS_CONSOLE_FV): $(CDK2_NATIVE_PRE_GRAPHICS_CONSOLE_FV) $(CDK2_NATIVE_GRAPHICS_CONSOLE_FFS) $(CDK2_NATIVE_FVREPLACE)
+	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_PRE_GRAPHICS_CONSOLE_FV)" 0x2da328 \
+		"$(CDK2_NATIVE_GRAPHICS_CONSOLE_FFS)" "$@"
+
 ifeq ($(CONFIG_CDK2_NATIVE_ENGLISH),y)
 $(CDK2_NATIVE_ENGLISH_OBJ): $(CDK2_DIR)/src/modules/english/english.c $(CDK2_DIR)/include/cdk2/english.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
@@ -1117,6 +1165,27 @@ $(CDK2_NATIVE_LOCAL_APIC_TIMER_TEST): $(CDK2_DIR)/tests/local_apic_timer_test.c 
 
 $(CDK2_NATIVE_LOCAL_APIC_TIMER_DRIVER_TEST): $(CDK2_DIR)/tests/local_apic_timer_driver_test.c $(CDK2_DIR)/src/modules/local_apic_timer/driver.c $(CDK2_DIR)/include/cdk2/local_apic_timer.h $(CDK2_DIR)/include/guid/local_apic_timer_info.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -DCDK2_LOCAL_APIC_TIMER_DRIVER_TEST $(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_DIR)/tests/local_apic_timer_driver_test.c" "$(CDK2_DIR)/src/modules/local_apic_timer/driver.c"
+
+$(CDK2_NATIVE_GRAPHICS_CONSOLE_TEST): $(CDK2_DIR)/tests/graphics_console_binding_test.c $(CDK2_DIR)/src/modules/graphics_console/binding.c $(CDK2_DIR)/src/modules/graphics_console/model.c | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -fshort-wchar $(CDK2_NATIVE_INCLUDES) \
+		-o "$@" "$(CDK2_DIR)/tests/graphics_console_binding_test.c" \
+		"$(CDK2_DIR)/src/modules/graphics_console/binding.c" \
+		"$(CDK2_DIR)/src/modules/graphics_console/model.c"
+
+$(CDK2_NATIVE_GRAPHICS_PACKAGE_TEST): $(CDK2_DIR)/tests/graphics_console_package_test.c $(CDK2_DIR)/src/modules/graphics_console/font_package.c $(CDK2_DIR)/src/modules/graphics_console/font_data.c $(CDK2_DIR)/src/modules/graphics_console/font_data.inc | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -fshort-wchar $(CDK2_NATIVE_INCLUDES) \
+		-o "$@" "$(CDK2_DIR)/tests/graphics_console_package_test.c" \
+		"$(CDK2_DIR)/src/modules/graphics_console/font_package.c" \
+		"$(CDK2_DIR)/src/modules/graphics_console/font_data.c"
+
+$(CDK2_NATIVE_GRAPHICS_ENTRY_TEST): $(CDK2_DIR)/tests/graphics_console_entry_test.c $(CDK2_DIR)/src/modules/graphics_console/entry.c $(CDK2_DIR)/src/modules/graphics_console/binding.c $(CDK2_DIR)/src/modules/graphics_console/model.c $(CDK2_DIR)/src/modules/graphics_console/font_package.c $(CDK2_DIR)/src/modules/graphics_console/font_data.c | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -fshort-wchar $(CDK2_NATIVE_INCLUDES) \
+		-o "$@" "$(CDK2_DIR)/tests/graphics_console_entry_test.c" \
+		"$(CDK2_DIR)/src/modules/graphics_console/entry.c" \
+		"$(CDK2_DIR)/src/modules/graphics_console/binding.c" \
+		"$(CDK2_DIR)/src/modules/graphics_console/model.c" \
+		"$(CDK2_DIR)/src/modules/graphics_console/font_package.c" \
+		"$(CDK2_DIR)/src/modules/graphics_console/font_data.c"
 
 FORCE:
 

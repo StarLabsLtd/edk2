@@ -19,7 +19,7 @@ EFI_STATUS cdk2_graphics_font_install(struct cdk2_graphics_font_package *package
 	struct package_list_header *list;
 	struct simple_font_header *font;
 	UINT8 *bytes;
-	UINTN font_length = sizeof(*font) + mNarrowFontSize;
+	UINTN font_length = sizeof(*font) + cdk2_narrow_glyph_size;
 	UINTN total = sizeof(*list) + font_length + sizeof(UINT32);
 	EFI_STATUS status;
 
@@ -36,8 +36,8 @@ EFI_STATUS cdk2_graphics_font_install(struct cdk2_graphics_font_package *package
 	list->length = (UINT32)total;
 	font = (void *)(list + 1);
 	font->length_type = (UINT32)font_length | (HII_SIMPLE_FONTS << 24);
-	font->narrow_count = (UINT16)(mNarrowFontSize / sizeof(EFI_NARROW_GLYPH));
-	__builtin_memcpy(font + 1, gUsStdNarrowGlyphData, mNarrowFontSize);
+	font->narrow_count = (UINT16)(cdk2_narrow_glyph_size / sizeof(EFI_NARROW_GLYPH));
+	__builtin_memcpy(font + 1, cdk2_narrow_glyph_data, cdk2_narrow_glyph_size);
 	*(UINT32 *)(bytes + total - sizeof(UINT32)) = sizeof(UINT32) | (HII_END << 24);
 	status = database->new_package_list(database, list, NULL, &package->handle);
 	if (EFI_ERROR(status)) {

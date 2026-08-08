@@ -8,7 +8,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 
 #include <cdk2/graphics_console_font.h>
 
-EFI_NARROW_GLYPH  gUsStdNarrowGlyphData[] = {
+EFI_NARROW_GLYPH  cdk2_narrow_glyph_data[] = {
   //
   // Unicode glyphs from 0x20 to 0x7e are the same as ASCII characters 0x20 to 0x7e
   //
@@ -507,4 +507,4 @@ EFI_NARROW_GLYPH  gUsStdNarrowGlyphData[] = {
 };
 
 // Get available Unicode glyphs narrow fonts(8*19 pixels) size.
-UINT32  mNarrowFontSize =  sizeof(gUsStdNarrowGlyphData);
+UINT32  cdk2_narrow_glyph_size = sizeof(cdk2_narrow_glyph_data);

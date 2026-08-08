@@ -66,7 +66,7 @@ struct cdk2_narrow_glyph {
 
 typedef struct cdk2_narrow_glyph EFI_NARROW_GLYPH;
 
-extern EFI_NARROW_GLYPH gUsStdNarrowGlyphData[];
-extern UINT32 mNarrowFontSize;
+extern EFI_NARROW_GLYPH cdk2_narrow_glyph_data[];
+extern UINT32 cdk2_narrow_glyph_size;
 
 #endif

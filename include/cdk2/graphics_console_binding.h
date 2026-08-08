@@ -17,6 +17,7 @@ struct cdk2_component_name_view;
 struct cdk2_gop_view;
 struct cdk2_hii_font_view;
 struct cdk2_gop_mode_info;
+struct cdk2_gop_protocol_mode;
 struct cdk2_image_output;
 struct cdk2_font_display_info;
 struct cdk2_hii_row_info;
@@ -82,7 +83,25 @@ struct cdk2_gop_view {
 	cdk2_gop_query_fn *query_mode;
 	cdk2_gop_set_fn *set_mode;
 	cdk2_binding_blt_fn *blt;
-	void *mode;
+	struct cdk2_gop_protocol_mode *mode;
+};
+
+struct cdk2_gop_mode_info {
+	UINT32 version;
+	UINT32 horizontal_resolution;
+	UINT32 vertical_resolution;
+	UINT32 pixel_format;
+	UINT32 pixel_information[4];
+	UINT32 pixels_per_scan_line;
+};
+
+struct cdk2_gop_protocol_mode {
+	UINT32 max_mode;
+	UINT32 mode;
+	struct cdk2_gop_mode_info *info;
+	UINTN size_of_info;
+	UINT64 frame_buffer_base;
+	UINTN frame_buffer_size;
 };
 
 struct cdk2_simple_text_output_view {
@@ -134,6 +153,19 @@ struct cdk2_graphics_pixel {
 	UINT8 green;
 	UINT8 red;
 	UINT8 reserved;
+};
+
+struct cdk2_font_info {
+	UINT32 style;
+	UINT16 size;
+	CHAR16 name[1];
+};
+
+struct cdk2_font_display_info {
+	struct cdk2_graphics_pixel foreground;
+	struct cdk2_graphics_pixel background;
+	UINT32 mask;
+	struct cdk2_font_info font;
 };
 
 struct cdk2_image_output {
