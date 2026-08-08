@@ -12,6 +12,7 @@
 #define TPM_INTF_CAPABILITY 0x14U
 #define TPM_INTF_ID 0x30U
 #define LOG_CAPACITY (64U * 1024U)
+#define MAX_HOB_LIST_SIZE (1024U * 1024U)
 
 typedef EFI_STATUS CDK2_MS_ABI allocate_pages_fn(UINT32, EFI_MEMORY_TYPE,
 	UINTN, EFI_PHYSICAL_ADDRESS *);
@@ -52,7 +53,7 @@ struct boot_services_view {
 	UINT8 before_locate_protocol[64];
 	locate_protocol_fn *locate_protocol;
 	install_multiple_fn *install_multiple;
-	UINT8 before_create_event_ex[40];
+	UINT8 before_create_event_ex[32];
 	create_event_ex_fn *create_event_ex;
 };
 
@@ -83,13 +84,17 @@ typedef char install_config_offset_check[
 typedef char locate_protocol_offset_check[
 	OFFSET_OF(struct boot_services_view, locate_protocol) == 320 ? 1 : -1];
 typedef char create_event_ex_offset_check[
-	OFFSET_OF(struct boot_services_view, create_event_ex) == 376 ? 1 : -1];
+	OFFSET_OF(struct boot_services_view, create_event_ex) == 368 ? 1 : -1];
 typedef char reset_system_offset_check[
 	OFFSET_OF(struct runtime_services_view, reset_system) == 104 ? 1 : -1];
 
 static const EFI_GUID variable_write_arch_guid = {
 	0x6441f818, 0x6362, 0x4e44,
 	{ 0xb5, 0x70, 0x7d, 0xba, 0x31, 0xdd, 0x24, 0x53 }
+};
+static const EFI_GUID hob_list_guid = {
+	0x7739f24c, 0x93d7, 0x11d4,
+	{ 0x9a, 0x3a, 0x00, 0x90, 0x27, 0x3f, 0xc1, 0x4d }
 };
 static const EFI_GUID security_router_guid = {
 	0x3159cc63, 0x8e41, 0x4cb8,
@@ -345,11 +350,16 @@ static EFI_STATUS CDK2_MS_ABI measure_image(const void *file,
 	const UINT8 *node = file;
 	UINT32 path_size = 0;
 	UINT16 node_size;
+	TPM_PCRINDEX pcr_index;
+	UINT32 event_type;
 	UINT32 code;
 	EFI_STATUS status;
 	(void)context;
 	if (file == NULL || file_buffer == NULL || file_size == 0 ||
 	    file_size > MAX_UINT32)
+		return EFI_SUCCESS;
+	if (EFI_ERROR(cdk2_tcg2_classify_pe(file_buffer, (UINT32)file_size,
+	    &pcr_index, &event_type)))
 		return EFI_SUCCESS;
 	do {
 		if (path_size > MAX_UINT32 - 4U)
@@ -372,13 +382,13 @@ static EFI_STATUS CDK2_MS_ABI measure_image(const void *file,
 	event->device_path_length = path_size;
 	for (UINT32 index = 0; index < path_size; index++)
 		event->device_path[index] = node[index];
-	status = cdk2_tcg2_measure_image(&service, 4,
-		boot_policy ? EV_EFI_BOOT_SERVICES_APPLICATION :
-		EV_EFI_BOOT_SERVICES_DRIVER, file_buffer, (UINT32)file_size,
+	status = cdk2_tcg2_measure_image(&service, pcr_index, event_type,
+		file_buffer, (UINT32)file_size,
 		event, OFFSET_OF(struct image_event, device_path) + path_size, &code);
 	boot_services->free_pool(event);
 	/* A measurement failure must not become an image-authentication failure. */
 	(void)status;
+	(void)boot_policy;
 	return EFI_SUCCESS;
 }
 
@@ -410,13 +420,38 @@ static void CDK2_MS_ABI variable_write_ready(void *event, void *context)
 	measure_variable(secure_boot, sizeof(secure_boot), &global_variable_guid,
 		EV_EFI_VARIABLE_DRIVER_CONFIG);
 	measure_variable(pk, sizeof(pk), &global_variable_guid,
-		EV_EFI_VARIABLE_AUTHORITY);
+		EV_EFI_VARIABLE_DRIVER_CONFIG);
 	measure_variable(kek, sizeof(kek), &global_variable_guid,
-		EV_EFI_VARIABLE_AUTHORITY);
+		EV_EFI_VARIABLE_DRIVER_CONFIG);
 	measure_variable(db, sizeof(db), &image_security_database_guid,
-		EV_EFI_VARIABLE_AUTHORITY);
+		EV_EFI_VARIABLE_DRIVER_CONFIG);
 	measure_variable(dbx, sizeof(dbx), &image_security_database_guid,
-		EV_EFI_VARIABLE_AUTHORITY);
+		EV_EFI_VARIABLE_DRIVER_CONFIG);
+}
+
+static EFI_STATUS import_startup_hobs(const struct system_table_view *system)
+{
+	const EFI_HOB_GENERIC_HEADER *hob;
+	const UINT8 *start = NULL;
+	UINTN walked = 0;
+	UINTN index;
+
+	for (index = 0; index < system->table_count; index++)
+		if (guid_equal(&system->tables[index].guid, &hob_list_guid))
+			start = system->tables[index].table;
+	if (start == NULL)
+		return EFI_NOT_FOUND;
+	while (walked + sizeof(*hob) <= MAX_HOB_LIST_SIZE) {
+		hob = (const void *)(start + walked);
+		if (hob->hob_length < sizeof(*hob) ||
+		    hob->hob_length > MAX_HOB_LIST_SIZE - walked)
+			return EFI_COMPROMISED_DATA;
+		walked += (hob->hob_length + 7U) & ~7U;
+		if (hob->hob_type == EFI_HOB_TYPE_END_OF_HOB_LIST)
+			return cdk2_tcg2_service_import_hobs(&service, start,
+				start + walked);
+	}
+	return EFI_COMPROMISED_DATA;
 }
 
 static void CDK2_MS_ABI exit_boot_services(void *event, void *context)
@@ -490,6 +525,11 @@ EFI_STATUS CDK2_MS_ABI cdk2_tcg2_entry(void *image,
 	status = cdk2_tcg2_configure_platform(&service, NULL, physical_presence,
 		reset_platform);
 	if (EFI_ERROR(status)) {
+		cdk2_tcg2_service_release(&service);
+		return status;
+	}
+	status = import_startup_hobs(system);
+	if (status != EFI_NOT_FOUND && EFI_ERROR(status)) {
 		cdk2_tcg2_service_release(&service);
 		return status;
 	}

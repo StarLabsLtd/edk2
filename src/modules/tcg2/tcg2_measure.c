@@ -5,6 +5,45 @@
 
 #define PE_SECURITY_DIRECTORY 4U
 #define PE_MAX_SECTIONS 96U
+#define PE_SUBSYSTEM_EFI_APPLICATION 10U
+#define PE_SUBSYSTEM_EFI_BOOT_SERVICE_DRIVER 11U
+#define PE_SUBSYSTEM_EFI_RUNTIME_DRIVER 12U
+
+EFI_STATUS cdk2_tcg2_classify_pe(const void *image_buffer, UINT32 image_size,
+	TPM_PCRINDEX *pcr_index, UINT32 *event_type)
+{
+	const UINT8 *image = image_buffer;
+	const EFI_IMAGE_DOS_HEADER *dos;
+	const EFI_IMAGE_NT_HEADERS64 *nt;
+
+	if (image == NULL || pcr_index == NULL || event_type == NULL ||
+	    image_size < sizeof(*dos))
+		return EFI_INVALID_PARAMETER;
+	dos = (const EFI_IMAGE_DOS_HEADER *)image;
+	if (dos->e_magic != EFI_IMAGE_DOS_SIGNATURE ||
+	    dos->e_lfanew > image_size - sizeof(*nt))
+		return EFI_COMPROMISED_DATA;
+	nt = (const EFI_IMAGE_NT_HEADERS64 *)(image + dos->e_lfanew);
+	if (nt->signature != EFI_IMAGE_NT_SIGNATURE ||
+	    nt->optional_header.magic != EFI_IMAGE_NT_OPTIONAL_HDR64_MAGIC)
+		return EFI_COMPROMISED_DATA;
+	switch (nt->optional_header.subsystem) {
+	case PE_SUBSYSTEM_EFI_APPLICATION:
+		*pcr_index = 4;
+		*event_type = EV_EFI_BOOT_SERVICES_APPLICATION;
+		return EFI_SUCCESS;
+	case PE_SUBSYSTEM_EFI_BOOT_SERVICE_DRIVER:
+		*pcr_index = 2;
+		*event_type = EV_EFI_BOOT_SERVICES_DRIVER;
+		return EFI_SUCCESS;
+	case PE_SUBSYSTEM_EFI_RUNTIME_DRIVER:
+		*pcr_index = 2;
+		*event_type = EV_EFI_RUNTIME_SERVICES_DRIVER;
+		return EFI_SUCCESS;
+	default:
+		return EFI_UNSUPPORTED;
+	}
+}
 
 struct variable_event_header {
 	EFI_GUID vendor;

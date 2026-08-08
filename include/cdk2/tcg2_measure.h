@@ -4,6 +4,7 @@
 #define CDK2_TCG2_MEASURE_H_
 
 #include <cdk2/tcg2_event_log.h>
+#include <industry_standard/uefi_tcg_platform.h>
 
 #define CDK2_TCG2_MAX_SPANS 100U
 
@@ -42,6 +43,8 @@ EFI_STATUS cdk2_tcg2_measure_pe(struct cdk2_tcg2_measurement *measurement,
 EFI_STATUS cdk2_tcg2_extend_pe(struct cdk2_tcg2_measurement *measurement,
 	TPM_PCRINDEX pcr_index, const void *image, UINT32 image_size,
 	UINT32 *response_code);
+EFI_STATUS cdk2_tcg2_classify_pe(const void *image, UINT32 image_size,
+	TPM_PCRINDEX *pcr_index, UINT32 *event_type);
 EFI_STATUS cdk2_tcg2_measure_variable(struct cdk2_tcg2_measurement *measurement,
 	TPM_PCRINDEX pcr_index, UINT32 event_type, const EFI_GUID *vendor,
 	const CHAR16 *name, UINT32 name_bytes, const void *data, UINT32 data_size,

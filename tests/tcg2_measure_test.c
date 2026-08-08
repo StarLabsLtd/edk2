@@ -52,6 +52,8 @@ int main(void)
 	CHAR16 name[] = { 'd', 'b' };
 	UINT8 data[] = { 1, 2, 3, 4 };
 	UINT32 code;
+	TPM_PCRINDEX classified_pcr;
+	UINT32 classified_event;
 	UINT32 before;
 	int failures = 0;
 
@@ -69,6 +71,25 @@ int main(void)
 		sizeof(nt->file_header) + nt->file_header.size_of_optional_header);
 	memset(section, 0, sizeof(*section)); section->pointer_to_raw_data = 0x200;
 	section->size_of_raw_data = 0x100;
+	nt->optional_header.subsystem = 10;
+	failures += expect(cdk2_tcg2_classify_pe(image, sizeof(image),
+		&classified_pcr, &classified_event) == EFI_SUCCESS &&
+		classified_pcr == 4 && classified_event == EV_EFI_BOOT_SERVICES_APPLICATION,
+		"EFI application classification failed");
+	nt->optional_header.subsystem = 11;
+	failures += expect(cdk2_tcg2_classify_pe(image, sizeof(image),
+		&classified_pcr, &classified_event) == EFI_SUCCESS &&
+		classified_pcr == 2 && classified_event == EV_EFI_BOOT_SERVICES_DRIVER,
+		"EFI boot driver classification failed");
+	nt->optional_header.subsystem = 12;
+	failures += expect(cdk2_tcg2_classify_pe(image, sizeof(image),
+		&classified_pcr, &classified_event) == EFI_SUCCESS &&
+		classified_pcr == 2 && classified_event == EV_EFI_RUNTIME_SERVICES_DRIVER,
+		"EFI runtime driver classification failed");
+	nt->optional_header.subsystem = 9;
+	failures += expect(cdk2_tcg2_classify_pe(image, sizeof(image),
+		&classified_pcr, &classified_event) == EFI_UNSUPPORTED,
+		"non-EFI subsystem was classified");
 	cdk2_tcg2_log_init(&logs.main, main_log, sizeof(main_log));
 	cdk2_tcg2_log_init(&logs.final, final_log, sizeof(final_log));
 	failures += expect(cdk2_tcg2_measure_pe(&measurement, 4, 0x80000003U,
