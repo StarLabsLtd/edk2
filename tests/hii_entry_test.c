@@ -7,6 +7,29 @@
 
 static void *published[6];
 static EFI_STATUS install_status;
+static UINTN config_calls;
+static EFI_STATUS CDK2_MS_ABI access_extract(const void *self, const CHAR16 *request,
+	CHAR16 **progress, CHAR16 **results)
+{ (void)self; config_calls++; *progress = (CHAR16 *)(request + 24U); *results = NULL; return EFI_SUCCESS; }
+static EFI_STATUS CDK2_MS_ABI access_route(const void *self,
+	const CHAR16 *configuration, CHAR16 **progress)
+{ (void)self; config_calls++; *progress = (CHAR16 *)(configuration + 24U); return EFI_SUCCESS; }
+static struct config_access_protocol config_access = {
+	.extract = access_extract, .route = access_route
+};
+static EFI_STATUS CDK2_MS_ABI locate_path(const EFI_GUID *guid, void **path,
+	void **handle)
+{
+	const UINT8 *bytes = *path;
+	(void)guid;
+	if (bytes[0] != 1U || bytes[1] != 2U)
+		return EFI_NOT_FOUND;
+	*handle = (void *)9;
+	return EFI_SUCCESS;
+}
+static EFI_STATUS CDK2_MS_ABI handle_protocol(void *handle, const EFI_GUID *guid,
+	void **protocol)
+{ (void)guid; if (handle != (void *)9) return EFI_NOT_FOUND; *protocol = &config_access; return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI pool_allocate(UINT32 type, UINTN size, void **buffer)
 { (void)type; *buffer = malloc(size); return *buffer == NULL ? EFI_OUT_OF_RESOURCES : EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI pool_free(void *buffer)
@@ -40,6 +63,8 @@ int main(void)
 	boot.allocate_pool = pool_allocate;
 	boot.free_pool = pool_free;
 	boot.install_multiple = install;
+	boot.locate_device_path = locate_path;
+	boot.handle_protocol = handle_protocol;
 	system.boot = &boot;
 	failures += expect(cdk2_hii_database_entry((void *)1, &system) == EFI_SUCCESS,
 		"entry failed to publish protocols");
@@ -63,6 +88,11 @@ int main(void)
 		progress_error == 0U && results[0] == L'N',
 		"keyword request adapter failed");
 	free(results);
+	failures += expect(config->extract_config(config,
+		L"GUID=A&PATH=0102&OFFSET=0", &progress, &results) == EFI_SUCCESS &&
+		config->route_config(config, L"GUID=A&PATH=0102&VALUE=00", &progress) ==
+		EFI_SUCCESS && config_calls == 2U,
+		"ConfigAccess device-path routing failed");
 	failures += expect(keyword->set_data(keyword,
 		L"NAMESPACE=x-UEFI-test&KEYWORD=Mode&VALUE=2", &progress,
 		&progress_error) == EFI_SUCCESS && progress_error == 0U,

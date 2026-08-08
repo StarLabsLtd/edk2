@@ -9,6 +9,8 @@ typedef EFI_STATUS CDK2_MS_ABI install_multiple_fn(void **, ...);
 typedef EFI_STATUS CDK2_MS_ABI handle_protocol_fn(void *, const EFI_GUID *, void **);
 typedef EFI_STATUS CDK2_MS_ABI locate_handle_buffer_fn(UINTN, const EFI_GUID *,
 	void *, UINTN *, void ***);
+typedef EFI_STATUS CDK2_MS_ABI locate_device_path_fn(const EFI_GUID *, void **,
+	void **);
 typedef void CDK2_MS_ABI event_notify_fn(void *, void *);
 typedef EFI_STATUS CDK2_MS_ABI create_event_ex_fn(UINT32, UINTN,
 	event_notify_fn *, void *,
@@ -25,7 +27,8 @@ struct boot_services_view {
 	void *check_event, *install_protocol, *reinstall_protocol, *uninstall_protocol;
 	handle_protocol_fn *handle_protocol;
 	void *reserved, *register_protocol_notify, *locate_handle;
-	void *locate_device_path, *install_configuration_table, *load_image, *start_image;
+	locate_device_path_fn *locate_device_path;
+	void *install_configuration_table, *load_image, *start_image;
 	void *exit, *unload_image, *exit_boot_services, *get_next_monotonic_count;
 	void *stall, *set_watchdog_timer, *connect_controller, *disconnect_controller;
 	void *open_protocol, *close_protocol, *open_protocol_information;
@@ -77,6 +80,8 @@ static const EFI_GUID png_guid = { 0xaf060190, 0x5e3a, 0x4025,
 	{ 0xaf, 0xbd, 0xe1, 0xf9, 0x05, 0xbf, 0xaa, 0x4c } };
 static const EFI_GUID keyboard_event_guid = { 0x14982a4f, 0xb0ed, 0x45b8,
 	{ 0xa8, 0x11, 0x5a, 0x7a, 0x9b, 0xc2, 0x32, 0xdf } };
+static const EFI_GUID config_access_guid = { 0x330d4706, 0xf2a0, 0x4e4f,
+	{ 0xa3, 0x69, 0xb6, 0x6f, 0xa8, 0xd5, 0x43, 0x85 } };
 
 struct decoder_protocol {
 	EFI_STATUS (CDK2_MS_ABI *get_names)(void *, EFI_GUID **, UINT16 *);
@@ -89,6 +94,12 @@ struct gop_protocol {
 	EFI_STATUS (CDK2_MS_ABI *blt)(void *, struct cdk2_efi_pixel *, UINTN,
 		UINTN, UINTN, UINTN, UINTN, UINTN, UINTN, UINTN);
 	void *mode;
+};
+struct config_access_protocol {
+	EFI_STATUS (CDK2_MS_ABI *extract)(const void *, const CHAR16 *, CHAR16 **,
+		CHAR16 **);
+	EFI_STATUS (CDK2_MS_ABI *route)(const void *, const CHAR16 *, CHAR16 **);
+	void *callback;
 };
 
 static EFI_STATUS allocate(void *opaque, UINTN size, void **buffer)
@@ -521,24 +532,76 @@ static EFI_STATUS CDK2_MS_ABI get_font_info(const void *self, void **handle,
 	return EFI_SUCCESS;
 }
 
+static EFI_STATUS resolve_config_access(const CHAR16 *configuration,
+	struct config_access_protocol **access, void **path_buffer);
 static EFI_STATUS CDK2_MS_ABI extract_config(const void *self, const CHAR16 *request,
-	const CHAR16 **progress, CHAR16 **results)
-{ (void)self; return cdk2_hii_extract_config(&context.database, request, progress, results); }
+	CHAR16 **progress, CHAR16 **results)
+{
+	struct config_access_protocol *access;
+	const CHAR16 *core_progress;
+	void *path;
+	EFI_STATUS status;
+	(void)self;
+	status = cdk2_hii_extract_config(&context.database, request, &core_progress,
+		results);
+	if (status != EFI_NOT_FOUND) {
+		*progress = (CHAR16 *)core_progress;
+		return status;
+	}
+	status = resolve_config_access(request, &access, &path);
+	if (EFI_ERROR(status)) {
+		*progress = (CHAR16 *)request;
+		return status;
+	}
+	status = access->extract(access, request, progress, results);
+	release(&context, path);
+	return status;
+}
 static EFI_STATUS CDK2_MS_ABI export_config(const void *self, CHAR16 **results)
 { (void)self; return cdk2_hii_export_config(&context.database, results); }
 static EFI_STATUS CDK2_MS_ABI route_config(const void *self, const CHAR16 *configuration,
-	const CHAR16 **progress)
-{ (void)self; return cdk2_hii_route_config(&context.database, configuration, progress); }
-static EFI_STATUS CDK2_MS_ABI block_to_config(const void *self, const CHAR16 *request,
-	const UINT8 *block, UINTN size, CHAR16 **configuration, const CHAR16 **progress)
+	CHAR16 **progress)
 {
+	struct config_access_protocol *access;
+	const CHAR16 *core_progress;
+	void *path;
+	EFI_STATUS status;
 	(void)self;
-	return cdk2_hii_block_to_config(&context.database, request, block, size,
-		configuration, progress);
+	status = cdk2_hii_route_config(&context.database, configuration, &core_progress);
+	if (status != EFI_NOT_FOUND) {
+		*progress = (CHAR16 *)core_progress;
+		return status;
+	}
+	status = resolve_config_access(configuration, &access, &path);
+	if (EFI_ERROR(status)) {
+		*progress = (CHAR16 *)configuration;
+		return status;
+	}
+	status = access->route(access, configuration, progress);
+	release(&context, path);
+	return status;
+}
+static EFI_STATUS CDK2_MS_ABI block_to_config(const void *self, const CHAR16 *request,
+	const UINT8 *block, UINTN size, CHAR16 **configuration, CHAR16 **progress)
+{
+	const CHAR16 *core_progress;
+	EFI_STATUS status;
+	(void)self;
+	status = cdk2_hii_block_to_config(&context.database, request, block, size,
+		configuration, &core_progress);
+	*progress = (CHAR16 *)core_progress;
+	return status;
 }
 static EFI_STATUS CDK2_MS_ABI config_to_block(const void *self,
-	const CHAR16 *configuration, UINT8 *block, UINTN *size, const CHAR16 **progress)
-{ (void)self; return cdk2_hii_config_to_block(configuration, block, size, progress); }
+	const CHAR16 *configuration, UINT8 *block, UINTN *size, CHAR16 **progress)
+{
+	const CHAR16 *core_progress;
+	EFI_STATUS status;
+	(void)self;
+	status = cdk2_hii_config_to_block(configuration, block, size, &core_progress);
+	*progress = (CHAR16 *)core_progress;
+	return status;
+}
 
 static UINTN text_length(const CHAR16 *text)
 {
@@ -560,6 +623,70 @@ static BOOLEAN token(const CHAR16 *text, const CHAR16 *name)
 	while (name[index] != 0U && text[index] == name[index])
 		index++;
 	return name[index] == 0U;
+}
+
+static EFI_STATUS nibble(CHAR16 character, UINT8 *value)
+{
+	if (character >= L'0' && character <= L'9')
+		*value = character - L'0';
+	else if (character >= L'A' && character <= L'F')
+		*value = character - L'A' + 10U;
+	else if (character >= L'a' && character <= L'f')
+		*value = character - L'a' + 10U;
+	else
+		return EFI_INVALID_PARAMETER;
+	return EFI_SUCCESS;
+}
+static EFI_STATUS resolve_config_access(const CHAR16 *configuration,
+	struct config_access_protocol **access, void **path_buffer)
+{
+	const CHAR16 *path = NULL, *cursor;
+	UINT8 *bytes, high, low;
+	void *remaining, *handle;
+	EFI_STATUS status;
+	UINTN digits = 0U, index;
+
+	if (configuration == NULL || access == NULL || path_buffer == NULL ||
+	    context.boot->locate_device_path == NULL ||
+	    context.boot->handle_protocol == NULL)
+		return EFI_INVALID_PARAMETER;
+	for (cursor = configuration; *cursor != 0U; cursor++)
+		if ((cursor == configuration || cursor[-1] == L'&') &&
+		    token(cursor, L"PATH=")) {
+			path = cursor + 5U;
+			break;
+		}
+	if (path == NULL)
+		return EFI_NOT_FOUND;
+	while (path[digits] != 0U && path[digits] != L'&')
+		digits++;
+	if (digits == 0U || (digits & 1U) != 0U)
+		return EFI_INVALID_PARAMETER;
+	status = allocate(&context, digits / 2U, (void **)&bytes);
+	if (EFI_ERROR(status))
+		return status;
+	for (index = 0; index < digits; index += 2U) {
+		status = nibble(path[index], &high);
+		if (!EFI_ERROR(status))
+			status = nibble(path[index + 1U], &low);
+		if (EFI_ERROR(status)) {
+			release(&context, bytes);
+			return status;
+		}
+		bytes[index / 2U] = (UINT8)((high << 4) | low);
+	}
+	remaining = bytes;
+	status = context.boot->locate_device_path(&config_access_guid, &remaining,
+		&handle);
+	if (!EFI_ERROR(status))
+		status = context.boot->handle_protocol(handle, &config_access_guid,
+			(void **)access);
+	if (EFI_ERROR(status)) {
+		release(&context, bytes);
+		return status;
+	}
+	*path_buffer = bytes;
+	return EFI_SUCCESS;
 }
 
 static EFI_STATUS CDK2_MS_ABI get_alt_config(const void *self,

@@ -96,14 +96,14 @@ struct cdk2_efi_hii_font_protocol {
 
 struct cdk2_efi_hii_config_routing_protocol {
 	EFI_STATUS (CDK2_MS_ABI *extract_config)(const void *, const CHAR16 *,
-		const CHAR16 **, CHAR16 **);
+		CHAR16 **, CHAR16 **);
 	EFI_STATUS (CDK2_MS_ABI *export_config)(const void *, CHAR16 **);
 	EFI_STATUS (CDK2_MS_ABI *route_config)(const void *, const CHAR16 *,
-		const CHAR16 **);
+		CHAR16 **);
 	EFI_STATUS (CDK2_MS_ABI *block_to_config)(const void *, const CHAR16 *,
-		const UINT8 *, UINTN, CHAR16 **, const CHAR16 **);
+		const UINT8 *, UINTN, CHAR16 **, CHAR16 **);
 	EFI_STATUS (CDK2_MS_ABI *config_to_block)(const void *, const CHAR16 *, UINT8 *,
-		UINTN *, const CHAR16 **);
+		UINTN *, CHAR16 **);
 	EFI_STATUS (CDK2_MS_ABI *get_alt_config)(const void *, const CHAR16 *,
 		const EFI_GUID *, const CHAR16 *, const void *, const UINT16 *, CHAR16 **);
 };
