@@ -1097,8 +1097,8 @@ $(CDK2_NATIVE_CAPSULE_RUNTIME_ENTRY_OBJ): $(CDK2_DIR)/src/modules/capsule_runtim
 	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) -mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args $(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
 
 $(CDK2_NATIVE_CAPSULE_RUNTIME_PE): $(CDK2_NATIVE_CAPSULE_RUNTIME_OBJ) $(CDK2_NATIVE_CAPSULE_RUNTIME_ABI_OBJ) $(CDK2_NATIVE_CAPSULE_RUNTIME_ENTRY_OBJ) $(CDK2_DIR)/src/modules/capsule_runtime/capsule_runtime.ld $(CDK2_NATIVE_PERELOCCHECK)
-	@$(LD) -mi386pep --subsystem 11 --entry cdk2_capsule_runtime_entry --image-base 0 --section-alignment 0x1000 --file-alignment 0x1000 --build-id=none --no-insert-timestamp -s --nxcompat -T "$(CDK2_DIR)/src/modules/capsule_runtime/capsule_runtime.ld" -o "$@" $(CDK2_NATIVE_CAPSULE_RUNTIME_OBJ) $(CDK2_NATIVE_CAPSULE_RUNTIME_ABI_OBJ) $(CDK2_NATIVE_CAPSULE_RUNTIME_ENTRY_OBJ)
-	@"$(CDK2_NATIVE_PERELOCCHECK)" --subsystem 11 "$@"
+	@$(LD) -mi386pep --subsystem 11 --entry cdk2_capsule_runtime_entry --image-base 0 --section-alignment 0x1000 --file-alignment 0x200 --build-id=none --no-insert-timestamp -s --nxcompat -T "$(CDK2_DIR)/src/modules/capsule_runtime/capsule_runtime.ld" -o "$@" $(CDK2_NATIVE_CAPSULE_RUNTIME_OBJ) $(CDK2_NATIVE_CAPSULE_RUNTIME_ABI_OBJ) $(CDK2_NATIVE_CAPSULE_RUNTIME_ENTRY_OBJ)
+	@"$(CDK2_NATIVE_PERELOCCHECK)" --subsystem 11 --file-alignment 0x200 "$@"
 
 $(CDK2_NATIVE_CAPSULE_RUNTIME_DEPEX_GEN): $(CDK2_DIR)/src/modules/capsule_runtime/depex.c | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -o "$@" "$<"

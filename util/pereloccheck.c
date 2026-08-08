@@ -72,20 +72,28 @@ int main(int argc, char **argv)
 	uint32_t reloc_rva;
 	uint32_t reloc_size;
 	unsigned long expected_subsystem = 0;
+	unsigned long expected_file_alignment = 0;
 	const char *image_path;
+	int argument;
 	int saw_dir64 = 0;
 	FILE *file;
 
-	if (argc == 2) {
-		image_path = argv[1];
-	} else if (argc == 4 && strcmp(argv[1], "--subsystem") == 0) {
-		expected_subsystem = strtoul(argv[2], NULL, 0);
-		if (expected_subsystem == 0 || expected_subsystem > UINT16_MAX)
-			fail("invalid expected subsystem");
-		image_path = argv[3];
-	} else {
-		fail("usage: cdk2-pereloccheck [--subsystem NUMBER] IMAGE");
+	for (argument = 1; argument + 1 < argc; argument += 2) {
+		unsigned long value = strtoul(argv[argument + 1], NULL, 0);
+
+		if (strcmp(argv[argument], "--subsystem") == 0 && value != 0 &&
+		    value <= UINT16_MAX)
+			expected_subsystem = value;
+		else if (strcmp(argv[argument], "--file-alignment") == 0 && value != 0 &&
+			 value <= UINT32_MAX)
+			expected_file_alignment = value;
+		else
+			fail("invalid expected PE property");
 	}
+	if (argument != argc - 1)
+		fail("usage: cdk2-pereloccheck [--subsystem NUMBER] "
+			"[--file-alignment NUMBER] IMAGE");
+	image_path = argv[argument];
 	file = fopen(image_path, "rb");
 	if (file == NULL || fseek(file, 0, SEEK_END) != 0 || (length = ftell(file)) < 0 ||
 	    fseek(file, 0, SEEK_SET) != 0)
@@ -109,6 +117,9 @@ int main(int argc, char **argv)
 		fail("invalid PE32+ optional header");
 	if (expected_subsystem != 0 && get16(image + optional + 68U) != expected_subsystem)
 		fail("PE subsystem does not match the admitted module");
+	if (expected_file_alignment != 0 && get32(image + optional + 36U) !=
+	    expected_file_alignment)
+		fail("PE file alignment does not match the admitted module");
 	reloc_rva = get32(image + optional + 152U);
 	reloc_size = get32(image + optional + 156U);
 	if (reloc_rva == 0 || reloc_size < 8U)
