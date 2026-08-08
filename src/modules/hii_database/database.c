@@ -109,6 +109,14 @@ EFI_STATUS cdk2_hii_database_init(struct cdk2_hii_database *database,
 	__builtin_memset(database->strings, 0,
 		sizeof(*database->strings) * CDK2_HII_MAX_STRINGS);
 	database->next_string_id = 1U;
+	if (ops->allocate(context, sizeof(*database->images) * CDK2_HII_MAX_IMAGES,
+			(void **)&database->images) != EFI_SUCCESS) {
+		ops->release(context, database->strings);
+		return EFI_OUT_OF_RESOURCES;
+	}
+	__builtin_memset(database->images, 0,
+		sizeof(*database->images) * CDK2_HII_MAX_IMAGES);
+	database->next_image_id = 1U;
 	return EFI_SUCCESS;
 }
 
@@ -154,6 +162,7 @@ EFI_STATUS cdk2_hii_remove_package_list(struct cdk2_hii_database *database,
 		return EFI_NOT_FOUND;
 	notify_list(database, list, HII_NOTIFY_REMOVE);
 	cdk2_hii_remove_strings(database, list);
+	cdk2_hii_remove_images(database, list);
 	database->ops->release(database->context, list->data);
 	*list = (struct cdk2_hii_list) { 0 };
 	return EFI_SUCCESS;
