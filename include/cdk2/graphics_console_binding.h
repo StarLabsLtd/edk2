@@ -6,6 +6,9 @@
 #include <cdk2/graphics_console.h>
 
 #define CDK2_OPEN_BY_DRIVER 0x10U
+#define CDK2_HII_IGNORE_IF_NO_GLYPH 0x20U
+#define CDK2_HII_IGNORE_LINE_BREAK 0x40U
+#define CDK2_HII_DIRECT_TO_SCREEN 0x80U
 
 struct cdk2_graphics_console_binding;
 struct cdk2_simple_text_output_view;
@@ -13,6 +16,30 @@ struct cdk2_driver_binding_view;
 struct cdk2_component_name_view;
 struct cdk2_gop_view;
 struct cdk2_hii_font_view;
+struct cdk2_gop_mode_info;
+struct cdk2_image_output;
+struct cdk2_font_display_info;
+struct cdk2_hii_row_info;
+struct cdk2_font_info;
+typedef CHAR16 * cdk2_char16_ptr;
+typedef EFI_STATUS CDK2_MS_ABI cdk2_hii_string_id_to_image_fn(
+	const struct cdk2_hii_font_view *, UINT32, void *, UINT16, const CHAR8 *,
+	const struct cdk2_font_display_info *, struct cdk2_image_output **,
+	UINTN, UINTN, struct cdk2_hii_row_info **, UINTN *, UINTN *);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_hii_get_glyph_fn(
+	const struct cdk2_hii_font_view *, CHAR16,
+	const struct cdk2_font_display_info *, struct cdk2_image_output **, UINTN *);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_hii_get_font_info_fn(
+	const struct cdk2_hii_font_view *, void **,
+	const struct cdk2_font_display_info *, struct cdk2_font_display_info **,
+	const CHAR16 *);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_gop_query_fn(struct cdk2_gop_view *, UINT32,
+	UINTN *, struct cdk2_gop_mode_info **);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_gop_set_fn(struct cdk2_gop_view *, UINT32);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_hii_string_to_image_fn(
+	const struct cdk2_hii_font_view *, UINT32, const CHAR16 *,
+	const struct cdk2_font_display_info *, struct cdk2_image_output **,
+	UINTN, UINTN, struct cdk2_hii_row_info **, UINTN *, UINTN *);
 typedef EFI_STATUS CDK2_MS_ABI cdk2_text_reset_fn(struct cdk2_simple_text_output_view *, BOOLEAN);
 typedef EFI_STATUS CDK2_MS_ABI cdk2_text_string_fn(struct cdk2_simple_text_output_view *, CHAR16 *);
 typedef EFI_STATUS CDK2_MS_ABI cdk2_text_query_fn(struct cdk2_simple_text_output_view *, UINTN, UINTN *, UINTN *);
@@ -23,8 +50,10 @@ typedef EFI_STATUS CDK2_MS_ABI cdk2_text_visible_fn(struct cdk2_simple_text_outp
 typedef EFI_STATUS CDK2_MS_ABI cdk2_driver_supported_fn(struct cdk2_driver_binding_view *, void *, void *);
 typedef EFI_STATUS CDK2_MS_ABI cdk2_driver_start_fn(struct cdk2_driver_binding_view *, void *, void *);
 typedef EFI_STATUS CDK2_MS_ABI cdk2_driver_stop_fn(struct cdk2_driver_binding_view *, void *, UINTN, void **);
-typedef EFI_STATUS CDK2_MS_ABI cdk2_component_driver_name_fn(struct cdk2_component_name_view *, CHAR8 *, CHAR16 **);
-typedef EFI_STATUS CDK2_MS_ABI cdk2_component_controller_name_fn(struct cdk2_component_name_view *, void *, void *, CHAR8 *, CHAR16 **);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_component_driver_name_fn(
+	struct cdk2_component_name_view *, CHAR8 *, cdk2_char16_ptr *);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_component_controller_name_fn(
+	struct cdk2_component_name_view *, void *, void *, CHAR8 *, cdk2_char16_ptr *);
 typedef EFI_STATUS cdk2_binding_open_fn(void *context, void *controller,
 	const EFI_GUID * protocol, UINT32 attributes, void **interface);
 typedef EFI_STATUS cdk2_binding_close_fn(void *context, void *controller,
@@ -45,8 +74,8 @@ struct cdk2_graphics_console_binding_ops {
 };
 
 struct cdk2_gop_view {
-	void *query_mode;
-	void *set_mode;
+	cdk2_gop_query_fn *query_mode;
+	cdk2_gop_set_fn *set_mode;
 	cdk2_binding_blt_fn *blt;
 	void *mode;
 };
@@ -80,10 +109,26 @@ struct cdk2_component_name_view {
 };
 
 struct cdk2_hii_font_view {
-	void *string_to_image;
-	void *string_id_to_image;
-	void *get_glyph;
-	void *get_font_info;
+	cdk2_hii_string_to_image_fn *string_to_image;
+	cdk2_hii_string_id_to_image_fn *string_id_to_image;
+	cdk2_hii_get_glyph_fn *get_glyph;
+	cdk2_hii_get_font_info_fn *get_font_info;
+};
+
+struct cdk2_graphics_pixel {
+	UINT8 blue;
+	UINT8 green;
+	UINT8 red;
+	UINT8 reserved;
+};
+
+struct cdk2_image_output {
+	UINT16 width;
+	UINT16 height;
+	union {
+		struct cdk2_graphics_pixel *bitmap;
+		struct cdk2_gop_view *screen;
+	} image;
 };
 
 struct cdk2_graphics_console_binding {
@@ -107,5 +152,8 @@ EFI_STATUS cdk2_graphics_binding_stop(struct cdk2_graphics_console_binding *bind
 EFI_STATUS cdk2_graphics_gop_blt(struct cdk2_graphics_console_binding *binding,
 	void *buffer, UINTN operation, UINTN source_x, UINTN source_y,
 	UINTN destination_x, UINTN destination_y, UINTN width, UINTN height, UINTN delta);
+EFI_STATUS cdk2_graphics_render_string(struct cdk2_graphics_console_binding *binding,
+	const CHAR16 *string, const struct cdk2_font_display_info *display,
+	struct cdk2_image_output **image, UINTN x, UINTN y, UINTN width, UINTN height);
 
 #endif

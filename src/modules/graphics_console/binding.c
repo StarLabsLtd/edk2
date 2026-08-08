@@ -106,3 +106,27 @@ EFI_STATUS cdk2_graphics_gop_blt(struct cdk2_graphics_console_binding *binding,
 	return binding->gop->blt(binding->gop, buffer, operation, source_x, source_y,
 		destination_x, destination_y, width, height, delta);
 }
+
+EFI_STATUS cdk2_graphics_render_string(struct cdk2_graphics_console_binding *binding,
+	const CHAR16 *string, const struct cdk2_font_display_info *display,
+	struct cdk2_image_output **image, UINTN x, UINTN y, UINTN width, UINTN height)
+{
+	struct cdk2_image_output direct;
+	EFI_STATUS status;
+	UINT32 flags;
+
+	if (binding == NULL || binding->font == NULL ||
+	    binding->font->string_to_image == NULL || binding->gop == NULL ||
+	    string == NULL || image == NULL || width > 0xffffU || height > 0xffffU)
+		return EFI_INVALID_PARAMETER;
+	direct.width = (UINT16)width;
+	direct.height = (UINT16)height;
+	direct.image.screen = binding->gop;
+	*image = &direct;
+	flags = CDK2_HII_IGNORE_IF_NO_GLYPH | CDK2_HII_IGNORE_LINE_BREAK |
+		CDK2_HII_DIRECT_TO_SCREEN;
+	status = binding->font->string_to_image(binding->font, flags, string, display,
+		image, x, y, NULL, NULL, NULL);
+	*image = NULL;
+	return status;
+}
