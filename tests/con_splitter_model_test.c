@@ -5,6 +5,8 @@
 
 static UINTN calls;
 static EFI_STATUS statuses[2];
+static UINTN last_value, last_column, last_row;
+static BOOLEAN last_visible;
 static EFI_STATUS output(void *context, const CHAR16 *string)
 {
 	UINTN index = (UINTN)context - 1U;
@@ -16,13 +18,13 @@ static EFI_STATUS output(void *context, const CHAR16 *string)
 static EFI_STATUS query(void *context, UINTN mode, UINTN *columns, UINTN *rows)
 { (void)context; (void)mode; *columns = 80; *rows = 25; return EFI_SUCCESS; }
 static EFI_STATUS value(void *context, UINTN value)
-{ (void)context; (void)value; return EFI_SUCCESS; }
+{ (void)context; last_value = value; return EFI_SUCCESS; }
 static EFI_STATUS clear(void *context)
 { (void)context; return EFI_SUCCESS; }
 static EFI_STATUS cursor(void *context, UINTN column, UINTN row)
-{ (void)context; (void)column; (void)row; return EFI_SUCCESS; }
+{ (void)context; last_column = column; last_row = row; return EFI_SUCCESS; }
 static EFI_STATUS visible(void *context, BOOLEAN enabled)
-{ (void)context; (void)enabled; return EFI_SUCCESS; }
+{ (void)context; last_visible = enabled; return EFI_SUCCESS; }
 static int expect(int condition, const char *message)
 { if (!condition) fprintf(stderr, "con splitter model test: %s\n", message); return !condition; }
 
@@ -49,5 +51,17 @@ int main(void)
 	failures += expect(cdk2_split_text_out_remove(&splitter, (void *)1) == EFI_SUCCESS &&
 		splitter.device_count == 1U && splitter.devices[0].context == (void *)2,
 		"device removal corrupted the compact list");
+	statuses[1] = EFI_SUCCESS;
+	failures += expect(cdk2_split_text_out_set_attribute(&splitter, 0x17U) == EFI_SUCCESS &&
+		last_value == 0x17U && splitter.attribute == 0x17U,
+		"attribute did not fan out or update virtual state");
+	failures += expect(cdk2_split_text_out_set_cursor(&splitter, 1U, 1U) == EFI_SUCCESS &&
+		last_column == 1U && last_row == 1U &&
+		cdk2_split_text_out_set_cursor(&splitter, 2U, 0U) == EFI_UNSUPPORTED,
+		"cursor bounds/fanout are wrong");
+	failures += expect(cdk2_split_text_out_enable_cursor(&splitter, FALSE) == EFI_SUCCESS &&
+		!last_visible && !splitter.cursor_visible &&
+		cdk2_split_text_out_clear(&splitter) == EFI_SUCCESS && splitter.column == 0U &&
+		splitter.row == 0U, "cursor visibility or clear state is wrong");
 	return failures == 0 ? 0 : 1;
 }

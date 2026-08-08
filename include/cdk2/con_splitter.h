@@ -47,5 +47,12 @@ EFI_STATUS cdk2_split_text_out_output(struct cdk2_split_text_out *splitter,
 	const CHAR16 *string);
 EFI_STATUS cdk2_split_text_out_test(struct cdk2_split_text_out *splitter,
 	const CHAR16 *string);
+EFI_STATUS cdk2_split_text_out_set_attribute(struct cdk2_split_text_out *splitter,
+	UINTN attribute);
+EFI_STATUS cdk2_split_text_out_clear(struct cdk2_split_text_out *splitter);
+EFI_STATUS cdk2_split_text_out_set_cursor(struct cdk2_split_text_out *splitter,
+	UINTN column, UINTN row);
+EFI_STATUS cdk2_split_text_out_enable_cursor(struct cdk2_split_text_out *splitter,
+	BOOLEAN visible);
 
 #endif

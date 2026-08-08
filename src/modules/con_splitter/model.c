@@ -114,3 +114,70 @@ EFI_STATUS cdk2_split_text_out_test(struct cdk2_split_text_out *splitter,
 {
 	return fanout(splitter, string, TRUE);
 }
+
+static EFI_STATUS aggregate_status(EFI_STATUS result, EFI_STATUS status)
+{
+	return EFI_ERROR(status) ? status : result;
+}
+
+EFI_STATUS cdk2_split_text_out_set_attribute(struct cdk2_split_text_out *splitter,
+	UINTN attribute)
+{
+	EFI_STATUS result = EFI_SUCCESS;
+	UINTN index;
+
+	if (splitter == NULL || (attribute & ~0x7fU) != 0U)
+		return EFI_UNSUPPORTED;
+	for (index = 0; index < splitter->device_count; index++)
+		result = aggregate_status(result, splitter->devices[index].ops->set_attribute(
+			splitter->devices[index].context, attribute));
+	splitter->attribute = attribute;
+	return result;
+}
+
+EFI_STATUS cdk2_split_text_out_clear(struct cdk2_split_text_out *splitter)
+{
+	EFI_STATUS result = EFI_SUCCESS;
+	UINTN index;
+
+	if (splitter == NULL)
+		return EFI_INVALID_PARAMETER;
+	for (index = 0; index < splitter->device_count; index++)
+		result = aggregate_status(result, splitter->devices[index].ops->clear(
+			splitter->devices[index].context));
+	splitter->column = splitter->row = 0U;
+	return result;
+}
+
+EFI_STATUS cdk2_split_text_out_set_cursor(struct cdk2_split_text_out *splitter,
+	UINTN column, UINTN row)
+{
+	EFI_STATUS result = EFI_SUCCESS;
+	UINTN index;
+
+	if (splitter == NULL)
+		return EFI_INVALID_PARAMETER;
+	if (column >= splitter->columns || row >= splitter->rows)
+		return EFI_UNSUPPORTED;
+	for (index = 0; index < splitter->device_count; index++)
+		result = aggregate_status(result, splitter->devices[index].ops->set_cursor(
+			splitter->devices[index].context, column, row));
+	splitter->column = column;
+	splitter->row = row;
+	return result;
+}
+
+EFI_STATUS cdk2_split_text_out_enable_cursor(struct cdk2_split_text_out *splitter,
+	BOOLEAN visible)
+{
+	EFI_STATUS result = EFI_SUCCESS;
+	UINTN index;
+
+	if (splitter == NULL)
+		return EFI_INVALID_PARAMETER;
+	for (index = 0; index < splitter->device_count; index++)
+		result = aggregate_status(result, splitter->devices[index].ops->enable_cursor(
+			splitter->devices[index].context, visible));
+	splitter->cursor_visible = visible;
+	return result;
+}
