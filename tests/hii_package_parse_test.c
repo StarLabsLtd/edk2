@@ -43,8 +43,17 @@ int main(void)
 		EFI_SUCCESS && cdk2_hii_get_string(&database, "en", handle, 1U,
 		text, &size, NULL) == EFI_SUCCESS && text[0] == L'H' && text[1] == L'i',
 		"raw UCS-2 string package was not decoded");
-	(void)cdk2_hii_remove_package_list(&database, handle);
+	list[70] = 'J';
+	failures += expect(cdk2_hii_update_package_list(&database, handle, list) ==
+		EFI_SUCCESS && cdk2_hii_get_string(&database, "en", handle, 1U,
+		text, &size, NULL) == EFI_SUCCESS && text[0] == L'J',
+		"successful package update did not replace decoded objects");
 	list[75] = 1U;
+	failures += expect(cdk2_hii_update_package_list(&database, handle, list) ==
+		EFI_INVALID_PARAMETER && cdk2_hii_get_string(&database, "en", handle,
+		1U, text, &size, NULL) == EFI_SUCCESS && text[0] == L'J',
+		"failed package update did not preserve the prior package");
+	(void)cdk2_hii_remove_package_list(&database, handle);
 	failures += expect(cdk2_hii_new_package_list(&database, list, NULL, &handle) ==
 		EFI_INVALID_PARAMETER && handle == NULL,
 		"unterminated raw string was admitted");

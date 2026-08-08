@@ -237,9 +237,10 @@ EFI_STATUS cdk2_hii_update_package_list(struct cdk2_hii_database *database,
 	void *handle, const void *package_list)
 {
 	struct cdk2_hii_list *list = handle;
-	void *copy;
+	struct cdk2_hii_list *staged = NULL;
 	EFI_STATUS status;
 	UINT32 size;
+	UINTN index;
 
 	if (database == NULL || list < database->lists ||
 	    list >= database->lists + CDK2_HII_MAX_LISTS || !list->active)
@@ -247,14 +248,55 @@ EFI_STATUS cdk2_hii_update_package_list(struct cdk2_hii_database *database,
 	status = validate_list(package_list, &size);
 	if (EFI_ERROR(status))
 		return status;
-	status = database->ops->allocate(database->context, size, &copy);
+	for (index = 0; index < CDK2_HII_MAX_LISTS; index++)
+		if (!database->lists[index].active) {
+			staged = &database->lists[index];
+			break;
+		}
+	if (staged == NULL)
+		return EFI_OUT_OF_RESOURCES;
+	status = database->ops->allocate(database->context, size, &staged->data);
 	if (EFI_ERROR(status))
 		return status;
-	__builtin_memcpy(copy, package_list, size);
+	__builtin_memcpy(staged->data, package_list, size);
+	staged->size = size;
+	staged->driver_handle = list->driver_handle;
+	staged->active = TRUE;
+	status = cdk2_hii_ingest_package_list(database, staged);
+	if (EFI_ERROR(status)) {
+		cdk2_hii_remove_strings(database, staged);
+		cdk2_hii_remove_images(database, staged);
+		cdk2_hii_remove_glyphs(database, staged);
+		cdk2_hii_remove_keyboard_layouts(database, staged);
+		database->ops->release(database->context, staged->data);
+		*staged = (struct cdk2_hii_list) { 0 };
+		return status;
+	}
 	notify_list(database, list, HII_NOTIFY_REMOVE);
+	cdk2_hii_remove_strings(database, list);
+	cdk2_hii_remove_images(database, list);
+	cdk2_hii_remove_glyphs(database, list);
+	cdk2_hii_remove_keyboard_layouts(database, list);
 	database->ops->release(database->context, list->data);
-	list->data = copy;
-	list->size = size;
+	list->data = staged->data;
+	list->size = staged->size;
+	for (index = 0; index < CDK2_HII_MAX_STRINGS; index++)
+		if (database->strings[index].active &&
+		    database->strings[index].package_handle == staged)
+			database->strings[index].package_handle = list;
+	for (index = 0; index < CDK2_HII_MAX_IMAGES; index++)
+		if (database->images[index].active &&
+		    database->images[index].package_handle == staged)
+			database->images[index].package_handle = list;
+	for (index = 0; index < CDK2_HII_MAX_GLYPHS; index++)
+		if (database->glyphs[index].active &&
+		    database->glyphs[index].package_handle == staged)
+			database->glyphs[index].package_handle = list;
+	for (index = 0; index < database->keyboard_layout_count; index++)
+		if (database->keyboard_records[index].active &&
+		    database->keyboard_records[index].package_handle == staged)
+			database->keyboard_records[index].package_handle = list;
+	*staged = (struct cdk2_hii_list) { 0 };
 	notify_list(database, list, HII_NOTIFY_ADD);
 	return EFI_SUCCESS;
 }
