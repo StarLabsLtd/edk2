@@ -95,7 +95,16 @@ struct cdk2_simple_text_output_view {
 	cdk2_text_clear_fn *clear_screen;
 	cdk2_text_cursor_fn *set_cursor_position;
 	cdk2_text_visible_fn *enable_cursor;
-	void *mode;
+	struct cdk2_simple_text_output_mode_view *mode;
+};
+
+struct cdk2_simple_text_output_mode_view {
+	INT32 max_mode;
+	INT32 mode;
+	INT32 attribute;
+	INT32 cursor_column;
+	INT32 cursor_row;
+	BOOLEAN cursor_visible;
 };
 
 struct cdk2_driver_binding_view {
@@ -143,6 +152,8 @@ struct cdk2_graphics_console_binding {
 	struct cdk2_gop_view *gop;
 	struct cdk2_hii_font_view *font;
 	struct cdk2_simple_text_output_view text;
+	struct cdk2_simple_text_output_mode_view text_mode;
+	struct cdk2_graphics_console console;
 	struct cdk2_driver_binding_view driver;
 	struct cdk2_component_name_view component_name;
 	struct cdk2_component_name_view component_name2;
@@ -165,5 +176,7 @@ EFI_STATUS cdk2_graphics_render_string(struct cdk2_graphics_console_binding *bin
 EFI_STATUS cdk2_graphics_binding_publish(struct cdk2_graphics_console_binding *binding,
 	void *image, cdk2_binding_publish_fn *publish, cdk2_binding_notify_fn *notify,
 	void *context);
+EFI_STATUS cdk2_graphics_binding_prepare_text(struct cdk2_graphics_console_binding *binding,
+	const struct cdk2_graphics_console_ops *ops, void *context);
 
 #endif

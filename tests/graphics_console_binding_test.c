@@ -9,6 +9,18 @@ static struct cdk2_hii_font_view font;
 static UINTN renders;
 static UINTN publishes;
 static UINTN notifications;
+static UINTN draws, fills, scrolls, cursors;
+static EFI_STATUS draw_character(void *context, CHAR16 character, UINT32 column,
+	UINT32 row, UINT8 attribute, BOOLEAN wide)
+{ (void)context; (void)character; (void)column; (void)row; (void)attribute; (void)wide; draws++; return EFI_SUCCESS; }
+static EFI_STATUS fill_cells(void *context, UINT32 column, UINT32 row, UINT32 columns,
+	UINT32 rows, UINT8 attribute)
+{ (void)context; (void)column; (void)row; (void)columns; (void)rows; (void)attribute; fills++; return EFI_SUCCESS; }
+static EFI_STATUS scroll_cells(void *context, UINT32 rows, UINT8 attribute)
+{ (void)context; (void)rows; (void)attribute; scrolls++; return EFI_SUCCESS; }
+static EFI_STATUS cursor(void *context, UINT32 column, UINT32 row, BOOLEAN visible,
+	UINT8 attribute)
+{ (void)context; (void)column; (void)row; (void)visible; (void)attribute; cursors++; return EFI_SUCCESS; }
 static EFI_STATUS publish(void *context, void *handle, const EFI_GUID *guid, void *interface)
 {
 	(void)context; (void)guid;
@@ -66,12 +78,24 @@ int main(void)
 	static const struct cdk2_graphics_console_binding_ops ops = {
 		open_protocol, close_protocol, locate, install, uninstall
 	};
+	static const struct cdk2_graphics_console_ops text_ops = {
+		draw_character, fill_cells, scroll_cells, cursor
+	};
 	struct cdk2_graphics_console_binding binding = { .ops = &ops };
 	cdk2_char16_ptr name = NULL;
 	int failures = 0;
 
 	gop.blt = blt;
 	font.string_to_image = render;
+	binding.console.mode_count = 0U;
+	failures += expect(cdk2_graphics_console_add_mode(&binding.console, 800U, 600U,
+		8U, 19U) == EFI_SUCCESS &&
+		cdk2_graphics_binding_prepare_text(&binding, &text_ops, &binding) == EFI_SUCCESS &&
+		binding.text.mode->max_mode == 1 && binding.text.mode->mode == 0 && fills == 1U,
+		"SimpleTextOut methods and mode were not prepared");
+	failures += expect(binding.text.output_string(&binding.text, L"A") == EFI_SUCCESS &&
+		draws == 1U && binding.text.mode->cursor_column == 1 && cursors == 2U,
+		"SimpleTextOut OutputString did not delegate to the text model");
 	failures += expect(cdk2_graphics_binding_publish(&binding, &binding, publish, notify,
 		NULL) == EFI_SUCCESS && publishes == 3U && notifications == 1U &&
 		binding.driver.version == 0x10U &&

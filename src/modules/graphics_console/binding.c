@@ -22,6 +22,142 @@ static const EFI_GUID hii_database_guid = { 0xef9fc172, 0xa1b2, 0x4693,
 	{ 0xb3, 0x27, 0x6d, 0x32, 0xfc, 0x41, 0x60, 0x42 } };
 static CHAR16 driver_name[] = L"CDK2 Graphics Console Driver";
 
+static struct cdk2_graphics_console_binding *from_text(
+	struct cdk2_simple_text_output_view *text)
+{
+	return (struct cdk2_graphics_console_binding *)((UINT8 *)text -
+		offsetof(struct cdk2_graphics_console_binding, text));
+}
+
+static void sync_text_mode(struct cdk2_graphics_console_binding *binding)
+{
+	binding->text_mode.max_mode = (INT32)binding->console.mode_count;
+	binding->text_mode.mode = (INT32)binding->console.mode;
+	binding->text_mode.attribute = (INT32)binding->console.attribute;
+	binding->text_mode.cursor_column = (INT32)binding->console.column;
+	binding->text_mode.cursor_row = (INT32)binding->console.row;
+	binding->text_mode.cursor_visible = binding->console.cursor_visible;
+}
+
+static EFI_STATUS CDK2_MS_ABI text_reset(struct cdk2_simple_text_output_view *text,
+	BOOLEAN extended)
+{
+	struct cdk2_graphics_console_binding *binding = from_text(text);
+	EFI_STATUS status;
+
+	(void)extended;
+	status = cdk2_graphics_console_set_mode(&binding->console, 0U);
+	if (!EFI_ERROR(status))
+		sync_text_mode(binding);
+	return status;
+}
+
+static EFI_STATUS CDK2_MS_ABI text_output(struct cdk2_simple_text_output_view *text,
+	CHAR16 *string)
+{
+	struct cdk2_graphics_console_binding *binding = from_text(text);
+	EFI_STATUS status = cdk2_graphics_console_output(&binding->console, string);
+
+	sync_text_mode(binding);
+	return status;
+}
+
+static EFI_STATUS CDK2_MS_ABI text_test(struct cdk2_simple_text_output_view *text,
+	CHAR16 *string)
+{
+	(void)text;
+	return cdk2_graphics_console_test_string(string);
+}
+
+static EFI_STATUS CDK2_MS_ABI text_query(struct cdk2_simple_text_output_view *text,
+	UINTN mode, UINTN * columns, UINTN * rows)
+{
+	struct cdk2_graphics_console *console = &from_text(text)->console;
+
+	if (columns == NULL || rows == NULL)
+		return EFI_INVALID_PARAMETER;
+	if (mode >= console->mode_count)
+		return EFI_UNSUPPORTED;
+	*columns = console->modes[mode].columns;
+	*rows = console->modes[mode].rows;
+	return EFI_SUCCESS;
+}
+
+static EFI_STATUS CDK2_MS_ABI text_set_mode(struct cdk2_simple_text_output_view *text,
+	UINTN mode)
+{
+	struct cdk2_graphics_console_binding *binding = from_text(text);
+	EFI_STATUS status = cdk2_graphics_console_set_mode(&binding->console, (UINT32)mode);
+
+	if (!EFI_ERROR(status))
+		sync_text_mode(binding);
+	return status;
+}
+
+static EFI_STATUS CDK2_MS_ABI text_set_attribute(struct cdk2_simple_text_output_view *text,
+	UINTN attribute)
+{
+	struct cdk2_graphics_console_binding *binding = from_text(text);
+	EFI_STATUS status = cdk2_graphics_console_set_attribute(&binding->console, attribute);
+
+	if (!EFI_ERROR(status))
+		sync_text_mode(binding);
+	return status;
+}
+
+static EFI_STATUS CDK2_MS_ABI text_clear(struct cdk2_simple_text_output_view *text)
+{
+	return text_set_mode(text, from_text(text)->console.mode);
+}
+
+static EFI_STATUS CDK2_MS_ABI text_set_cursor(struct cdk2_simple_text_output_view *text,
+	UINTN column, UINTN row)
+{
+	struct cdk2_graphics_console_binding *binding = from_text(text);
+	EFI_STATUS status = cdk2_graphics_console_set_cursor(&binding->console, column, row);
+
+	if (!EFI_ERROR(status))
+		sync_text_mode(binding);
+	return status;
+}
+
+static EFI_STATUS CDK2_MS_ABI text_enable_cursor(struct cdk2_simple_text_output_view *text,
+	BOOLEAN visible)
+{
+	struct cdk2_graphics_console_binding *binding = from_text(text);
+	EFI_STATUS status = cdk2_graphics_console_enable_cursor(&binding->console, visible);
+
+	if (!EFI_ERROR(status))
+		sync_text_mode(binding);
+	return status;
+}
+
+EFI_STATUS cdk2_graphics_binding_prepare_text(struct cdk2_graphics_console_binding *binding,
+	const struct cdk2_graphics_console_ops *ops, void *context)
+{
+	EFI_STATUS status;
+
+	if (binding == NULL)
+		return EFI_INVALID_PARAMETER;
+	status = cdk2_graphics_console_init(&binding->console, ops, context);
+	if (EFI_ERROR(status))
+		return status;
+	binding->text = (struct cdk2_simple_text_output_view) {
+		.reset = text_reset,
+		.output_string = text_output,
+		.test_string = text_test,
+		.query_mode = text_query,
+		.set_mode = text_set_mode,
+		.set_attribute = text_set_attribute,
+		.clear_screen = text_clear,
+		.set_cursor_position = text_set_cursor,
+		.enable_cursor = text_enable_cursor,
+		.mode = &binding->text_mode,
+	};
+	sync_text_mode(binding);
+	return EFI_SUCCESS;
+}
+
 static struct cdk2_graphics_console_binding *from_driver(
 	struct cdk2_driver_binding_view *driver)
 {
@@ -132,7 +268,8 @@ EFI_STATUS cdk2_graphics_binding_start(struct cdk2_graphics_console_binding *bin
 
 	if (binding == NULL || binding->ops == NULL || binding->ops->open == NULL ||
 	    binding->ops->close == NULL || binding->ops->install == NULL ||
-	    binding->ops->uninstall == NULL || binding->ops->locate == NULL)
+	    binding->ops->uninstall == NULL || binding->ops->locate == NULL ||
+	    binding->text.output_string == NULL || binding->text.mode == NULL)
 		return EFI_INVALID_PARAMETER;
 	binding->controller = controller;
 	status = binding->ops->open(binding->context, controller, &device_path_guid,
