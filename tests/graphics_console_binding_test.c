@@ -39,6 +39,8 @@ static EFI_STATUS install(void *context, void *controller, const EFI_GUID *guid,
 { (void)context; (void)controller; (void)guid; (void)interface; installs++; return EFI_SUCCESS; }
 static EFI_STATUS uninstall(void *context, void *controller, const EFI_GUID *guid, void *interface)
 { (void)context; (void)controller; (void)guid; (void)interface; uninstalls++; return EFI_SUCCESS; }
+static EFI_STATUS locate(void *context, const EFI_GUID *guid, void **interface)
+{ (void)context; (void)guid; *interface = &font; return EFI_SUCCESS; }
 static EFI_STATUS blt(void *graphics, void *buffer, UINTN operation, UINTN sx, UINTN sy,
 	UINTN dx, UINTN dy, UINTN width, UINTN height, UINTN delta)
 { (void)graphics; (void)buffer; (void)operation; (void)sx; (void)sy; (void)dx; (void)dy; (void)width; (void)height; (void)delta; blts++; return EFI_SUCCESS; }
@@ -62,7 +64,7 @@ static int expect(int condition, const char *message)
 int main(void)
 {
 	static const struct cdk2_graphics_console_binding_ops ops = {
-		open_protocol, close_protocol, install, uninstall
+		open_protocol, close_protocol, locate, install, uninstall
 	};
 	struct cdk2_graphics_console_binding binding = { .ops = &ops };
 	cdk2_char16_ptr name = NULL;
@@ -82,7 +84,7 @@ int main(void)
 		closes == 1U && !binding.device_path_open, "failed Start leaked ownership");
 	opens = closes = 0; fail_open = 0;
 	failures += expect(cdk2_graphics_binding_start(&binding, &binding) == EFI_SUCCESS &&
-		opens == 3U && installs == 1U && binding.text_installed,
+		opens == 2U && installs == 1U && binding.text_installed,
 		"Start did not acquire and publish protocols");
 	failures += expect(cdk2_graphics_gop_blt(&binding, NULL, 0, 0, 0, 0, 0, 8, 19, 0) ==
 		EFI_SUCCESS && blts == 1U, "GOP BLT bridge failed");
@@ -93,7 +95,7 @@ int main(void)
 			"HII StringToImage was not directed to the GOP");
 	}
 	failures += expect(cdk2_graphics_binding_stop(&binding) == EFI_SUCCESS &&
-		uninstalls == 1U && closes == 3U && !binding.text_installed,
+		uninstalls == 1U && closes == 2U && !binding.text_installed,
 		"Stop did not release protocols symmetrically");
 	return failures == 0 ? 0 : 1;
 }

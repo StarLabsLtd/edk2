@@ -58,6 +58,8 @@ typedef EFI_STATUS cdk2_binding_open_fn(void *context, void *controller,
 	const EFI_GUID * protocol, UINT32 attributes, void **interface);
 typedef EFI_STATUS cdk2_binding_close_fn(void *context, void *controller,
 	const EFI_GUID * protocol);
+typedef EFI_STATUS cdk2_binding_locate_fn(void *context, const EFI_GUID * protocol,
+	void **interface);
 typedef EFI_STATUS cdk2_binding_install_fn(void *context, void *controller,
 	const EFI_GUID * protocol, void *interface);
 typedef EFI_STATUS cdk2_binding_uninstall_fn(void *context, void *controller,
@@ -71,6 +73,7 @@ typedef EFI_STATUS cdk2_binding_notify_fn(void *, const EFI_GUID *);
 struct cdk2_graphics_console_binding_ops {
 	cdk2_binding_open_fn *open;
 	cdk2_binding_close_fn *close;
+	cdk2_binding_locate_fn *locate;
 	cdk2_binding_install_fn *install;
 	cdk2_binding_uninstall_fn *uninstall;
 };
@@ -145,7 +148,6 @@ struct cdk2_graphics_console_binding {
 	struct cdk2_component_name_view component_name2;
 	BOOLEAN device_path_open;
 	BOOLEAN gop_open;
-	BOOLEAN font_open;
 	BOOLEAN text_installed;
 };
 

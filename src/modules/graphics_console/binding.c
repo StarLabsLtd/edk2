@@ -97,10 +97,7 @@ static void rollback(struct cdk2_graphics_console_binding *binding)
 			&binding->text);
 		binding->text_installed = FALSE;
 	}
-	if (binding->font_open) {
-		binding->ops->close(binding->context, binding->controller, &font_guid);
-		binding->font_open = FALSE;
-	}
+	binding->font = NULL;
 	if (binding->gop_open) {
 		binding->ops->close(binding->context, binding->controller, &gop_guid);
 		binding->gop_open = FALSE;
@@ -135,7 +132,7 @@ EFI_STATUS cdk2_graphics_binding_start(struct cdk2_graphics_console_binding *bin
 
 	if (binding == NULL || binding->ops == NULL || binding->ops->open == NULL ||
 	    binding->ops->close == NULL || binding->ops->install == NULL ||
-	    binding->ops->uninstall == NULL)
+	    binding->ops->uninstall == NULL || binding->ops->locate == NULL)
 		return EFI_INVALID_PARAMETER;
 	binding->controller = controller;
 	status = binding->ops->open(binding->context, controller, &device_path_guid,
@@ -148,11 +145,9 @@ EFI_STATUS cdk2_graphics_binding_start(struct cdk2_graphics_console_binding *bin
 	if (EFI_ERROR(status))
 		goto fail;
 	binding->gop_open = TRUE;
-	status = binding->ops->open(binding->context, controller, &font_guid,
-		CDK2_OPEN_BY_DRIVER, (void **)&binding->font);
+	status = binding->ops->locate(binding->context, &font_guid, (void **)&binding->font);
 	if (EFI_ERROR(status))
 		goto fail;
-	binding->font_open = TRUE;
 	status = binding->ops->install(binding->context, controller, &text_guid, &binding->text);
 	if (EFI_ERROR(status))
 		goto fail;
