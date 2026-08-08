@@ -13,6 +13,7 @@
 #define CDK2_HII_MAX_GLYPHS 512U
 #define CDK2_HII_MAX_KEYBOARD_LAYOUTS 32U
 #define CDK2_HII_MAX_CONFIG_ROUTES 64U
+#define CDK2_HII_MAX_KEYWORDS 128U
 #define CDK2_HII_PACKAGE_END 0xdfU
 
 struct cdk2_hii_package_list_header {
@@ -59,6 +60,7 @@ struct cdk2_hii_database {
 	void (*keyboard_notify)(void *context, const EFI_GUID *layout);
 	void *keyboard_notify_context;
 	struct cdk2_hii_config_route *config_routes;
+	struct cdk2_hii_keyword *keywords;
 };
 struct cdk2_hii_font_info {
 	UINT32 style;
@@ -109,6 +111,10 @@ struct cdk2_hii_config_route {
 	cdk2_hii_route_config_fn *route;
 	void *context;
 	BOOLEAN active;
+};
+struct cdk2_hii_keyword {
+	CHAR16 *name_space, *keyword, *value;
+	BOOLEAN read_only, active;
 };
 
 EFI_STATUS cdk2_hii_database_init(struct cdk2_hii_database *database,
@@ -196,5 +202,17 @@ EFI_STATUS cdk2_hii_extract_config(struct cdk2_hii_database *database,
 	const CHAR16 *request, const CHAR16 **progress, CHAR16 **results);
 EFI_STATUS cdk2_hii_route_config(struct cdk2_hii_database *database,
 	const CHAR16 *configuration, const CHAR16 **progress);
+EFI_STATUS cdk2_hii_export_config(struct cdk2_hii_database *database,
+	CHAR16 **results);
+EFI_STATUS cdk2_hii_get_alt_config(struct cdk2_hii_database *database,
+	const CHAR16 *configuration, const CHAR16 *header,
+	const CHAR16 *altcfg, CHAR16 **result);
+EFI_STATUS cdk2_hii_register_keyword(struct cdk2_hii_database *database,
+	const CHAR16 *name_space, const CHAR16 *keyword, const CHAR16 *value,
+	BOOLEAN read_only);
+EFI_STATUS cdk2_hii_get_keyword_data(struct cdk2_hii_database *database,
+	const CHAR16 *name_space, const CHAR16 *keyword, CHAR16 **value);
+EFI_STATUS cdk2_hii_set_keyword_data(struct cdk2_hii_database *database,
+	const CHAR16 *name_space, const CHAR16 *keyword, const CHAR16 *value);
 
 #endif

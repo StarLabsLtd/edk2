@@ -273,3 +273,113 @@ EFI_STATUS cdk2_hii_route_config(struct cdk2_hii_database *database,
 	*progress = configuration;
 	return EFI_NOT_FOUND;
 }
+
+EFI_STATUS cdk2_hii_export_config(struct cdk2_hii_database *database,
+	CHAR16 **results)
+{
+	const CHAR16 *progress;
+	CHAR16 *pieces[CDK2_HII_MAX_CONFIG_ROUTES] = { 0 };
+	CHAR16 *output;
+	EFI_STATUS status;
+	UINTN index, count = 0U, needed = 1U, length, offset = 0U;
+
+	if (database == NULL || results == NULL)
+		return EFI_INVALID_PARAMETER;
+	for (index = 0; index < CDK2_HII_MAX_CONFIG_ROUTES; index++) {
+		if (!database->config_routes[index].active)
+			continue;
+		status = database->config_routes[index].extract(
+			database->config_routes[index].context, NULL, &progress,
+			&pieces[count]);
+		if (EFI_ERROR(status))
+			goto cleanup;
+		if (pieces[count] == NULL) {
+			status = EFI_DEVICE_ERROR;
+			goto cleanup;
+		}
+		length = text_length(pieces[count]);
+		if (length > ~(UINTN)0 - needed - 1U) {
+			status = EFI_OUT_OF_RESOURCES;
+			goto cleanup;
+		}
+		needed += length + (count == 0U ? 0U : 1U);
+		count++;
+	}
+	status = database->ops->allocate(database->context, needed * sizeof(CHAR16),
+		(void **)&output);
+	if (EFI_ERROR(status))
+		goto cleanup;
+	for (index = 0; index < count; index++) {
+		if (index != 0U)
+			output[offset++] = L'&';
+		length = text_length(pieces[index]);
+		__builtin_memcpy(output + offset, pieces[index], length * sizeof(CHAR16));
+		offset += length;
+	}
+	output[offset] = 0U;
+	*results = output;
+	status = EFI_SUCCESS;
+
+cleanup:
+	for (index = 0; index < count; index++)
+		database->ops->release(database->context, pieces[index]);
+	return status;
+}
+
+static const CHAR16 *find_text(const CHAR16 *text, const CHAR16 *needle)
+{
+	UINTN index, candidate;
+
+	for (index = 0; text[index] != 0U; index++) {
+		for (candidate = 0; needle[candidate] != 0U &&
+		     text[index + candidate] == needle[candidate]; candidate++)
+			;
+		if (needle[candidate] == 0U)
+			return text + index;
+	}
+	return NULL;
+}
+
+EFI_STATUS cdk2_hii_get_alt_config(struct cdk2_hii_database *database,
+	const CHAR16 *configuration, const CHAR16 *header,
+	const CHAR16 *altcfg, CHAR16 **result)
+{
+	const CHAR16 *segment, *end, *match_alt;
+	EFI_STATUS status;
+	UINTN header_length, alt_length, length;
+	CHAR16 *copy;
+
+	if (database == NULL || configuration == NULL || header == NULL ||
+	    result == NULL)
+		return EFI_INVALID_PARAMETER;
+	header_length = text_length(header);
+	alt_length = altcfg == NULL ? 0U : text_length(altcfg);
+	segment = configuration;
+	while (*segment != 0U) {
+		if ((segment == configuration || match(segment, L"&GUID=")) &&
+		    header_matches(header, segment == configuration ? segment : segment + 1U)) {
+			match_alt = find_text(segment, L"&ALTCFG=");
+			if (altcfg == NULL || (match_alt != NULL &&
+			    __builtin_memcmp(match_alt + 8U, altcfg,
+				alt_length * sizeof(CHAR16)) == 0)) {
+				end = find_text(segment + 1U, L"&GUID=");
+				if (end == NULL)
+					end = segment + text_length(segment);
+				length = (UINTN)(end - segment);
+				status = database->ops->allocate(database->context,
+					(length + 1U) * sizeof(CHAR16), (void **)&copy);
+				if (EFI_ERROR(status))
+					return status;
+				__builtin_memcpy(copy, segment, length * sizeof(CHAR16));
+				copy[length] = 0U;
+				*result = copy;
+				return EFI_SUCCESS;
+			}
+		}
+		segment = find_text(segment + 1U, L"&GUID=");
+		if (segment == NULL)
+			break;
+	}
+	(void)header_length;
+	return EFI_NOT_FOUND;
+}
