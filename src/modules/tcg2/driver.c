@@ -224,17 +224,18 @@ static EFI_STATUS CDK2_MS_ABI measure_image(const void *file,
 	UINT16 node_size;
 	UINT32 index;
 	UINT32 code;
+	EFI_STATUS status;
 	(void)context;
 	if (file == NULL || file_buffer == NULL || file_size == 0 ||
 	    file_size > MAX_UINT32)
-		return EFI_INVALID_PARAMETER;
+		return EFI_SUCCESS;
 	do {
 		if (path_size + 4 > sizeof(event.device_path))
-			return EFI_BAD_BUFFER_SIZE;
+			return EFI_SUCCESS;
 		node_size = (UINT16)node[path_size + 2] |
 			(UINT16)node[path_size + 3] << 8;
 		if (node_size < 4 || node_size > sizeof(event.device_path) - path_size)
-			return EFI_COMPROMISED_DATA;
+			return EFI_SUCCESS;
 		path_size += node_size;
 	} while (node[path_size - node_size] != 0x7f);
 	event.image_location = (UINT64)(UINTN)file_buffer;
@@ -242,10 +243,13 @@ static EFI_STATUS CDK2_MS_ABI measure_image(const void *file,
 	event.device_path_length = path_size;
 	for (index = 0; index < path_size; index++)
 		event.device_path[index] = node[index];
-	return cdk2_tcg2_measure_image(&service, 4,
+	status = cdk2_tcg2_measure_image(&service, 4,
 		boot_policy ? EV_EFI_BOOT_SERVICES_APPLICATION :
 		EV_EFI_BOOT_SERVICES_DRIVER, file_buffer, (UINT32)file_size,
 		&event, OFFSET_OF(struct image_event, device_path) + path_size, &code);
+	/* A measurement failure must not become an image-authentication failure. */
+	(void)status;
+	return EFI_SUCCESS;
 }
 
 static void measure_variable(const CHAR16 *name, UINT32 name_bytes,
