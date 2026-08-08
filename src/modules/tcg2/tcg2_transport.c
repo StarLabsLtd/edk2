@@ -158,10 +158,12 @@ static EFI_STATUS wait8(const struct cdk2_tpm2_transport *transport,
 EFI_STATUS cdk2_tpm2_request_locality(const struct cdk2_tpm2_transport *transport)
 {
 	EFI_STATUS status = validate_transport(transport);
+	UINT8 access;
 
 	if (EFI_ERROR(status))
 		return status;
-	if (transport->io->read8(transport->io->context, transport->base) == MAX_UINT8)
+	access = transport->io->read8(transport->io->context, transport->base);
+	if (access == MAX_UINT8)
 		return EFI_NOT_FOUND;
 	if (transport->interface == CDK2_TPM2_INTERFACE_CRB) {
 		transport->io->write32(transport->io->context,
@@ -171,6 +173,9 @@ EFI_STATUS cdk2_tpm2_request_locality(const struct cdk2_tpm2_transport *transpor
 	if (transport->interface != CDK2_TPM2_INTERFACE_FIFO &&
 	    transport->interface != CDK2_TPM2_INTERFACE_TIS)
 		return EFI_UNSUPPORTED;
+	if ((access & (FIFO_ACCESS_VALID | FIFO_ACCESS_ACTIVE)) ==
+	    (FIFO_ACCESS_VALID | FIFO_ACCESS_ACTIVE))
+		return EFI_SUCCESS;
 	transport->io->write8(transport->io->context,
 		transport->base + FIFO_ACCESS, FIFO_ACCESS_REQUEST);
 	return wait8(transport, FIFO_ACCESS,
