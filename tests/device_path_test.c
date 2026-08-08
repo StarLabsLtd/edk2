@@ -85,11 +85,13 @@ static int expect_text(UINT8 *node, UINTN size, BOOLEAN display_only,
 		shortcuts, NULL, 0, &required);
 	if (status != EFI_BUFFER_TOO_SMALL || required != index + 1)
 		return expect(FALSE, message);
-	status = cdk2_device_path_node_to_text((void *)node, size, display_only,
-		shortcuts, sentinel, 1, &required);
-	if (status != EFI_BUFFER_TOO_SMALL || sentinel[0] != 0x1234 ||
-	    sentinel[1] != 0x5678)
-		return expect(FALSE, message);
+	if (index != 0) {
+		status = cdk2_device_path_node_to_text((void *)node, size, display_only,
+			shortcuts, sentinel, 1, &required);
+		if (status != EFI_BUFFER_TOO_SMALL || sentinel[0] != 0x1234 ||
+		    sentinel[1] != 0x5678)
+			return expect(FALSE, message);
+	}
 	status = cdk2_device_path_node_to_text((void *)node, size, display_only,
 		shortcuts, output, ARRAY_SIZE(output), &required);
 	return expect(status == EFI_SUCCESS && text_equal(output, expected), message);
@@ -323,6 +325,99 @@ static int messaging_formatter_tests(void)
 	return failures;
 }
 
+static int media_bbs_formatter_tests(void)
+{
+	struct fixture {
+		UINT8 subtype;
+		UINT16 length;
+		BOOLEAN display_only;
+		const char *text;
+	};
+	static const struct fixture fixtures[] = {
+		{0x01, 42, FALSE, "HD(0,0,0,0x0,0x0)"},
+		{0x02, 24, FALSE, "CDROM(0x0,0x0,0x0)"},
+		{0x04, 6, FALSE, ""},
+		{0x05, 20, FALSE, "Media(00000000-0000-0000-0000-000000000000)"},
+		{0x06, 20, FALSE, "FvFile(00000000-0000-0000-0000-000000000000)"},
+		{0x07, 20, FALSE, "Fv(00000000-0000-0000-0000-000000000000)"},
+		{0x08, 24, FALSE, "Offset(0x0,0x0)"},
+		{0x09, 38, FALSE,
+			"RamDisk(0x0,0x0,0,00000000-0000-0000-0000-000000000000)"},
+	};
+	struct ram_alias {
+		UINT32 d1;
+		UINT16 d2;
+		UINT16 d3;
+		UINT8 d4[8];
+		const char *text;
+	};
+	static const struct ram_alias aliases[] = {
+		{0x77ab535a, 0x45fc, 0x624b,
+			{0x55, 0x60, 0xf7, 0xb2, 0x81, 0xd1, 0xf9, 0x6e}, "VirtualDisk(0x0,0x0,0)"},
+		{0x3d5abd30, 0x4175, 0x87ce,
+			{0x6d, 0x64, 0xd2, 0xad, 0xe5, 0x23, 0xc4, 0xbb}, "VirtualCD(0x0,0x0,0)"},
+		{0x5cea02c9, 0x4d07, 0x69d3,
+			{0x26, 0x9f, 0x44, 0x96, 0xfb, 0xe0, 0x96, 0xf9},
+			"PersistentVirtualDisk(0x0,0x0,0)"},
+		{0x08018188, 0x42cd, 0xbb48,
+			{0x10, 0x0f, 0x53, 0x87, 0xd5, 0x3d, 0xed, 0x3d},
+			"PersistentVirtualCD(0x0,0x0,0)"},
+	};
+	UINT8 node[64];
+	UINT8 path[24];
+	CHAR16 output[160];
+	UINTN required;
+	UINTN index;
+	int failures = 0;
+	for (index = 0; index < ARRAY_SIZE(fixtures); index++) {
+		memset(node, 0, sizeof(node));
+		set_node((void *)node, 4, fixtures[index].subtype, fixtures[index].length);
+		failures += expect_text(node, fixtures[index].length,
+			fixtures[index].display_only, TRUE, fixtures[index].text,
+			fixtures[index].text);
+		set_node((void *)node, 4, fixtures[index].subtype,
+			(UINT16)(fixtures[index].length - 1));
+		failures += expect(cdk2_device_path_node_to_text((void *)node,
+			fixtures[index].length, FALSE, TRUE, output, ARRAY_SIZE(output),
+			&required) == EFI_COMPROMISED_DATA, "short media node accepted");
+	}
+	memset(node, 0, sizeof(node));
+	set_node((void *)node, 4, 3, 20);
+	failures += expect_text(node, 20, FALSE, FALSE,
+		"VenMedia(00000000-0000-0000-0000-000000000000)", "media vendor");
+	set_node((void *)node, 4, 2, 24);
+	failures += expect_text(node, 24, TRUE, TRUE, "CDROM(0x0)", "CDROM display variant");
+	for (index = 0; index < ARRAY_SIZE(aliases); index++) {
+		memset(node, 0, sizeof(node)); set_node((void *)node, 4, 9, 38);
+		put32(node + 20, aliases[index].d1); put16(node + 24, aliases[index].d2);
+		put16(node + 26, aliases[index].d3); memcpy(node + 28, aliases[index].d4, 8);
+		failures += expect_text(node, 38, FALSE, TRUE, aliases[index].text,
+			"RAM disk alias");
+	}
+	memset(node, 0, sizeof(node)); set_node((void *)node, 5, 1, 13);
+	put16(node + 4, 2); put16(node + 6, 7); memcpy(node + 8, "disk", 5);
+	failures += expect_text(node, 13, FALSE, TRUE, "BBS(HD,disk,0x7)", "BBS full");
+	failures += expect_text(node, 13, TRUE, TRUE, "BBS(HD,disk)", "BBS display");
+	set_node((void *)node, 5, 1, 12); node[11] = 'x';
+	failures += expect(cdk2_device_path_node_to_text((void *)node, 12, FALSE, TRUE,
+		output, ARRAY_SIZE(output), &required) == EFI_COMPROMISED_DATA,
+		"unterminated BBS string accepted");
+	memset(node, 0, sizeof(node)); set_node((void *)node, 4, 0x7e, 6);
+	node[4] = 0xaa; node[5] = 0xbb;
+	failures += expect_text(node, 6, FALSE, TRUE,
+		"MediaPath(126,aabb)", "unknown media node");
+	set_node((void *)node, 0x7f, 1, 4);
+	failures += expect_text(node, 4, FALSE, TRUE, ",", "end instance node");
+	memset(path, 0, sizeof(path)); set_node((void *)path, 1, 2, 5); path[4] = 1;
+	set_node((void *)(path + 5), 0x7f, 1, 4);
+	set_node((void *)(path + 9), 1, 2, 5); path[13] = 2;
+	set_node((void *)(path + 14), 0x7f, 0xff, 4);
+	failures += expect(cdk2_device_path_to_text((void *)path, 18, FALSE, TRUE,
+		output, ARRAY_SIZE(output), &required) == EFI_SUCCESS &&
+		text_equal(output, "PcCard(0x1),PcCard(0x2)"), "end instance path separator");
+	return failures;
+}
+
 int main(void)
 {
 	struct cdk2_device_path_allocator allocator = {
@@ -339,6 +434,7 @@ int main(void)
 	int failures = 0;
 	failures += formatter_tests();
 	failures += messaging_formatter_tests();
+	failures += media_bbs_formatter_tests();
 
 	set_node(first, 1, 1, 8);
 	set_node((void *)(first_bytes + 8), CDK2_DEVICE_PATH_END_TYPE,

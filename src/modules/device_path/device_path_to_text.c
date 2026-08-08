@@ -634,6 +634,122 @@ static EFI_STATUS render_messaging(struct writer *writer, const UINT8 *node,
 	}
 }
 
+static EFI_STATUS render_media(struct writer *writer, const UINT8 *node,
+	UINT16 length, BOOLEAN display_only, BOOLEAN shortcuts)
+{
+	static const UINT8 virtual_disk[8] = {0x55, 0x60, 0xf7, 0xb2, 0x81, 0xd1, 0xf9, 0x6e};
+	static const UINT8 virtual_cd[8] = {0x6d, 0x64, 0xd2, 0xad, 0xe5, 0x23, 0xc4, 0xbb};
+	static const UINT8 persistent_disk[8] = {0x26, 0x9f, 0x44, 0x96, 0xfb, 0xe0, 0x96, 0xf9};
+	static const UINT8 persistent_cd[8] = {0x10, 0x0f, 0x53, 0x87, 0xd5, 0x3d, 0xed, 0x3d};
+	const char *kind;
+	UINTN index;
+	switch (node[1]) {
+	case 0x01:
+		if (length != 42)
+			return EFI_COMPROMISED_DATA;
+		puts8(writer, "HD("); put_uint(writer, read32(node + 4)); put(writer, ',');
+		if (node[41] == 1) {
+			puts8(writer, "MBR,0x"); put_hex(writer, read32(node + 24), 8, FALSE);
+		} else if (node[41] == 2) {
+			puts8(writer, "GPT,"); put_guid(writer, node + 24);
+		} else {
+			put_uint(writer, node[41]); puts8(writer, ",0");
+		}
+		put(writer, ','); put_0x(writer, read64(node + 8)); put(writer, ',');
+		put_0x(writer, read64(node + 16)); put(writer, ')'); return EFI_SUCCESS;
+	case 0x02:
+		if (length != 24)
+			return EFI_COMPROMISED_DATA;
+		puts8(writer, "CDROM("); put_0x(writer, read32(node + 4));
+		if (!display_only) {
+			put(writer, ','); put_0x(writer, read64(node + 8)); put(writer, ',');
+			put_0x(writer, read64(node + 16));
+		}
+		put(writer, ')'); return EFI_SUCCESS;
+	case MEDIA_VENDOR_DP:
+		return render_vendor(writer, node, length, shortcuts);
+	case 0x04:
+		if (length < 6 || ((length - 4) & 1) != 0)
+			return EFI_COMPROMISED_DATA;
+		for (index = 4; index + 1 < length && read16(node + index) != 0; index += 2)
+			put(writer, read16(node + index));
+		if (index >= length)
+			return EFI_COMPROMISED_DATA;
+		return EFI_SUCCESS;
+	case 0x05:
+		if (length != 20)
+			return EFI_COMPROMISED_DATA;
+		puts8(writer, "Media("); put_guid(writer, node + 4); put(writer, ')');
+		return EFI_SUCCESS;
+	case 0x06:
+		if (length != 20)
+			return EFI_COMPROMISED_DATA;
+		puts8(writer, "FvFile("); put_guid(writer, node + 4); put(writer, ')');
+		return EFI_SUCCESS;
+	case 0x07:
+		if (length != 20)
+			return EFI_COMPROMISED_DATA;
+		puts8(writer, "Fv("); put_guid(writer, node + 4); put(writer, ')');
+		return EFI_SUCCESS;
+	case 0x08:
+		if (length != 24)
+			return EFI_COMPROMISED_DATA;
+		puts8(writer, "Offset("); put_0x(writer, read64(node + 8)); put(writer, ',');
+		put_0x(writer, read64(node + 16)); put(writer, ')'); return EFI_SUCCESS;
+	case 0x09:
+		if (length != 38)
+			return EFI_COMPROMISED_DATA;
+		if (guid_equal(node + 20, 0x77ab535a, 0x45fc, 0x624b, virtual_disk))
+			kind = "VirtualDisk";
+		else if (guid_equal(node + 20, 0x3d5abd30, 0x4175, 0x87ce, virtual_cd))
+			kind = "VirtualCD";
+		else if (guid_equal(node + 20, 0x5cea02c9, 0x4d07, 0x69d3, persistent_disk))
+			kind = "PersistentVirtualDisk";
+		else if (guid_equal(node + 20, 0x08018188, 0x42cd, 0xbb48, persistent_cd))
+			kind = "PersistentVirtualCD";
+		else
+			kind = "RamDisk";
+		puts8(writer, kind); put(writer, '('); put_0x(writer, read64(node + 4));
+		put(writer, ','); put_0x(writer, read64(node + 12)); put(writer, ',');
+		put_uint(writer, read16(node + 36));
+		if (kind[0] == 'R') {
+			put(writer, ','); put_guid(writer, node + 20);
+		}
+		put(writer, ')'); return EFI_SUCCESS;
+	default:
+		return EFI_UNSUPPORTED;
+	}
+}
+
+static EFI_STATUS render_bbs(struct writer *writer, const UINT8 *node,
+	UINT16 length, BOOLEAN display_only)
+{
+	const char *kind;
+	UINTN index;
+	if (node[1] != 1)
+		return EFI_UNSUPPORTED;
+	if (length < 9)
+		return EFI_COMPROMISED_DATA;
+	for (index = 8; index < length && node[index] != 0; index++)
+		;
+	if (index == length)
+		return EFI_COMPROMISED_DATA;
+	kind = read16(node + 4) == 1 ? "Floppy" : read16(node + 4) == 2 ? "HD" :
+		read16(node + 4) == 3 ? "CDROM" : read16(node + 4) == 4 ? "PCMCIA" :
+		read16(node + 4) == 5 ? "USB" : read16(node + 4) == 6 ? "Network" : NULL;
+	puts8(writer, "BBS(");
+	if (kind != NULL)
+		puts8(writer, kind);
+	else
+		put_0x(writer, read16(node + 4));
+	put(writer, ','); put_ascii(writer, node + 8);
+	if (!display_only) {
+		put(writer, ','); put_0x(writer, read16(node + 6));
+	}
+	put(writer, ')');
+	return EFI_SUCCESS;
+}
+
 static EFI_STATUS render_node(struct writer *writer, const UINT8 *node,
 	UINT16 length, BOOLEAN display_only, BOOLEAN shortcuts)
 {
@@ -677,6 +793,23 @@ static EFI_STATUS render_node(struct writer *writer, const UINT8 *node,
 			shortcuts);
 		if (status != EFI_UNSUPPORTED)
 			return status;
+	}
+	if (node[0] == MEDIA_DEVICE_PATH) {
+		EFI_STATUS status = render_media(writer, node, length, display_only, shortcuts);
+		if (status != EFI_UNSUPPORTED)
+			return status;
+	}
+	if (node[0] == 0x05) {
+		EFI_STATUS status = render_bbs(writer, node, length, display_only);
+		if (status != EFI_UNSUPPORTED)
+			return status;
+	}
+	if (node[0] == CDK2_DEVICE_PATH_END_TYPE &&
+	    node[1] == CDK2_DEVICE_PATH_END_INSTANCE) {
+		if (length != 4)
+			return EFI_COMPROMISED_DATA;
+		put(writer, ',');
+		return EFI_SUCCESS;
 	}
 	if (node[0] == ACPI_DEVICE_PATH) {
 		switch (node[1]) {
