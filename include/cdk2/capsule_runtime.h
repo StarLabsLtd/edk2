@@ -7,6 +7,8 @@
 #define CDK2_CAPSULE_PERSIST  BIT16
 #define CDK2_CAPSULE_POPULATE BIT17
 #define CDK2_CAPSULE_RESET    BIT18
+#define CDK2_CAPSULE_FLAGS (CDK2_CAPSULE_PERSIST | CDK2_CAPSULE_POPULATE | \
+	CDK2_CAPSULE_RESET)
 
 struct cdk2_capsule_header {
 	EFI_GUID guid;
@@ -29,11 +31,12 @@ typedef EFI_STATUS cdk2_capsule_process_fn(
 	const struct cdk2_capsule_header *capsule, void *context);
 typedef EFI_STATUS cdk2_capsule_persist_fn(
 	UINTN sequence, UINT64 scatter_gather, void *context);
-typedef void cdk2_capsule_writeback_fn(UINT64 scatter_gather, void *context);
+typedef EFI_STATUS cdk2_capsule_writeback_fn(UINT64 scatter_gather, void *context);
 typedef void cdk2_capsule_warm_reset_fn(void *context);
 struct cdk2_capsule_runtime {
 	UINTN sequence;
 	BOOLEAN at_runtime;
+	BOOLEAN exited_boot_services;
 	void *context;
 	cdk2_capsule_process_fn *process;
 	cdk2_capsule_persist_fn *persist;

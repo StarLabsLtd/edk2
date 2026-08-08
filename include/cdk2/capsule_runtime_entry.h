@@ -16,5 +16,7 @@ struct cdk2_system_table_view {
 
 EFI_STATUS CDK2_MS_ABI cdk2_capsule_runtime_entry(void *,
 	struct cdk2_system_table_view *);
+EFI_STATUS cdk2_capsule_cache_writeback_range_all_cpus(UINT64 address,
+	UINT64 length);
 
 #endif

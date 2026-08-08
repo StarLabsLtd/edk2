@@ -1093,7 +1093,7 @@ $(CDK2_NATIVE_CAPSULE_RUNTIME_OBJ): $(CDK2_DIR)/src/modules/capsule_runtime/caps
 $(CDK2_NATIVE_CAPSULE_RUNTIME_ABI_OBJ): $(CDK2_DIR)/src/modules/capsule_runtime/capsule_runtime_abi.c $(CDK2_DIR)/include/cdk2/capsule_runtime_abi.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) -mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args $(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
 
-$(CDK2_NATIVE_CAPSULE_RUNTIME_ENTRY_OBJ): $(CDK2_DIR)/src/modules/capsule_runtime/entry.c $(CDK2_DIR)/include/cdk2/capsule_runtime_entry.h $(CDK2_DIR)/include/cdk2/capsule_runtime_abi.h $(CDK2_DIR)/include/cdk2/capsule_runtime.h | $(CDK2_NATIVE_BUILD_DIR)
+$(CDK2_NATIVE_CAPSULE_RUNTIME_ENTRY_OBJ): $(CDK2_DIR)/src/modules/capsule_runtime/entry.c $(CDK2_DIR)/include/cdk2/capsule_runtime_entry.h $(CDK2_DIR)/include/cdk2/capsule_runtime_abi.h $(CDK2_DIR)/include/cdk2/capsule_runtime.h $(CDK2_CONFIG_HEADER) | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) -mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args $(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
 
 $(CDK2_NATIVE_CAPSULE_RUNTIME_PE): $(CDK2_NATIVE_CAPSULE_RUNTIME_OBJ) $(CDK2_NATIVE_CAPSULE_RUNTIME_ABI_OBJ) $(CDK2_NATIVE_CAPSULE_RUNTIME_ENTRY_OBJ) $(CDK2_DIR)/src/modules/capsule_runtime/capsule_runtime.ld $(CDK2_NATIVE_PERELOCCHECK)
@@ -1270,7 +1270,7 @@ $(CDK2_NATIVE_CAPSULE_RUNTIME_TEST): $(CDK2_DIR)/tests/capsule_runtime_test.c $(
 $(CDK2_NATIVE_CAPSULE_RUNTIME_ABI_TEST): $(CDK2_DIR)/tests/capsule_runtime_abi_test.c $(CDK2_DIR)/src/modules/capsule_runtime/capsule_runtime.c $(CDK2_DIR)/src/modules/capsule_runtime/capsule_runtime_abi.c $(CDK2_DIR)/include/cdk2/capsule_runtime_abi.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_DIR)/tests/capsule_runtime_abi_test.c" "$(CDK2_DIR)/src/modules/capsule_runtime/capsule_runtime.c" "$(CDK2_DIR)/src/modules/capsule_runtime/capsule_runtime_abi.c"
 
-$(CDK2_NATIVE_CAPSULE_RUNTIME_ENTRY_TEST): $(CDK2_DIR)/tests/capsule_runtime_entry_test.c $(CDK2_DIR)/src/modules/capsule_runtime/entry.c $(CDK2_DIR)/src/modules/capsule_runtime/capsule_runtime.c $(CDK2_DIR)/src/modules/capsule_runtime/capsule_runtime_abi.c $(CDK2_DIR)/include/cdk2/capsule_runtime_entry.h | $(CDK2_NATIVE_BUILD_DIR)
+$(CDK2_NATIVE_CAPSULE_RUNTIME_ENTRY_TEST): $(CDK2_DIR)/tests/capsule_runtime_entry_test.c $(CDK2_DIR)/src/modules/capsule_runtime/entry.c $(CDK2_DIR)/src/modules/capsule_runtime/capsule_runtime.c $(CDK2_DIR)/src/modules/capsule_runtime/capsule_runtime_abi.c $(CDK2_DIR)/include/cdk2/capsule_runtime_entry.h $(CDK2_CONFIG_HEADER) | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -DCDK2_CAPSULE_ENTRY_TEST $(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_DIR)/tests/capsule_runtime_entry_test.c" "$(CDK2_DIR)/src/modules/capsule_runtime/entry.c" "$(CDK2_DIR)/src/modules/capsule_runtime/capsule_runtime.c" "$(CDK2_DIR)/src/modules/capsule_runtime/capsule_runtime_abi.c"
 
 $(CDK2_NATIVE_CAPSULE_RUNTIME_QEMU_OBJ): $(CDK2_DIR)/tests/capsule_runtime_qemu.c $(CDK2_DIR)/include/cdk2/capsule_runtime_entry.h | $(CDK2_NATIVE_BUILD_DIR)
