@@ -22,10 +22,32 @@ struct cdk2_tpm2_response {
 	UINT32 code;
 };
 
+struct cdk2_tpm2_io {
+	void *context;
+	UINT8 (*read8)(void *context, UINT64 address);
+	UINT32 (*read32)(void *context, UINT64 address);
+	UINT64 (*read64)(void *context, UINT64 address);
+	void (*write8)(void *context, UINT64 address, UINT8 value);
+	void (*write32)(void *context, UINT64 address, UINT32 value);
+	void (*write64)(void *context, UINT64 address, UINT64 value);
+	void (*stall)(void *context, UINT32 microseconds);
+};
+
+struct cdk2_tpm2_transport {
+	enum cdk2_tpm2_interface interface;
+	UINT64 base;
+	UINT32 timeout_us;
+	const struct cdk2_tpm2_io *io;
+};
+
 enum cdk2_tpm2_interface cdk2_tpm2_detect_interface(UINT32 interface_id,
 	UINT32 interface_capability);
 EFI_STATUS cdk2_tpm2_validate_command(const UINT8 *command, UINT32 command_size);
 EFI_STATUS cdk2_tpm2_parse_response(const UINT8 *response, UINT32 available,
 	struct cdk2_tpm2_response *header);
+EFI_STATUS cdk2_tpm2_request_locality(const struct cdk2_tpm2_transport *transport);
+EFI_STATUS cdk2_tpm2_submit(const struct cdk2_tpm2_transport *transport,
+	const UINT8 *command, UINT32 command_size, UINT8 *response,
+	UINT32 *response_size);
 
 #endif
