@@ -12,7 +12,7 @@
 #define CDK2_TCG2_EXPORT_REVISION 1U
 
 typedef UINT64 * cdk2_physical_address_ptr;
-typedef const struct efi_guid *cdk2_const_guid_ptr;
+typedef const EFI_GUID * cdk2_const_guid_ptr;
 
 typedef EFI_STATUS cdk2_tcg2_allocate_fn(
 	void *context, EFI_MEMORY_TYPE type, UINT32 size,
