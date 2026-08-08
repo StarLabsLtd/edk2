@@ -19,6 +19,7 @@ typedef EFI_STATUS CDK2_MS_ABI allocate_pool_fn(EFI_MEMORY_TYPE, UINTN, void **)
 typedef EFI_STATUS CDK2_MS_ABI free_pool_fn(void *);
 typedef EFI_STATUS CDK2_MS_ABI create_event_fn(UINT32, UINTN,
 	void (CDK2_MS_ABI *)(void *, void *), void *, void **);
+typedef EFI_STATUS CDK2_MS_ABI close_event_fn(void *);
 typedef EFI_STATUS CDK2_MS_ABI register_protocol_notify_fn(
 	const EFI_GUID *, void *, void **);
 typedef EFI_STATUS CDK2_MS_ABI install_config_fn(const EFI_GUID *, void *);
@@ -36,7 +37,9 @@ struct boot_services_view {
 	allocate_pool_fn *allocate_pool;
 	free_pool_fn *free_pool;
 	create_event_fn *create_event;
-	UINT8 before_register_protocol_notify[80];
+	UINT8 before_close_event[24];
+	close_event_fn *close_event;
+	UINT8 before_register_protocol_notify[48];
 	register_protocol_notify_fn *register_protocol_notify;
 	UINT8 before_install_config[16];
 	install_config_fn *install_configuration_table;
@@ -60,6 +63,17 @@ struct system_table_view {
 	UINTN table_count;
 	struct config_table *tables;
 };
+
+typedef char allocate_pages_offset_check[
+	OFFSET_OF(struct boot_services_view, allocate_pages) == 40 ? 1 : -1];
+typedef char free_pages_offset_check[
+	OFFSET_OF(struct boot_services_view, free_pages) == 48 ? 1 : -1];
+typedef char close_event_offset_check[
+	OFFSET_OF(struct boot_services_view, close_event) == 112 ? 1 : -1];
+typedef char install_config_offset_check[
+	OFFSET_OF(struct boot_services_view, install_configuration_table) == 192 ? 1 : -1];
+typedef char locate_protocol_offset_check[
+	OFFSET_OF(struct boot_services_view, locate_protocol) == 320 ? 1 : -1];
 
 static const EFI_GUID variable_write_arch_guid = {
 	0x6441f818, 0x6362, 0x4e44,
@@ -309,7 +323,8 @@ EFI_STATUS CDK2_MS_ABI cdk2_tcg2_entry(void *image,
 {
 	struct cdk2_tpm2_transport transport;
 	enum cdk2_tpm2_interface interface;
-	void *event;
+	void *variable_event = NULL;
+	void *exit_event = NULL;
 	void *registration;
 	EFI_STATUS status;
 	UINT64 tpm_base;
@@ -339,22 +354,32 @@ EFI_STATUS CDK2_MS_ABI cdk2_tcg2_entry(void *image,
 	status = boot_services->locate_protocol(&security_router_guid, NULL,
 		(void **)&security_router);
 	if (EFI_ERROR(status))
-		return status;
+		goto release_service;
 	status = security_router->register_handler(measure_image, NULL);
 	if (EFI_ERROR(status))
-		return status;
+		goto release_service;
 	status = boot_services->create_event(EVT_NOTIFY_SIGNAL, TPL_CALLBACK,
-		variable_write_ready, NULL, &event);
+		variable_write_ready, NULL, &variable_event);
 	if (EFI_ERROR(status))
-		return status;
+		goto unregister_handler;
 	status = boot_services->register_protocol_notify(&variable_write_arch_guid,
-		event, &registration);
+		variable_event, &registration);
 	if (EFI_ERROR(status))
-		return status;
+		goto close_variable_event;
 	status = boot_services->create_event(EVT_SIGNAL_EXIT_BOOT_SERVICES,
-		TPL_CALLBACK, exit_boot_services, NULL, &event);
+		TPL_CALLBACK, exit_boot_services, NULL, &exit_event);
 	if (EFI_ERROR(status))
-		return status;
-	return cdk2_tcg2_publish_protocols(&service, NULL, install_protocol,
+		goto close_variable_event;
+	status = cdk2_tcg2_publish_protocols(&service, NULL, install_protocol,
 		install_config, NULL);
+	if (!EFI_ERROR(status))
+		return EFI_SUCCESS;
+	boot_services->close_event(exit_event);
+close_variable_event:
+	boot_services->close_event(variable_event);
+unregister_handler:
+	security_router->unregister_handler(measure_image, NULL);
+release_service:
+	cdk2_tcg2_service_release(&service);
+	return status;
 }
