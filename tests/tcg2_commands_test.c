@@ -86,6 +86,14 @@ static void write32(void *context, UINT64 address, UINT32 value)
 		make_header(mock, 10);
 		return;
 	}
+	if (code == CDK2_TPM2_CC_PCR_ALLOCATE) {
+		make_header(mock, 27);
+		mock->data[0] = 0x80;
+		mock->data[1] = 0x02;
+		put32(mock->data + 10, 13);
+		mock->data[14] = 1;
+		return;
+	}
 	property = be32(mock->data + 14);
 	if (property != 0) {
 		make_header(mock, 27); mock->data[10] = 0;
@@ -129,6 +137,7 @@ int main(void)
 	UINT32 code, value, supported, active, banks;
 	UINT32 handle;
 	UINT16 digest_size;
+	BOOLEAN allocation_success;
 	UINT8 digest[SHA256_DIGEST_SIZE];
 	struct cdk2_tcg2_digest extend_digest = {
 		.algorithm = TPM_ALG_SHA256,
@@ -170,6 +179,9 @@ int main(void)
 		digest[0] == 0xa5, "native TPM hashing failed");
 	failures += expect(cdk2_tpm2_extend_digests(&transport, 7, &extend_digest, 1,
 		&code) == EFI_SUCCESS && code == 0, "native TPM extension failed");
+	failures += expect(cdk2_tpm2_pcr_allocate(&transport, 3, 2,
+		&allocation_success, &code) == EFI_SUCCESS && allocation_success &&
+		code == 0, "PCR_Allocate failed");
 	mock.response_code = 0x143U;
 	failures += expect(cdk2_tpm2_get_property(&transport, 0x105U, &value, &code) ==
 		EFI_DEVICE_ERROR && code == 0x143U, "TPM error code was lost");

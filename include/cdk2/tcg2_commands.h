@@ -18,8 +18,10 @@
 #define CDK2_TPM2_CC_SEQUENCE_UPDATE 0x0000015cU
 #define CDK2_TPM2_CC_SEQUENCE_COMPLETE 0x0000013eU
 #define CDK2_TPM2_CC_PCR_EXTEND 0x00000182U
+#define CDK2_TPM2_CC_PCR_ALLOCATE 0x0000012bU
 #define CDK2_TPM2_RS_PW 0x40000009U
 #define CDK2_TPM2_RH_NULL 0x40000007U
+#define CDK2_TPM2_RH_PLATFORM 0x4000000cU
 #define CDK2_TPM2_MAX_PCR_BANKS 16U
 #define CDK2_TPM2_SEQUENCE_CHUNK 1024U
 
@@ -62,6 +64,9 @@ EFI_STATUS cdk2_tpm2_hash_spans(void *context, TPMI_ALG_HASH algorithm,
 	UINT16 digest_size);
 EFI_STATUS cdk2_tpm2_extend_digests(void *context, TPM_PCRINDEX pcr_index,
 	const struct cdk2_tcg2_digest *digests, UINT32 digest_count,
+	UINT32 *response_code);
+EFI_STATUS cdk2_tpm2_pcr_allocate(const struct cdk2_tpm2_transport *transport,
+	UINT32 supported, UINT32 requested, BOOLEAN *allocation_success,
 	UINT32 *response_code);
 
 #endif

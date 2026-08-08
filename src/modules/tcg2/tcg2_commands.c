@@ -388,3 +388,57 @@ EFI_STATUS cdk2_tpm2_extend_digests(void *context, TPM_PCRINDEX pcr_index,
 	return cdk2_tpm2_pcr_extend(context, pcr_index, digests, digest_count,
 		response_code);
 }
+
+EFI_STATUS cdk2_tpm2_pcr_allocate(const struct cdk2_tpm2_transport *transport,
+	UINT32 supported, UINT32 requested, BOOLEAN *allocation_success,
+	UINT32 *response_code)
+{
+	static const TPMI_ALG_HASH algorithms[HASH_COUNT] = {
+		TPM_ALG_SHA1, TPM_ALG_SHA256, TPM_ALG_SHA384,
+		TPM_ALG_SHA512, TPM_ALG_SM3_256,
+	};
+	UINT8 command[10 + 4 + 13 + 4 + HASH_COUNT * 6];
+	UINT8 response[27];
+	UINT32 response_size = sizeof(response);
+	UINT32 count = 0;
+	UINT32 index;
+	UINT32 offset = 10;
+	struct cdk2_tpm2_result result;
+	EFI_STATUS status;
+
+	if (allocation_success == NULL || response_code == NULL || supported == 0 ||
+	    requested == 0 || (requested & ~supported) != 0)
+		return EFI_INVALID_PARAMETER;
+	write_be32(command + offset, CDK2_TPM2_RH_PLATFORM);
+	offset += 4;
+	offset += password_session(command + offset);
+	for (index = 0; index < HASH_COUNT; index++)
+		if ((supported & (1U << index)) != 0)
+			count++;
+	write_be32(command + offset, count);
+	offset += 4;
+	for (index = 0; index < HASH_COUNT; index++) {
+		if ((supported & (1U << index)) == 0)
+			continue;
+		write_be16(command + offset, algorithms[index]);
+		command[offset + 2] = 3;
+		command[offset + 3] = (requested & (1U << index)) != 0 ? 0xff : 0;
+		command[offset + 4] = command[offset + 3];
+		command[offset + 5] = command[offset + 3];
+		offset += 6;
+	}
+	command_header(command, offset, CDK2_TPM2_CC_PCR_ALLOCATE);
+	command[0] = 0x80;
+	command[1] = 0x02;
+	status = cdk2_tpm2_execute(transport, command, offset, response,
+		&response_size, &result);
+	if (EFI_ERROR(status))
+		return status;
+	*response_code = result.response_code;
+	if (result.response_code != 0)
+		return EFI_DEVICE_ERROR;
+	if (response_size != sizeof(response) || read_be32(response + 10) != 13)
+		return EFI_COMPROMISED_DATA;
+	*allocation_success = response[14] != 0;
+	return EFI_SUCCESS;
+}
