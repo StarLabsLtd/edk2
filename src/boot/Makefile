@@ -153,6 +153,8 @@ CDK2_NATIVE_LOCAL_APIC_TIMER_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-loca
 CDK2_NATIVE_CAPSULE_RUNTIME_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-capsule-runtime-test
 CDK2_NATIVE_CAPSULE_RUNTIME_ABI_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-capsule-runtime-abi-test
 CDK2_NATIVE_CAPSULE_RUNTIME_ENTRY_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-capsule-runtime-entry-test
+CDK2_NATIVE_CAPSULE_RUNTIME_QEMU_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/capsule-runtime-qemu.o
+CDK2_NATIVE_CAPSULE_RUNTIME_QEMU_PE ?= $(CDK2_NATIVE_BUILD_DIR)/CapsuleRuntimeQemu.efi
 CDK2_NATIVE_CAPSULE_RUNTIME_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/capsule-runtime.o
 CDK2_NATIVE_CAPSULE_RUNTIME_ABI_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/capsule-runtime-abi.o
 CDK2_NATIVE_CAPSULE_RUNTIME_ENTRY_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/capsule-runtime-entry.o
@@ -463,7 +465,8 @@ native-graphics-console-test: $(CDK2_NATIVE_GRAPHICS_CONSOLE_TEST) $(CDK2_NATIVE
 	@"$(CDK2_NATIVE_GRAPHICS_ENTRY_TEST)"
 
 native-capsule-runtime-test: $(CDK2_NATIVE_CAPSULE_RUNTIME_TEST) \
-		$(CDK2_NATIVE_CAPSULE_RUNTIME_ABI_TEST) $(CDK2_NATIVE_CAPSULE_RUNTIME_ENTRY_TEST)
+		$(CDK2_NATIVE_CAPSULE_RUNTIME_ABI_TEST) $(CDK2_NATIVE_CAPSULE_RUNTIME_ENTRY_TEST) \
+		$(CDK2_NATIVE_CAPSULE_RUNTIME_QEMU_PE)
 	@"$(CDK2_NATIVE_CAPSULE_RUNTIME_TEST)"
 	@"$(CDK2_NATIVE_CAPSULE_RUNTIME_ABI_TEST)"
 	@"$(CDK2_NATIVE_CAPSULE_RUNTIME_ENTRY_TEST)"
@@ -1268,6 +1271,13 @@ $(CDK2_NATIVE_CAPSULE_RUNTIME_ABI_TEST): $(CDK2_DIR)/tests/capsule_runtime_abi_t
 
 $(CDK2_NATIVE_CAPSULE_RUNTIME_ENTRY_TEST): $(CDK2_DIR)/tests/capsule_runtime_entry_test.c $(CDK2_DIR)/src/modules/capsule_runtime/entry.c $(CDK2_DIR)/src/modules/capsule_runtime/capsule_runtime.c $(CDK2_DIR)/src/modules/capsule_runtime/capsule_runtime_abi.c $(CDK2_DIR)/include/cdk2/capsule_runtime_entry.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -DCDK2_CAPSULE_ENTRY_TEST $(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_DIR)/tests/capsule_runtime_entry_test.c" "$(CDK2_DIR)/src/modules/capsule_runtime/entry.c" "$(CDK2_DIR)/src/modules/capsule_runtime/capsule_runtime.c" "$(CDK2_DIR)/src/modules/capsule_runtime/capsule_runtime_abi.c"
+
+$(CDK2_NATIVE_CAPSULE_RUNTIME_QEMU_OBJ): $(CDK2_DIR)/tests/capsule_runtime_qemu.c $(CDK2_DIR)/include/cdk2/capsule_runtime_entry.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) -mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args $(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+
+$(CDK2_NATIVE_CAPSULE_RUNTIME_QEMU_PE): $(CDK2_NATIVE_CAPSULE_RUNTIME_QEMU_OBJ) $(CDK2_DIR)/tests/capsule_runtime_qemu.ld $(CDK2_NATIVE_PERELOCCHECK)
+	@$(LD) -mi386pep --subsystem 10 --entry capsule_runtime_qemu_entry --image-base 0 --section-alignment 0x1000 --file-alignment 0x1000 --build-id=none --no-insert-timestamp -s --nxcompat -T "$(CDK2_DIR)/tests/capsule_runtime_qemu.ld" -o "$@" "$<"
+	@"$(CDK2_NATIVE_PERELOCCHECK)" --subsystem 10 "$@"
 
 FORCE:
 
