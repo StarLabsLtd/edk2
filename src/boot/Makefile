@@ -4800,6 +4800,7 @@ $(CDK2_NATIVE_CON_PLATFORM_FFS): $(CDK2_NATIVE_CON_PLATFORM_PE) $(CDK2_NATIVE_FF
 native-check: native-con-platform-test
 
 CDK2_NATIVE_CON_SPLITTER_MODEL_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-con-splitter-model-test
+CDK2_NATIVE_CON_SPLITTER_INPUT_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-con-splitter-input-test
 
 $(CDK2_NATIVE_CON_SPLITTER_MODEL_TEST): $(CDK2_DIR)/tests/con_splitter_model_test.c \
 		$(CDK2_DIR)/src/modules/con_splitter/model.c \
@@ -4810,3 +4811,13 @@ $(CDK2_NATIVE_CON_SPLITTER_MODEL_TEST): $(CDK2_DIR)/tests/con_splitter_model_tes
 
 native-check: $(CDK2_NATIVE_CON_SPLITTER_MODEL_TEST)
 	@"$(CDK2_NATIVE_CON_SPLITTER_MODEL_TEST)"
+
+$(CDK2_NATIVE_CON_SPLITTER_INPUT_TEST): $(CDK2_DIR)/tests/con_splitter_input_test.c \
+		$(CDK2_DIR)/src/modules/con_splitter/input.c \
+		$(CDK2_DIR)/include/cdk2/con_splitter.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -fshort-wchar \
+		$(CDK2_NATIVE_INCLUDES) -o "$@" "$<" \
+		"$(CDK2_DIR)/src/modules/con_splitter/input.c"
+
+native-check: $(CDK2_NATIVE_CON_SPLITTER_INPUT_TEST)
+	@"$(CDK2_NATIVE_CON_SPLITTER_INPUT_TEST)"
