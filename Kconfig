@@ -254,6 +254,14 @@ config CDK2_NATIVE_SMBIOS
 	  Import the coreboot SMBIOS HOB, provide the mutable PI SMBIOS protocol,
 	  and publish checksummed SMBIOS 2.x and 3.x configuration tables.
 
+config CDK2_NATIVE_RESET_SYSTEM
+	bool "Build native reset-system services"
+	default y
+	depends on CDK2_NATIVE_STAGE
+	help
+	  Publish the architectural and notification reset protocols and implement
+	  ResetSystem from the coreboot-derived ACPI board-information HOB.
+
 config CDK2_BUILD_DEBUG
 	bool "Build a debug payload"
 	default n
