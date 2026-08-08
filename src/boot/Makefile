@@ -180,6 +180,13 @@ CDK2_NATIVE_TCG2_COMMANDS_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-tcg2-commands-te
 CDK2_NATIVE_TCG2_EVENT_LOG_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-tcg2-event-log-test
 CDK2_NATIVE_TCG2_MEASURE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-tcg2-measure-test
 CDK2_NATIVE_TCG2_SERVICE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-tcg2-service-test
+CDK2_NATIVE_TCG2_OBJS ?= $(addprefix $(CDK2_NATIVE_BUILD_DIR)/tcg2-,driver.o tcg2_transport.o tcg2_commands.o tcg2_event_log.o tcg2_measure.o tcg2_service.o)
+CDK2_NATIVE_TCG2_PE ?= $(CDK2_NATIVE_BUILD_DIR)/Tcg2Dxe.efi
+CDK2_NATIVE_TCG2_DEPEX_GEN ?= $(CDK2_NATIVE_BUILD_DIR)/tcg2-depex-gen
+CDK2_NATIVE_TCG2_DEPEX ?= $(CDK2_NATIVE_BUILD_DIR)/Tcg2Dxe.depex
+CDK2_NATIVE_TCG2_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/Tcg2Dxe.ffs
+CDK2_NATIVE_TCG2_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-tcg2.fv
+CDK2_NATIVE_PRE_TCG2_FV ?= $(CDK2_NATIVE_LOCAL_APIC_TIMER_FV)
 HOSTCC ?= cc
 CDK2_NATIVE_CC ?= $(CC)
 CDK2_NATIVE_HOST_CC ?= $(HOSTCC)
@@ -282,6 +289,42 @@ else
 native-coreboot-image:
 	@printf '%s\n' 'native-coreboot-image requires CDK2_PAYLOAD_FV=/path/to/payload.fv' >&2
 	@exit 1
+endif
+
+ifeq ($(CONFIG_CDK2_NATIVE_TCG2),y)
+native-tcg2-fv: $(CDK2_NATIVE_TCG2_FV)
+	@printf '%s\n' "native TCG2 FV: $(CDK2_NATIVE_TCG2_FV)"
+
+$(CDK2_NATIVE_TCG2_OBJS): $(CDK2_NATIVE_BUILD_DIR)/tcg2-%.o: \
+		$(CDK2_DIR)/src/modules/tcg2/%.c | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
+		-mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args \
+		$(CDK2_NATIVE_INCLUDES) -MMD -MP -MF "$(@:.o=.d)" -MT "$@" -c "$<" -o "$@"
+
+$(CDK2_NATIVE_TCG2_PE): $(CDK2_NATIVE_TCG2_OBJS) \
+		$(CDK2_DIR)/src/modules/tcg2/tcg2.ld $(CDK2_NATIVE_PERELOCCHECK)
+	@$(CDK2_NATIVE_LD) -mi386pep --subsystem 11 --entry cdk2_tcg2_entry \
+		--image-base 0 --section-alignment 0x1000 --file-alignment 0x1000 \
+		--build-id=none --no-insert-timestamp -s --nxcompat \
+		-T "$(CDK2_DIR)/src/modules/tcg2/tcg2.ld" -o "$@" $(CDK2_NATIVE_TCG2_OBJS)
+	@"$(CDK2_NATIVE_PERELOCCHECK)" --subsystem 11 "$@"
+
+$(CDK2_NATIVE_TCG2_DEPEX_GEN): $(CDK2_DIR)/src/modules/tcg2/depex.c | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -o "$@" "$<"
+
+$(CDK2_NATIVE_TCG2_DEPEX): $(CDK2_NATIVE_TCG2_DEPEX_GEN)
+	@"$<" "$@"
+
+$(CDK2_NATIVE_TCG2_FFS): $(CDK2_NATIVE_TCG2_PE) $(CDK2_NATIVE_TCG2_DEPEX) $(CDK2_NATIVE_FFSBUILD)
+	@"$(CDK2_NATIVE_FFSBUILD)" fdff263d-5f68-4591-87ba-b768f445a9af \
+		Tcg2Dxe 1.0 0x1609e "$<" "$@" "$(CDK2_NATIVE_TCG2_DEPEX)"
+
+$(CDK2_NATIVE_TCG2_FV): $(CDK2_NATIVE_PRE_TCG2_FV) $(CDK2_NATIVE_TCG2_FFS) $(CDK2_NATIVE_FVREPLACE)
+	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_PRE_TCG2_FV)" 0x38b828 \
+		"$(CDK2_NATIVE_TCG2_FFS)" "$@"
+else
+native-tcg2-fv:
+	@printf '%s\n' 'native TCG2: disabled by Kconfig'
 endif
 native-check: $(CDK2_CONFIG_HEADER) $(CDK2_NATIVE_ELF) $(CDK2_NATIVE_OVERRIDE_ELF) \
 		$(CDK2_NATIVE_COREBOOT_ELF) $(CDK2_NATIVE_COREBOOT_ENTRY) \
@@ -1083,6 +1126,10 @@ endif
 ifeq ($(CONFIG_CDK2_NATIVE_LOCAL_APIC_TIMER),y)
 CDK2_NATIVE_PRE_LOCAL_APIC_TIMER_FV := $(CDK2_NATIVE_FINAL_FV)
 CDK2_NATIVE_FINAL_FV := $(CDK2_NATIVE_LOCAL_APIC_TIMER_FV)
+
+ifeq ($(CONFIG_CDK2_NATIVE_TCG2),y)
+CDK2_NATIVE_FINAL_FV := $(CDK2_NATIVE_TCG2_FV)
+endif
 
 $(CDK2_NATIVE_LOCAL_APIC_TIMER_OBJ): $(CDK2_DIR)/src/modules/local_apic_timer/local_apic_timer.c $(CDK2_DIR)/include/cdk2/local_apic_timer.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) -mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args $(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
