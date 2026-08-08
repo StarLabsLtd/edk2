@@ -175,6 +175,7 @@ CDK2_NATIVE_GRAPHICS_CONSOLE_OBJS := $(CDK2_NATIVE_BUILD_DIR)/graphics-console-m
 CDK2_NATIVE_GRAPHICS_CONSOLE_PE ?= $(CDK2_NATIVE_BUILD_DIR)/GraphicsConsoleDxe.efi
 CDK2_NATIVE_GRAPHICS_CONSOLE_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/GraphicsConsoleDxe.ffs
 CDK2_NATIVE_GRAPHICS_CONSOLE_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-graphics-console.fv
+CDK2_NATIVE_TCG2_TRANSPORT_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-tcg2-transport-test
 HOSTCC ?= cc
 CDK2_NATIVE_CC ?= $(CC)
 CDK2_NATIVE_HOST_CC ?= $(HOSTCC)
@@ -448,6 +449,9 @@ native-cpu-io2-smm-fv: $(CDK2_NATIVE_CPU_IO2_SMM_FV)
 	@printf '%s\n' "native SMM CPU I/O 2 FV: $(CDK2_NATIVE_CPU_IO2_SMM_FV)"
 
 native-pch-smi-dispatch-test: $(CDK2_NATIVE_PCH_SMI_DISPATCH_TEST)
+	@"$<"
+
+native-tcg2-transport-test: $(CDK2_NATIVE_TCG2_TRANSPORT_TEST)
 	@"$<"
 
 native-pch-smi-dispatch-fv: $(CDK2_NATIVE_PCH_SMI_DISPATCH_FV)
