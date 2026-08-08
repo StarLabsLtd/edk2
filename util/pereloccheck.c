@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define IMAGE_MACHINE_X64 0x8664U
 #define PE32_PLUS_MAGIC 0x020bU
@@ -70,12 +71,22 @@ int main(int argc, char **argv)
 	uint16_t optional_size;
 	uint32_t reloc_rva;
 	uint32_t reloc_size;
+	unsigned long expected_subsystem = 0;
+	const char *image_path;
 	int saw_dir64 = 0;
 	FILE *file;
 
-	if (argc != 2)
-		fail("usage: cdk2-pereloccheck IMAGE");
-	file = fopen(argv[1], "rb");
+	if (argc == 2) {
+		image_path = argv[1];
+	} else if (argc == 4 && strcmp(argv[1], "--subsystem") == 0) {
+		expected_subsystem = strtoul(argv[2], NULL, 0);
+		if (expected_subsystem == 0 || expected_subsystem > UINT16_MAX)
+			fail("invalid expected subsystem");
+		image_path = argv[3];
+	} else {
+		fail("usage: cdk2-pereloccheck [--subsystem NUMBER] IMAGE");
+	}
+	file = fopen(image_path, "rb");
 	if (file == NULL || fseek(file, 0, SEEK_END) != 0 || (length = ftell(file)) < 0 ||
 	    fseek(file, 0, SEEK_SET) != 0)
 		fail("cannot open image");
@@ -96,6 +107,8 @@ int main(int argc, char **argv)
 	if (optional > size || optional_size < 160U || optional_size > size - optional ||
 	    get16(image + optional) != PE32_PLUS_MAGIC)
 		fail("invalid PE32+ optional header");
+	if (expected_subsystem != 0 && get16(image + optional + 68U) != expected_subsystem)
+		fail("PE subsystem does not match the admitted module");
 	reloc_rva = get32(image + optional + 152U);
 	reloc_size = get32(image + optional + 156U);
 	if (reloc_rva == 0 || reloc_size < 8U)

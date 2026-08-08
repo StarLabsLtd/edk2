@@ -1,5 +1,5 @@
 # baseline-retained=72
-# retained=54
+# retained=53
 # status	wave	module
 retain	boot	FatPkg/EnhancedFatDxe/Fat
 retain	storage	MdeModulePkg/Bus/Ata/AtaAtapiPassThru/AtaAtapiPassThru
@@ -61,7 +61,7 @@ retain	security	SecurityPkg/Tcg/TcgDxe/TcgDxe
 retain	boot	ShellPkg/Application/Shell/Shell
 retain	platform	UefiCpuPkg/CpuDxe/CpuDxe
 native	pci	UefiCpuPkg/CpuIo2Dxe/CpuIo2Dxe
-retain	smm	UefiCpuPkg/CpuIo2Smm/CpuIo2Smm
+native	smm	UefiCpuPkg/CpuIo2Smm/CpuIo2Smm
 retain	smm	UefiCpuPkg/PiSmmCpuDxeSmm/PiSmmCpuDxeSmm
 retain	platform	UefiPayloadPkg/BlSupportDxe/BlSupportDxe
 retain	smm	UefiPayloadPkg/BlSupportSmm/BlSupportSmm

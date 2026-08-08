@@ -13,6 +13,7 @@
 #define FFS_FIXED_CHECKSUM 0xaaU
 #define FFS_STATE_VALID 0xf8U
 #define SECTION_DXE_DEPEX 0x13U
+#define SECTION_MM_DEPEX 0x1cU
 #define SECTION_VERSION 0x14U
 #define SECTION_USER_INTERFACE 0x15U
 #define SECTION_PE32 0x10U
@@ -153,11 +154,41 @@ int main(int argc, char **argv)
 	size_t pe_section_size;
 	size_t offset;
 	FILE *file;
+	uint8_t file_type = FFS_TYPE_DXE_DRIVER;
+	uint8_t depex_type = SECTION_DXE_DEPEX;
+	int argument;
 
-	if (argc != 7 && argc != 8) {
-		fprintf(stderr, "usage: %s GUID UI VERSION SIZE PE OUTPUT [DEPEX|-]\n", argv[0]);
+	if (argc < 7) {
+		fprintf(stderr, "usage: %s GUID UI VERSION SIZE PE OUTPUT [DEPEX|-] "
+			"[--file-type TYPE] [--depex-type TYPE]\n", argv[0]);
 		return EXIT_FAILURE;
 	}
+	argument = 7;
+	if (argument < argc && strncmp(argv[argument], "--", 2) != 0)
+		argument++;
+	while (argument < argc) {
+		char *end;
+		unsigned long value;
+
+		if (argument + 1 >= argc)
+			fail("missing option value");
+		value = strtoul(argv[argument + 1], &end, 0);
+		if (*end != '\0' || value > 0xffU)
+			fail("invalid option value");
+		if (strcmp(argv[argument], "--file-type") == 0)
+			file_type = (uint8_t)value;
+		else if (strcmp(argv[argument], "--depex-type") == 0)
+			depex_type = (uint8_t)value;
+		else
+			fail("unknown option");
+		argument += 2;
+	}
+	if (file_type != FFS_TYPE_DXE_DRIVER && file_type != 0x0aU)
+		fail("unsupported FFS file type");
+	if (depex_type != SECTION_DXE_DEPEX && depex_type != SECTION_MM_DEPEX)
+		fail("unsupported DEPEX section type");
+	if ((file_type == 0x0aU) != (depex_type == SECTION_MM_DEPEX))
+		fail("FFS file type and DEPEX section type do not match");
 	parse_guid(argv[1], guid);
 	output_size = (size_t)strtoull(argv[4], NULL, 0);
 	if (output_size < FFS_HEADER_SIZE + 32U || output_size > 0xffffffU)
@@ -165,13 +196,13 @@ int main(int argc, char **argv)
 	pe = read_file(argv[5], &pe_size, "cannot read input PE");
 	if (pe_size < 2 || pe[0] != 'M' || pe[1] != 'Z')
 		fail("input is not a PE/COFF image");
-	if (argc == 8 && strcmp(argv[7], "-") == 0) {
+	if (argc >= 8 && strncmp(argv[7], "--", 2) != 0 && strcmp(argv[7], "-") == 0) {
 		depex_size = 0;
-	} else if (argc == 8) {
+	} else if (argc >= 8 && strncmp(argv[7], "--", 2) != 0) {
 		depex = read_file(argv[7], &depex_size, "cannot read DEPEX section");
 		if (depex_size < 4 || get24(depex) != depex_size ||
-		    depex[3] != SECTION_DXE_DEPEX)
-			fail("input is not a complete DXE DEPEX section");
+		    depex[3] != depex_type)
+			fail("input is not a complete expected DEPEX section");
 	}
 	output = calloc(1, output_size);
 	if (output == NULL)
@@ -179,7 +210,7 @@ int main(int argc, char **argv)
 	memcpy(output, guid, sizeof(guid));
 	output[16] = 0;
 	output[17] = 0;
-	output[18] = FFS_TYPE_DXE_DRIVER;
+	output[18] = file_type;
 	put24(output + 20, output_size);
 	output[23] = 0;
 
@@ -190,7 +221,7 @@ int main(int argc, char **argv)
 		memcpy(output + offset, depex, depex_size);
 	} else {
 		put24(output + offset, 6);
-		output[offset + 3] = SECTION_DXE_DEPEX;
+		output[offset + 3] = depex_type;
 		output[offset + 4] = 0x06; /* TRUE */
 		output[offset + 5] = 0x08; /* END */
 	}

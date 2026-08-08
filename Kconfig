@@ -286,6 +286,14 @@ config CDK2_NATIVE_SMM_CONTROL
 	  Publish the runtime SMM Control 2 protocol from the authoritative SMI
 	  register description supplied by coreboot.
 
+config CDK2_NATIVE_CPU_IO2_SMM
+	bool "Build native SMM CPU I/O 2 services"
+	default y
+	depends on CDK2_NATIVE_STAGE && CDK2_SMM
+	help
+	  Publish the SMM CPU I/O 2 protocol and populate the management-mode
+	  system table with native MMIO and port-I/O services.
+
 config CDK2_BUILD_DEBUG
 	bool "Build a debug payload"
 	default n

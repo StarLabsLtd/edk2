@@ -48,6 +48,41 @@ static int run_without_depex(const char *tool, const char *pe, const char *outpu
 	return !WIFEXITED(status) || WEXITSTATUS(status) != 0;
 }
 
+static int run_mm(const char *tool, const char *pe, const char *output,
+	const char *depex, const char *depex_type)
+{
+	pid_t child = fork();
+	int status;
+
+	if (child == 0) {
+		execl(tool, tool, "a47ee2d8-f60e-42fd-8e58-7bd65ee4c29b",
+		      "CpuIo2Smm", "1.0", "130", pe, output, depex,
+		      "--file-type", "0x0a", "--depex-type", depex_type, NULL);
+		_exit(127);
+	}
+	if (child < 0 || waitpid(child, &status, 0) != child)
+		return 1;
+	return !WIFEXITED(status) || WEXITSTATUS(status) != 0;
+}
+
+static int run_mm_partial(const char *tool, const char *pe, const char *output,
+	const char *depex, int file_type_only)
+{
+	pid_t child = fork();
+	int status;
+
+	if (child == 0) {
+		execl(tool, tool, "a47ee2d8-f60e-42fd-8e58-7bd65ee4c29b",
+		      "CpuIo2Smm", "1.0", "130", pe, output, depex,
+		      file_type_only ? "--file-type" : "--depex-type",
+		      file_type_only ? "0x0a" : "0x1c", NULL);
+		_exit(127);
+	}
+	if (child < 0 || waitpid(child, &status, 0) != child)
+		return 1;
+	return !WIFEXITED(status) || WEXITSTATUS(status) != 0;
+}
+
 int main(int argc, char **argv)
 {
 	static const uint8_t pe[16] = { 'M', 'Z' };
@@ -56,6 +91,7 @@ int main(int argc, char **argv)
 		0xf6, 0xf0, 0xa3, 0x13, 0x4a, 0x26, 0xf0, 0x3e,
 		0xf2, 0xe0, 0xde, 0xc5, 0x12, 0x34, 0x2f, 0x34, 0x08
 	};
+	uint8_t mm_depex[sizeof(depex)];
 	uint8_t output[130];
 	char pe_path[512], depex_path[512], output_path[512];
 	FILE *file;
@@ -82,6 +118,20 @@ int main(int argc, char **argv)
 	if (file == NULL || fread(output, 1, sizeof(output), file) != sizeof(output) ||
 	    fclose(file) != 0 || output[24 + 3] != 0x10 ||
 	    memcmp(output + 28, pe, sizeof(pe)) != 0)
+		return 1;
+	memcpy(mm_depex, depex, sizeof(mm_depex));
+	mm_depex[3] = 0x1c;
+	if (write_file(depex_path, mm_depex, sizeof(mm_depex)) ||
+	    run_mm(argv[1], pe_path, output_path, depex_path, "0x1c"))
+		return 1;
+	file = fopen(output_path, "rb");
+	if (file == NULL || fread(output, 1, sizeof(output), file) != sizeof(output) ||
+	    fclose(file) != 0 || output[18] != 0x0a || output[27] != 0x1c)
+		return 1;
+	if (!run_mm(argv[1], pe_path, output_path, depex_path, "0x13"))
+		return 1;
+	if (!run_mm_partial(argv[1], pe_path, output_path, depex_path, 1) ||
+	    !run_mm_partial(argv[1], pe_path, output_path, depex_path, 0))
 		return 1;
 	depex_path[strlen(depex_path) - 1] = 'x';
 	if (write_file(depex_path, depex, sizeof(depex) - 1) ||
