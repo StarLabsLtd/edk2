@@ -40,9 +40,9 @@ int main(void)
 		"initialization failed");
 	failures += expect(cdk2_split_text_out_output(&splitter, L"abc\b\r\n") == EFI_SUCCESS &&
 		splitter.column == 0U && splitter.row == 1U, "device-null cursor model diverged");
-	failures += expect(cdk2_split_text_out_add(&splitter, &ops, (void *)1) == EFI_SUCCESS &&
-		cdk2_split_text_out_add(&splitter, &ops, (void *)2) == EFI_SUCCESS &&
-		cdk2_split_text_out_add(&splitter, &ops, (void *)1) ==
+	failures += expect(cdk2_split_text_out_add(&splitter, &ops, (void *)1, 1U) ==
+		EFI_SUCCESS && cdk2_split_text_out_add(&splitter, &ops, (void *)2, 1U) ==
+		EFI_SUCCESS && cdk2_split_text_out_add(&splitter, &ops, (void *)1, 1U) ==
 		CDK2_CON_SPLITTER_ALREADY_STARTED,
 		"device ownership is wrong");
 	statuses[0] = EFI_DEVICE_ERROR; statuses[1] = EFI_UNSUPPORTED; calls = 0U;
@@ -57,7 +57,7 @@ int main(void)
 		"attribute did not fan out or update virtual state");
 	failures += expect(cdk2_split_text_out_set_cursor(&splitter, 1U, 1U) == EFI_SUCCESS &&
 		last_column == 1U && last_row == 1U &&
-		cdk2_split_text_out_set_cursor(&splitter, 2U, 0U) == EFI_UNSUPPORTED,
+		cdk2_split_text_out_set_cursor(&splitter, 80U, 0U) == EFI_UNSUPPORTED,
 		"cursor bounds/fanout are wrong");
 	failures += expect(cdk2_split_text_out_enable_cursor(&splitter, FALSE) == EFI_SUCCESS &&
 		!last_visible && !splitter.cursor_visible &&

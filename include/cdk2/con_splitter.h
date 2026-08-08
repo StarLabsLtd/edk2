@@ -6,6 +6,7 @@
 #include <uefi.h>
 
 #define CDK2_CON_SPLITTER_MAX_OUTPUTS 16U
+#define CDK2_CON_SPLITTER_MAX_MODES 32U
 #define CDK2_CON_SPLITTER_ALREADY_STARTED EFIERR(20)
 #define CDK2_CON_SPLITTER_MAX_INPUTS 16U
 
@@ -30,18 +31,25 @@ struct cdk2_split_text_out_ops {
 struct cdk2_split_text_out_device {
 	const struct cdk2_split_text_out_ops *ops;
 	void *context;
+	UINTN max_mode;
+};
+
+struct cdk2_split_text_mode {
+	UINTN columns, rows;
+	INT32 device_mode[CDK2_CON_SPLITTER_MAX_OUTPUTS];
 };
 
 struct cdk2_split_text_out {
 	struct cdk2_split_text_out_device devices[CDK2_CON_SPLITTER_MAX_OUTPUTS];
-	UINTN device_count, columns, rows, column, row, mode, attribute;
+	struct cdk2_split_text_mode modes[CDK2_CON_SPLITTER_MAX_MODES];
+	UINTN device_count, mode_count, columns, rows, column, row, mode, attribute;
 	BOOLEAN cursor_visible;
 };
 
 EFI_STATUS cdk2_split_text_out_init(struct cdk2_split_text_out *splitter,
 	UINTN columns, UINTN rows);
 EFI_STATUS cdk2_split_text_out_add(struct cdk2_split_text_out *splitter,
-	const struct cdk2_split_text_out_ops *ops, void *context);
+	const struct cdk2_split_text_out_ops *ops, void *context, UINTN max_mode);
 EFI_STATUS cdk2_split_text_out_remove(struct cdk2_split_text_out *splitter,
 	void *context);
 EFI_STATUS cdk2_split_text_out_output(struct cdk2_split_text_out *splitter,
@@ -55,6 +63,9 @@ EFI_STATUS cdk2_split_text_out_set_cursor(struct cdk2_split_text_out *splitter,
 	UINTN column, UINTN row);
 EFI_STATUS cdk2_split_text_out_enable_cursor(struct cdk2_split_text_out *splitter,
 	BOOLEAN visible);
+EFI_STATUS cdk2_split_text_out_query_mode(struct cdk2_split_text_out *splitter,
+	UINTN mode, UINTN *columns, UINTN *rows);
+EFI_STATUS cdk2_split_text_out_set_mode(struct cdk2_split_text_out *splitter, UINTN mode);
 
 struct cdk2_split_key { UINT16 scan_code; CHAR16 unicode; };
 typedef EFI_STATUS cdk2_split_key_read_fn(void *, struct cdk2_split_key *);
