@@ -12,6 +12,83 @@ static const EFI_GUID font_guid = { 0xe9ca4775, 0x8657, 0x47fc,
 	{ 0x97, 0xe7, 0x7e, 0xd6, 0x5a, 0x08, 0x43, 0x24 } };
 static const EFI_GUID text_guid = { 0x387477c2, 0x69c7, 0x11d2,
 	{ 0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b } };
+static const EFI_GUID driver_binding_guid = { 0x18a031ab, 0xb443, 0x4d1a,
+	{ 0xa5, 0xc0, 0x0c, 0x09, 0x26, 0x1e, 0x9f, 0x71 } };
+static const EFI_GUID component_name_guid = { 0x107a772c, 0xd5e1, 0x11d4,
+	{ 0x9a, 0x46, 0x00, 0x90, 0x27, 0x3f, 0xc1, 0x4d } };
+static const EFI_GUID component_name2_guid = { 0x6a7a5cff, 0xe8d9, 0x4f70,
+	{ 0xba, 0xda, 0x75, 0xab, 0x30, 0x25, 0xce, 0x14 } };
+static const EFI_GUID hii_database_guid = { 0xef9fc172, 0xa1b2, 0x4693,
+	{ 0xb3, 0x27, 0x6d, 0x32, 0xfc, 0x41, 0x60, 0x42 } };
+static CHAR16 driver_name[] = L"CDK2 Graphics Console Driver";
+
+static struct cdk2_graphics_console_binding *from_driver(
+	struct cdk2_driver_binding_view *driver)
+{
+	return (struct cdk2_graphics_console_binding *)((UINT8 *)driver -
+		offsetof(struct cdk2_graphics_console_binding, driver));
+}
+
+static EFI_STATUS CDK2_MS_ABI driver_supported(struct cdk2_driver_binding_view *driver,
+	void *controller, void *remaining)
+{
+	(void)remaining;
+	return cdk2_graphics_binding_supported(from_driver(driver), controller);
+}
+
+static EFI_STATUS CDK2_MS_ABI driver_start(struct cdk2_driver_binding_view *driver,
+	void *controller, void *remaining)
+{
+	(void)remaining;
+	return cdk2_graphics_binding_start(from_driver(driver), controller);
+}
+
+static EFI_STATUS CDK2_MS_ABI driver_stop(struct cdk2_driver_binding_view *driver,
+	void *controller, UINTN children, void **child_buffer)
+{
+	struct cdk2_graphics_console_binding *binding = from_driver(driver);
+
+	(void)child_buffer;
+	if (children != 0U || binding->controller != controller)
+		return EFI_INVALID_PARAMETER;
+	return cdk2_graphics_binding_stop(binding);
+}
+
+static EFI_STATUS CDK2_MS_ABI get_driver_name(struct cdk2_component_name_view *component,
+	CHAR8 * language, cdk2_char16_ptr * name)
+{
+	(void)component;
+	if (language == NULL || name == NULL)
+		return EFI_INVALID_PARAMETER;
+	if (language[0] != 'e' || language[1] != 'n' || language[2] != 'g' ||
+	    language[3] != '\0')
+		return EFI_UNSUPPORTED;
+	*name = driver_name;
+	return EFI_SUCCESS;
+}
+
+static EFI_STATUS CDK2_MS_ABI get_controller_name(struct cdk2_component_name_view *component,
+	void *controller, void *child, CHAR8 * language, cdk2_char16_ptr * name)
+{
+	(void)component;
+	(void)controller;
+	(void)child;
+	(void)language;
+	(void)name;
+	return EFI_UNSUPPORTED;
+}
+
+static EFI_STATUS CDK2_MS_ABI get_driver_name2(struct cdk2_component_name_view *component,
+	CHAR8 * language, cdk2_char16_ptr * name)
+{
+	(void)component;
+	if (language == NULL || name == NULL)
+		return EFI_INVALID_PARAMETER;
+	if (language[0] != 'e' || language[1] != 'n' || language[2] != '\0')
+		return EFI_UNSUPPORTED;
+	*name = driver_name;
+	return EFI_SUCCESS;
+}
 
 static void rollback(struct cdk2_graphics_console_binding *binding)
 {
@@ -129,4 +206,42 @@ EFI_STATUS cdk2_graphics_render_string(struct cdk2_graphics_console_binding *bin
 		image, x, y, NULL, NULL, NULL);
 	*image = NULL;
 	return status;
+}
+
+EFI_STATUS cdk2_graphics_binding_publish(struct cdk2_graphics_console_binding *binding,
+	void *image, cdk2_binding_publish_fn * publish, cdk2_binding_notify_fn * notify,
+	void *context)
+{
+	EFI_STATUS status;
+
+	if (binding == NULL || image == NULL || publish == NULL || notify == NULL)
+		return EFI_INVALID_PARAMETER;
+	status = notify(context, &hii_database_guid);
+	if (EFI_ERROR(status))
+		return status;
+	binding->driver = (struct cdk2_driver_binding_view) {
+		.supported = driver_supported,
+		.start = driver_start,
+		.stop = driver_stop,
+		.version = 0x10U,
+		.image_handle = image,
+		.driver_binding_handle = image,
+	};
+	binding->component_name = (struct cdk2_component_name_view) {
+		.get_driver_name = get_driver_name,
+		.get_controller_name = get_controller_name,
+		.supported_languages = "eng",
+	};
+	binding->component_name2 = (struct cdk2_component_name_view) {
+		.get_driver_name = get_driver_name2,
+		.get_controller_name = get_controller_name,
+		.supported_languages = "en",
+	};
+	status = publish(context, image, &driver_binding_guid, &binding->driver);
+	if (EFI_ERROR(status))
+		return status;
+	status = publish(context, image, &component_name_guid, &binding->component_name);
+	if (EFI_ERROR(status))
+		return status;
+	return publish(context, image, &component_name2_guid, &binding->component_name2);
 }

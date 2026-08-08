@@ -65,6 +65,8 @@ typedef EFI_STATUS cdk2_binding_uninstall_fn(void *context, void *controller,
 typedef EFI_STATUS cdk2_binding_blt_fn(void *gop, void *buffer, UINTN operation,
 	UINTN source_x, UINTN source_y, UINTN destination_x, UINTN destination_y,
 	UINTN width, UINTN height, UINTN delta);
+typedef EFI_STATUS cdk2_binding_publish_fn(void *, void *, const EFI_GUID *, void *);
+typedef EFI_STATUS cdk2_binding_notify_fn(void *, const EFI_GUID *);
 
 struct cdk2_graphics_console_binding_ops {
 	cdk2_binding_open_fn *open;
@@ -138,6 +140,9 @@ struct cdk2_graphics_console_binding {
 	struct cdk2_gop_view *gop;
 	struct cdk2_hii_font_view *font;
 	struct cdk2_simple_text_output_view text;
+	struct cdk2_driver_binding_view driver;
+	struct cdk2_component_name_view component_name;
+	struct cdk2_component_name_view component_name2;
 	BOOLEAN device_path_open;
 	BOOLEAN gop_open;
 	BOOLEAN font_open;
@@ -155,5 +160,8 @@ EFI_STATUS cdk2_graphics_gop_blt(struct cdk2_graphics_console_binding *binding,
 EFI_STATUS cdk2_graphics_render_string(struct cdk2_graphics_console_binding *binding,
 	const CHAR16 *string, const struct cdk2_font_display_info *display,
 	struct cdk2_image_output **image, UINTN x, UINTN y, UINTN width, UINTN height);
+EFI_STATUS cdk2_graphics_binding_publish(struct cdk2_graphics_console_binding *binding,
+	void *image, cdk2_binding_publish_fn *publish, cdk2_binding_notify_fn *notify,
+	void *context);
 
 #endif

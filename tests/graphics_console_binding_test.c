@@ -7,6 +7,18 @@ static UINTN opens, closes, installs, uninstalls, blts, fail_open;
 static struct cdk2_gop_view gop;
 static struct cdk2_hii_font_view font;
 static UINTN renders;
+static UINTN publishes;
+static UINTN notifications;
+static EFI_STATUS publish(void *context, void *handle, const EFI_GUID *guid, void *interface)
+{
+	(void)context; (void)guid;
+	if (handle == NULL || interface == NULL)
+		return EFI_INVALID_PARAMETER;
+	publishes++;
+	return EFI_SUCCESS;
+}
+static EFI_STATUS notify(void *context, const EFI_GUID *guid)
+{ (void)context; if (guid == NULL) return EFI_INVALID_PARAMETER; notifications++; return EFI_SUCCESS; }
 
 static EFI_STATUS open_protocol(void *context, void *controller, const EFI_GUID *guid,
 	UINT32 attributes, void **interface)
@@ -53,10 +65,18 @@ int main(void)
 		open_protocol, close_protocol, install, uninstall
 	};
 	struct cdk2_graphics_console_binding binding = { .ops = &ops };
+	cdk2_char16_ptr name = NULL;
 	int failures = 0;
 
 	gop.blt = blt;
 	font.string_to_image = render;
+	failures += expect(cdk2_graphics_binding_publish(&binding, &binding, publish, notify,
+		NULL) == EFI_SUCCESS && publishes == 3U && notifications == 1U &&
+		binding.driver.version == 0x10U &&
+		binding.driver.image_handle == &binding &&
+		binding.component_name.get_driver_name(&binding.component_name, "eng", &name) ==
+		EFI_SUCCESS && name != NULL,
+		"entry glue did not publish DriverBinding and ComponentName");
 	fail_open = 2;
 	failures += expect(EFI_ERROR(cdk2_graphics_binding_start(&binding, &binding)) &&
 		closes == 1U && !binding.device_path_open, "failed Start leaked ownership");
