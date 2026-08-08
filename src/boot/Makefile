@@ -270,6 +270,10 @@ CDK2_NATIVE_TPM2_ACPI_TABLE_DEPEX_GEN ?= $(CDK2_NATIVE_BUILD_DIR)/tpm2-acpi-depe
 CDK2_NATIVE_TPM2_ACPI_TABLE_DEPEX ?= $(CDK2_NATIVE_BUILD_DIR)/Tpm2AcpiTableDxe.depex
 CDK2_NATIVE_TPM2_ACPI_TABLE_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/Tpm2AcpiTableDxe.ffs
 CDK2_NATIVE_TPM2_ACPI_TABLE_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-tpm2-acpi-table.fv
+CDK2_NATIVE_HII_DATABASE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-hii-database-test
+CDK2_NATIVE_HII_DATABASE_OBJS := $(patsubst %.c,$(CDK2_NATIVE_BUILD_DIR)/hii-database-%.o,database.c string.c image.c font.c keyboard.c config.c keyword.c package_parse.c entry.c)
+CDK2_NATIVE_HII_DATABASE_PE ?= $(CDK2_NATIVE_BUILD_DIR)/HiiDatabase.efi
+CDK2_NATIVE_HII_DATABASE_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/HiiDatabase.ffs
 HOSTCC ?= cc
 CDK2_NATIVE_CC ?= $(CC)
 CDK2_NATIVE_HOST_CC ?= $(HOSTCC)
@@ -355,6 +359,7 @@ CDK2_NATIVE_HOST_TOOLS := \
 	$(CDK2_NATIVE_GRAPHICS_CONSOLE_TEST) \
 	$(CDK2_NATIVE_GRAPHICS_PACKAGE_TEST) \
 	$(CDK2_NATIVE_GRAPHICS_ENTRY_TEST) \
+	$(CDK2_NATIVE_HII_DATABASE_TEST) \
 	$(CDK2_NATIVE_CAPSULE_RUNTIME_TEST) \
 	$(CDK2_NATIVE_CAPSULE_RUNTIME_ABI_TEST) \
 	$(CDK2_NATIVE_CAPSULE_RUNTIME_ENTRY_TEST) \
@@ -386,6 +391,7 @@ CDK2_NATIVE_LINK_POST_MAP_FLAGS := -Wl,--gc-sections -Wl,--build-id=none
 .PHONY: native-partition-test native-partition-fv
 .PHONY: native-bl-support-test native-bl-support-package native-bl-support-fv \
 	native-bl-support-oracle
+.PHONY: native-hii-database-test native-hii-database-ffs
 
 ifeq ($(CONFIG_CDK2_NATIVE_STAGE),y)
 CDK2_NATIVE_STAGE_DEPS := $(CDK2_NATIVE_ELF)
@@ -618,6 +624,7 @@ native-check: $(CDK2_CONFIG_HEADER) $(CDK2_NATIVE_ELF) $(CDK2_NATIVE_OVERRIDE_EL
 	@"$(CDK2_NATIVE_GRAPHICS_CONSOLE_TEST)"
 	@"$(CDK2_NATIVE_GRAPHICS_PACKAGE_TEST)"
 	@"$(CDK2_NATIVE_GRAPHICS_ENTRY_TEST)"
+	@"$(CDK2_NATIVE_HII_DATABASE_TEST)"
 	@"$(CDK2_NATIVE_PE_TEST)"
 	@"$(CDK2_NATIVE_MODULE_TEST)"
 	@"$(CDK2_NATIVE_SECURITY_STUB_TEST)"
@@ -877,6 +884,15 @@ native-graphics-console-test: $(CDK2_NATIVE_GRAPHICS_CONSOLE_TEST) $(CDK2_NATIVE
 	@"$(CDK2_NATIVE_GRAPHICS_CONSOLE_TEST)"
 	@"$(CDK2_NATIVE_GRAPHICS_PACKAGE_TEST)"
 	@"$(CDK2_NATIVE_GRAPHICS_ENTRY_TEST)"
+
+native-graphics-console-fv: $(CDK2_NATIVE_GRAPHICS_CONSOLE_FV)
+	@printf '%s\n' "native graphics console FV: $(CDK2_NATIVE_GRAPHICS_CONSOLE_FV)"
+
+native-hii-database-test: $(CDK2_NATIVE_HII_DATABASE_TEST)
+	@"$(CDK2_NATIVE_HII_DATABASE_TEST)"
+
+native-hii-database-ffs: $(CDK2_NATIVE_HII_DATABASE_FFS)
+	@printf '%s\n' "native HII database FFS: $(CDK2_NATIVE_HII_DATABASE_FFS)"
 
 native-capsule-runtime-test: $(CDK2_NATIVE_CAPSULE_RUNTIME_TEST) \
 		$(CDK2_NATIVE_CAPSULE_RUNTIME_ABI_TEST) $(CDK2_NATIVE_CAPSULE_RUNTIME_ENTRY_TEST) \
@@ -1781,6 +1797,14 @@ $(CDK2_NATIVE_GRAPHICS_ENTRY_TEST): $(CDK2_DIR)/tests/graphics_console_entry_tes
 		"$(CDK2_DIR)/src/modules/graphics_console/font_package.c" \
 		"$(CDK2_DIR)/src/modules/graphics_console/font_data.c"
 
+$(CDK2_NATIVE_HII_DATABASE_TEST): $(CDK2_DIR)/tests/hii_entry_test.c \
+	$(filter-out $(CDK2_DIR)/src/modules/hii_database/entry.c,$(wildcard $(CDK2_DIR)/src/modules/hii_database/*.c)) \
+	$(CDK2_DIR)/include/cdk2/hii_database.h \
+	$(CDK2_DIR)/include/cdk2/hii_database_abi.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -fshort-wchar \
+		$(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_DIR)/tests/hii_entry_test.c" \
+		$(filter-out $(CDK2_DIR)/src/modules/hii_database/entry.c,$(wildcard $(CDK2_DIR)/src/modules/hii_database/*.c))
+
 $(CDK2_NATIVE_CAPSULE_RUNTIME_TEST): $(CDK2_DIR)/tests/capsule_runtime_test.c $(CDK2_DIR)/src/modules/capsule_runtime/capsule_runtime.c $(CDK2_DIR)/include/cdk2/capsule_runtime.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_DIR)/tests/capsule_runtime_test.c" "$(CDK2_DIR)/src/modules/capsule_runtime/capsule_runtime.c"
 
@@ -2143,5 +2167,26 @@ $(CDK2_NATIVE_PE_TEST): $(CDK2_NATIVE_DIR)/pe.c $(CDK2_NATIVE_DIR)/pe.h $(CDK2_N
 
 $(CDK2_NATIVE_MODULE_TEST): $(CDK2_NATIVE_DIR)/entry.c $(CDK2_NATIVE_DIR)/entry.h $(CDK2_NATIVE_DIR)/module.h $(CDK2_NATIVE_DIR)/module_test.c $(CDK2_NATIVE_DIR)/context.h $(CDK2_CONFIG_HEADER) | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -MMD -MP -MF "$(CDK2_NATIVE_BUILD_DIR)/module-test.d" -MT "$@" $(CDK2_NATIVE_INCLUDES) -I$(CDK2_NATIVE_DIR) $(CDK2_NATIVE_HOST_LDFLAGS) -o "$@" "$(CDK2_NATIVE_DIR)/entry.c" "$(CDK2_NATIVE_DIR)/module_test.c"
+
+$(CDK2_NATIVE_BUILD_DIR)/hii-database-%.o: \
+	$(CDK2_DIR)/src/modules/hii_database/%.c \
+	$(CDK2_DIR)/include/cdk2/hii_database.h \
+	$(CDK2_DIR)/include/cdk2/hii_database_abi.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
+		-mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args \
+		$(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+
+$(CDK2_NATIVE_HII_DATABASE_PE): $(CDK2_NATIVE_HII_DATABASE_OBJS) \
+	$(CDK2_DIR)/src/modules/hii_database/hii_database.ld $(CDK2_NATIVE_PERELOCCHECK)
+	@$(CDK2_NATIVE_LD) -mi386pep --subsystem 11 --entry cdk2_hii_database_entry \
+		--image-base 0 --section-alignment 0x1000 --file-alignment 0x1000 \
+		--build-id=none --no-insert-timestamp -s --nxcompat \
+		-T "$(CDK2_DIR)/src/modules/hii_database/hii_database.ld" \
+		-o "$@" $(CDK2_NATIVE_HII_DATABASE_OBJS)
+	@"$(CDK2_NATIVE_PERELOCCHECK)" --subsystem 11 "$@"
+
+$(CDK2_NATIVE_HII_DATABASE_FFS): $(CDK2_NATIVE_HII_DATABASE_PE) $(CDK2_NATIVE_FFSBUILD)
+	@"$(CDK2_NATIVE_FFSBUILD)" 348c4d62-bfbd-4882-9ece-c80bb1c4783b \
+		HiiDatabase 1.0 0x2405e "$<" "$@" -
 
 -include $(CDK2_NATIVE_DEPFILES)

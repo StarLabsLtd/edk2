@@ -60,15 +60,18 @@ static BOOLEAN list_has_package(const struct cdk2_hii_list *list, UINT8 type,
 {
 	const struct cdk2_hii_package_list_header *header = list->data;
 	const struct cdk2_hii_package_header *package;
+	const EFI_GUID *package_guid;
 	UINT32 offset = sizeof(*header);
 
-	if (guid != NULL && !same_guid(&header->guid, guid))
-		return FALSE;
 	if (type == 0U)
-		return TRUE;
+		return guid == NULL;
 	while (offset < list->size) {
 		package = (const void *)((const UINT8 *)list->data + offset);
-		if (package_type(package) == type)
+		package_guid = package_type(package) == 1U && package_length(package) >=
+			sizeof(*package) + sizeof(*package_guid) ?
+			(const void *)(package + 1) : NULL;
+		if (package_type(package) == type && (guid == NULL ||
+		    (package_guid != NULL && same_guid(package_guid, guid))))
 			return TRUE;
 		offset += package_length(package);
 	}
@@ -80,21 +83,25 @@ static void notify_list(struct cdk2_hii_database *database,
 {
 	const struct cdk2_hii_package_list_header *header = list->data;
 	const struct cdk2_hii_package_header *package;
+	const EFI_GUID *package_guid;
 	struct cdk2_hii_notify *notify;
 	UINT32 offset = sizeof(*header);
 	UINTN index;
 
 	while (offset < list->size) {
 		package = (const void *)((const UINT8 *)list->data + offset);
+		package_guid = package_type(package) == 1U && package_length(package) >=
+			sizeof(*package) + sizeof(*package_guid) ?
+			(const void *)(package + 1) : NULL;
 		for (index = 0; index < CDK2_HII_MAX_NOTIFIES; index++) {
 			notify = &database->notifies[index];
 			if (notify->active && (notify->notify_mask & operation) != 0U &&
 			    (notify->package_type == 0U ||
 			     notify->package_type == package_type(package)) &&
-			    (!notify->use_guid || same_guid(&notify->package_guid,
-				&header->guid)))
+			    (!notify->use_guid || (package_guid != NULL &&
+			     same_guid(&notify->package_guid, package_guid))))
 				(void)notify->callback(notify->context, package_type(package),
-					&header->guid, list->data, list, operation);
+					package_guid, package, list, operation);
 		}
 		offset += package_length(package);
 	}

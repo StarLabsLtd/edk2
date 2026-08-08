@@ -2,8 +2,8 @@
 
 #include <cdk2/hii_database.h>
 
-#define HII_IGNORE_IF_NO_GLYPH 0x10U
-#define HII_IGNORE_LINE_BREAK 0x20U
+#define HII_IGNORE_IF_NO_GLYPH 0x20U
+#define HII_IGNORE_LINE_BREAK 0x40U
 
 static struct cdk2_hii_glyph *find_glyph(struct cdk2_hii_database *database,
 	CHAR16 character)
