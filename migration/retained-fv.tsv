@@ -1,5 +1,5 @@
 # baseline-retained=72
-# retained=57
+# retained=56
 # status	wave	module
 retain	boot	FatPkg/EnhancedFatDxe/Fat
 retain	storage	MdeModulePkg/Bus/Ata/AtaAtapiPassThru/AtaAtapiPassThru
@@ -55,7 +55,7 @@ retain	variables	MdeModulePkg/Universal/Variable/RuntimeDxe/VariableRuntimeDxe
 native	runtime	MdeModulePkg/Universal/WatchdogTimerDxe/WatchdogTimer
 retain	platform	OvmfPkg/LocalApicTimerDxe/LocalApicTimerDxe
 retain	console	OvmfPkg/SioBusDxe/SioBusDxe
-retain	runtime	PcAtChipsetPkg/PcatRealTimeClockRuntimeDxe/PcatRealTimeClockRuntimeDxe
+native	runtime	PcAtChipsetPkg/PcatRealTimeClockRuntimeDxe/PcatRealTimeClockRuntimeDxe
 retain	security	SecurityPkg/Tcg/Tcg2Dxe/Tcg2Dxe
 retain	security	SecurityPkg/Tcg/TcgDxe/TcgDxe
 retain	boot	ShellPkg/Application/Shell/Shell

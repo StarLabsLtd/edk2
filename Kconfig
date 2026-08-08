@@ -262,6 +262,14 @@ config CDK2_NATIVE_RESET_SYSTEM
 	  Publish the architectural and notification reset protocols and implement
 	  ResetSystem from the coreboot-derived ACPI board-information HOB.
 
+config CDK2_NATIVE_PCAT_RTC
+	bool "Build native PC/AT real-time-clock services"
+	default y
+	depends on CDK2_NATIVE_STAGE
+	help
+	  Publish the real-time-clock architectural protocol and provide runtime
+	  time and wake-alarm services through the PC/AT CMOS register interface.
+
 config CDK2_BUILD_DEBUG
 	bool "Build a debug payload"
 	default n
