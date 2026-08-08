@@ -12,6 +12,7 @@
 #define CDK2_HII_MAX_IMAGES 256U
 #define CDK2_HII_MAX_GLYPHS 512U
 #define CDK2_HII_MAX_KEYBOARD_LAYOUTS 32U
+#define CDK2_HII_MAX_CONFIG_ROUTES 64U
 #define CDK2_HII_PACKAGE_END 0xdfU
 
 struct cdk2_hii_package_list_header {
@@ -57,6 +58,7 @@ struct cdk2_hii_database {
 	UINTN keyboard_layout_count, current_keyboard_layout;
 	void (*keyboard_notify)(void *context, const EFI_GUID *layout);
 	void *keyboard_notify_context;
+	struct cdk2_hii_config_route *config_routes;
 };
 struct cdk2_hii_font_info {
 	UINT32 style;
@@ -96,6 +98,17 @@ struct cdk2_hii_glyph {
 };
 struct cdk2_hii_row_info {
 	UINTN start_index, end_index, line_width, line_height, baseline;
+};
+typedef EFI_STATUS cdk2_hii_extract_config_fn(void *context,
+	const CHAR16 *request, const CHAR16 **progress, CHAR16 **results);
+typedef EFI_STATUS cdk2_hii_route_config_fn(void *context,
+	const CHAR16 *configuration, const CHAR16 **progress);
+struct cdk2_hii_config_route {
+	CHAR16 *header;
+	cdk2_hii_extract_config_fn *extract;
+	cdk2_hii_route_config_fn *route;
+	void *context;
+	BOOLEAN active;
 };
 
 EFI_STATUS cdk2_hii_database_init(struct cdk2_hii_database *database,
@@ -174,5 +187,14 @@ EFI_STATUS cdk2_hii_block_to_config(struct cdk2_hii_database *database,
 	CHAR16 **configuration, const CHAR16 **progress);
 EFI_STATUS cdk2_hii_config_to_block(const CHAR16 *configuration, UINT8 *block,
 	UINTN *block_size, const CHAR16 **progress);
+EFI_STATUS cdk2_hii_register_config_route(struct cdk2_hii_database *database,
+	const CHAR16 *header, cdk2_hii_extract_config_fn *extract,
+	cdk2_hii_route_config_fn *route, void *context, void **route_handle);
+EFI_STATUS cdk2_hii_unregister_config_route(struct cdk2_hii_database *database,
+	void *route_handle);
+EFI_STATUS cdk2_hii_extract_config(struct cdk2_hii_database *database,
+	const CHAR16 *request, const CHAR16 **progress, CHAR16 **results);
+EFI_STATUS cdk2_hii_route_config(struct cdk2_hii_database *database,
+	const CHAR16 *configuration, const CHAR16 **progress);
 
 #endif

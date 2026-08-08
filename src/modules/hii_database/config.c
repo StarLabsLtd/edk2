@@ -2,6 +2,8 @@
 
 #include <cdk2/hii_database.h>
 
+#define HII_ALREADY_STARTED EFIERR(20)
+
 static UINTN text_length(const CHAR16 *text)
 {
 	UINTN length = 0U;
@@ -179,4 +181,95 @@ EFI_STATUS cdk2_hii_config_to_block(const CHAR16 *configuration, UINT8 *block,
 malformed:
 	*progress = cursor;
 	return EFI_INVALID_PARAMETER;
+}
+
+static BOOLEAN header_matches(const CHAR16 *header, const CHAR16 *configuration)
+{
+	UINTN index = 0U;
+	while (header[index] != 0U && header[index] == configuration[index])
+		index++;
+	return header[index] == 0U &&
+		(configuration[index] == 0U || configuration[index] == L'&');
+}
+
+EFI_STATUS cdk2_hii_register_config_route(struct cdk2_hii_database *database,
+	const CHAR16 *header, cdk2_hii_extract_config_fn *extract,
+	cdk2_hii_route_config_fn *route, void *context, void **route_handle)
+{
+	struct cdk2_hii_config_route *entry = NULL;
+	EFI_STATUS status;
+	UINTN length, index;
+
+	if (database == NULL || header == NULL || extract == NULL || route == NULL ||
+	    route_handle == NULL)
+		return EFI_INVALID_PARAMETER;
+	length = text_length(header);
+	if (length == 0U)
+		return EFI_INVALID_PARAMETER;
+	for (index = 0; index < CDK2_HII_MAX_CONFIG_ROUTES; index++) {
+		if (database->config_routes[index].active &&
+		    header_matches(database->config_routes[index].header, header))
+			return HII_ALREADY_STARTED;
+		if (!database->config_routes[index].active && entry == NULL)
+			entry = &database->config_routes[index];
+	}
+	if (entry == NULL)
+		return EFI_OUT_OF_RESOURCES;
+	status = database->ops->allocate(database->context,
+		(length + 1U) * sizeof(*header), (void **)&entry->header);
+	if (EFI_ERROR(status))
+		return status;
+	__builtin_memcpy(entry->header, header, (length + 1U) * sizeof(*header));
+	entry->extract = extract;
+	entry->route = route;
+	entry->context = context;
+	entry->active = TRUE;
+	*route_handle = entry;
+	return EFI_SUCCESS;
+}
+
+EFI_STATUS cdk2_hii_unregister_config_route(struct cdk2_hii_database *database,
+	void *route_handle)
+{
+	struct cdk2_hii_config_route *entry = route_handle;
+
+	if (database == NULL || entry < database->config_routes ||
+	    entry >= database->config_routes + CDK2_HII_MAX_CONFIG_ROUTES ||
+	    !entry->active)
+		return EFI_NOT_FOUND;
+	database->ops->release(database->context, entry->header);
+	*entry = (struct cdk2_hii_config_route) { 0 };
+	return EFI_SUCCESS;
+}
+
+EFI_STATUS cdk2_hii_extract_config(struct cdk2_hii_database *database,
+	const CHAR16 *request, const CHAR16 **progress, CHAR16 **results)
+{
+	UINTN index;
+
+	if (database == NULL || request == NULL || progress == NULL || results == NULL)
+		return EFI_INVALID_PARAMETER;
+	for (index = 0; index < CDK2_HII_MAX_CONFIG_ROUTES; index++)
+		if (database->config_routes[index].active &&
+		    header_matches(database->config_routes[index].header, request))
+			return database->config_routes[index].extract(
+				database->config_routes[index].context, request, progress, results);
+	*progress = request;
+	return EFI_NOT_FOUND;
+}
+
+EFI_STATUS cdk2_hii_route_config(struct cdk2_hii_database *database,
+	const CHAR16 *configuration, const CHAR16 **progress)
+{
+	UINTN index;
+
+	if (database == NULL || configuration == NULL || progress == NULL)
+		return EFI_INVALID_PARAMETER;
+	for (index = 0; index < CDK2_HII_MAX_CONFIG_ROUTES; index++)
+		if (database->config_routes[index].active &&
+		    header_matches(database->config_routes[index].header, configuration))
+			return database->config_routes[index].route(
+				database->config_routes[index].context, configuration, progress);
+	*progress = configuration;
+	return EFI_NOT_FOUND;
 }

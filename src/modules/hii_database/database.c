@@ -125,6 +125,16 @@ EFI_STATUS cdk2_hii_database_init(struct cdk2_hii_database *database,
 	}
 	__builtin_memset(database->glyphs, 0,
 		sizeof(*database->glyphs) * CDK2_HII_MAX_GLYPHS);
+	if (ops->allocate(context,
+			sizeof(*database->config_routes) * CDK2_HII_MAX_CONFIG_ROUTES,
+			(void **)&database->config_routes) != EFI_SUCCESS) {
+		ops->release(context, database->glyphs);
+		ops->release(context, database->images);
+		ops->release(context, database->strings);
+		return EFI_OUT_OF_RESOURCES;
+	}
+	__builtin_memset(database->config_routes, 0,
+		sizeof(*database->config_routes) * CDK2_HII_MAX_CONFIG_ROUTES);
 	return EFI_SUCCESS;
 }
 
