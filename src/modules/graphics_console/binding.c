@@ -3,6 +3,7 @@
 #include <cdk2/graphics_console_binding.h>
 
 #define EFI_NOT_STARTED EFIERR(19)
+#define EFI_ALREADY_STARTED EFIERR(20)
 
 static const EFI_GUID device_path_guid = { 0x09576e91, 0x6d3f, 0x11d2,
 	{ 0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b } };
@@ -65,12 +66,36 @@ static EFI_STATUS CDK2_MS_ABI text_output(struct cdk2_simple_text_output_view *t
 static EFI_STATUS CDK2_MS_ABI text_test(struct cdk2_simple_text_output_view *text,
 	CHAR16 *string)
 {
-	(void)text;
-	return cdk2_graphics_console_test_string(string);
+	struct cdk2_graphics_console_binding *binding = from_text(text);
+	struct cdk2_image_output *image;
+	UINTN baseline;
+	EFI_STATUS status;
+	CHAR16 *character;
+
+	status = cdk2_graphics_console_test_string(string);
+	if (EFI_ERROR(status) || binding->font == NULL ||
+	    binding->font->get_glyph == NULL)
+		return EFI_ERROR(status) ? status : EFI_UNSUPPORTED;
+	for (character = string; *character != 0U; character++) {
+		if (*character < 0x20U || *character == 0xfff0U || *character == 0xfff1U)
+			continue;
+		image = NULL;
+		status = binding->font->get_glyph(binding->font, *character, NULL,
+			&image, &baseline);
+		if (EFI_ERROR(status))
+			return EFI_UNSUPPORTED;
+		if (image != NULL) {
+			if (image->image.bitmap != NULL && binding->ops->release != NULL)
+				binding->ops->release(binding->context, image->image.bitmap);
+			if (binding->ops->release != NULL)
+				binding->ops->release(binding->context, image);
+		}
+	}
+	return EFI_SUCCESS;
 }
 
 static EFI_STATUS CDK2_MS_ABI text_query(struct cdk2_simple_text_output_view *text,
-	UINTN mode, UINTN * columns, UINTN * rows)
+	UINTN mode, UINTN *columns, UINTN *rows)
 {
 	struct cdk2_graphics_console *console = &from_text(text)->console;
 
@@ -87,7 +112,18 @@ static EFI_STATUS CDK2_MS_ABI text_set_mode(struct cdk2_simple_text_output_view 
 	UINTN mode)
 {
 	struct cdk2_graphics_console_binding *binding = from_text(text);
-	EFI_STATUS status = cdk2_graphics_console_set_mode(&binding->console, (UINT32)mode);
+	EFI_STATUS status;
+
+	if (mode >= binding->console.mode_count)
+		return EFI_UNSUPPORTED;
+	if (binding->gop != NULL && binding->gop->set_mode != NULL &&
+	    binding->gop->mode->mode != binding->console.modes[mode].gop_mode) {
+		status = binding->gop->set_mode(binding->gop,
+			binding->console.modes[mode].gop_mode);
+		if (EFI_ERROR(status))
+			return status;
+	}
+	status = cdk2_graphics_console_set_mode(&binding->console, (UINT32)mode);
 
 	if (!EFI_ERROR(status))
 		sync_text_mode(binding);
@@ -139,6 +175,7 @@ EFI_STATUS cdk2_graphics_binding_prepare_text(struct cdk2_graphics_console_bindi
 
 	if (binding == NULL)
 		return EFI_INVALID_PARAMETER;
+	binding->text_ops = ops;
 	status = cdk2_graphics_console_init(&binding->console, ops, context);
 	if (EFI_ERROR(status))
 		return status;
@@ -175,19 +212,54 @@ static EFI_STATUS CDK2_MS_ABI driver_supported(struct cdk2_driver_binding_view *
 static EFI_STATUS CDK2_MS_ABI driver_start(struct cdk2_driver_binding_view *driver,
 	void *controller, void *remaining)
 {
+	struct cdk2_graphics_console_binding *root = from_driver(driver);
+	struct cdk2_graphics_console_binding *instance;
+	EFI_STATUS status;
+
 	(void)remaining;
-	return cdk2_graphics_binding_start(from_driver(driver), controller);
+	if (root->ops->allocate == NULL || root->ops->release == NULL)
+		return EFI_OUT_OF_RESOURCES;
+	status = root->ops->allocate(root->context, sizeof(*instance), (void **)&instance);
+	if (EFI_ERROR(status))
+		return status;
+	*instance = (struct cdk2_graphics_console_binding) {
+		.ops = root->ops,
+		.context = root->context,
+		.text_ops = root->text_ops,
+		.owner = root,
+	};
+	status = cdk2_graphics_binding_start(instance, controller);
+	if (EFI_ERROR(status)) {
+		root->ops->release(root->context, instance);
+		return status;
+	}
+	instance->next = root->instances;
+	root->instances = instance;
+	return EFI_SUCCESS;
 }
 
 static EFI_STATUS CDK2_MS_ABI driver_stop(struct cdk2_driver_binding_view *driver,
 	void *controller, UINTN children, void **child_buffer)
 {
-	struct cdk2_graphics_console_binding *binding = from_driver(driver);
+	struct cdk2_graphics_console_binding *root = from_driver(driver);
+	struct cdk2_graphics_console_binding **link = &root->instances;
+	struct cdk2_graphics_console_binding *binding;
+	EFI_STATUS status;
 
 	(void)child_buffer;
-	if (children != 0U || binding->controller != controller)
+	if (children != 0U)
 		return EFI_INVALID_PARAMETER;
-	return cdk2_graphics_binding_stop(binding);
+	while (*link != NULL && (*link)->controller != controller)
+		link = &(*link)->next;
+	if (*link == NULL)
+		return EFI_INVALID_PARAMETER;
+	binding = *link;
+	status = cdk2_graphics_binding_stop(binding);
+	if (EFI_ERROR(status))
+		return status;
+	*link = binding->next;
+	root->ops->release(root->context, binding);
+	return EFI_SUCCESS;
 }
 
 static EFI_STATUS CDK2_MS_ABI get_driver_name(struct cdk2_component_name_view *component,
@@ -226,11 +298,15 @@ static EFI_STATUS CDK2_MS_ABI get_driver_name2(struct cdk2_component_name_view *
 	return EFI_SUCCESS;
 }
 
-static void rollback(struct cdk2_graphics_console_binding *binding)
+static EFI_STATUS rollback(struct cdk2_graphics_console_binding *binding)
 {
+	EFI_STATUS status;
+
 	if (binding->text_installed) {
-		binding->ops->uninstall(binding->context, binding->controller, &text_guid,
+		status = binding->ops->uninstall(binding->context, binding->controller, &text_guid,
 			&binding->text);
+		if (EFI_ERROR(status))
+			return status;
 		binding->text_installed = FALSE;
 	}
 	binding->font = NULL;
@@ -242,6 +318,7 @@ static void rollback(struct cdk2_graphics_console_binding *binding)
 		binding->ops->close(binding->context, binding->controller, &device_path_guid);
 		binding->device_path_open = FALSE;
 	}
+	return EFI_SUCCESS;
 }
 
 EFI_STATUS cdk2_graphics_binding_supported(struct cdk2_graphics_console_binding *binding,
@@ -260,6 +337,34 @@ EFI_STATUS cdk2_graphics_binding_supported(struct cdk2_graphics_console_binding 
 	return status;
 }
 
+static EFI_STATUS select_mode_zero(struct cdk2_graphics_console_binding *binding)
+{
+	struct cdk2_gop_mode_info *info;
+	UINTN size;
+	UINT32 mode;
+	EFI_STATUS status;
+
+	if (binding->gop->mode->info->horizontal_resolution >= 640U &&
+	    binding->gop->mode->info->vertical_resolution >= 475U)
+		return EFI_SUCCESS;
+	if (binding->gop->query_mode == NULL || binding->gop->set_mode == NULL ||
+	    binding->ops->release == NULL)
+		return EFI_UNSUPPORTED;
+	for (mode = 0; mode < binding->gop->mode->max_mode; mode++) {
+		info = NULL;
+		status = binding->gop->query_mode(binding->gop, mode, &size, &info);
+		if (!EFI_ERROR(status) && info != NULL &&
+		    info->horizontal_resolution >= 640U &&
+		    info->vertical_resolution >= 475U) {
+			binding->ops->release(binding->context, info);
+			return binding->gop->set_mode(binding->gop, mode);
+		}
+		if (info != NULL)
+			binding->ops->release(binding->context, info);
+	}
+	return EFI_UNSUPPORTED;
+}
+
 EFI_STATUS cdk2_graphics_binding_start(struct cdk2_graphics_console_binding *binding,
 	void *controller)
 {
@@ -269,7 +374,7 @@ EFI_STATUS cdk2_graphics_binding_start(struct cdk2_graphics_console_binding *bin
 	if (binding == NULL || binding->ops == NULL || binding->ops->open == NULL ||
 	    binding->ops->close == NULL || binding->ops->install == NULL ||
 	    binding->ops->uninstall == NULL || binding->ops->locate == NULL ||
-	    binding->text.output_string == NULL || binding->text.mode == NULL)
+	    binding->text_ops == NULL)
 		return EFI_INVALID_PARAMETER;
 	binding->controller = controller;
 	status = binding->ops->open(binding->context, controller, &device_path_guid,
@@ -282,6 +387,29 @@ EFI_STATUS cdk2_graphics_binding_start(struct cdk2_graphics_console_binding *bin
 	if (EFI_ERROR(status))
 		goto fail;
 	binding->gop_open = TRUE;
+	status = select_mode_zero(binding);
+	if (EFI_ERROR(status))
+		goto fail;
+	binding->console.mode_count = 0U;
+	status = cdk2_graphics_console_add_mode_geometry(&binding->console,
+		binding->gop->mode->info->horizontal_resolution,
+		binding->gop->mode->info->vertical_resolution, 80U, 25U, 8U, 19U,
+		binding->gop->mode->mode);
+	if (EFI_ERROR(status))
+		goto fail;
+	status = cdk2_graphics_console_add_mode_geometry(&binding->console,
+		binding->gop->mode->info->horizontal_resolution,
+		binding->gop->mode->info->vertical_resolution,
+		binding->gop->mode->info->horizontal_resolution / 8U,
+		binding->gop->mode->info->vertical_resolution / 19U, 8U, 19U,
+		binding->gop->mode->mode);
+	if (status == EFI_ALREADY_STARTED)
+		status = EFI_SUCCESS;
+	if (EFI_ERROR(status))
+		goto fail;
+	status = cdk2_graphics_binding_prepare_text(binding, binding->text_ops, binding);
+	if (EFI_ERROR(status))
+		goto fail;
 	status = binding->ops->locate(binding->context, &font_guid, (void **)&binding->font);
 	if (EFI_ERROR(status))
 		goto fail;
@@ -291,7 +419,7 @@ EFI_STATUS cdk2_graphics_binding_start(struct cdk2_graphics_console_binding *bin
 	binding->text_installed = TRUE;
 	return EFI_SUCCESS;
 fail:
-	rollback(binding);
+	(void)rollback(binding);
 	return status;
 }
 
@@ -299,7 +427,12 @@ EFI_STATUS cdk2_graphics_binding_stop(struct cdk2_graphics_console_binding *bind
 {
 	if (binding == NULL || !binding->text_installed)
 		return EFI_NOT_STARTED;
-	rollback(binding);
+	{
+		EFI_STATUS status = rollback(binding);
+
+		if (EFI_ERROR(status))
+			return status;
+	}
 	binding->controller = NULL;
 	binding->gop = NULL;
 	binding->font = NULL;
@@ -326,10 +459,13 @@ EFI_STATUS cdk2_graphics_render_string(struct cdk2_graphics_console_binding *bin
 
 	if (binding == NULL || binding->font == NULL ||
 	    binding->font->string_to_image == NULL || binding->gop == NULL ||
-	    string == NULL || image == NULL || width > 0xffffU || height > 0xffffU)
+	    binding->gop->mode == NULL || binding->gop->mode->info == NULL ||
+	    string == NULL || image == NULL || width == 0U || height == 0U ||
+	    binding->gop->mode->info->horizontal_resolution > 0xffffU ||
+	    binding->gop->mode->info->vertical_resolution > 0xffffU)
 		return EFI_INVALID_PARAMETER;
-	direct.width = (UINT16)width;
-	direct.height = (UINT16)height;
+	direct.width = (UINT16)binding->gop->mode->info->horizontal_resolution;
+	direct.height = (UINT16)binding->gop->mode->info->vertical_resolution;
 	direct.image.screen = binding->gop;
 	*image = &direct;
 	flags = CDK2_HII_IGNORE_IF_NO_GLYPH | CDK2_HII_IGNORE_LINE_BREAK |
@@ -341,12 +477,13 @@ EFI_STATUS cdk2_graphics_render_string(struct cdk2_graphics_console_binding *bin
 }
 
 EFI_STATUS cdk2_graphics_binding_publish(struct cdk2_graphics_console_binding *binding,
-	void *image, cdk2_binding_publish_fn * publish, cdk2_binding_notify_fn * notify,
-	void *context)
+	void *image, cdk2_binding_publish_fn publish, cdk2_binding_publish_fn unpublish,
+	cdk2_binding_notify_fn notify, void *context)
 {
 	EFI_STATUS status;
 
-	if (binding == NULL || image == NULL || publish == NULL || notify == NULL)
+	if (binding == NULL || image == NULL || publish == NULL || unpublish == NULL ||
+	    notify == NULL)
 		return EFI_INVALID_PARAMETER;
 	status = notify(context, &hii_database_guid);
 	if (EFI_ERROR(status))
@@ -373,7 +510,15 @@ EFI_STATUS cdk2_graphics_binding_publish(struct cdk2_graphics_console_binding *b
 	if (EFI_ERROR(status))
 		return status;
 	status = publish(context, image, &component_name_guid, &binding->component_name);
-	if (EFI_ERROR(status))
+	if (EFI_ERROR(status)) {
+		(void)unpublish(context, image, &driver_binding_guid, &binding->driver);
 		return status;
-	return publish(context, image, &component_name2_guid, &binding->component_name2);
+	}
+	status = publish(context, image, &component_name2_guid, &binding->component_name2);
+	if (EFI_ERROR(status)) {
+		(void)unpublish(context, image, &component_name_guid,
+			&binding->component_name);
+		(void)unpublish(context, image, &driver_binding_guid, &binding->driver);
+	}
+	return status;
 }

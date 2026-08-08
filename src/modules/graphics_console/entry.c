@@ -68,7 +68,6 @@ struct graphics_entry_context {
 	void *notify_registration;
 	struct cdk2_graphics_console_binding binding;
 	struct cdk2_graphics_font_package package;
-	BOOLEAN cursor_drawn;
 };
 
 static struct graphics_entry_context entry_context;
@@ -107,9 +106,9 @@ static void release(void *context, void *buffer)
 static EFI_STATUS draw(void *context, CHAR16 character, UINT32 column, UINT32 row,
 	UINT8 attribute, BOOLEAN wide)
 {
-	struct graphics_entry_context *entry = context;
+	struct cdk2_graphics_console_binding *binding = context;
 	const struct cdk2_graphics_text_mode *mode =
-		&entry->binding.console.modes[entry->binding.console.mode];
+		&binding->console.modes[binding->console.mode];
 	struct cdk2_image_output *image = NULL;
 	struct cdk2_font_display_info display = { 0 };
 	CHAR16 string[2] = { character, 0 };
@@ -117,7 +116,7 @@ static EFI_STATUS draw(void *context, CHAR16 character, UINT32 column, UINT32 ro
 	display.foreground = palette[attribute & 0x0fU];
 	display.background = palette[(attribute >> 4) & 0x07U];
 	display.mask = 0x00000003U;
-	return cdk2_graphics_render_string(&entry->binding, string, &display, &image,
+	return cdk2_graphics_render_string(binding, string, &display, &image,
 		mode->horizontal_delta + column * mode->glyph_width,
 		mode->vertical_delta + row * mode->glyph_height,
 		mode->glyph_width * (wide ? 2U : 1U), mode->glyph_height);
@@ -126,12 +125,12 @@ static EFI_STATUS draw(void *context, CHAR16 character, UINT32 column, UINT32 ro
 static EFI_STATUS fill(void *context, UINT32 column, UINT32 row, UINT32 columns,
 	UINT32 rows, UINT8 attribute)
 {
-	struct graphics_entry_context *entry = context;
+	struct cdk2_graphics_console_binding *binding = context;
 	const struct cdk2_graphics_text_mode *mode =
-		&entry->binding.console.modes[entry->binding.console.mode];
+		&binding->console.modes[binding->console.mode];
 	struct cdk2_graphics_pixel color = palette[(attribute >> 4) & 0x07U];
 
-	return cdk2_graphics_gop_blt(&entry->binding, &color, 0U, 0, 0,
+	return cdk2_graphics_gop_blt(binding, &color, 0U, 0, 0,
 		mode->horizontal_delta + column * mode->glyph_width,
 		mode->vertical_delta + row * mode->glyph_height,
 		columns * mode->glyph_width, rows * mode->glyph_height, 0);
@@ -139,10 +138,10 @@ static EFI_STATUS fill(void *context, UINT32 column, UINT32 row, UINT32 columns,
 
 static EFI_STATUS scroll(void *context, UINT32 rows, UINT8 attribute)
 {
-	struct graphics_entry_context *entry = context;
+	struct cdk2_graphics_console_binding *binding = context;
 	const struct cdk2_graphics_text_mode *mode =
-		&entry->binding.console.modes[entry->binding.console.mode];
-	EFI_STATUS status = cdk2_graphics_gop_blt(&entry->binding, NULL, 3U,
+		&binding->console.modes[binding->console.mode];
+	EFI_STATUS status = cdk2_graphics_gop_blt(binding, NULL, 3U,
 		mode->horizontal_delta, mode->vertical_delta + rows * mode->glyph_height,
 		mode->horizontal_delta, mode->vertical_delta,
 		mode->columns * mode->glyph_width, (mode->rows - rows) * mode->glyph_height, 0);
@@ -155,18 +154,18 @@ static EFI_STATUS scroll(void *context, UINT32 rows, UINT8 attribute)
 static EFI_STATUS cursor(void *context, UINT32 column, UINT32 row, BOOLEAN visible,
 	UINT8 attribute)
 {
-	struct graphics_entry_context *entry = context;
+	struct cdk2_graphics_console_binding *binding = context;
 	const struct cdk2_graphics_text_mode *mode =
-		&entry->binding.console.modes[entry->binding.console.mode];
+		&binding->console.modes[binding->console.mode];
 	struct cdk2_graphics_pixel pixels[19][8];
 	UINTN x, y;
 	EFI_STATUS status;
 
-	if (entry->cursor_drawn == visible)
+	if (binding->cursor_drawn == visible)
 		return EFI_SUCCESS;
 	x = mode->horizontal_delta + column * mode->glyph_width;
 	y = mode->vertical_delta + row * mode->glyph_height;
-	status = cdk2_graphics_gop_blt(&entry->binding, pixels, 1U, x, y, 0, 0, 8U,
+	status = cdk2_graphics_gop_blt(binding, pixels, 1U, x, y, 0, 0, 8U,
 		19U, sizeof(pixels[0]));
 	if (EFI_ERROR(status))
 		return status;
@@ -176,11 +175,11 @@ static EFI_STATUS cursor(void *context, UINT32 column, UINT32 row, BOOLEAN visib
 			pixels[y][x].green ^= palette[attribute & 0x0fU].green;
 			pixels[y][x].red ^= palette[attribute & 0x0fU].red;
 		}
-	status = cdk2_graphics_gop_blt(&entry->binding, pixels, 2U, 0, 0,
+	status = cdk2_graphics_gop_blt(binding, pixels, 2U, 0, 0,
 		mode->horizontal_delta + column * mode->glyph_width,
 		mode->vertical_delta + row * mode->glyph_height, 8U, 19U, sizeof(pixels[0]));
 	if (!EFI_ERROR(status))
-		entry->cursor_drawn = visible;
+		binding->cursor_drawn = visible;
 	return status;
 }
 
@@ -203,13 +202,6 @@ static EFI_STATUS open(void *context, void *controller, const EFI_GUID *protocol
 				controller);
 			return status;
 		}
-		entry->binding.gop = gop;
-		entry->binding.console.mode_count = 0U;
-		status = cdk2_graphics_console_add_mode(&entry->binding.console,
-			gop->mode->info->horizontal_resolution,
-			gop->mode->info->vertical_resolution, 8U, 19U);
-		if (!EFI_ERROR(status))
-			status = cdk2_graphics_binding_prepare_text(&entry->binding, &text_ops, entry);
 	}
 	return status;
 }
@@ -263,7 +255,7 @@ static EFI_STATUS notify(void *context, const EFI_GUID *protocol)
 EFI_STATUS CDK2_MS_ABI cdk2_graphics_console_entry(void *image, struct system_table_view *system)
 {
 	static const struct cdk2_graphics_console_binding_ops ops = {
-		open, close, locate, install, uninstall
+		open, close, locate, install, uninstall, allocate, release
 	};
 	if (image == NULL || system == NULL || system->boot == NULL)
 		return EFI_INVALID_PARAMETER;
@@ -272,6 +264,7 @@ EFI_STATUS CDK2_MS_ABI cdk2_graphics_console_entry(void *image, struct system_ta
 	entry_context.image = image;
 	entry_context.binding.ops = &ops;
 	entry_context.binding.context = &entry_context;
-	return cdk2_graphics_binding_publish(&entry_context.binding, image, publish, notify,
-		&entry_context);
+	entry_context.binding.text_ops = &text_ops;
+	return cdk2_graphics_binding_publish(&entry_context.binding, image, publish, uninstall,
+		notify, &entry_context);
 }

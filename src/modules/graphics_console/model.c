@@ -26,8 +26,7 @@ static EFI_STATUS scroll(struct cdk2_graphics_console *console)
 EFI_STATUS cdk2_graphics_console_add_mode(struct cdk2_graphics_console *console,
 	UINT32 width, UINT32 height, UINT32 glyph_width, UINT32 glyph_height)
 {
-	struct cdk2_graphics_text_mode *mode;
-	UINT32 columns, rows, index;
+	UINT32 columns, rows;
 
 	if (console == NULL || glyph_width == 0U || glyph_height == 0U)
 		return EFI_INVALID_PARAMETER;
@@ -35,6 +34,21 @@ EFI_STATUS cdk2_graphics_console_add_mode(struct cdk2_graphics_console *console,
 	rows = height / glyph_height;
 	if (columns == 0U || rows == 0U)
 		return EFI_UNSUPPORTED;
+	return cdk2_graphics_console_add_mode_geometry(console, width, height,
+		columns, rows, glyph_width, glyph_height, 0U);
+}
+
+EFI_STATUS cdk2_graphics_console_add_mode_geometry(struct cdk2_graphics_console *console,
+	UINT32 width, UINT32 height, UINT32 columns, UINT32 rows,
+	UINT32 glyph_width, UINT32 glyph_height, UINT32 gop_mode)
+{
+	struct cdk2_graphics_text_mode *mode;
+	UINT32 index;
+
+	if (console == NULL || columns == 0U || rows == 0U || glyph_width == 0U ||
+	    glyph_height == 0U || columns > width / glyph_width ||
+	    rows > height / glyph_height)
+		return EFI_INVALID_PARAMETER;
 	for (index = 0; index < console->mode_count; index++)
 		if (console->modes[index].columns == columns && console->modes[index].rows == rows)
 			return EFI_ALREADY_STARTED;
@@ -48,6 +62,7 @@ EFI_STATUS cdk2_graphics_console_add_mode(struct cdk2_graphics_console *console,
 		.glyph_height = glyph_height,
 		.horizontal_delta = (width - columns * glyph_width) / 2U,
 		.vertical_delta = (height - rows * glyph_height) / 2U,
+		.gop_mode = gop_mode,
 	};
 	return EFI_SUCCESS;
 }

@@ -15,6 +15,7 @@ struct cdk2_graphics_text_mode {
 	UINT32 glyph_height;
 	UINT32 horizontal_delta;
 	UINT32 vertical_delta;
+	UINT32 gop_mode;
 };
 
 typedef EFI_STATUS cdk2_graphics_draw_fn(void *context, CHAR16 character,
@@ -48,6 +49,9 @@ struct cdk2_graphics_console {
 
 EFI_STATUS cdk2_graphics_console_add_mode(struct cdk2_graphics_console *console,
 	UINT32 width, UINT32 height, UINT32 glyph_width, UINT32 glyph_height);
+EFI_STATUS cdk2_graphics_console_add_mode_geometry(struct cdk2_graphics_console *console,
+	UINT32 width, UINT32 height, UINT32 columns, UINT32 rows,
+	UINT32 glyph_width, UINT32 glyph_height, UINT32 gop_mode);
 EFI_STATUS cdk2_graphics_console_init(struct cdk2_graphics_console *console,
 	const struct cdk2_graphics_console_ops *ops, void *context);
 EFI_STATUS cdk2_graphics_console_set_mode(struct cdk2_graphics_console *console,
