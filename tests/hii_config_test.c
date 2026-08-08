@@ -47,5 +47,20 @@ int main(void)
 			EFI_SUCCESS && routes == 1U &&
 		cdk2_hii_unregister_config_route(&database, route_handle) == EFI_SUCCESS,
 		"ConfigAccess routing lifecycle failed");
+	failures += expect(cdk2_hii_get_alt_config(&database,
+		L"GUID=A&NAME=B&OFFSET=0&WIDTH=1&VALUE=00&GUID=A&NAME=B&ALTCFG=0001&"
+		L"OFFSET=0&WIDTH=1&VALUE=01",
+		L"GUID=A&NAME=B", NULL, &configuration) == EFI_SUCCESS &&
+		configuration[0] == L'G' &&
+		cdk2_hii_get_alt_config(&database,
+			L"GUID=A&NAME=B&OFFSET=0&WIDTH=1&VALUE=00&GUID=A&NAME=B&ALTCFG=0001&"
+			L"OFFSET=0&WIDTH=1&VALUE=01",
+			L"GUID=A&NAME=B", L"0001", &configuration) == EFI_SUCCESS &&
+		configuration[0] == L'G',
+		"current and alternate config segments were not selected independently");
+	failures += expect(cdk2_hii_get_alt_config(&database,
+		L"GUID=A&NAME=B&ALTCFG=00010&VALUE=01&GUID=C&ALTCFG=0001&VALUE=02",
+		L"GUID=A&NAME=B", L"0001", &configuration) == EFI_NOT_FOUND,
+		"alternate ID prefix or a later segment was accepted");
 	return failures == 0 ? 0 : 1;
 }

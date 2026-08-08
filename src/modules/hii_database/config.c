@@ -354,7 +354,7 @@ EFI_STATUS cdk2_hii_get_alt_config(struct cdk2_hii_database *database,
 	const CHAR16 *configuration, const CHAR16 *header,
 	const CHAR16 *altcfg, CHAR16 **result)
 {
-	const CHAR16 *segment, *end, *match_alt;
+	const CHAR16 *segment, *content, *end, *match_alt, *value_end;
 	EFI_STATUS status;
 	UINTN header_length, alt_length, length;
 	CHAR16 *copy;
@@ -364,31 +364,37 @@ EFI_STATUS cdk2_hii_get_alt_config(struct cdk2_hii_database *database,
 		return EFI_INVALID_PARAMETER;
 	header_length = text_length(header);
 	alt_length = altcfg == NULL ? 0U : text_length(altcfg);
+	if (header_length == 0U || (altcfg != NULL && alt_length == 0U))
+		return EFI_INVALID_PARAMETER;
 	segment = configuration;
 	while (*segment != 0U) {
-		if ((segment == configuration || match(segment, L"&GUID=")) &&
-		    header_matches(header, segment == configuration ? segment : segment + 1U)) {
-			match_alt = find_text(segment, L"&ALTCFG=");
-			if (altcfg == NULL || (match_alt != NULL &&
-			    prefix_equal(match_alt + 8U, altcfg, alt_length))) {
-				end = find_text(segment + 1U, L"&GUID=");
-				if (end == NULL)
-					end = segment + text_length(segment);
-				length = (UINTN)(end - segment);
+		content = segment == configuration ? segment : segment + 1U;
+		end = find_text(content + 1U, L"&GUID=");
+		if (end == NULL)
+			end = content + text_length(content);
+		if (header_matches(header, content)) {
+			match_alt = find_text(content, L"&ALTCFG=");
+			if (match_alt != NULL && match_alt >= end)
+				match_alt = NULL;
+			value_end = match_alt == NULL ? NULL : match_alt + 8U + alt_length;
+			if ((altcfg == NULL && match_alt == NULL) ||
+			    (altcfg != NULL && match_alt != NULL && value_end <= end &&
+			     prefix_equal(match_alt + 8U, altcfg, alt_length) &&
+			     (value_end == end || *value_end == L'&'))) {
+				length = (UINTN)(end - content);
 				status = database->ops->allocate(database->context,
 					(length + 1U) * sizeof(CHAR16), (void **)&copy);
 				if (EFI_ERROR(status))
 					return status;
-				__builtin_memcpy(copy, segment, length * sizeof(CHAR16));
+				__builtin_memcpy(copy, content, length * sizeof(CHAR16));
 				copy[length] = 0U;
 				*result = copy;
 				return EFI_SUCCESS;
 			}
 		}
-		segment = find_text(segment + 1U, L"&GUID=");
+		segment = end;
 		if (segment == NULL)
 			break;
 	}
-	(void)header_length;
 	return EFI_NOT_FOUND;
 }
