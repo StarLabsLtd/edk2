@@ -11,6 +11,12 @@
 #define ISO_SECTOR_SIZE 2048U
 #define ISO_DESCRIPTOR_START 16U
 #define ISO_DESCRIPTOR_LIMIT 64U
+#define UDF_ANCHOR_TAG 2U
+#define UDF_PARTITION_TAG 5U
+#define UDF_LOGICAL_VOLUME_TAG 6U
+#define UDF_TERMINATING_TAG 8U
+#define UDF_FILE_SET_TAG 256U
+#define UDF_SEQUENCE_LIMIT 256U
 
 static const EFI_GUID blank_guid;
 
@@ -398,6 +404,189 @@ EFI_STATUS cdk2_partition_parse_el_torito(
 	}
 	*partition_count = count;
 	return count == 0 ? EFI_NOT_FOUND : EFI_SUCCESS;
+}
+
+static UINT16 read16(const UINT8 *bytes)
+{
+	return (UINT16)bytes[0] | (UINT16)bytes[1] << 8;
+}
+
+static UINT16 udf_crc16(const UINT8 *bytes, UINTN size)
+{
+	UINT16 crc = 0;
+	UINTN index;
+	UINTN bit;
+
+	for (index = 0; index < size; index++) {
+		crc ^= (UINT16)bytes[index] << 8;
+		for (bit = 0; bit < 8; bit++)
+			crc = crc & 0x8000U ? (UINT16)((crc << 1) ^ 0x1021U) :
+				(UINT16)(crc << 1);
+	}
+	return crc;
+}
+
+static EFI_STATUS validate_udf_tag(const UINT8 *block, UINT32 block_size,
+	UINT16 identifier, UINT32 location)
+{
+	UINT8 sum = 0;
+	UINT16 crc_length;
+	UINTN index;
+
+	if (read16(block) != identifier || read16(block + 2) < 2U ||
+	    read32(block + 12) != location)
+		return EFI_COMPROMISED_DATA;
+	for (index = 0; index < 16U; index++)
+		if (index != 4U)
+			sum = (UINT8)(sum + block[index]);
+	if (sum != block[4])
+		return EFI_CRC_ERROR;
+	crc_length = read16(block + 10);
+	if (crc_length > block_size - 16U)
+		return EFI_COMPROMISED_DATA;
+	if (crc_length != 0 && udf_crc16(block + 16, crc_length) != read16(block + 8))
+		return EFI_CRC_ERROR;
+	return EFI_SUCCESS;
+}
+
+static EFI_STATUS read_udf_anchor(const struct cdk2_partition_media *media,
+	UINT8 *block, UINT64 lba, UINT32 *sequence_lba, UINT32 *sequence_bytes)
+{
+	EFI_STATUS status;
+
+	if (lba > media->last_block || lba > MAX_UINT32)
+		return EFI_NOT_FOUND;
+	status = media->read(media->context, lba, 1U, block);
+	if (EFI_ERROR(status))
+		return status;
+	status = validate_udf_tag(block, media->block_size, UDF_ANCHOR_TAG,
+		(UINT32)lba);
+	if (EFI_ERROR(status))
+		return status;
+	*sequence_bytes = read32(block + 16);
+	*sequence_lba = read32(block + 20);
+	if (*sequence_bytes < media->block_size ||
+	    *sequence_bytes % media->block_size != 0)
+		return EFI_COMPROMISED_DATA;
+	return EFI_SUCCESS;
+}
+
+EFI_STATUS cdk2_partition_parse_udf(const struct cdk2_partition_media *media,
+	void *block_buffer, UINTN block_capacity,
+	struct cdk2_partition *partitions, UINTN partition_capacity,
+	UINTN *partition_count)
+{
+	UINT8 *block = block_buffer;
+	UINT64 anchors[3];
+	UINT32 sequence_lba = 0;
+	UINT32 sequence_bytes = 0;
+	UINT32 sequence_blocks;
+	UINTN anchor_count = 1U;
+	UINTN count = 0;
+	UINTN anchor;
+	UINTN index;
+	BOOLEAN logical_volume = FALSE;
+	BOOLEAN terminated = FALSE;
+	UINT32 file_set_lba = 0;
+	UINT16 file_set_partition = 0;
+	EFI_STATUS status = EFI_NOT_FOUND;
+
+	if (!media_valid(media) || block == NULL || partitions == NULL ||
+	    partition_count == NULL || block_capacity < media->block_size)
+		return EFI_INVALID_PARAMETER;
+	*partition_count = 0;
+	anchors[0] = 256U;
+	if (media->last_block >= 256U)
+		anchors[anchor_count++] = media->last_block - 256U;
+	anchors[anchor_count++] = media->last_block;
+	for (anchor = 0; anchor < anchor_count; anchor++) {
+		status = read_udf_anchor(media, block, anchors[anchor], &sequence_lba,
+			&sequence_bytes);
+		if (!EFI_ERROR(status))
+			break;
+	}
+	if (anchor == anchor_count)
+		return status == EFI_NOT_FOUND ? EFI_NOT_FOUND : EFI_COMPROMISED_DATA;
+	sequence_blocks = sequence_bytes / media->block_size;
+	if (sequence_blocks > UDF_SEQUENCE_LIMIT || sequence_lba > media->last_block ||
+	    sequence_blocks - 1U > media->last_block - sequence_lba)
+		return EFI_COMPROMISED_DATA;
+	for (index = 0; index < sequence_blocks; index++) {
+		UINT16 tag;
+
+		status = media->read(media->context, sequence_lba + index, 1U, block);
+		if (EFI_ERROR(status))
+			return status;
+		tag = read16(block);
+		if (tag == 0 || tag > 9U)
+			return EFI_COMPROMISED_DATA;
+		status = validate_udf_tag(block, media->block_size, tag,
+			sequence_lba + (UINT32)index);
+		if (EFI_ERROR(status))
+			return status;
+		if (tag == UDF_TERMINATING_TAG) {
+			terminated = TRUE;
+			break;
+		}
+		if (tag == UDF_LOGICAL_VOLUME_TAG) {
+			if (read32(block + 212) != media->block_size)
+				return EFI_UNSUPPORTED;
+			file_set_lba = read32(block + 252);
+			file_set_partition = read16(block + 256);
+			logical_volume = TRUE;
+			continue;
+		}
+		if (tag == UDF_PARTITION_TAG) {
+			struct cdk2_partition *partition;
+			UINT32 start;
+			UINT32 blocks;
+			UINTN character;
+
+			start = read32(block + 188);
+			blocks = read32(block + 192);
+			if (blocks == 0 || start > media->last_block ||
+			    blocks - 1U > media->last_block - start)
+				return EFI_COMPROMISED_DATA;
+			if (count == partition_capacity)
+				return EFI_BUFFER_TOO_SMALL;
+			status = validate_entry_range(partitions, count, start,
+				start + blocks - 1U, 0, media->last_block);
+			if (EFI_ERROR(status))
+				return status;
+			partition = &partitions[count++];
+			partition->scheme = CDK2_PARTITION_UDF;
+			partition->start_lba = start;
+			partition->end_lba = start + blocks - 1U;
+			partition->attributes = read32(block + 184);
+			partition->type_guid = blank_guid;
+			partition->unique_guid = blank_guid;
+			for (character = 0; character < CDK2_GPT_NAME_CHARS;
+			     character++)
+				partition->name[character] = 0;
+			partition->index = read16(block + 22) + 1U;
+			partition->disk_signature = 0;
+			partition->boot_entry = 0;
+			partition->mbr_type = 0;
+		}
+	}
+	if (!terminated || !logical_volume || count == 0)
+		return EFI_COMPROMISED_DATA;
+	for (index = 0; index < count; index++)
+		if (partitions[index].index == (UINT32)file_set_partition + 1U)
+			break;
+	if (index == count || file_set_lba >
+	    partitions[index].end_lba - partitions[index].start_lba)
+		return EFI_COMPROMISED_DATA;
+	status = media->read(media->context,
+		partitions[index].start_lba + file_set_lba, 1U, block);
+	if (EFI_ERROR(status))
+		return status;
+	status = validate_udf_tag(block, media->block_size, UDF_FILE_SET_TAG,
+		file_set_lba);
+	if (EFI_ERROR(status))
+		return status;
+	*partition_count = count;
+	return EFI_SUCCESS;
 }
 
 EFI_STATUS cdk2_partition_parse_mbr(const struct cdk2_partition_media *media,

@@ -51,5 +51,9 @@ EFI_STATUS cdk2_partition_parse_el_torito(
 	const struct cdk2_partition_media *media, void *sector_buffer,
 	UINTN sector_capacity, struct cdk2_partition *partitions,
 	UINTN partition_capacity, UINTN *partition_count);
+EFI_STATUS cdk2_partition_parse_udf(const struct cdk2_partition_media *media,
+	void *block_buffer, UINTN block_capacity,
+	struct cdk2_partition *partitions, UINTN partition_capacity,
+	UINTN *partition_count);
 
 #endif
