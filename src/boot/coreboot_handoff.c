@@ -13,6 +13,7 @@
 #include <guid/serial_port_info.h>
 #include <guid/smmstore_info.h>
 #include <guid/smram_memory.h>
+#include <guid/smm_register_info.h>
 #include <industry_standard/acpi.h>
 #include <industry_standard/mcfg.h>
 #include <industry_standard/tpm20.h>
@@ -96,6 +97,12 @@ static const EFI_GUID m_cdk2_smram_memory_guid = {
 	0xd4cc,
 	0x4910,
 	{0xbb, 0x6e, 0x82, 0xb1, 0xfd, 0x80, 0xff, 0x3d}
+};
+static const EFI_GUID m_cdk2_smm_register_info_guid = {
+	0xaa9bd7a7,
+	0xcafb,
+	0x4499,
+	{0xa4, 0xa9, 0x0b, 0x34, 0x6b, 0x40, 0xa6, 0x22}
 };
 static const EFI_GUID m_cdk2_firmware_info_hob_guid = {
 	0xe0653829,
@@ -595,6 +602,31 @@ static EFI_STATUS cdk2_coreboot_append_smram_hob(
 	smram_info.descriptor[0].region_state = EFI_SMRAM_CLOSED | EFI_CACHEABLE;
 	return cdk2_coreboot_append_guid_hob(handoff, &m_cdk2_smram_memory_guid,
 		&smram_info, sizeof(smram_info));
+}
+
+static EFI_STATUS cdk2_coreboot_append_smm_register_info_hob(
+	EFI_HOB_HANDOFF_INFO_TABLE *handoff,
+	const struct cdk2_coreboot_handoff *coreboot)
+{
+	const struct cb_smm_register_info *info;
+	const void *record;
+	UINTN payload_size;
+	EFI_STATUS status;
+
+	status = cdk2_coreboot_find_record(coreboot, CB_TAG_SMM_REGISTER_INFO,
+		CDK2_COREBOOT_SMM_REGISTER_INFO_MIN_SIZE, &record);
+	if (EFI_ERROR(status))
+		return status;
+	info = (const struct cb_smm_register_info *)record;
+	if (info->revision != CDK2_SMM_REGISTER_INFO_REVISION || info->reserved != 0U ||
+	    info->count == 0U || info->count > CDK2_SMM_REGISTER_MAX_COUNT)
+		return EFI_COMPROMISED_DATA;
+	payload_size = sizeof(*info) - sizeof(struct cb_record) +
+		(UINTN)info->count * sizeof(info->registers[0]);
+	if (payload_size != info->size - sizeof(struct cb_record))
+		return EFI_COMPROMISED_DATA;
+	return cdk2_coreboot_append_guid_hob(handoff, &m_cdk2_smm_register_info_guid,
+		&info->revision, payload_size);
 }
 
 static UINT16 cdk2_coreboot_tpm_digest_size(TPMI_ALG_HASH hash_alg)
@@ -1918,6 +1950,10 @@ static EFI_STATUS EFIAPI cdk2_coreboot_build_platform_hobs(struct cdk2_native_co
 	}
 
 	status = cdk2_coreboot_append_smram_hob(hob, &m_coreboot_handoff);
+	if (status != EFI_SUCCESS && status != EFI_NOT_FOUND)
+		return status;
+
+	status = cdk2_coreboot_append_smm_register_info_hob(hob, &m_coreboot_handoff);
 	if (status != EFI_SUCCESS && status != EFI_NOT_FOUND)
 		return status;
 

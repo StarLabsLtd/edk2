@@ -122,6 +122,12 @@ CDK2_NATIVE_SMM_ACCESS_PE ?= $(CDK2_NATIVE_BUILD_DIR)/SmmAccessDxe.efi
 CDK2_NATIVE_SMM_ACCESS_DEPEX ?= $(CDK2_NATIVE_BUILD_DIR)/SmmAccessDxe.depex
 CDK2_NATIVE_SMM_ACCESS_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/SmmAccessDxe.ffs
 CDK2_NATIVE_SMM_ACCESS_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-smm-access.fv
+CDK2_NATIVE_SMM_CONTROL_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-smm-control-test
+CDK2_NATIVE_SMM_CONTROL_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/smm-control.o
+CDK2_NATIVE_SMM_CONTROL_PE ?= $(CDK2_NATIVE_BUILD_DIR)/SmmControlRuntimeDxe.efi
+CDK2_NATIVE_SMM_CONTROL_DEPEX ?= $(CDK2_NATIVE_BUILD_DIR)/SmmControlRuntimeDxe.depex
+CDK2_NATIVE_SMM_CONTROL_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/SmmControlRuntimeDxe.ffs
+CDK2_NATIVE_SMM_CONTROL_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-smm-control.fv
 HOSTCC ?= cc
 CDK2_NATIVE_CC ?= $(CC)
 CDK2_NATIVE_HOST_CC ?= $(HOSTCC)
@@ -193,11 +199,12 @@ CDK2_NATIVE_HOST_TOOLS := \
 	$(CDK2_NATIVE_ENGLISH_TEST) \
 	$(CDK2_NATIVE_DISK_IO_TEST) \
 	$(CDK2_NATIVE_SERIAL_IO_TEST) \
-	$(CDK2_NATIVE_SMBIOS_TEST)
+	$(CDK2_NATIVE_SMBIOS_TEST) \
+	$(CDK2_NATIVE_SMM_CONTROL_TEST)
 CDK2_NATIVE_LINK_FLAGS := -static -no-pie -nostdlib -nostartfiles -nodefaultlibs -Wl,-z,max-page-size=0x1000 -Wl,-z,common-page-size=0x1000 -Wl,-T,"$(CDK2_NATIVE_DIR)/cdk2.ld"
 CDK2_NATIVE_LINK_POST_MAP_FLAGS := -Wl,--gc-sections -Wl,--build-id=none
 
-.PHONY: native-stage native-coreboot-stage native-coreboot-image native-metronome-fv native-security-stub-fv native-null-memory-test-fv native-null-memory-test-test native-watchdog-fv native-monotonic-counter-fv native-status-code-router-fv native-status-code-router-test native-status-code-handler-fv native-status-code-handler-test native-cpu-io2-fv native-cpu-io2-test native-english-test native-english-fv native-disk-io-fv native-disk-io-test native-serial-io-fv native-serial-io-test native-smbios-fv native-smbios-test native-reset-system-fv native-reset-system-test native-pcat-rtc-fv native-pcat-rtc-test native-smm-access-fv native-smm-access-test native-check native-pack native-service-test native-coreboot-test native-fv-test native-fvpack-test native-fvinfo native-fvinfo-test native-ffsbuild-test native-pe-test native-module-test native-security-stub-test native-elfcheck-test FORCE
+.PHONY: native-stage native-coreboot-stage native-coreboot-image native-metronome-fv native-security-stub-fv native-null-memory-test-fv native-null-memory-test-test native-watchdog-fv native-monotonic-counter-fv native-status-code-router-fv native-status-code-router-test native-status-code-handler-fv native-status-code-handler-test native-cpu-io2-fv native-cpu-io2-test native-english-test native-english-fv native-disk-io-fv native-disk-io-test native-serial-io-fv native-serial-io-test native-smbios-fv native-smbios-test native-reset-system-fv native-reset-system-test native-pcat-rtc-fv native-pcat-rtc-test native-smm-access-fv native-smm-access-test native-smm-control-fv native-smm-control-test native-check native-pack native-service-test native-coreboot-test native-fv-test native-fvpack-test native-fvinfo native-fvinfo-test native-ffsbuild-test native-pe-test native-module-test native-security-stub-test native-elfcheck-test FORCE
 
 ifeq ($(CONFIG_CDK2_NATIVE_STAGE),y)
 CDK2_NATIVE_STAGE_DEPS := $(CDK2_NATIVE_ELF)
@@ -249,6 +256,7 @@ native-check: $(CDK2_CONFIG_HEADER) $(CDK2_NATIVE_ELF) $(CDK2_NATIVE_OVERRIDE_EL
 	@"$(CDK2_NATIVE_DISK_IO_TEST)"
 	@"$(CDK2_NATIVE_SERIAL_IO_TEST)"
 	@"$(CDK2_NATIVE_SMBIOS_TEST)"
+	@"$(CDK2_NATIVE_SMM_CONTROL_TEST)"
 	@"$(CDK2_NATIVE_ELF_CHECK_TEST)" "$(CDK2_NATIVE_ELF_CHECK)" "$(CDK2_NATIVE_BUILD_DIR)"
 	@printf '%s\n' "native cdk2 stage: $(CDK2_NATIVE_ELF)"
 	@printf '%s\n' "native cdk2 FV packer: $(CDK2_NATIVE_PACKER)"
@@ -359,6 +367,12 @@ native-smm-access-test: $(CDK2_NATIVE_SMM_ACCESS_TEST)
 
 native-smm-access-fv: $(CDK2_NATIVE_SMM_ACCESS_FV)
 	@printf '%s\n' "native SMM Access FV: $(CDK2_NATIVE_SMM_ACCESS_FV)"
+
+native-smm-control-test: $(CDK2_NATIVE_SMM_CONTROL_TEST)
+	@"$<"
+
+native-smm-control-fv: $(CDK2_NATIVE_SMM_CONTROL_FV)
+	@printf '%s\n' "native SMM Control FV: $(CDK2_NATIVE_SMM_CONTROL_FV)"
 
 native-pe-test: $(CDK2_NATIVE_PE_TEST)
 	@"$(CDK2_NATIVE_PE_TEST)"
@@ -831,7 +845,7 @@ CDK2_NATIVE_PRE_SMM_ACCESS_FV := $(CDK2_NATIVE_PRE_PCAT_RTC_FV)
 endif
 
 ifeq ($(CONFIG_CDK2_NATIVE_SMM_ACCESS),y)
-CDK2_NATIVE_FINAL_FV := $(CDK2_NATIVE_SMM_ACCESS_FV)
+CDK2_NATIVE_PRE_SMM_CONTROL_FV := $(CDK2_NATIVE_SMM_ACCESS_FV)
 
 $(CDK2_NATIVE_SMM_ACCESS_OBJ): $(CDK2_DIR)/src/modules/smm_access/smm_access.c $(CDK2_DIR)/include/cdk2/smm_access.h $(CDK2_DIR)/include/guid/smram_memory.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
@@ -855,7 +869,35 @@ $(CDK2_NATIVE_SMM_ACCESS_FV): $(CDK2_NATIVE_PRE_SMM_ACCESS_FV) $(CDK2_NATIVE_SMM
 	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_PRE_SMM_ACCESS_FV)" 0xa9be0 \
 		"$(CDK2_NATIVE_SMM_ACCESS_FFS)" "$@"
 else
-CDK2_NATIVE_FINAL_FV := $(CDK2_NATIVE_PRE_SMM_ACCESS_FV)
+CDK2_NATIVE_PRE_SMM_CONTROL_FV := $(CDK2_NATIVE_PRE_SMM_ACCESS_FV)
+endif
+
+ifeq ($(CONFIG_CDK2_NATIVE_SMM_CONTROL),y)
+CDK2_NATIVE_FINAL_FV := $(CDK2_NATIVE_SMM_CONTROL_FV)
+
+$(CDK2_NATIVE_SMM_CONTROL_OBJ): $(CDK2_DIR)/src/modules/smm_control/smm_control.c $(CDK2_DIR)/include/cdk2/smm_control.h $(CDK2_DIR)/include/guid/smm_register_info.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
+		-mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args \
+		$(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+
+$(CDK2_NATIVE_SMM_CONTROL_PE): $(CDK2_NATIVE_SMM_CONTROL_OBJ) $(CDK2_DIR)/src/modules/smm_control/smm_control.ld $(CDK2_NATIVE_PERELOCCHECK)
+	@$(LD) -mi386pep --subsystem 12 --entry cdk2_smm_control_entry --image-base 0 \
+		--section-alignment 0x1000 --file-alignment 0x1000 --build-id=none \
+		--no-insert-timestamp -s --nxcompat -T "$(CDK2_DIR)/src/modules/smm_control/smm_control.ld" -o "$@" "$<"
+	@"$(CDK2_NATIVE_PERELOCCHECK)" "$@"
+
+$(CDK2_NATIVE_SMM_CONTROL_DEPEX): | $(CDK2_NATIVE_BUILD_DIR)
+	@printf '\026\000\000\023\002\366\360\243\023\112\046\360\076\362\340\336\305\022\064\057\064\010' > "$@"
+
+$(CDK2_NATIVE_SMM_CONTROL_FFS): $(CDK2_NATIVE_SMM_CONTROL_PE) $(CDK2_NATIVE_SMM_CONTROL_DEPEX) $(CDK2_NATIVE_FFSBUILD)
+	@"$(CDK2_NATIVE_FFSBUILD)" c3099578-f815-4a96-84a3-fc593760181d \
+		SmmControlRuntimeDxe 1.0 0x5072 "$<" "$@" "$(CDK2_NATIVE_SMM_CONTROL_DEPEX)"
+
+$(CDK2_NATIVE_SMM_CONTROL_FV): $(CDK2_NATIVE_PRE_SMM_CONTROL_FV) $(CDK2_NATIVE_SMM_CONTROL_FFS) $(CDK2_NATIVE_FVREPLACE)
+	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_PRE_SMM_CONTROL_FV)" 0xadc48 \
+		"$(CDK2_NATIVE_SMM_CONTROL_FFS)" "$@"
+else
+CDK2_NATIVE_FINAL_FV := $(CDK2_NATIVE_PRE_SMM_CONTROL_FV)
 endif
 
 ifeq ($(CONFIG_CDK2_NATIVE_ENGLISH),y)
@@ -908,6 +950,9 @@ $(CDK2_NATIVE_PCAT_RTC_TEST): $(CDK2_DIR)/tests/pcat_rtc_test.c $(CDK2_DIR)/src/
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$<"
 
 $(CDK2_NATIVE_SMM_ACCESS_TEST): $(CDK2_DIR)/tests/smm_access_test.c $(CDK2_DIR)/src/modules/smm_access/smm_access.c $(CDK2_DIR)/include/cdk2/smm_access.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$<"
+
+$(CDK2_NATIVE_SMM_CONTROL_TEST): $(CDK2_DIR)/tests/smm_control_test.c $(CDK2_DIR)/src/modules/smm_control/smm_control.c $(CDK2_DIR)/include/cdk2/smm_control.h $(CDK2_DIR)/include/guid/smm_register_info.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$<"
 
 FORCE:

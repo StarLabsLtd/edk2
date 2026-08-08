@@ -278,6 +278,14 @@ config CDK2_NATIVE_SMM_ACCESS
 	  Publish the SMM Access 2 protocol from the SMRAM descriptor supplied by
 	  coreboot and translated into the PI SMRAM GUID HOB.
 
+config CDK2_NATIVE_SMM_CONTROL
+	bool "Build native SMM Control 2 services"
+	default y
+	depends on CDK2_NATIVE_STAGE && CDK2_SMM
+	help
+	  Publish the runtime SMM Control 2 protocol from the authoritative SMI
+	  register description supplied by coreboot.
+
 config CDK2_BUILD_DEBUG
 	bool "Build a debug payload"
 	default n

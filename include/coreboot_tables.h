@@ -171,6 +171,27 @@ struct cb_smram {
 	UINT64 physical_size;
 } __packed;
 
+#define CB_TAG_SMM_REGISTER_INFO 0x004dU
+
+struct cb_smm_generic_register {
+	UINT64 id;
+	UINT64 value;
+	UINT8 address_space_id;
+	UINT8 register_bit_width;
+	UINT8 register_bit_offset;
+	UINT8 access_size;
+	UINT64 address;
+} __packed;
+
+struct cb_smm_register_info {
+	UINT32 tag;
+	UINT32 size;
+	UINT16 revision;
+	UINT16 reserved;
+	UINT32 count;
+	struct cb_smm_generic_register registers[];
+} __packed;
+
 #define CB_TAG_TPM_PPI_HANDOFF 0x003aU
 
 enum lb_tmp_ppi_tpm_version {
