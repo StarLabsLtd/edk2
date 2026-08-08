@@ -9,7 +9,13 @@
 
 static BOOLEAN same_guid(const EFI_GUID *left, const EFI_GUID *right)
 {
-	return __builtin_memcmp(left, right, sizeof(*left)) == 0;
+	const UINT8 *a = (const UINT8 *)left, *b = (const UINT8 *)right;
+	UINTN index;
+
+	for (index = 0; index < sizeof(*left); index++)
+		if (a[index] != b[index])
+			return FALSE;
+	return TRUE;
 }
 
 static UINT32 package_length(const struct cdk2_hii_package_header *package)

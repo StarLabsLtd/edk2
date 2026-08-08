@@ -20,6 +20,16 @@ static BOOLEAN match(const CHAR16 *text, const CHAR16 *token)
 	return token[index] == 0U;
 }
 
+static BOOLEAN prefix_equal(const CHAR16 *left, const CHAR16 *right, UINTN count)
+{
+	UINTN index;
+
+	for (index = 0; index < count; index++)
+		if (left[index] != right[index])
+			return FALSE;
+	return TRUE;
+}
+
 static EFI_STATUS parse_hex(const CHAR16 **cursor, UINTN *value)
 {
 	UINTN result = 0U, digit, count = 0U;
@@ -360,8 +370,7 @@ EFI_STATUS cdk2_hii_get_alt_config(struct cdk2_hii_database *database,
 		    header_matches(header, segment == configuration ? segment : segment + 1U)) {
 			match_alt = find_text(segment, L"&ALTCFG=");
 			if (altcfg == NULL || (match_alt != NULL &&
-			    __builtin_memcmp(match_alt + 8U, altcfg,
-				alt_length * sizeof(CHAR16)) == 0)) {
+			    prefix_equal(match_alt + 8U, altcfg, alt_length))) {
 				end = find_text(segment + 1U, L"&GUID=");
 				if (end == NULL)
 					end = segment + text_length(segment);
