@@ -46,7 +46,6 @@ static EFI_STATUS CDK2_MS_ABI install_table(const void *table, UINTN size,
 }
 
 static struct cdk2_acpi_table_protocol *seen_table_this;
-static struct cdk2_acpi_sdt_protocol *seen_sdt_this;
 
 static EFI_STATUS CDK2_MS_ABI protocol_install(
 	struct cdk2_acpi_table_protocol *this, const void *table, UINTN size,
@@ -64,10 +63,9 @@ static EFI_STATUS CDK2_MS_ABI protocol_uninstall(
 }
 
 static EFI_STATUS CDK2_MS_ABI sdt_get_table(
-	struct cdk2_acpi_sdt_protocol *this, UINTN index,
-	cdk2_acpi_header_ptr table, cdk2_uint32_ptr version, cdk2_uintn_ptr key)
+	UINTN index, cdk2_acpi_header_ptr table, cdk2_uint32_ptr version,
+	cdk2_uintn_ptr key)
 {
-	seen_sdt_this = this;
 	*version = 0;
 	*key = index + 20;
 	if (index == 0)
@@ -274,7 +272,6 @@ int main(void)
 		};
 		reset_mocks();
 		seen_table_this = NULL;
-		seen_sdt_this = NULL;
 		driver_platform = table.table.header;
 		driver_platform.length = sizeof(driver_platform);
 		driver_tpm = table.table;
@@ -292,8 +289,8 @@ int main(void)
 			installed.table.start_method == CDK2_TPM2_START_METHOD_CRB,
 			"DXE adapter did not consume native TCG2 export");
 		failures += expect(seen_table_this == &table_protocol &&
-			seen_sdt_this == &sdt_protocol && sdt_protocol.acpi_version == 0x510,
-			"ACPI protocol This argument was not preserved");
+			sdt_protocol.acpi_version == 0x510,
+			"ACPI protocol ABI was not preserved");
 	}
 	return failures == 0 ? 0 : 1;
 }

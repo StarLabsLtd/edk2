@@ -110,7 +110,7 @@ static EFI_STATUS CDK2_MS_ABI get_table(UINTN index,
 	cdk2_acpi_header_ptr table, cdk2_uintn_ptr key)
 {
 	UINT32 version;
-	return acpi_sdt->get_table(acpi_sdt, index, table, &version, key);
+	return acpi_sdt->get_table(index, table, &version, key);
 }
 
 static EFI_STATUS CDK2_MS_ABI uninstall_table(UINTN key)
@@ -150,7 +150,7 @@ static EFI_STATUS install_from_protocols(cdk2_tcg2_protocol_ptr tcg2,
 		return EFI_INVALID_PARAMETER;
 	acpi_table = table_protocol;
 	acpi_sdt = sdt_protocol;
-	for (index = 0; !EFI_ERROR(acpi_sdt->get_table(acpi_sdt, index, &header,
+	for (index = 0; !EFI_ERROR(acpi_sdt->get_table(index, &header,
 	     &version, &key)); index++) {
 		if (header == NULL || header->length < sizeof(*header))
 			return EFI_COMPROMISED_DATA;

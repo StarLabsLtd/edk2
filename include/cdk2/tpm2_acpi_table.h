@@ -60,8 +60,7 @@ typedef EFI_STATUS CDK2_MS_ABI cdk2_acpi_protocol_install_fn(
 typedef EFI_STATUS CDK2_MS_ABI cdk2_acpi_protocol_uninstall_fn(
 	struct cdk2_acpi_table_protocol *this, UINTN table_key);
 typedef EFI_STATUS CDK2_MS_ABI cdk2_acpi_protocol_get_table_fn(
-	struct cdk2_acpi_sdt_protocol *this, UINTN index,
-	cdk2_acpi_header_ptr table, cdk2_uint32_ptr version,
+	UINTN index, cdk2_acpi_header_ptr table, cdk2_uint32_ptr version,
 	cdk2_uintn_ptr table_key);
 
 struct cdk2_acpi_table_services {
