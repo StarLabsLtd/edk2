@@ -66,6 +66,9 @@ static EFI_STATUS CDK2_MS_ABI protocol_get_event_log(EFI_TCG2_PROTOCOL *protocol
 		last_entry, truncated);
 }
 
+static EFI_STATUS native_set_banks(void *context, UINT32 active,
+	void *response_buffer);
+
 static EFI_STATUS CDK2_MS_ABI protocol_hash_log_extend(EFI_TCG2_PROTOCOL *protocol,
 	UINT64 flags, EFI_PHYSICAL_ADDRESS data, UINT64 data_size,
 	efi_tcg2_event_ptr event)
@@ -139,9 +142,34 @@ static EFI_STATUS CDK2_MS_ABI protocol_set_active(EFI_TCG2_PROTOCOL *protocol,
 	if (service->set_banks == NULL)
 		return EFI_UNSUPPORTED;
 	service->set_operation_present = 1;
-	status = service->set_banks(service->protocol_context, active,
+	status = service->set_banks(service->set_banks == native_set_banks ?
+		service : service->protocol_context, active,
 		&service->set_response);
 	return status;
+}
+
+static EFI_STATUS native_set_banks(void *context, UINT32 active,
+	void *response_buffer)
+{
+	struct cdk2_tcg2_service *service = context;
+	UINT32 *response = response_buffer;
+	BOOLEAN allocated;
+	EFI_STATUS status;
+	EFI_STATUS release_status;
+
+	if (service == NULL || response == NULL || service->physical_presence == NULL)
+		return EFI_UNSUPPORTED;
+	status = service->physical_presence(service->protocol_context, TRUE);
+	if (EFI_ERROR(status))
+		return status;
+	status = cdk2_tpm2_pcr_allocate(&service->transport,
+		service->capability.hash_algorithm_bitmap, active, &allocated, response);
+	release_status = service->physical_presence(service->protocol_context, FALSE);
+	if (EFI_ERROR(status))
+		return status;
+	if (EFI_ERROR(release_status))
+		return release_status;
+	return allocated ? EFI_SUCCESS : EFI_DEVICE_ERROR;
 }
 
 static EFI_STATUS CDK2_MS_ABI protocol_get_set_result(EFI_TCG2_PROTOCOL *protocol,
@@ -330,6 +358,30 @@ EFI_STATUS cdk2_tcg2_exit_boot_services(struct cdk2_tcg2_service *service,
 		action, response_code);
 }
 
+EFI_STATUS cdk2_tcg2_configure_platform(struct cdk2_tcg2_service *service,
+	void *context, cdk2_tcg2_physical_presence_ptr physical_presence,
+	cdk2_tcg2_reset_ptr reset)
+{
+	if (service == NULL || physical_presence == NULL || reset == NULL)
+		return EFI_INVALID_PARAMETER;
+	service->protocol_context = context;
+	service->physical_presence = physical_presence;
+	service->reset = reset;
+	service->set_banks = native_set_banks;
+	return EFI_SUCCESS;
+}
+
+EFI_STATUS cdk2_tcg2_apply_pending_reset(struct cdk2_tcg2_service *service)
+{
+	if (service == NULL)
+		return EFI_INVALID_PARAMETER;
+	if (service->set_operation_present == 0 || service->set_response != 0)
+		return EFI_NOT_READY;
+	if (service->reset == NULL)
+		return EFI_UNSUPPORTED;
+	return service->reset(service->protocol_context);
+}
+
 EFI_STATUS cdk2_tcg2_get_capability(const struct cdk2_tcg2_service *service,
 	struct cdk2_tcg2_capability *capability)
 {
@@ -399,7 +451,9 @@ EFI_STATUS cdk2_tcg2_publish_protocols(struct cdk2_tcg2_service *service,
 	EFI_STATUS status;
 	if (service == NULL || install_protocol == NULL || install_config == NULL)
 		return EFI_INVALID_PARAMETER;
-	service->protocol_context = context; service->set_banks = set_banks;
+	service->protocol_context = context;
+	if (set_banks != NULL)
+		service->set_banks = set_banks;
 	status = install_config(context, &efi_tcg2_final_events_table_guid,
 		service->final_table);
 	if (EFI_ERROR(status))

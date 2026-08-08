@@ -23,12 +23,16 @@ typedef EFI_STATUS cdk2_tcg2_install_config_fn(
 	void *context, cdk2_const_guid_ptr guid, void *table);
 typedef EFI_STATUS cdk2_tcg2_set_banks_fn(
 	void *context, UINT32 active, void *response);
+typedef EFI_STATUS cdk2_tcg2_physical_presence_fn(void *context, BOOLEAN asserted);
+typedef EFI_STATUS cdk2_tcg2_reset_fn(void *context);
 typedef cdk2_tcg2_allocate_fn * cdk2_tcg2_allocate_ptr;
 typedef cdk2_tcg2_install_protocol_fn * cdk2_tcg2_install_protocol_ptr;
 typedef cdk2_tcg2_install_config_fn * cdk2_tcg2_install_config_ptr;
 typedef cdk2_tcg2_set_banks_fn * cdk2_tcg2_set_banks_ptr;
 typedef cdk2_tcg2_hash_fn * cdk2_tcg2_hash_ptr;
 typedef cdk2_tcg2_extend_fn * cdk2_tcg2_extend_ptr;
+typedef cdk2_tcg2_physical_presence_fn * cdk2_tcg2_physical_presence_ptr;
+typedef cdk2_tcg2_reset_fn * cdk2_tcg2_reset_ptr;
 typedef const CHAR16 cdk2_const_char16[1];
 
 struct cdk2_tcg2_capability {
@@ -74,7 +78,9 @@ struct cdk2_tcg2_service {
 	EFI_PHYSICAL_ADDRESS main_address;
 	EFI_PHYSICAL_ADDRESS final_address;
 	void *protocol_context;
-	cdk2_tcg2_set_banks_fn *set_banks;
+	cdk2_tcg2_set_banks_ptr set_banks;
+	cdk2_tcg2_physical_presence_ptr physical_presence;
+	cdk2_tcg2_reset_ptr reset;
 	UINT32 set_operation_present;
 	UINT32 set_response;
 };
@@ -99,6 +105,10 @@ EFI_STATUS cdk2_tcg2_boot_attempt(struct cdk2_tcg2_service *service,
 	BOOLEAN returning, UINT32 *response_code);
 EFI_STATUS cdk2_tcg2_exit_boot_services(struct cdk2_tcg2_service *service,
 	BOOLEAN returned, BOOLEAN success, UINT32 *response_code);
+EFI_STATUS cdk2_tcg2_configure_platform(struct cdk2_tcg2_service *service,
+	void *context, cdk2_tcg2_physical_presence_ptr physical_presence,
+	cdk2_tcg2_reset_ptr reset);
+EFI_STATUS cdk2_tcg2_apply_pending_reset(struct cdk2_tcg2_service *service);
 EFI_STATUS cdk2_tcg2_get_event_log(struct cdk2_tcg2_service *service,
 	UINT32 format, efi_physical_address_ptr location,
 	efi_physical_address_ptr last_entry, efi_boolean_ptr truncated);

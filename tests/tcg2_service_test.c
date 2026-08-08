@@ -8,6 +8,8 @@ static UINT8 main_memory[1024], final_memory[1024];
 static UINT32 allocation_count;
 static UINT32 extend_count;
 static BOOLEAN fail_protocol_install;
+static UINT32 physical_presence_changes;
+static UINT32 reset_count;
 static const EFI_GUID *installed_protocol_guid, *installed_config_guid;
 static void *installed_protocol, *installed_config;
 
@@ -85,6 +87,18 @@ EFI_STATUS cdk2_tpm2_extend_digests(void *context, TPM_PCRINDEX pcr,
 	return extend(context, pcr, digests, count, code);
 }
 
+EFI_STATUS cdk2_tpm2_pcr_allocate(const struct cdk2_tpm2_transport *transport,
+	UINT32 supported, UINT32 requested, BOOLEAN *allocation_success,
+	UINT32 *response_code)
+{
+	(void)transport;
+	(void)supported;
+	(void)requested;
+	*allocation_success = TRUE;
+	*response_code = 0;
+	return EFI_SUCCESS;
+}
+
 static EFI_STATUS install_protocol(void *context, const EFI_GUID *guid,
 	void *interface)
 {
@@ -102,6 +116,20 @@ static EFI_STATUS set_banks(void *context, UINT32 active, void *response_buffer)
 {
 	UINT32 *response_code = response_buffer;
 	(void)context; *response_code = active == 1U ? 0 : 1; return EFI_SUCCESS;
+}
+
+static EFI_STATUS physical_presence(void *context, BOOLEAN asserted)
+{
+	(void)context;
+	physical_presence_changes++;
+	return asserted || physical_presence_changes == 2 ? EFI_SUCCESS : EFI_DEVICE_ERROR;
+}
+
+static EFI_STATUS reset(void *context)
+{
+	(void)context;
+	reset_count++;
+	return EFI_SUCCESS;
 }
 
 static int expect(int condition, const char *message)
@@ -184,6 +212,12 @@ int main(void)
 		installed_config == NULL,
 		"failed protocol publication did not roll back the config table");
 	fail_protocol_install = 0;
+	failures += expect(cdk2_tcg2_configure_platform(&service, NULL,
+		physical_presence, reset) == EFI_SUCCESS &&
+		service.protocol.set_active_pcr_banks(&service.protocol, 2) == EFI_SUCCESS &&
+		physical_presence_changes == 2 &&
+		cdk2_tcg2_apply_pending_reset(&service) == EFI_SUCCESS && reset_count == 1,
+		"native PCR allocation did not enforce physical presence/reset");
 	export = cdk2_tcg2_acpi_info(&service);
 	failures += expect(export != NULL && export->active_interface == 1U &&
 		export->tpm_base == 0xfed40000U && export->log_capacity == 768U &&
