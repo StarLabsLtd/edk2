@@ -172,6 +172,7 @@ struct cb_smram {
 } __packed;
 
 #define CB_TAG_SMM_REGISTER_INFO 0x004dU
+#define CB_TAG_LOCAL_APIC_TIMER_INFO 0x004eU
 
 struct cb_smm_generic_register {
 	UINT64 id;
@@ -190,6 +191,13 @@ struct cb_smm_register_info {
 	UINT16 reserved;
 	UINT32 count;
 	struct cb_smm_generic_register registers[];
+} __packed;
+
+struct cb_local_apic_timer_info {
+	struct cb_record header;
+	UINT16 revision;
+	UINT16 reserved;
+	UINT64 frequency_hz;
 } __packed;
 
 #define CB_TAG_TPM_PPI_HANDOFF 0x003aU

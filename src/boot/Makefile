@@ -141,6 +141,15 @@ CDK2_NATIVE_PCH_SMI_DISPATCH_DEPEX_GEN ?= $(CDK2_NATIVE_BUILD_DIR)/pch-smi-depex
 CDK2_NATIVE_PCH_SMI_DISPATCH_DEPEX ?= $(CDK2_NATIVE_BUILD_DIR)/PchSmiDispatchSmm.depex
 CDK2_NATIVE_PCH_SMI_DISPATCH_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/PchSmiDispatchSmm.ffs
 CDK2_NATIVE_PCH_SMI_DISPATCH_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-pch-smi-dispatch.fv
+CDK2_NATIVE_LOCAL_APIC_TIMER_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-local-apic-timer-test
+CDK2_NATIVE_LOCAL_APIC_TIMER_DRIVER_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-local-apic-timer-driver-test
+CDK2_NATIVE_LOCAL_APIC_TIMER_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/local-apic-timer.o
+CDK2_NATIVE_LOCAL_APIC_TIMER_DRIVER_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/local-apic-timer-driver.o
+CDK2_NATIVE_LOCAL_APIC_TIMER_PE ?= $(CDK2_NATIVE_BUILD_DIR)/LocalApicTimerDxe.efi
+CDK2_NATIVE_LOCAL_APIC_TIMER_DEPEX_GEN ?= $(CDK2_NATIVE_BUILD_DIR)/local-apic-timer-depex-gen
+CDK2_NATIVE_LOCAL_APIC_TIMER_DEPEX ?= $(CDK2_NATIVE_BUILD_DIR)/LocalApicTimerDxe.depex
+CDK2_NATIVE_LOCAL_APIC_TIMER_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/LocalApicTimerDxe.ffs
+CDK2_NATIVE_LOCAL_APIC_TIMER_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-local-apic-timer.fv
 HOSTCC ?= cc
 CDK2_NATIVE_CC ?= $(CC)
 CDK2_NATIVE_HOST_CC ?= $(HOSTCC)
@@ -215,11 +224,13 @@ CDK2_NATIVE_HOST_TOOLS := \
 	$(CDK2_NATIVE_SMBIOS_TEST) \
 	$(CDK2_NATIVE_SMM_CONTROL_TEST) \
 	$(CDK2_NATIVE_CPU_IO2_SMM_TEST) \
-	$(CDK2_NATIVE_PCH_SMI_DISPATCH_TEST)
+	$(CDK2_NATIVE_PCH_SMI_DISPATCH_TEST) \
+	$(CDK2_NATIVE_LOCAL_APIC_TIMER_TEST) \
+	$(CDK2_NATIVE_LOCAL_APIC_TIMER_DRIVER_TEST)
 CDK2_NATIVE_LINK_FLAGS := -static -no-pie -nostdlib -nostartfiles -nodefaultlibs -Wl,-z,max-page-size=0x1000 -Wl,-z,common-page-size=0x1000 -Wl,-T,"$(CDK2_NATIVE_DIR)/cdk2.ld"
 CDK2_NATIVE_LINK_POST_MAP_FLAGS := -Wl,--gc-sections -Wl,--build-id=none
 
-.PHONY: native-stage native-coreboot-stage native-coreboot-image native-metronome-fv native-security-stub-fv native-null-memory-test-fv native-null-memory-test-test native-watchdog-fv native-monotonic-counter-fv native-status-code-router-fv native-status-code-router-test native-status-code-handler-fv native-status-code-handler-test native-cpu-io2-fv native-cpu-io2-test native-english-test native-english-fv native-disk-io-fv native-disk-io-test native-serial-io-fv native-serial-io-test native-smbios-fv native-smbios-test native-reset-system-fv native-reset-system-test native-pcat-rtc-fv native-pcat-rtc-test native-smm-access-fv native-smm-access-test native-smm-control-fv native-smm-control-test native-cpu-io2-smm-fv native-cpu-io2-smm-test native-pch-smi-dispatch-test native-pch-smi-dispatch-fv native-check native-pack native-service-test native-coreboot-test native-fv-test native-fvpack-test native-fvinfo native-fvinfo-test native-ffsbuild-test native-pe-test native-module-test native-security-stub-test native-elfcheck-test FORCE
+.PHONY: native-stage native-coreboot-stage native-coreboot-image native-metronome-fv native-security-stub-fv native-null-memory-test-fv native-null-memory-test-test native-watchdog-fv native-monotonic-counter-fv native-status-code-router-fv native-status-code-router-test native-status-code-handler-fv native-status-code-handler-test native-cpu-io2-fv native-cpu-io2-test native-english-test native-english-fv native-disk-io-fv native-disk-io-test native-serial-io-fv native-serial-io-test native-smbios-fv native-smbios-test native-reset-system-fv native-reset-system-test native-pcat-rtc-fv native-pcat-rtc-test native-smm-access-fv native-smm-access-test native-smm-control-fv native-smm-control-test native-cpu-io2-smm-fv native-cpu-io2-smm-test native-pch-smi-dispatch-test native-pch-smi-dispatch-fv native-local-apic-timer-test native-local-apic-timer-fv native-check native-pack native-service-test native-coreboot-test native-fv-test native-fvpack-test native-fvinfo native-fvinfo-test native-ffsbuild-test native-pe-test native-module-test native-security-stub-test native-elfcheck-test FORCE
 
 ifeq ($(CONFIG_CDK2_NATIVE_STAGE),y)
 CDK2_NATIVE_STAGE_DEPS := $(CDK2_NATIVE_ELF)
@@ -274,6 +285,8 @@ native-check: $(CDK2_CONFIG_HEADER) $(CDK2_NATIVE_ELF) $(CDK2_NATIVE_OVERRIDE_EL
 	@"$(CDK2_NATIVE_SMM_CONTROL_TEST)"
 	@"$(CDK2_NATIVE_CPU_IO2_SMM_TEST)"
 	@"$(CDK2_NATIVE_PCH_SMI_DISPATCH_TEST)"
+	@"$(CDK2_NATIVE_LOCAL_APIC_TIMER_TEST)"
+	@"$(CDK2_NATIVE_LOCAL_APIC_TIMER_DRIVER_TEST)"
 	@"$(CDK2_NATIVE_ELF_CHECK_TEST)" "$(CDK2_NATIVE_ELF_CHECK)" "$(CDK2_NATIVE_BUILD_DIR)"
 	@printf '%s\n' "native cdk2 stage: $(CDK2_NATIVE_ELF)"
 	@printf '%s\n' "native cdk2 FV packer: $(CDK2_NATIVE_PACKER)"
@@ -402,6 +415,12 @@ native-pch-smi-dispatch-test: $(CDK2_NATIVE_PCH_SMI_DISPATCH_TEST)
 
 native-pch-smi-dispatch-fv: $(CDK2_NATIVE_PCH_SMI_DISPATCH_FV)
 	@printf '%s\n' "native PCH SMI dispatch FV: $(CDK2_NATIVE_PCH_SMI_DISPATCH_FV)"
+
+native-local-apic-timer-test: $(CDK2_NATIVE_LOCAL_APIC_TIMER_TEST)
+	@"$<"
+
+native-local-apic-timer-fv: $(CDK2_NATIVE_LOCAL_APIC_TIMER_FV)
+	@printf '%s\n' "native local APIC timer FV: $(CDK2_NATIVE_LOCAL_APIC_TIMER_FV)"
 
 native-pe-test: $(CDK2_NATIVE_PE_TEST)
 	@"$(CDK2_NATIVE_PE_TEST)"
@@ -990,6 +1009,33 @@ else
 CDK2_NATIVE_FINAL_FV := $(CDK2_NATIVE_PRE_PCH_SMI_DISPATCH_FV)
 endif
 
+ifeq ($(CONFIG_CDK2_NATIVE_LOCAL_APIC_TIMER),y)
+CDK2_NATIVE_PRE_LOCAL_APIC_TIMER_FV := $(CDK2_NATIVE_FINAL_FV)
+CDK2_NATIVE_FINAL_FV := $(CDK2_NATIVE_LOCAL_APIC_TIMER_FV)
+
+$(CDK2_NATIVE_LOCAL_APIC_TIMER_OBJ): $(CDK2_DIR)/src/modules/local_apic_timer/local_apic_timer.c $(CDK2_DIR)/include/cdk2/local_apic_timer.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) -mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args $(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+
+$(CDK2_NATIVE_LOCAL_APIC_TIMER_DRIVER_OBJ): $(CDK2_DIR)/src/modules/local_apic_timer/driver.c $(CDK2_DIR)/include/cdk2/local_apic_timer.h $(CDK2_DIR)/include/guid/local_apic_timer_info.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) -mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args $(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+
+$(CDK2_NATIVE_LOCAL_APIC_TIMER_PE): $(CDK2_NATIVE_LOCAL_APIC_TIMER_OBJ) $(CDK2_NATIVE_LOCAL_APIC_TIMER_DRIVER_OBJ) $(CDK2_DIR)/src/modules/local_apic_timer/local_apic_timer.ld $(CDK2_NATIVE_PERELOCCHECK)
+	@$(LD) -mi386pep --subsystem 11 --entry cdk2_local_apic_timer_entry --image-base 0 --section-alignment 0x1000 --file-alignment 0x1000 --build-id=none --no-insert-timestamp -s --nxcompat -T "$(CDK2_DIR)/src/modules/local_apic_timer/local_apic_timer.ld" -o "$@" $(CDK2_NATIVE_LOCAL_APIC_TIMER_OBJ) $(CDK2_NATIVE_LOCAL_APIC_TIMER_DRIVER_OBJ)
+	@"$(CDK2_NATIVE_PERELOCCHECK)" --subsystem 11 "$@"
+
+$(CDK2_NATIVE_LOCAL_APIC_TIMER_DEPEX_GEN): $(CDK2_DIR)/src/modules/local_apic_timer/depex.c | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -o "$@" "$<"
+
+$(CDK2_NATIVE_LOCAL_APIC_TIMER_DEPEX): $(CDK2_NATIVE_LOCAL_APIC_TIMER_DEPEX_GEN)
+	@"$<" "$@"
+
+$(CDK2_NATIVE_LOCAL_APIC_TIMER_FFS): $(CDK2_NATIVE_LOCAL_APIC_TIMER_PE) $(CDK2_NATIVE_LOCAL_APIC_TIMER_DEPEX) $(CDK2_NATIVE_FFSBUILD)
+	@"$(CDK2_NATIVE_FFSBUILD)" 52fe8196-f9de-4d07-b22f-51f77a0e7c41 LocalApicTimerDxe 1.0 0x607a "$<" "$@" "$(CDK2_NATIVE_LOCAL_APIC_TIMER_DEPEX)"
+
+$(CDK2_NATIVE_LOCAL_APIC_TIMER_FV): $(CDK2_NATIVE_PRE_LOCAL_APIC_TIMER_FV) $(CDK2_NATIVE_LOCAL_APIC_TIMER_FFS) $(CDK2_NATIVE_FVREPLACE)
+	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_PRE_LOCAL_APIC_TIMER_FV)" 0x80880 "$(CDK2_NATIVE_LOCAL_APIC_TIMER_FFS)" "$@"
+endif
+
 ifeq ($(CONFIG_CDK2_NATIVE_ENGLISH),y)
 $(CDK2_NATIVE_ENGLISH_OBJ): $(CDK2_DIR)/src/modules/english/english.c $(CDK2_DIR)/include/cdk2/english.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
@@ -1050,6 +1096,12 @@ $(CDK2_NATIVE_CPU_IO2_SMM_TEST): $(CDK2_DIR)/tests/cpu_io2_smm_test.c $(CDK2_DIR
 
 $(CDK2_NATIVE_PCH_SMI_DISPATCH_TEST): $(CDK2_DIR)/tests/pch_smi_dispatch_test.c $(CDK2_DIR)/src/modules/pch_smi_dispatch/pch_smi_dispatch.c $(CDK2_DIR)/include/cdk2/pch_smi_dispatch.h $(CDK2_DIR)/include/guid/smm_register_info.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$<"
+
+$(CDK2_NATIVE_LOCAL_APIC_TIMER_TEST): $(CDK2_DIR)/tests/local_apic_timer_test.c $(CDK2_DIR)/src/modules/local_apic_timer/local_apic_timer.c $(CDK2_DIR)/include/cdk2/local_apic_timer.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_DIR)/tests/local_apic_timer_test.c" "$(CDK2_DIR)/src/modules/local_apic_timer/local_apic_timer.c"
+
+$(CDK2_NATIVE_LOCAL_APIC_TIMER_DRIVER_TEST): $(CDK2_DIR)/tests/local_apic_timer_driver_test.c $(CDK2_DIR)/src/modules/local_apic_timer/driver.c $(CDK2_DIR)/include/cdk2/local_apic_timer.h $(CDK2_DIR)/include/guid/local_apic_timer_info.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -DCDK2_LOCAL_APIC_TIMER_DRIVER_TEST $(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_DIR)/tests/local_apic_timer_driver_test.c" "$(CDK2_DIR)/src/modules/local_apic_timer/driver.c"
 
 FORCE:
 

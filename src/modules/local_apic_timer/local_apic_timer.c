@@ -7,6 +7,8 @@
 #define TPL_HIGH_LEVEL 31U
 #define EFI_ALREADY_STARTED EFIERR(20)
 #define TICKS_PER_SECOND_100NS 10000000ULL
+#define APIC_TIMER_DIVIDE 2U
+#define APIC_TIMER_COUNT_DENOMINATOR (TICKS_PER_SECOND_100NS * APIC_TIMER_DIVIDE)
 
 static const struct cdk2_local_apic_timer_ops *timer_ops;
 static cdk2_timer_notify_fn *timer_notify;
@@ -38,16 +40,21 @@ static EFI_STATUS CDK2_MS_ABI set_period(
 	}
 	if (period > MAX_UINT64 / timer_bus_clock_hz)
 		count = MAX_UINT64;
-	else
-		count = period * timer_bus_clock_hz / TICKS_PER_SECOND_100NS;
+	else {
+		count = period * timer_bus_clock_hz;
+		count = count / APIC_TIMER_COUNT_DENOMINATOR +
+			(count % APIC_TIMER_COUNT_DENOMINATOR != 0U);
+		if (count == 0U)
+			count = 1U;
+	}
 	if (count > MAX_UINT32) {
 		count = MAX_UINT32;
-		period = ((UINT64)MAX_UINT32 * TICKS_PER_SECOND_100NS +
+		period = ((UINT64)MAX_UINT32 * APIC_TIMER_COUNT_DENOMINATOR +
 			timer_bus_clock_hz - 1U) / timer_bus_clock_hz;
 	}
 	timer_ops->program(1, (UINT32)count, TRUE, CDK2_LOCAL_APIC_TIMER_VECTOR);
-	timer_ops->set_interrupt(TRUE);
 	timer_period = period;
+	timer_ops->set_interrupt(TRUE);
 	return EFI_SUCCESS;
 }
 

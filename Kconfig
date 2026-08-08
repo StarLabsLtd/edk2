@@ -303,6 +303,15 @@ config CDK2_NATIVE_PCH_SMI_DISPATCH
 	  information supplied by coreboot. The dispatcher contains no chipset
 	  register constants beyond the architectural APM command/data ports.
 
+config CDK2_NATIVE_LOCAL_APIC_TIMER
+	bool "Build native local APIC timer services"
+	default y
+	depends on CDK2_NATIVE_STAGE && CDK2_LAPIC_TIMER
+	help
+	  Publish the timer architectural protocol using the authoritative local
+	  APIC timer input frequency supplied by coreboot. Initialization fails
+	  closed when the platform omits that handoff.
+
 config CDK2_BUILD_DEBUG
 	bool "Build a debug payload"
 	default n

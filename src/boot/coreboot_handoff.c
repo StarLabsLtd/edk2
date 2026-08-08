@@ -14,6 +14,7 @@
 #include <guid/smmstore_info.h>
 #include <guid/smram_memory.h>
 #include <guid/smm_register_info.h>
+#include <guid/local_apic_timer_info.h>
 #include <industry_standard/acpi.h>
 #include <industry_standard/mcfg.h>
 #include <industry_standard/tpm20.h>
@@ -103,6 +104,10 @@ static const EFI_GUID m_cdk2_smm_register_info_guid = {
 	0xcafb,
 	0x4499,
 	{0xa4, 0xa9, 0x0b, 0x34, 0x6b, 0x40, 0xa6, 0x22}
+};
+
+static const EFI_GUID m_cdk2_local_apic_timer_info_guid = {
+	0x18c7a13d, 0x9a71, 0x4f5d, { 0x91, 0x68, 0x44, 0x7b, 0x69, 0x8c, 0x12, 0x56 }
 };
 static const EFI_GUID m_cdk2_firmware_info_hob_guid = {
 	0xe0653829,
@@ -627,6 +632,32 @@ static EFI_STATUS cdk2_coreboot_append_smm_register_info_hob(
 		return EFI_COMPROMISED_DATA;
 	return cdk2_coreboot_append_guid_hob(handoff, &m_cdk2_smm_register_info_guid,
 		&info->revision, payload_size);
+}
+
+static EFI_STATUS cdk2_coreboot_append_local_apic_timer_info_hob(
+	EFI_HOB_HANDOFF_INFO_TABLE *handoff,
+	const struct cdk2_coreboot_handoff *coreboot)
+{
+	const struct cb_local_apic_timer_info *record;
+	struct cdk2_local_apic_timer_info info;
+	const void *raw;
+	EFI_STATUS status;
+
+	status = cdk2_coreboot_find_record(coreboot, CB_TAG_LOCAL_APIC_TIMER_INFO,
+		CDK2_COREBOOT_LOCAL_APIC_TIMER_INFO_MIN_SIZE, &raw);
+	if (EFI_ERROR(status))
+		return status;
+	record = raw;
+	if (record->revision != CDK2_LOCAL_APIC_TIMER_INFO_REVISION ||
+	    record->reserved != 0U || record->frequency_hz == 0U ||
+	    record->frequency_hz > MAX_UINT32)
+		return EFI_COMPROMISED_DATA;
+	info = (struct cdk2_local_apic_timer_info) {
+		.revision = record->revision,
+		.frequency_hz = record->frequency_hz,
+	};
+	return cdk2_coreboot_append_guid_hob(handoff,
+		&m_cdk2_local_apic_timer_info_guid, &info, sizeof(info));
 }
 
 static UINT16 cdk2_coreboot_tpm_digest_size(TPMI_ALG_HASH hash_alg)
@@ -1954,6 +1985,11 @@ static EFI_STATUS EFIAPI cdk2_coreboot_build_platform_hobs(struct cdk2_native_co
 		return status;
 
 	status = cdk2_coreboot_append_smm_register_info_hob(hob, &m_coreboot_handoff);
+	if (status != EFI_SUCCESS && status != EFI_NOT_FOUND)
+		return status;
+
+	status = cdk2_coreboot_append_local_apic_timer_info_hob(hob,
+		&m_coreboot_handoff);
 	if (status != EFI_SUCCESS && status != EFI_NOT_FOUND)
 		return status;
 

@@ -29,6 +29,8 @@
 	CDK2_COREBOOT_RECORD_FIELD_END(struct cb_smram, physical_size)
 #define CDK2_COREBOOT_SMM_REGISTER_INFO_MIN_SIZE \
 	(sizeof(struct cb_smm_register_info) + 2U * sizeof(struct cb_smm_generic_register))
+#define CDK2_COREBOOT_LOCAL_APIC_TIMER_INFO_MIN_SIZE \
+	(sizeof(struct cb_local_apic_timer_info))
 #define CDK2_COREBOOT_FW_INFO_MIN_SIZE \
 	CDK2_COREBOOT_RECORD_FIELD_END(struct lb_efi_fw_info, fw_size)
 #define CDK2_COREBOOT_TPM_PPI_MIN_SIZE \

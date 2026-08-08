@@ -12,6 +12,7 @@ static UINTN raised_tpl;
 static UINTN restored_tpl;
 static UINTN eoi_count;
 static UINT64 notified_period;
+static UINT64 enabled_period;
 
 static void program(UINT32 divide, UINT32 count, BOOLEAN periodic, UINT8 vector)
 {
@@ -20,7 +21,15 @@ static void program(UINT32 divide, UINT32 count, BOOLEAN periodic, UINT8 vector)
 	programmed_vector = vector;
 }
 
-static void set_interrupt(BOOLEAN enabled) { interrupt_state = enabled; }
+static void set_interrupt(BOOLEAN enabled)
+{
+	UINT64 period;
+
+	if (enabled && cdk2_local_apic_timer_protocol()->get_period(
+		cdk2_local_apic_timer_protocol(), &period) == EFI_SUCCESS)
+		enabled_period = period;
+	interrupt_state = enabled;
+}
 static BOOLEAN interrupt_enabled(void) { return interrupt_state; }
 static void send_eoi(void) { eoi_count++; }
 static UINTN raise_tpl(UINTN tpl) { raised_tpl = tpl; return 7U; }
@@ -47,7 +56,8 @@ int main(void)
 	failures += expect(cdk2_local_apic_timer_init(NULL, 100000000U) ==
 		EFI_INVALID_PARAMETER, "missing hardware contract accepted");
 	failures += expect(cdk2_local_apic_timer_init(&ops, 100000000U) == EFI_SUCCESS &&
-		programmed_count == 1000000U && programmed_vector == 32U && interrupt_state,
+		programmed_count == 500000U && programmed_vector == 32U && interrupt_state &&
+		enabled_period == CDK2_LOCAL_APIC_DEFAULT_PERIOD,
 		"default ten-millisecond period was not programmed");
 	failures += expect(timer->get_period(timer, &period) == EFI_SUCCESS &&
 		period == CDK2_LOCAL_APIC_DEFAULT_PERIOD, "reported period is wrong");
@@ -67,7 +77,17 @@ int main(void)
 	failures += expect(timer->register_handler(timer, NULL) == EFI_SUCCESS &&
 		timer->register_handler(timer, NULL) == EFI_INVALID_PARAMETER,
 		"handler removal state is wrong");
+	failures += expect(timer->set_period(timer, 1U) == EFI_SUCCESS &&
+		programmed_count == 5U && enabled_period == 1U,
+		"period rounding or publish-before-unmask ordering is wrong");
+	failures += expect(cdk2_local_apic_timer_init(&ops, 1U) == EFI_SUCCESS &&
+		timer->set_period(timer, 1U) == EFI_SUCCESS && programmed_count == 1U,
+		"minimum nonzero period programmed zero ticks");
+	failures += expect(cdk2_local_apic_timer_init(&ops, 100000000U) == EFI_SUCCESS,
+		"timer could not be restored for overflow testing");
 	failures += expect(timer->set_period(timer, MAX_UINT64) == EFI_SUCCESS &&
 		programmed_count == MAX_UINT32, "period overflow was not clamped");
+	failures += expect(timer->get_period(timer, &period) == EFI_SUCCESS &&
+		period == 858993459ULL, "clamped period omitted the APIC divide-by-two");
 	return failures == 0 ? 0 : 1;
 }
