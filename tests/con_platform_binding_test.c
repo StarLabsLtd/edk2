@@ -9,8 +9,12 @@ static EFI_STATUS open_protocol(void *context, void *controller, const EFI_GUID 
 	UINT32 attribute, void **interface)
 {
 	(void)context; (void)controller; (void)guid; opens++;
-	if (attribute == CDK2_CON_OPEN_GET) { *interface = path; return EFI_SUCCESS; }
-	if (interface != NULL) *interface = path;
+	if (attribute == CDK2_CON_OPEN_GET) {
+		*interface = path;
+		return EFI_SUCCESS;
+	}
+	if (interface != NULL)
+		*interface = path;
 	return EFI_SUCCESS;
 }
 static EFI_STATUS close_protocol(void *context, void *controller, const EFI_GUID *guid)

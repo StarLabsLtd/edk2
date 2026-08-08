@@ -46,7 +46,7 @@ enum cdk2_con_variable_operation {
 typedef EFI_STATUS cdk2_con_variable_read_fn(void *, const CHAR16 *, void **, UINTN *);
 typedef EFI_STATUS cdk2_con_variable_write_fn(void *, const CHAR16 *, const void *, UINTN);
 typedef EFI_STATUS cdk2_con_path_edit_fn(void *, const void *, UINTN, const void *, UINTN,
-	BOOLEAN, void **, UINTN *);
+	enum cdk2_con_variable_operation, void **, UINTN *);
 typedef void cdk2_con_release_fn(void *, void *);
 
 struct cdk2_con_variable_ops {

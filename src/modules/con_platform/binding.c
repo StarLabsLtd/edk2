@@ -16,12 +16,12 @@ static const EFI_GUID output_marker_guid = { 0xd3b36f2c, 0xd551, 0x11d4,
 	{ 0x9a, 0x46, 0x00, 0x90, 0x27, 0x3f, 0xc1, 0x4d } };
 static const EFI_GUID error_marker_guid = { 0xd3b36f2d, 0xd551, 0x11d4,
 	{ 0x9a, 0x46, 0x00, 0x90, 0x27, 0x3f, 0xc1, 0x4d } };
-static const CHAR16 con_in[] = { 'C','o','n','I','n',0 };
-static const CHAR16 con_in_dev[] = { 'C','o','n','I','n','D','e','v',0 };
-static const CHAR16 con_out[] = { 'C','o','n','O','u','t',0 };
-static const CHAR16 con_out_dev[] = { 'C','o','n','O','u','t','D','e','v',0 };
-static const CHAR16 err_out[] = { 'E','r','r','O','u','t',0 };
-static const CHAR16 err_out_dev[] = { 'E','r','r','O','u','t','D','e','v',0 };
+static const CHAR16 con_in[] = { 'C', 'o', 'n', 'I', 'n', 0 };
+static const CHAR16 con_in_dev[] = { 'C', 'o', 'n', 'I', 'n', 'D', 'e', 'v', 0 };
+static const CHAR16 con_out[] = { 'C', 'o', 'n', 'O', 'u', 't', 0 };
+static const CHAR16 con_out_dev[] = { 'C', 'o', 'n', 'O', 'u', 't', 'D', 'e', 'v', 0 };
+static const CHAR16 err_out[] = { 'E', 'r', 'r', 'O', 'u', 't', 0 };
+static const CHAR16 err_out_dev[] = { 'E', 'r', 'r', 'O', 'u', 't', 'D', 'e', 'v', 0 };
 
 static const EFI_GUID *text_guid(const struct cdk2_con_binding *binding)
 {

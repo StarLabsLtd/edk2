@@ -23,7 +23,7 @@ EFI_STATUS cdk2_con_update_variable(const struct cdk2_con_variable_ops *ops,
 	if (EFI_ERROR(status))
 		return status;
 	status = ops->edit(context, current, current_size, path, path_size,
-		operation == CDK2_CON_DELETE, &updated, &updated_size);
+		operation, &updated, &updated_size);
 	if (current != NULL)
 		ops->release(context, current);
 	if (operation == CDK2_CON_CHECK) {

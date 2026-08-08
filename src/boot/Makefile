@@ -4689,3 +4689,81 @@ $(CDK2_NATIVE_FTW_FFS): $(CDK2_NATIVE_FTW_PE) $(CDK2_NATIVE_FTW_DEPEX) $(CDK2_NA
 	@"$(CDK2_NATIVE_FFSBUILD)" fe5cea76-4f72-49e8-986f-2cd899dffe5d FaultTolerantWriteDxe 1.0 0x8096 "$<" "$@" "$(CDK2_NATIVE_FTW_DEPEX)"
 
 native-check: native-ftw-test
+
+CDK2_NATIVE_CON_PLATFORM_PATH_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-con-platform-path-test
+CDK2_NATIVE_CON_PLATFORM_POLICY_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-con-platform-policy-test
+CDK2_NATIVE_CON_PLATFORM_BINDING_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-con-platform-binding-test
+CDK2_NATIVE_CON_PLATFORM_ENTRY_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-con-platform-entry-test
+CDK2_NATIVE_CON_PLATFORM_OBJS := $(CDK2_NATIVE_BUILD_DIR)/con-platform-path.o \
+	$(CDK2_NATIVE_BUILD_DIR)/con-platform-policy.o \
+	$(CDK2_NATIVE_BUILD_DIR)/con-platform-binding.o \
+	$(CDK2_NATIVE_BUILD_DIR)/con-platform-entry.o
+CDK2_NATIVE_CON_PLATFORM_PE ?= $(CDK2_NATIVE_BUILD_DIR)/ConPlatformDxe.efi
+CDK2_NATIVE_CON_PLATFORM_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/ConPlatformDxe.ffs
+
+.PHONY: native-con-platform-test native-con-platform-fv
+native-con-platform-test: $(CDK2_NATIVE_CON_PLATFORM_PATH_TEST) \
+		$(CDK2_NATIVE_CON_PLATFORM_POLICY_TEST) \
+		$(CDK2_NATIVE_CON_PLATFORM_BINDING_TEST) \
+		$(CDK2_NATIVE_CON_PLATFORM_ENTRY_TEST)
+	@"$(CDK2_NATIVE_CON_PLATFORM_PATH_TEST)"
+	@"$(CDK2_NATIVE_CON_PLATFORM_POLICY_TEST)"
+	@"$(CDK2_NATIVE_CON_PLATFORM_BINDING_TEST)"
+	@"$(CDK2_NATIVE_CON_PLATFORM_ENTRY_TEST)"
+
+native-con-platform-fv: $(CDK2_NATIVE_CON_PLATFORM_FFS)
+	@printf '%s\n' "native console platform FFS: $(CDK2_NATIVE_CON_PLATFORM_FFS)"
+
+$(CDK2_NATIVE_CON_PLATFORM_PATH_TEST): $(CDK2_DIR)/tests/con_platform_path_test.c \
+		$(CDK2_DIR)/src/modules/con_platform/path.c \
+		$(CDK2_DIR)/include/cdk2/con_platform.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) \
+		-o "$@" "$<" "$(CDK2_DIR)/src/modules/con_platform/path.c"
+
+$(CDK2_NATIVE_CON_PLATFORM_POLICY_TEST): $(CDK2_DIR)/tests/con_platform_policy_test.c \
+		$(CDK2_DIR)/src/modules/con_platform/policy.c \
+		$(CDK2_DIR)/include/cdk2/con_platform.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) \
+		-o "$@" "$<" "$(CDK2_DIR)/src/modules/con_platform/policy.c"
+
+$(CDK2_NATIVE_CON_PLATFORM_BINDING_TEST): $(CDK2_DIR)/tests/con_platform_binding_test.c \
+		$(CDK2_DIR)/src/modules/con_platform/binding.c \
+		$(CDK2_DIR)/include/cdk2/con_platform.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) \
+		-o "$@" "$<" "$(CDK2_DIR)/src/modules/con_platform/binding.c"
+
+$(CDK2_NATIVE_CON_PLATFORM_ENTRY_TEST): $(CDK2_DIR)/tests/con_platform_entry_test.c \
+		$(CDK2_DIR)/src/modules/con_platform/entry.c \
+		$(CDK2_DIR)/src/modules/con_platform/binding.c \
+		$(CDK2_DIR)/src/modules/con_platform/policy.c \
+		$(CDK2_DIR)/src/modules/con_platform/path.c \
+		$(CDK2_DIR)/include/cdk2/con_platform.h \
+		$(CDK2_DIR)/include/cdk2/con_platform_entry.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) \
+		-o "$@" "$<" "$(CDK2_DIR)/src/modules/con_platform/entry.c" \
+		"$(CDK2_DIR)/src/modules/con_platform/binding.c" \
+		"$(CDK2_DIR)/src/modules/con_platform/policy.c" \
+		"$(CDK2_DIR)/src/modules/con_platform/path.c"
+
+$(CDK2_NATIVE_BUILD_DIR)/con-platform-%.o: \
+		$(CDK2_DIR)/src/modules/con_platform/%.c \
+		$(CDK2_DIR)/include/cdk2/con_platform.h \
+		$(CDK2_DIR)/include/cdk2/con_platform_entry.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
+		-mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args \
+		$(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+
+$(CDK2_NATIVE_CON_PLATFORM_PE): $(CDK2_NATIVE_CON_PLATFORM_OBJS) \
+		$(CDK2_DIR)/src/modules/con_platform/con_platform.ld $(CDK2_NATIVE_PERELOCCHECK)
+	@$(CDK2_NATIVE_LD) -mi386pep --subsystem 11 --entry cdk2_con_platform_entry \
+		--image-base 0 --section-alignment 0x1000 --file-alignment 0x200 \
+		--build-id=none --no-insert-timestamp -s --nxcompat \
+		-T "$(CDK2_DIR)/src/modules/con_platform/con_platform.ld" -o "$@" \
+		$(CDK2_NATIVE_CON_PLATFORM_OBJS)
+	@"$(CDK2_NATIVE_PERELOCCHECK)" --subsystem 11 "$@"
+
+$(CDK2_NATIVE_CON_PLATFORM_FFS): $(CDK2_NATIVE_CON_PLATFORM_PE) $(CDK2_NATIVE_FFSBUILD)
+	@"$(CDK2_NATIVE_FFSBUILD)" 51ccf399-4fdf-4e55-a45b-e123f84d456a \
+		ConPlatformDxe 1.0 0x704e "$<" "$@" -
+
+native-check: native-con-platform-test

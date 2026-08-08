@@ -12,10 +12,12 @@ static EFI_STATUS read_var(void *context, const CHAR16 *name, void **data, UINTN
 static EFI_STATUS write_var(void *context, const CHAR16 *name, const void *data, UINTN size)
 { (void)context; (void)name; writes++; return data != NULL && size == 8 ? EFI_SUCCESS : EFI_INVALID_PARAMETER; }
 static EFI_STATUS edit_path(void *context, const void *old, UINTN old_size,
-	const void *path, UINTN path_size, BOOLEAN remove, void **result, UINTN *result_size)
+	const void *path, UINTN path_size, enum cdk2_con_variable_operation operation,
+	void **result, UINTN *result_size)
 {
 	(void)context; (void)old; (void)old_size; (void)path; (void)path_size; edits++;
-	if (!remove && edits == 2U) return CDK2_CON_ALREADY_STARTED;
+	if (operation == CDK2_CON_APPEND && edits == 2U)
+		return CDK2_CON_ALREADY_STARTED;
 	*result = malloc(8); *result_size = 8; return *result == NULL ? EFI_OUT_OF_RESOURCES : EFI_SUCCESS;
 }
 static void release(void *context, void *buffer)

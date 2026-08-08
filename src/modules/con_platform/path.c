@@ -9,6 +9,17 @@ static UINT16 read16(const void *pointer)
 	return (UINT16)(bytes[0] | ((UINT16)bytes[1] << 8));
 }
 
+static BOOLEAN bytes_equal(const void *left, const void *right, UINTN size)
+{
+	const UINT8 *a = left, *b = right;
+	UINTN index;
+
+	for (index = 0; index < size; index++)
+		if (a[index] != b[index])
+			return FALSE;
+	return TRUE;
+}
+
 static const struct cdk2_dp_node *next_node(const struct cdk2_dp_node *node)
 {
 	return (const void *)((const UINT8 *)node + read16(&node->length));
@@ -70,7 +81,7 @@ BOOLEAN cdk2_con_gop_siblings(const void *left, UINTN left_size,
 	prefix = (UINTN)(left_end - (const UINT8 *)left);
 	if (prefix != (UINTN)(right_end - (const UINT8 *)right))
 		return FALSE;
-	return __builtin_memcmp(left, right, prefix) == 0;
+	return bytes_equal(left, right, prefix);
 }
 
 static BOOLEAN wildcard(UINT8 expected, UINT8 actual)
@@ -120,8 +131,8 @@ static BOOLEAN match_wwid(const struct cdk2_usb_identity *usb, const UINT8 *node
 	while (usb->serial[serial_length] != 0U)
 		serial_length++;
 	return suffix_length != 0U && serial_length >= suffix_length &&
-		__builtin_memcmp(usb->serial + serial_length - suffix_length, suffix,
-			suffix_length * sizeof(CHAR16)) == 0;
+		bytes_equal(usb->serial + serial_length - suffix_length, suffix,
+			suffix_length * sizeof(CHAR16));
 }
 
 BOOLEAN cdk2_con_usb_short_match(const struct cdk2_usb_identity *usb,
@@ -155,7 +166,7 @@ BOOLEAN cdk2_con_path_instance_match(const void *single, UINTN single_size,
 	    !cdk2_con_path_valid(instance, instance_size))
 		return FALSE;
 	if (single_size == instance_size &&
-	    __builtin_memcmp(single, instance, single_size) == 0)
+	    bytes_equal(single, instance, single_size))
 		return TRUE;
 	return cdk2_con_gop_siblings(single, single_size, instance, instance_size) ||
 		cdk2_con_usb_short_match(usb, instance, instance_size);

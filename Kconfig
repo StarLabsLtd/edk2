@@ -509,6 +509,14 @@ config CDK2_NATIVE_GRAPHICS_CONSOLE
 	  Publish Simple Text Output on GOP controllers and own the HII narrow-font
 	  package used to render the complete UEFI console glyph repertoire.
 
+config CDK2_NATIVE_CON_PLATFORM
+	bool "Build native console platform services"
+	default y
+	depends on CDK2_NATIVE_STAGE
+	help
+	  Publish console device policy and DriverBinding services for supported
+	  console input and output controllers.
+
 config CDK2_NATIVE_TCG2
 	bool "Build native TPM2 measured-boot services"
 	default y
