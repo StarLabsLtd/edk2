@@ -30,10 +30,22 @@ int main(void)
 	(void)cdk2_hii_register_glyph(&database, L'A', 2U, 4U, 3U, pixels);
 	pixels[0].red = 0xffU;
 	(void)cdk2_hii_register_glyph(&database, L'C', 2U, 4U, 3U, pixels);
+	(void)cdk2_hii_register_package_glyph_metrics(&database, NULL, L'D',
+		2U, 4U, -1, -3, 3, pixels);
 	failures += expect(cdk2_hii_string_to_image(&database, 0U, L"AA\nA", &output,
 		0U, 0U, &rows, &row_count, &column, NULL) == EFI_SUCCESS &&
 		row_count == 2U && rows[0].line_width == 4U && column == 4U,
 		"glyph layout or row metadata is wrong");
+	release(NULL, rows);
+	rows = NULL;
+	release(NULL, output->image.bitmap);
+	release(NULL, output);
+	output = NULL;
+	column = 0U;
+	failures += expect(cdk2_hii_string_to_image(&database, 0U, L"DD", &output,
+		0U, 0U, &rows, &row_count, &column, NULL) == EFI_SUCCESS &&
+		rows[0].line_width == 6U,
+		"glyph advance was not used for layout");
 	column = 0U;
 	failures += expect(cdk2_hii_string_to_image(&database, 0U, L"B", &output,
 		0U, 0U, NULL, NULL, &column, NULL) == EFI_NOT_FOUND && column == 0U,

@@ -106,6 +106,7 @@ struct cdk2_hii_glyph {
 	void *package_handle;
 	CHAR16 character;
 	UINT16 width, height, baseline;
+	INT16 offset_x, offset_y, advance_x;
 	struct cdk2_hii_pixel *bitmap;
 	BOOLEAN active;
 };
@@ -196,6 +197,10 @@ EFI_STATUS cdk2_hii_register_glyph(struct cdk2_hii_database *database,
 EFI_STATUS cdk2_hii_register_package_glyph(struct cdk2_hii_database *database,
 	void *package_handle, CHAR16 character, UINT16 width, UINT16 height,
 	UINT16 baseline, const struct cdk2_hii_pixel *bitmap);
+EFI_STATUS cdk2_hii_register_package_glyph_metrics(
+	struct cdk2_hii_database *database, void *package_handle, CHAR16 character,
+	UINT16 width, UINT16 height, INT16 offset_x, INT16 offset_y, INT16 advance_x,
+	const struct cdk2_hii_pixel *bitmap);
 void cdk2_hii_remove_glyphs(struct cdk2_hii_database *database,
 	void *package_handle);
 EFI_STATUS cdk2_hii_ingest_package_list(struct cdk2_hii_database *database,

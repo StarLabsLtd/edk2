@@ -29,13 +29,25 @@ EFI_STATUS cdk2_hii_register_package_glyph(struct cdk2_hii_database *database,
 	void *package_handle, CHAR16 character, UINT16 width, UINT16 height,
 	UINT16 baseline, const struct cdk2_hii_pixel *bitmap)
 {
+	if (baseline > height)
+		return EFI_INVALID_PARAMETER;
+	return cdk2_hii_register_package_glyph_metrics(database, package_handle,
+		character, width, height, 0, (INT16)((INT32)baseline - height), (INT16)width,
+		bitmap);
+}
+
+EFI_STATUS cdk2_hii_register_package_glyph_metrics(
+	struct cdk2_hii_database *database, void *package_handle, CHAR16 character,
+	UINT16 width, UINT16 height, INT16 offset_x, INT16 offset_y, INT16 advance_x,
+	const struct cdk2_hii_pixel *bitmap)
+{
 	struct cdk2_hii_glyph *glyph = NULL;
 	struct cdk2_hii_pixel *copy;
 	EFI_STATUS status;
 	UINTN index, bytes;
 
 	if (database == NULL || character == 0U || width == 0U || height == 0U ||
-	    baseline > height || bitmap == NULL)
+	    advance_x < 0 || bitmap == NULL)
 		return EFI_INVALID_PARAMETER;
 	bytes = (UINTN)width * height * sizeof(*bitmap);
 	status = database->ops->allocate(database->context, bytes, (void **)&copy);
@@ -56,7 +68,11 @@ EFI_STATUS cdk2_hii_register_package_glyph(struct cdk2_hii_database *database,
 	if (glyph->active)
 		database->ops->release(database->context, glyph->bitmap);
 	*glyph = (struct cdk2_hii_glyph) {
-		package_handle, character, width, height, baseline, copy, TRUE
+		.package_handle = package_handle, .character = character,
+		.width = width, .height = height,
+		.baseline = offset_y < 0 ? (UINT16)-offset_y : 0U,
+		.offset_x = offset_x, .offset_y = offset_y, .advance_x = advance_x,
+		.bitmap = copy, .active = TRUE
 	};
 	return EFI_SUCCESS;
 }
@@ -230,7 +246,7 @@ EFI_STATUS cdk2_hii_string_to_image_colored(struct cdk2_hii_database *database,
 			glyph = find_glyph(database, string[measure]);
 			if (glyph == NULL)
 				continue;
-			measured_line += glyph->width;
+			measured_line += (UINTN)glyph->advance_x;
 			if (glyph->height > measured_line_height)
 				measured_line_height = glyph->height;
 		}
@@ -276,7 +292,7 @@ EFI_STATUS cdk2_hii_string_to_image_colored(struct cdk2_hii_database *database,
 			continue;
 		}
 		if ((flags & 0x02U) != 0U && line_x != x &&
-		    line_x + glyph->width > max_width) {
+		    line_x + (UINTN)glyph->advance_x > max_width) {
 			if (count == 128U)
 				return EFI_OUT_OF_RESOURCES;
 			row_buffer[count++] = (struct cdk2_hii_row_info) {
@@ -285,7 +301,8 @@ EFI_STATUS cdk2_hii_string_to_image_colored(struct cdk2_hii_database *database,
 			line_y += height; line_x = x; start = index;
 			height = baseline = 0U;
 		}
-		if ((flags & 0x01U) != 0U && line_x + glyph->width > max_width) {
+		if ((flags & 0x01U) != 0U &&
+		    line_x + (UINTN)glyph->advance_x > max_width) {
 			index++;
 			continue;
 		}
@@ -300,7 +317,7 @@ EFI_STATUS cdk2_hii_string_to_image_colored(struct cdk2_hii_database *database,
 			*column = index;
 			return status;
 		}
-		line_x += glyph->width;
+		line_x += (UINTN)glyph->advance_x;
 		if (glyph->height > height)
 			height = glyph->height;
 		if (glyph->baseline > baseline)
