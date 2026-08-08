@@ -27,7 +27,6 @@ unsafe-standalone	MdeModulePkg/Core/PiSmmCore/PiSmmIpl
 unsafe-standalone	MdeModulePkg/Core/RuntimeDxe/RuntimeDxe
 hardware-gated	MdeModulePkg/Universal/Acpi/AcpiTableDxe/AcpiTableDxe
 subsystem-sized	MdeModulePkg/Universal/BdsDxe/BdsDxe
-subsystem-sized	MdeModulePkg/Universal/CapsuleRuntimeDxe/CapsuleRuntimeDxe
 subsystem-sized	MdeModulePkg/Universal/Console/ConPlatformDxe/ConPlatformDxe
 subsystem-sized	MdeModulePkg/Universal/Console/ConSplitterDxe/ConSplitterDxe
 subsystem-sized	MdeModulePkg/Universal/Console/TerminalDxe/TerminalDxe

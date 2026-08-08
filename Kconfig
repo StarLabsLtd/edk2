@@ -322,12 +322,11 @@ config CDK2_NATIVE_GRAPHICS_CONSOLE
 
 config CDK2_NATIVE_CAPSULE_RUNTIME
 	bool "Build native capsule runtime services"
-	default n
+	default y
 	depends on CDK2_NATIVE_STAGE
 	help
 	  Publish capsule query and update runtime services after variable write
-	  services become available. Disabled until the native replacement has
-	  passed exact retained-FV and carrier validation.
+	  services become available.
 
 config CDK2_BUILD_DEBUG
 	bool "Build a debug payload"
