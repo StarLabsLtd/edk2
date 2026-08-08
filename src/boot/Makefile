@@ -177,6 +177,7 @@ CDK2_NATIVE_GRAPHICS_CONSOLE_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/GraphicsConsoleDxe.
 CDK2_NATIVE_GRAPHICS_CONSOLE_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-graphics-console.fv
 CDK2_NATIVE_TCG2_TRANSPORT_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-tcg2-transport-test
 CDK2_NATIVE_TCG2_COMMANDS_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-tcg2-commands-test
+CDK2_NATIVE_TCG2_EVENT_LOG_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-tcg2-event-log-test
 HOSTCC ?= cc
 CDK2_NATIVE_CC ?= $(CC)
 CDK2_NATIVE_HOST_CC ?= $(HOSTCC)
@@ -456,6 +457,9 @@ native-tcg2-transport-test: $(CDK2_NATIVE_TCG2_TRANSPORT_TEST)
 	@"$<"
 
 native-tcg2-commands-test: $(CDK2_NATIVE_TCG2_COMMANDS_TEST)
+	@"$<"
+
+native-tcg2-event-log-test: $(CDK2_NATIVE_TCG2_EVENT_LOG_TEST)
 	@"$<"
 
 native-pch-smi-dispatch-fv: $(CDK2_NATIVE_PCH_SMI_DISPATCH_FV)
@@ -1290,6 +1294,9 @@ $(CDK2_NATIVE_CAPSULE_RUNTIME_QEMU_PE): $(CDK2_NATIVE_CAPSULE_RUNTIME_QEMU_OBJ) 
 
 $(CDK2_NATIVE_TCG2_COMMANDS_TEST): $(CDK2_DIR)/tests/tcg2_commands_test.c $(CDK2_DIR)/src/modules/tcg2/tcg2_commands.c $(CDK2_DIR)/src/modules/tcg2/tcg2_transport.c $(CDK2_DIR)/include/cdk2/tcg2_commands.h $(CDK2_DIR)/include/cdk2/tcg2_transport.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_DIR)/tests/tcg2_commands_test.c" "$(CDK2_DIR)/src/modules/tcg2/tcg2_commands.c" "$(CDK2_DIR)/src/modules/tcg2/tcg2_transport.c"
+
+$(CDK2_NATIVE_TCG2_EVENT_LOG_TEST): $(CDK2_DIR)/tests/tcg2_event_log_test.c $(CDK2_DIR)/src/modules/tcg2/tcg2_event_log.c $(CDK2_DIR)/include/cdk2/tcg2_event_log.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_DIR)/tests/tcg2_event_log_test.c" "$(CDK2_DIR)/src/modules/tcg2/tcg2_event_log.c"
 
 FORCE:
 

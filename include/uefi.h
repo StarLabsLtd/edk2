@@ -177,6 +177,7 @@ typedef EFI_GUID GUID;
 #define EFI_DEVICE_ERROR       EFIERR(7)
 #define EFI_TIMEOUT            EFIERR(18)
 #define EFI_OUT_OF_RESOURCES   EFIERR(9)
+#define EFI_VOLUME_FULL        EFIERR(11)
 #define EFI_NOT_FOUND          EFIERR(14)
 #define EFI_SECURITY_VIOLATION EFIERR(26)
 #define EFI_CRC_ERROR          EFIERR(27)
