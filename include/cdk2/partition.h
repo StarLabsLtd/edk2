@@ -95,6 +95,7 @@ struct cdk2_block_io2 *cdk2_partition_child_block2(
 	struct cdk2_partition_child *child);
 struct cdk2_disk_io *cdk2_partition_child_disk(struct cdk2_partition_child *child);
 struct cdk2_disk_io2 *cdk2_partition_child_disk2(struct cdk2_partition_child *child);
+void *cdk2_partition_child_handle(struct cdk2_partition_child *child);
 
 UINT32 cdk2_partition_crc32(const void *buffer, UINTN size);
 EFI_STATUS cdk2_partition_parse_gpt(const struct cdk2_partition_media *media,

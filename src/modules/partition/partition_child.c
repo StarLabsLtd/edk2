@@ -28,7 +28,14 @@ static const EFI_GUID efi_system_partition_guid = {
 
 static BOOLEAN guid_equal(const EFI_GUID *left, const EFI_GUID *right)
 {
-	return __builtin_memcmp(left, right, sizeof(*left)) == 0;
+	const UINT8 *left_bytes = (const UINT8 *)left;
+	const UINT8 *right_bytes = (const UINT8 *)right;
+	UINTN index;
+
+	for (index = 0; index < sizeof(*left); index++)
+		if (left_bytes[index] != right_bytes[index])
+			return FALSE;
+	return TRUE;
 }
 
 static struct cdk2_partition_child *from_block(struct cdk2_block_io *block)
@@ -95,7 +102,7 @@ static EFI_STATUS block_transfer(struct cdk2_block_io *block, BOOLEAN write,
 	UINT32 media_id, UINT64 lba, UINTN size, void *buffer)
 {
 	struct cdk2_partition_child *child = from_block(block);
-	UINT64 parent_lba;
+	UINT64 parent_lba = 0;
 	EFI_STATUS status;
 
 	status = block_range(child, media_id, lba, size, buffer, &parent_lba);
@@ -153,7 +160,7 @@ static EFI_STATUS block2_transfer(struct cdk2_block_io2 *block, BOOLEAN write,
 	UINTN size, void *buffer)
 {
 	struct cdk2_partition_child *child = from_block2(block);
-	UINT64 parent_lba;
+	UINT64 parent_lba = 0;
 	EFI_STATUS status;
 
 	status = block_range(child, media_id, lba, size, buffer, &parent_lba);
@@ -201,7 +208,7 @@ static EFI_STATUS disk_transfer(struct cdk2_disk_io *disk, BOOLEAN write,
 	UINT32 media_id, UINT64 offset, UINTN size, void *buffer)
 {
 	struct cdk2_partition_child *child = from_disk(disk);
-	UINT64 parent_offset;
+	UINT64 parent_offset = 0;
 	EFI_STATUS status;
 
 	status = disk_range(child, media_id, offset, size, buffer, &parent_offset);
@@ -228,7 +235,7 @@ static EFI_STATUS disk2_transfer(struct cdk2_disk_io2 *disk, BOOLEAN write,
 	UINTN size, void *buffer)
 {
 	struct cdk2_partition_child *child = from_disk2(disk);
-	UINT64 parent_offset;
+	UINT64 parent_offset = 0;
 	EFI_STATUS status;
 
 	status = disk_range(child, media_id, offset, size, buffer, &parent_offset);
@@ -403,4 +410,9 @@ struct cdk2_disk_io *cdk2_partition_child_disk(struct cdk2_partition_child *chil
 struct cdk2_disk_io2 *cdk2_partition_child_disk2(struct cdk2_partition_child *child)
 {
 	return child == NULL ? NULL : &child->disk2;
+}
+
+void *cdk2_partition_child_handle(struct cdk2_partition_child *child)
+{
+	return child == NULL ? NULL : child->handle;
 }

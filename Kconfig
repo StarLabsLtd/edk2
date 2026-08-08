@@ -211,6 +211,14 @@ config CDK2_NATIVE_DEVICE_PATH
 	  Publish the UEFI Device Path Utilities, To Text, and From Text
 	  protocols from the native DXE driver.
 
+config CDK2_NATIVE_PARTITION
+	bool "Build native partition services"
+	default y
+	depends on CDK2_NATIVE_STAGE
+	help
+	  Discover GPT, MBR, El Torito, and UDF partitions and publish child
+	  block, disk, device-path, and partition-information protocols.
+
 config CDK2_NATIVE_STATUS_CODE_HANDLER
 	bool "Build the native release status-code handler"
 	default y
