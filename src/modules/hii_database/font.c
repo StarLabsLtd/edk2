@@ -109,6 +109,56 @@ EFI_STATUS cdk2_hii_get_glyph(struct cdk2_hii_database *database,
 	return EFI_SUCCESS;
 }
 
+static BOOLEAN same_text(const CHAR16 *left, const CHAR16 *right)
+{
+	while (*left != 0U && *left == *right) {
+		left++;
+		right++;
+	}
+	return *left == *right;
+}
+
+EFI_STATUS cdk2_hii_get_font_info(struct cdk2_hii_database *database,
+	void **font_handle, const struct cdk2_hii_font_info *requested,
+	struct cdk2_hii_font_info **font_info, const CHAR16 *string)
+{
+	static const CHAR16 name[] = L"system";
+	struct cdk2_hii_font_info *result;
+	UINT16 height = 0U;
+	UINTN index, size;
+
+	if (database == NULL || font_handle == NULL || font_info == NULL)
+		return EFI_INVALID_PARAMETER;
+	*font_info = NULL;
+	if (*font_handle != NULL)
+		return EFI_NOT_FOUND;
+	for (index = 0; index < CDK2_HII_MAX_GLYPHS; index++)
+		if (database->glyphs[index].active) {
+			height = database->glyphs[index].height;
+			break;
+		}
+	if (height == 0U)
+		return EFI_NOT_FOUND;
+	if (requested != NULL && (requested->style != 0U ||
+	    (requested->size != 0U && requested->size != height) ||
+	    (requested->name[0] != 0U && !same_text(requested->name, name))))
+		return EFI_NOT_FOUND;
+	if (string != NULL)
+		for (index = 0; string[index] != 0U; index++)
+			if (find_glyph(database, string[index]) == NULL)
+				return EFI_NOT_FOUND;
+	size = sizeof(*result) + (sizeof(name) - sizeof(CHAR16));
+	if (database->ops->allocate(database->context, size,
+			(void **)&result) != EFI_SUCCESS)
+		return EFI_OUT_OF_RESOURCES;
+	result->style = 0U;
+	result->size = height;
+	__builtin_memcpy(result->name, name, sizeof(name));
+	*font_info = result;
+	*font_handle = database;
+	return EFI_SUCCESS;
+}
+
 static EFI_STATUS draw_glyph(struct cdk2_hii_database *database,
 	struct cdk2_hii_glyph *glyph, struct cdk2_hii_image_output **output,
 	UINTN x, UINTN y, cdk2_hii_screen_blt_fn *screen_blt)

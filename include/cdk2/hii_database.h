@@ -190,6 +190,9 @@ EFI_STATUS cdk2_hii_ingest_package_list(struct cdk2_hii_database *database,
 	void *package_handle);
 EFI_STATUS cdk2_hii_get_glyph(struct cdk2_hii_database *database,
 	CHAR16 character, struct cdk2_hii_image_output **image, UINTN *baseline);
+EFI_STATUS cdk2_hii_get_font_info(struct cdk2_hii_database *database,
+	void **font_handle, const struct cdk2_hii_font_info *requested,
+	struct cdk2_hii_font_info **font_info, const CHAR16 *string);
 EFI_STATUS cdk2_hii_string_to_image(struct cdk2_hii_database *database,
 	UINTN flags, const CHAR16 *string, struct cdk2_hii_image_output **output,
 	UINTN x, UINTN y, struct cdk2_hii_row_info **rows, UINTN *row_count,
