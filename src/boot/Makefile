@@ -195,6 +195,13 @@ else
 CDK2_NATIVE_PRE_TCG2_FV := $(CDK2_NATIVE_REMOVE_TCG1_FV)
 endif
 CDK2_NATIVE_TPM2_ACPI_TABLE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-tpm2-acpi-table-test
+CDK2_NATIVE_TPM2_ACPI_TABLE_OBJS := $(CDK2_NATIVE_BUILD_DIR)/tpm2-acpi-driver.o \
+	$(CDK2_NATIVE_BUILD_DIR)/tpm2-acpi-table.o
+CDK2_NATIVE_TPM2_ACPI_TABLE_PE ?= $(CDK2_NATIVE_BUILD_DIR)/Tpm2AcpiTableDxe.efi
+CDK2_NATIVE_TPM2_ACPI_TABLE_DEPEX_GEN ?= $(CDK2_NATIVE_BUILD_DIR)/tpm2-acpi-depex-gen
+CDK2_NATIVE_TPM2_ACPI_TABLE_DEPEX ?= $(CDK2_NATIVE_BUILD_DIR)/Tpm2AcpiTableDxe.depex
+CDK2_NATIVE_TPM2_ACPI_TABLE_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/Tpm2AcpiTableDxe.ffs
+CDK2_NATIVE_TPM2_ACPI_TABLE_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-tpm2-acpi-table.fv
 HOSTCC ?= cc
 CDK2_NATIVE_CC ?= $(CC)
 CDK2_NATIVE_HOST_CC ?= $(HOSTCC)
@@ -289,7 +296,7 @@ CDK2_NATIVE_LINK_FLAGS := -static -no-pie -nostdlib -nostartfiles -nodefaultlibs
 CDK2_NATIVE_LINK_POST_MAP_FLAGS := -Wl,--gc-sections -Wl,--build-id=none
 
 .PHONY: native-stage native-coreboot-stage native-coreboot-image native-metronome-fv native-security-stub-fv native-null-memory-test-fv native-null-memory-test-test native-watchdog-fv native-monotonic-counter-fv native-status-code-router-fv native-status-code-router-test native-status-code-handler-fv native-status-code-handler-test native-cpu-io2-fv native-cpu-io2-test native-english-test native-english-fv native-disk-io-fv native-disk-io-test native-serial-io-fv native-serial-io-test native-smbios-fv native-smbios-test native-reset-system-fv native-reset-system-test native-pcat-rtc-fv native-pcat-rtc-test native-smm-access-fv native-smm-access-test native-smm-control-fv native-smm-control-test native-cpu-io2-smm-fv native-cpu-io2-smm-test native-pch-smi-dispatch-test native-pch-smi-dispatch-fv native-local-apic-timer-test native-local-apic-timer-fv native-graphics-console-test native-graphics-console-fv native-capsule-runtime-test native-capsule-runtime-fv native-check native-pack native-service-test native-coreboot-test native-fv-test native-fvpack-test native-fvinfo native-fvinfo-test native-ffsbuild-test native-pe-test native-module-test native-security-stub-test native-elfcheck-test FORCE
-.PHONY: native-tpm2-acpi-table-test
+.PHONY: native-tpm2-acpi-table-test native-tpm2-acpi-table-fv
 
 ifeq ($(CONFIG_CDK2_NATIVE_STAGE),y)
 CDK2_NATIVE_STAGE_DEPS := $(CDK2_NATIVE_ELF)
@@ -343,6 +350,31 @@ else
 native-tcg2-fv:
 	@printf '%s\n' 'native TCG2: disabled by Kconfig'
 endif
+
+native-tpm2-acpi-table-fv: $(CDK2_NATIVE_TPM2_ACPI_TABLE_FV)
+	@printf '%s\n' "native TPM2 ACPI table FV: $(CDK2_NATIVE_TPM2_ACPI_TABLE_FV)"
+
+$(CDK2_NATIVE_BUILD_DIR)/tpm2-acpi-driver.o: $(CDK2_DIR)/src/modules/tpm2_acpi_table/driver.c | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) -mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args $(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+
+$(CDK2_NATIVE_BUILD_DIR)/tpm2-acpi-table.o: $(CDK2_DIR)/src/modules/tpm2_acpi_table/tpm2_acpi_table.c | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) -mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args $(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+
+$(CDK2_NATIVE_TPM2_ACPI_TABLE_PE): $(CDK2_NATIVE_TPM2_ACPI_TABLE_OBJS) $(CDK2_DIR)/src/modules/tpm2_acpi_table/tpm2_acpi_table.ld $(CDK2_NATIVE_PERELOCCHECK)
+	@$(CDK2_NATIVE_LD) -mi386pep --subsystem 11 --entry cdk2_tpm2_acpi_entry --image-base 0 --section-alignment 0x1000 --file-alignment 0x1000 --build-id=none --no-insert-timestamp -s --nxcompat -T "$(CDK2_DIR)/src/modules/tpm2_acpi_table/tpm2_acpi_table.ld" -o "$@" $(CDK2_NATIVE_TPM2_ACPI_TABLE_OBJS)
+	@"$(CDK2_NATIVE_PERELOCCHECK)" --subsystem 11 "$@"
+
+$(CDK2_NATIVE_TPM2_ACPI_TABLE_DEPEX_GEN): $(CDK2_DIR)/src/modules/tpm2_acpi_table/depex.c | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -o "$@" "$<"
+
+$(CDK2_NATIVE_TPM2_ACPI_TABLE_DEPEX): $(CDK2_NATIVE_TPM2_ACPI_TABLE_DEPEX_GEN)
+	@"$<" "$@"
+
+$(CDK2_NATIVE_TPM2_ACPI_TABLE_FFS): $(CDK2_NATIVE_TPM2_ACPI_TABLE_PE) $(CDK2_NATIVE_TPM2_ACPI_TABLE_DEPEX) $(CDK2_NATIVE_FFSBUILD)
+	@"$(CDK2_NATIVE_FFSBUILD)" c442a847-892a-4f94-ad6f-60317c317be7 Tpm2AcpiTableDxe 1.0 0x409e "$<" "$@" "$(CDK2_NATIVE_TPM2_ACPI_TABLE_DEPEX)"
+
+$(CDK2_NATIVE_TPM2_ACPI_TABLE_FV): $(CDK2_NATIVE_TCG2_FV) $(CDK2_NATIVE_TPM2_ACPI_TABLE_FFS) $(CDK2_NATIVE_FVREPLACE)
+	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_TCG2_FV)" 0x3a18c8 "$(CDK2_NATIVE_TPM2_ACPI_TABLE_FFS)" "$@"
 native-check: $(CDK2_CONFIG_HEADER) $(CDK2_NATIVE_ELF) $(CDK2_NATIVE_OVERRIDE_ELF) \
 		$(CDK2_NATIVE_COREBOOT_ELF) $(CDK2_NATIVE_COREBOOT_ENTRY) \
 		$(CDK2_NATIVE_HOST_TOOLS)
@@ -1395,8 +1427,8 @@ $(CDK2_NATIVE_TCG2_SERVICE_TEST): $(CDK2_DIR)/tests/tcg2_service_test.c $(CDK2_D
 $(CDK2_NATIVE_TCG2_ENTRY_TEST): $(CDK2_DIR)/tests/tcg2_entry_test.c $(CDK2_DIR)/src/modules/tcg2/tcg2_entry.c $(CDK2_DIR)/include/cdk2/tcg2_entry.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_DIR)/tests/tcg2_entry_test.c" "$(CDK2_DIR)/src/modules/tcg2/tcg2_entry.c"
 
-$(CDK2_NATIVE_TPM2_ACPI_TABLE_TEST): $(CDK2_DIR)/tests/tpm2_acpi_table_test.c $(CDK2_DIR)/src/modules/tpm2_acpi_table/tpm2_acpi_table.c $(CDK2_DIR)/include/cdk2/tpm2_acpi_table.h | $(CDK2_NATIVE_BUILD_DIR)
-	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_DIR)/tests/tpm2_acpi_table_test.c" "$(CDK2_DIR)/src/modules/tpm2_acpi_table/tpm2_acpi_table.c"
+$(CDK2_NATIVE_TPM2_ACPI_TABLE_TEST): $(CDK2_DIR)/tests/tpm2_acpi_table_test.c $(CDK2_DIR)/src/modules/tpm2_acpi_table/tpm2_acpi_table.c $(CDK2_DIR)/src/modules/tpm2_acpi_table/driver.c $(CDK2_DIR)/include/cdk2/tpm2_acpi_table.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_DIR)/tests/tpm2_acpi_table_test.c" "$(CDK2_DIR)/src/modules/tpm2_acpi_table/tpm2_acpi_table.c" "$(CDK2_DIR)/src/modules/tpm2_acpi_table/driver.c"
 
 FORCE:
 
