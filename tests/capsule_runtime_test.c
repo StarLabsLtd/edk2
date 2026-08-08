@@ -71,6 +71,10 @@ int main(void)
 	h.flags = 0;
 	assert(cdk2_capsule_query(a, 1, &p, supported, 0, &max, &reset) == EFI_SUCCESS &&
 		max == 4096 && reset == 0U);
+	h.image_size = 4097U;
+	assert(cdk2_capsule_query(a, 1, &p, supported, 0, &max, &reset) ==
+		EFI_OUT_OF_RESOURCES);
+	h.image_size = sizeof(h);
 	{
 		struct cdk2_capsule_header deferred = h;
 		const struct cdk2_capsule_header *mixed[] = { &h, &deferred };

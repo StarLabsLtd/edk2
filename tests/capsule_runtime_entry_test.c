@@ -14,6 +14,7 @@ static EFI_STATUS install_status, uninstall_status, event_status[2];
 static EFI_STATUS flush_status;
 static UINTN installs, uninstalls, converts, events, closes;
 static UINTN checks, sets, flushes, variables;
+static UINT32 updatable_result = 1U;
 static BOOLEAN runtime_pointer_converted;
 static void (CDK2_MS_ABI *notification[2])(void *, void *);
 static CHAR16 last_name[32];
@@ -28,7 +29,8 @@ struct fmp_image_descriptor {
 	CHAR16 *version_name;
 	UINTN size;
 	UINT64 attributes_supported, attributes_setting;
-	UINT32 compatibilities, lowest_supported_version, last_attempt_version,
+	UINT64 compatibilities;
+	UINT32 lowest_supported_version, last_attempt_version,
 		last_attempt_status;
 	UINT64 hardware_instance;
 	void *dependencies;
@@ -123,7 +125,7 @@ static EFI_STATUS CDK2_MS_ABI check_image(void *self, UINT8 index,
 	(void)self;
 	assert(index == 1U && image != NULL && size == 4U);
 	checks++;
-	*updatable = 1U;
+	*updatable = updatable_result;
 	return EFI_SUCCESS;
 }
 static EFI_STATUS CDK2_MS_ABI set_image(void *self, UINT8 index,
@@ -215,6 +217,7 @@ int main(void)
 		const struct cdk2_capsule_header *const *, UINTN, UINT64);
 	typedef EFI_STATUS CDK2_MS_ABI query_fn(
 		const struct cdk2_capsule_header *const *, UINTN, UINT64 *, UINT32 *);
+	UINTN checks_before_runtime;
 
 	boot.calculate_crc32 = crc32;
 	boot.create_event_ex = create_event;
@@ -285,6 +288,10 @@ int main(void)
 	blocks[1].address = 0U;
 	assert(((update_fn *)runtime.update_capsule)(capsules, 1U, 0U) == EFI_SUCCESS &&
 		checks == 2U && sets == 1U);
+	updatable_result = 2U;
+	assert(((query_fn *)runtime.query_capsule)(capsules, 1U, &(UINT64) { 0 },
+		&(UINT32) { 0 }) == EFI_SUCCESS);
+	updatable_result = 1U;
 	{
 		UINT64 maximum = 0;
 		UINT32 reset_type = 9U;
@@ -309,13 +316,18 @@ int main(void)
 	assert(variables == 12U && flushes == 36U && last_name[17] == L'1' &&
 		last_name[18] == L'1' && last_name[19] == 0);
 	assert(notification[0] != NULL && notification[1] != NULL);
+	checks_before_runtime = checks;
 	notification[1]((void *)3, NULL);
 	assert(converts == 0U);
 	capsule.outer.flags = 0U;
 	assert(((update_fn *)runtime.update_capsule)(capsules, 1U, 0U) ==
 		EFI_OUT_OF_RESOURCES);
-	assert(sets == 1U);
+	assert(sets == 1U && checks == checks_before_runtime);
 	notification[0]((void *)2, NULL);
 	assert(converts == 6U && runtime_pointer_converted);
+	capsule.outer.flags = CDK2_CAPSULE_PERSIST;
+	assert(((update_fn *)runtime.update_capsule)(capsules, 1U,
+		(UINT64)(UINTN)blocks) == EFI_SUCCESS);
+	assert(converts == 8U);
 	return 0;
 }

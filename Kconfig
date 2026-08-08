@@ -323,7 +323,7 @@ config CDK2_NATIVE_GRAPHICS_CONSOLE
 config CDK2_NATIVE_CAPSULE_RUNTIME
 	bool "Build native capsule runtime services"
 	default y
-	depends on CDK2_NATIVE_STAGE
+	depends on CDK2_NATIVE_STAGE && !CDK2_CAPSULE_ACCEPT_EMBEDDED_DRIVERS
 	help
 	  Publish capsule query and update runtime services after variable write
 	  services become available.

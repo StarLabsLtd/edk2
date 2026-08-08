@@ -35,6 +35,9 @@ static EFI_STATUS validate(const struct cdk2_capsule_header *capsule,
 		return EFI_INVALID_PARAMETER;
 	if ((flags & CDK2_CAPSULE_PERSIST) && !policy->persist)
 		return EFI_UNSUPPORTED;
+	if (capsule->image_size > ((flags & CDK2_CAPSULE_POPULATE) ?
+	    policy->max_populate : policy->max_nonpopulate))
+		return EFI_OUT_OF_RESOURCES;
 	if (!(flags & CDK2_CAPSULE_POPULATE) && support != NULL)
 		return support(capsule, context);
 	return EFI_SUCCESS;

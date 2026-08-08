@@ -40,6 +40,7 @@ static void *capsule_handle;
 static void *va_event;
 static void *ebs_event;
 static BOOLEAN runtime_active;
+static BOOLEAN virtual_map_active;
 
 struct fmp_capsule_header { UINT32 version; UINT16 embedded_count, payload_count; }
 	__packed;
@@ -59,7 +60,8 @@ struct fmp_image_descriptor {
 	CHAR16 *version_name;
 	UINTN size;
 	UINT64 attributes_supported, attributes_setting;
-	UINT32 compatibilities, lowest_supported_version, last_attempt_version,
+	UINT64 compatibilities;
+	UINT32 lowest_supported_version, last_attempt_version,
 		last_attempt_status;
 	UINT64 hardware_instance;
 	void *dependencies;
@@ -142,10 +144,10 @@ static const struct cdk2_capsule_policy policy = {
 static EFI_STATUS fmp_payload(const struct fmp_image_header *image, UINTN available,
 	BOOLEAN apply)
 {
-	locate_handles_fn *locate_handles = (void *)boot_slot(312U);
-	handle_protocol_fn *handle_protocol = (void *)boot_slot(152U);
-	allocate_pool_fn *allocate_pool = (void *)boot_slot(64U);
-	free_pool_fn *free_pool = (void *)boot_slot(72U);
+	locate_handles_fn *locate_handles;
+	handle_protocol_fn *handle_protocol;
+	allocate_pool_fn *allocate_pool;
+	free_pool_fn *free_pool;
 	void **handles = NULL;
 	UINTN count = 0, handle_index;
 	EFI_STATUS result = EFI_UNSUPPORTED;
@@ -157,8 +159,15 @@ static EFI_STATUS fmp_payload(const struct fmp_image_header *image, UINTN availa
 	    image->reserved[2] != 0U ||
 	    (image->version >= 3U && (image->capsule_support & ~3ULL) != 0U) ||
 	    image->image_size > available - header_size ||
-	    image->vendor_size > available - header_size - image->image_size ||
-	    !locate_handles || !handle_protocol || !allocate_pool || !free_pool)
+	    image->vendor_size > available - header_size - image->image_size)
+		return EFI_INVALID_PARAMETER;
+	if (runtime.exited_boot_services)
+		return EFI_SUCCESS;
+	locate_handles = (void *)boot_slot(312U);
+	handle_protocol = (void *)boot_slot(152U);
+	allocate_pool = (void *)boot_slot(64U);
+	free_pool = (void *)boot_slot(72U);
+	if (!locate_handles || !handle_protocol || !allocate_pool || !free_pool)
 		return EFI_INVALID_PARAMETER;
 	result = locate_handles(2U, &fmp_protocol_guid, NULL, &count, &handles);
 	if (EFI_ERROR(result))
@@ -212,7 +221,7 @@ static EFI_STATUS fmp_payload(const struct fmp_image_header *image, UINTN availa
 				else
 					status = EFI_SUCCESS;
 				if (EFI_ERROR(status) ||
-				    (fmp->check_image != NULL && updatable != 1U)) {
+				    (fmp->check_image != NULL && updatable != 1U && updatable != 2U)) {
 					result = EFI_UNSUPPORTED;
 					continue;
 				}
@@ -322,6 +331,15 @@ static EFI_STATUS persist(UINTN sequence, UINT64 scatter_gather, void *context)
 		sizeof(scatter_gather), &scatter_gather);
 }
 
+static EFI_STATUS runtime_address(void **pointer)
+{
+	convert_pointer_fn *convert_pointer = (void *)runtime_services->convert_pointer;
+
+	if (!virtual_map_active)
+		return EFI_SUCCESS;
+	return convert_pointer == NULL ? EFI_UNSUPPORTED : convert_pointer(0, pointer);
+}
+
 static EFI_STATUS writeback(UINT64 scatter_gather, void *context)
 {
 	struct capsule_block { UINT64 length, address; };
@@ -329,6 +347,9 @@ static EFI_STATUS writeback(UINT64 scatter_gather, void *context)
 	UINTN walked = 0;
 	EFI_STATUS status;
 	(void)context;
+	status = runtime_address((void **)&block);
+	if (EFI_ERROR(status))
+		return status;
 	while (block != NULL && walked++ < SIZE_1MB / sizeof(*block)) {
 		status = cdk2_capsule_cache_writeback_range_all_cpus((UINT64)(UINTN)block,
 			sizeof(*block));
@@ -338,12 +359,21 @@ static EFI_STATUS writeback(UINT64 scatter_gather, void *context)
 			if (block->address == 0U)
 				return EFI_SUCCESS;
 			block = (const void *)(UINTN)block->address;
+			status = runtime_address((void **)&block);
+			if (EFI_ERROR(status))
+				return status;
 			continue;
 		}
 		if (block->address > MAX_UINT64 - block->length)
 			return EFI_INVALID_PARAMETER;
-		status = cdk2_capsule_cache_writeback_range_all_cpus(block->address,
-			block->length);
+		{
+			void *payload = (void *)(UINTN)block->address;
+
+			status = runtime_address(&payload);
+			if (!EFI_ERROR(status))
+				status = cdk2_capsule_cache_writeback_range_all_cpus(
+					(UINT64)(UINTN)payload, block->length);
+		}
 		if (EFI_ERROR(status))
 			return status;
 		block++;
@@ -391,7 +421,9 @@ static void CDK2_MS_ABI virtual_address_change(void *event, void *context)
 		return;
 	status = convert((void **)&runtime_services, NULL);
 	if (!EFI_ERROR(status))
-		(void)cdk2_capsule_convert_runtime(&runtime, convert, NULL);
+		status = cdk2_capsule_convert_runtime(&runtime, convert, NULL);
+	if (!EFI_ERROR(status))
+		virtual_map_active = TRUE;
 }
 
 static void CDK2_MS_ABI exit_boot_services(void *event, void *context)
@@ -426,6 +458,7 @@ EFI_STATUS CDK2_MS_ABI cdk2_capsule_runtime_entry(void *image,
 		return EFI_INVALID_PARAMETER;
 	runtime_services = system->runtime;
 	runtime_active = TRUE;
+	virtual_map_active = FALSE;
 	old_update = system->runtime->update_capsule;
 	old_query = system->runtime->query_capsule;
 	old_crc = system->runtime->header.crc32;
