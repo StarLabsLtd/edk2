@@ -60,7 +60,7 @@ EFI_STATUS cdk2_split_binding_start(struct cdk2_split_binding *binding,
 		&instance->interface);
 	if (EFI_ERROR(status))
 		return status;
-	status = binding->ops->admit(binding->context, instance->interface);
+	status = binding->ops->admit(binding->context, controller, instance->interface);
 	if (EFI_ERROR(status)) {
 		(void)binding->ops->close(binding->context, controller,
 			binding->protocol);
@@ -84,13 +84,14 @@ EFI_STATUS cdk2_split_binding_stop(struct cdk2_split_binding *binding,
 	instance = find_instance(binding, controller);
 	if (instance == NULL)
 		return EFI_NOT_FOUND;
-	status = binding->ops->remove(binding->context, instance->interface);
+	status = binding->ops->remove(binding->context, controller, instance->interface);
 	if (EFI_ERROR(status))
 		return status;
 	status = binding->ops->close(binding->context, controller,
 		binding->protocol);
 	if (EFI_ERROR(status)) {
-		(void)binding->ops->admit(binding->context, instance->interface);
+		(void)binding->ops->admit(binding->context, controller,
+			instance->interface);
 		return status;
 	}
 	*instance = (struct cdk2_split_binding_instance) { 0 };

@@ -9,7 +9,7 @@
 typedef EFI_STATUS cdk2_split_binding_open_fn(void *, void *, const EFI_GUID *,
 	UINT32, void **);
 typedef EFI_STATUS cdk2_split_binding_close_fn(void *, void *, const EFI_GUID *);
-typedef EFI_STATUS cdk2_split_binding_device_fn(void *, void *);
+typedef EFI_STATUS cdk2_split_binding_device_fn(void *, void *, void *);
 struct cdk2_split_binding_ops {
 	cdk2_split_binding_open_fn *open;
 	cdk2_split_binding_close_fn *close;

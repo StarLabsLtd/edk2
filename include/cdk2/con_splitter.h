@@ -108,6 +108,8 @@ EFI_STATUS cdk2_split_text_in_reset(struct cdk2_split_text_in *splitter,
 	BOOLEAN extended);
 EFI_STATUS cdk2_split_text_in_read_ex(struct cdk2_split_text_in *splitter,
 	struct cdk2_split_key_data *key);
+EFI_STATUS cdk2_split_text_in_deliver(struct cdk2_split_text_in *splitter,
+	struct cdk2_split_key_data *key);
 EFI_STATUS cdk2_split_text_in_set_state(struct cdk2_split_text_in *splitter,
 	const UINT8 *toggle_state);
 EFI_STATUS cdk2_split_text_in_register_notify(struct cdk2_split_text_in *splitter,

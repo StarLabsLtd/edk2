@@ -6,6 +6,7 @@
 typedef EFI_STATUS CDK2_MS_ABI install_multiple_fn(void **, ...);
 typedef EFI_STATUS CDK2_MS_ABI uninstall_multiple_fn(void *, ...);
 typedef EFI_STATUS CDK2_MS_ABI allocate_pool_fn(UINTN, UINTN, void **);
+typedef EFI_STATUS CDK2_MS_ABI free_pool_fn(void *);
 typedef EFI_STATUS CDK2_MS_ABI open_protocol_fn(void *, const EFI_GUID *, void **,
 	void *, void *, UINT32);
 typedef EFI_STATUS CDK2_MS_ABI close_protocol_fn(void *, const EFI_GUID *, void *,
@@ -18,7 +19,7 @@ struct boot_services_view {
 	UINT8 header[24];
 	void *raise_tpl, *restore_tpl, *allocate_pages, *free_pages, *get_memory_map;
 	allocate_pool_fn *allocate_pool;
-	void *free_pool;
+	free_pool_fn *free_pool;
 	create_event_fn *create_event;
 	void *set_timer, *wait_for_event;
 	event_fn *signal_event;
@@ -54,6 +55,17 @@ struct wait_context {
 	enum binding_kind kind;
 	void *event;
 };
+struct input_ex_attachment {
+	void *controller;
+	struct cdk2_split_text_in_ex_protocol *protocol;
+	BOOLEAN active;
+};
+struct gop_attachment {
+	void *controller;
+	struct cdk2_split_gop_protocol *protocol;
+	struct splitter_entry *owner;
+	BOOLEAN active;
+};
 struct splitter_entry {
 	struct cdk2_split_text_in input_model;
 	struct cdk2_split_pointer pointer_model;
@@ -79,6 +91,10 @@ struct splitter_entry {
 	struct binding_context binding_contexts[5];
 	struct cdk2_split_publication publications[5];
 	struct wait_context waits[4];
+	struct input_ex_attachment input_ex_devices[CDK2_CON_SPLITTER_MAX_INPUTS];
+	void *input_ex_notify_handles[CDK2_CON_SPLITTER_MAX_KEY_NOTIFIES]
+		[CDK2_CON_SPLITTER_MAX_INPUTS];
+	struct gop_attachment gop_devices[CDK2_CON_SPLITTER_MAX_GOPS];
 };
 static struct splitter_entry entry;
 static const EFI_GUID text_in_guid = { 0x387477c1, 0x69c7, 0x11d2,
@@ -264,7 +280,18 @@ static EFI_STATUS CDK2_MS_ABI input_ex_read(
 	struct cdk2_split_text_in_ex_protocol *protocol,
 	struct cdk2_split_key_data *key)
 {
+	EFI_STATUS status = EFI_NOT_READY;
+	UINTN index;
+
 	(void)protocol;
+	for (index = 0; index < CDK2_CON_SPLITTER_MAX_INPUTS; index++) {
+		if (!entry.input_ex_devices[index].active)
+			continue;
+		status = entry.input_ex_devices[index].protocol->read(
+			entry.input_ex_devices[index].protocol, key);
+		if (!EFI_ERROR(status))
+			return cdk2_split_text_in_deliver(&entry.input_model, key);
+	}
 	return cdk2_split_text_in_read_ex(&entry.input_model, key);
 }
 
@@ -272,8 +299,21 @@ static EFI_STATUS CDK2_MS_ABI input_ex_set_state(
 	struct cdk2_split_text_in_ex_protocol *protocol,
 	UINT8 *toggle)
 {
+	EFI_STATUS result = EFI_SUCCESS, status;
+	UINTN index;
+
 	(void)protocol;
-	return cdk2_split_text_in_set_state(&entry.input_model, toggle);
+	for (index = 0; index < CDK2_CON_SPLITTER_MAX_INPUTS; index++) {
+		if (!entry.input_ex_devices[index].active)
+			continue;
+		status = entry.input_ex_devices[index].protocol->set_state(
+			entry.input_ex_devices[index].protocol, toggle);
+		if (EFI_ERROR(status))
+			result = status;
+	}
+	if (!EFI_ERROR(result))
+		result = cdk2_split_text_in_set_state(&entry.input_model, toggle);
+	return result;
 }
 
 static EFI_STATUS CDK2_MS_ABI input_ex_register(
@@ -282,15 +322,80 @@ static EFI_STATUS CDK2_MS_ABI input_ex_register(
 	cdk2_split_key_notify_fn *callback,
 	void **handle)
 {
+	EFI_STATUS status;
+	UINTN device, notify_index;
+	BOOLEAN existing = FALSE;
+
 	(void)protocol;
-	return cdk2_split_text_in_register_notify(&entry.input_model, key, callback,
+	for (notify_index = 0; notify_index < entry.input_model.notify_count;
+	     notify_index++)
+		if (entry.input_model.notifies[notify_index].active &&
+		    entry.input_model.notifies[notify_index].callback == callback &&
+		    entry.input_model.notifies[notify_index].match.key.scan_code ==
+			key->key.scan_code &&
+		    entry.input_model.notifies[notify_index].match.key.unicode ==
+			key->key.unicode &&
+		    entry.input_model.notifies[notify_index].match.state.shift_state ==
+			key->state.shift_state &&
+		    entry.input_model.notifies[notify_index].match.state.toggle_state ==
+			key->state.toggle_state)
+			existing = TRUE;
+	status = cdk2_split_text_in_register_notify(&entry.input_model, key, callback,
 		handle);
+	if (EFI_ERROR(status))
+		return status;
+	notify_index = (UINTN)((struct cdk2_split_key_notify *)*handle -
+		entry.input_model.notifies);
+	for (device = 0; device < CDK2_CON_SPLITTER_MAX_INPUTS; device++) {
+		if (!entry.input_ex_devices[device].active ||
+		    entry.input_ex_notify_handles[notify_index][device] != NULL)
+			continue;
+		status = entry.input_ex_devices[device].protocol->register_notify(
+			entry.input_ex_devices[device].protocol, key, callback,
+			&entry.input_ex_notify_handles[notify_index][device]);
+		if (EFI_ERROR(status)) {
+			while (device != 0U) {
+				device--;
+				if (entry.input_ex_notify_handles[notify_index][device] != NULL) {
+					(void)entry.input_ex_devices[device].protocol->unregister_notify(
+						entry.input_ex_devices[device].protocol,
+						entry.input_ex_notify_handles[notify_index][device]);
+					entry.input_ex_notify_handles[notify_index][device] = NULL;
+				}
+			}
+			if (!existing)
+				(void)cdk2_split_text_in_unregister_notify(&entry.input_model,
+					*handle);
+			return status;
+		}
+	}
+	return EFI_SUCCESS;
 }
 
 static EFI_STATUS CDK2_MS_ABI input_ex_unregister(
 	struct cdk2_split_text_in_ex_protocol *protocol, void *handle)
 {
+	struct cdk2_split_key_notify *notification = handle;
+	UINTN device, notify_index;
+	EFI_STATUS status;
+
 	(void)protocol;
+	if (notification < entry.input_model.notifies ||
+	    notification >= entry.input_model.notifies +
+		CDK2_CON_SPLITTER_MAX_KEY_NOTIFIES || !notification->active)
+		return EFI_INVALID_PARAMETER;
+	notify_index = (UINTN)(notification - entry.input_model.notifies);
+	for (device = 0; device < CDK2_CON_SPLITTER_MAX_INPUTS; device++) {
+		if (!entry.input_ex_devices[device].active ||
+		    entry.input_ex_notify_handles[notify_index][device] == NULL)
+			continue;
+		status = entry.input_ex_devices[device].protocol->unregister_notify(
+			entry.input_ex_devices[device].protocol,
+			entry.input_ex_notify_handles[notify_index][device]);
+		if (EFI_ERROR(status))
+			return status;
+		entry.input_ex_notify_handles[notify_index][device] = NULL;
+	}
 	return cdk2_split_text_in_unregister_notify(&entry.input_model, handle);
 }
 
@@ -421,6 +526,44 @@ static const struct cdk2_split_text_out_ops physical_output_ops = {
 	physical_output, physical_test, physical_query, physical_value_mode,
 	physical_value_attribute, physical_clear, physical_cursor, physical_visible
 };
+static EFI_STATUS physical_gop_query(void *context, UINT32 mode,
+	struct cdk2_split_gop_mode *information)
+{
+	struct gop_attachment *attachment = context;
+	struct cdk2_split_gop_mode_info *physical = NULL;
+	UINTN size;
+	EFI_STATUS status;
+
+	status = attachment->protocol->query_mode(attachment->protocol, mode, &size,
+		&physical);
+	if (EFI_ERROR(status))
+		return status;
+	if (physical == NULL || size < sizeof(*physical)) {
+		if (physical != NULL)
+			(void)attachment->owner->boot->free_pool(physical);
+		return EFI_DEVICE_ERROR;
+	}
+	*information = (struct cdk2_split_gop_mode) {
+		.width = physical->horizontal_resolution,
+		.height = physical->vertical_resolution,
+		.pixel_format = physical->pixel_format,
+		.pixels_per_scan_line = physical->pixels_per_scan_line
+	};
+	return attachment->owner->boot->free_pool(physical);
+}
+static EFI_STATUS physical_gop_set(void *context, UINT32 mode)
+{
+	struct gop_attachment *attachment = context;
+	return attachment->protocol->set_mode(attachment->protocol, mode);
+}
+static EFI_STATUS physical_gop_blt(void *context, void *buffer, UINTN operation,
+	UINTN source_x, UINTN source_y, UINTN destination_x,
+	UINTN destination_y, UINTN width, UINTN height, UINTN delta)
+{
+	struct gop_attachment *attachment = context;
+	return attachment->protocol->blt(attachment->protocol, buffer, operation,
+		source_x, source_y, destination_x, destination_y, width, height, delta);
+}
 static EFI_STATUS physical_input_read(void *context, struct cdk2_split_key *key)
 {
 	struct cdk2_split_text_in_protocol *input = context;
@@ -468,17 +611,72 @@ static EFI_STATUS binding_close(void *context, void *controller,
 	return binding->owner->boot->close_protocol(controller, protocol,
 		binding->owner->image, controller);
 }
-static EFI_STATUS binding_admit(void *context, void *interface)
+static EFI_STATUS binding_admit(void *context, void *controller, void *interface)
 {
 	struct binding_context *binding = context;
 	struct splitter_entry *owner = binding->owner;
+	EFI_STATUS status;
+	UINTN index, notify;
 
 	switch (binding->kind) {
 	case BIND_INPUT: {
 		struct cdk2_split_text_in_protocol *input = interface;
-		return cdk2_split_text_in_add_event(&owner->input_model,
+		struct input_ex_attachment *attachment = NULL;
+		void *physical_ex = NULL;
+
+		status = cdk2_split_text_in_add_event(&owner->input_model,
 			physical_input_read, physical_input_reset, interface,
 			input->wait_for_key);
+		if (EFI_ERROR(status))
+			return status;
+		status = owner->boot->open_protocol(controller, &text_in_ex_guid,
+			&physical_ex, owner->image, controller,
+			CDK2_CON_SPLITTER_OPEN_BY_DRIVER);
+		if (status == EFI_NOT_FOUND || status == EFI_UNSUPPORTED)
+			return EFI_SUCCESS;
+		if (EFI_ERROR(status))
+			goto rollback_simple_input;
+		for (index = 0; index < CDK2_CON_SPLITTER_MAX_INPUTS; index++)
+			if (!owner->input_ex_devices[index].active) {
+				attachment = &owner->input_ex_devices[index];
+				break;
+			}
+		if (attachment == NULL) {
+			status = EFI_OUT_OF_RESOURCES;
+			goto rollback_ex_open;
+		}
+		*attachment = (struct input_ex_attachment) {
+			controller, physical_ex, TRUE
+		};
+		for (notify = 0; notify < owner->input_model.notify_count; notify++) {
+			if (!owner->input_model.notifies[notify].active)
+				continue;
+			status = attachment->protocol->register_notify(attachment->protocol,
+				&owner->input_model.notifies[notify].match,
+				owner->input_model.notifies[notify].callback,
+				&owner->input_ex_notify_handles[notify][index]);
+			if (EFI_ERROR(status))
+				goto rollback_ex_notifies;
+		}
+		return EFI_SUCCESS;
+
+rollback_ex_notifies:
+		while (notify != 0U) {
+			notify--;
+			if (owner->input_ex_notify_handles[notify][index] != NULL) {
+				(void)attachment->protocol->unregister_notify(
+					attachment->protocol,
+					owner->input_ex_notify_handles[notify][index]);
+				owner->input_ex_notify_handles[notify][index] = NULL;
+			}
+		}
+		*attachment = (struct input_ex_attachment) { 0 };
+rollback_ex_open:
+		(void)owner->boot->close_protocol(controller, &text_in_ex_guid,
+			owner->image, controller);
+rollback_simple_input:
+		(void)cdk2_split_text_in_remove(&owner->input_model, interface);
+		return status;
 	}
 	case BIND_POINTER: {
 		struct cdk2_split_pointer_protocol *pointer = interface;
@@ -501,9 +699,54 @@ static EFI_STATUS binding_admit(void *context, void *interface)
 		return cdk2_split_absolute_add(&owner->absolute_model, &device);
 	}
 	case BIND_OUTPUT:
-		return cdk2_split_text_out_add(&owner->output_model,
+		status = cdk2_split_text_out_add(&owner->output_model,
 			&physical_output_ops, interface,
 			(UINTN)((struct cdk2_split_text_out_protocol *)interface)->mode->max_mode);
+		if (EFI_ERROR(status))
+			return status;
+		{
+			struct gop_attachment *attachment = NULL;
+			struct cdk2_split_gop_device device;
+			void *physical_gop = NULL;
+
+			status = owner->boot->open_protocol(controller, &gop_guid,
+				&physical_gop, owner->image, controller,
+				CDK2_CON_SPLITTER_OPEN_BY_DRIVER);
+			if (status == EFI_NOT_FOUND || status == EFI_UNSUPPORTED)
+				return EFI_SUCCESS;
+			if (EFI_ERROR(status))
+				goto rollback_text_output;
+			for (index = 0; index < CDK2_CON_SPLITTER_MAX_GOPS; index++)
+				if (!owner->gop_devices[index].active) {
+					attachment = &owner->gop_devices[index];
+					break;
+				}
+			if (attachment == NULL) {
+				status = EFI_OUT_OF_RESOURCES;
+				goto rollback_gop_open;
+			}
+			*attachment = (struct gop_attachment) {
+				controller, physical_gop, owner, TRUE
+			};
+			device = (struct cdk2_split_gop_device) {
+				physical_gop_query, physical_gop_set, physical_gop_blt,
+				attachment, attachment->protocol->mode->max_mode
+			};
+			status = cdk2_split_gop_add(&owner->gop_model, &device);
+			if (EFI_ERROR(status)) {
+				*attachment = (struct gop_attachment) { 0 };
+				goto rollback_gop_open;
+			}
+			owner->gop_mode.max_mode = (UINT32)owner->gop_model.mode_count;
+			return EFI_SUCCESS;
+
+rollback_gop_open:
+			(void)owner->boot->close_protocol(controller, &gop_guid,
+				owner->image, controller);
+rollback_text_output:
+			(void)cdk2_split_text_out_remove(&owner->output_model, interface);
+			return status;
+		}
 	case BIND_ERROR:
 		return cdk2_split_text_out_add(&owner->error_model,
 			&physical_output_ops, interface,
@@ -511,19 +754,75 @@ static EFI_STATUS binding_admit(void *context, void *interface)
 	}
 	return EFI_UNSUPPORTED;
 }
-static EFI_STATUS binding_remove(void *context, void *interface)
+static EFI_STATUS binding_remove(void *context, void *controller, void *interface)
 {
 	struct binding_context *binding = context;
 	struct splitter_entry *owner = binding->owner;
+	EFI_STATUS status;
+	UINTN index, notify;
 
 	switch (binding->kind) {
 	case BIND_INPUT:
+		for (index = 0; index < CDK2_CON_SPLITTER_MAX_INPUTS; index++) {
+			struct input_ex_attachment *attachment =
+				&owner->input_ex_devices[index];
+			if (!attachment->active || attachment->controller != controller)
+				continue;
+			for (notify = 0; notify < owner->input_model.notify_count; notify++) {
+				if (owner->input_ex_notify_handles[notify][index] != NULL) {
+					status = attachment->protocol->unregister_notify(
+						attachment->protocol,
+						owner->input_ex_notify_handles[notify][index]);
+					if (EFI_ERROR(status))
+						return status;
+					owner->input_ex_notify_handles[notify][index] = NULL;
+				}
+			}
+			status = owner->boot->close_protocol(controller, &text_in_ex_guid,
+				owner->image, controller);
+			if (EFI_ERROR(status)) {
+				for (notify = 0; notify < owner->input_model.notify_count;
+				     notify++)
+					if (owner->input_model.notifies[notify].active)
+						(void)attachment->protocol->register_notify(
+							attachment->protocol,
+							&owner->input_model.notifies[notify].match,
+							owner->input_model.notifies[notify].callback,
+							&owner->input_ex_notify_handles[notify][index]);
+				return status;
+			}
+			*attachment = (struct input_ex_attachment) { 0 };
+			break;
+		}
 		return cdk2_split_text_in_remove(&owner->input_model, interface);
 	case BIND_POINTER:
 		return cdk2_split_pointer_remove(&owner->pointer_model, interface);
 	case BIND_ABSOLUTE:
 		return cdk2_split_absolute_remove(&owner->absolute_model, interface);
 	case BIND_OUTPUT:
+		for (index = 0; index < CDK2_CON_SPLITTER_MAX_GOPS; index++) {
+			struct gop_attachment *attachment = &owner->gop_devices[index];
+			struct cdk2_split_gop_device device;
+			if (!attachment->active || attachment->controller != controller)
+				continue;
+			status = cdk2_split_gop_remove(&owner->gop_model, attachment);
+			if (EFI_ERROR(status))
+				return status;
+			status = owner->boot->close_protocol(controller, &gop_guid,
+				owner->image, controller);
+			if (EFI_ERROR(status)) {
+				device = (struct cdk2_split_gop_device) {
+					physical_gop_query, physical_gop_set,
+					physical_gop_blt, attachment,
+					attachment->protocol->mode->max_mode
+				};
+				(void)cdk2_split_gop_add(&owner->gop_model, &device);
+				return status;
+			}
+			*attachment = (struct gop_attachment) { 0 };
+			owner->gop_mode.max_mode = (UINT32)owner->gop_model.mode_count;
+			break;
+		}
 		return cdk2_split_text_out_remove(&owner->output_model, interface);
 	case BIND_ERROR:
 		return cdk2_split_text_out_remove(&owner->error_model, interface);

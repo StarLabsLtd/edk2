@@ -109,7 +109,6 @@ EFI_STATUS cdk2_split_text_in_read_ex(struct cdk2_split_text_in *splitter,
 	struct cdk2_split_key_data *key)
 {
 	EFI_STATUS status;
-	UINTN index;
 
 	if (splitter == NULL || key == NULL)
 		return EFI_INVALID_PARAMETER;
@@ -117,6 +116,16 @@ EFI_STATUS cdk2_split_text_in_read_ex(struct cdk2_split_text_in *splitter,
 	status = cdk2_split_text_in_read(splitter, &key->key);
 	if (EFI_ERROR(status))
 		return status;
+	return cdk2_split_text_in_deliver(splitter, key);
+}
+
+EFI_STATUS cdk2_split_text_in_deliver(struct cdk2_split_text_in *splitter,
+	struct cdk2_split_key_data *key)
+{
+	UINTN index;
+
+	if (splitter == NULL || key == NULL)
+		return EFI_INVALID_PARAMETER;
 	for (index = 0; index < splitter->notify_count; index++)
 		if (splitter->notifies[index].active &&
 		    key_matches(&splitter->notifies[index].match, key))

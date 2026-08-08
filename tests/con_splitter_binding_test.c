@@ -23,14 +23,14 @@ static EFI_STATUS close_protocol(void *context, void *controller,
 	(void)context; (void)controller; (void)protocol; closes++;
 	return injected == TEST_ACCESS_DENIED ? injected : EFI_SUCCESS;
 }
-static EFI_STATUS admit(void *context, void *interface)
+static EFI_STATUS admit(void *context, void *controller, void *interface)
 {
-	(void)context; (void)interface; admits++;
+	(void)context; (void)controller; (void)interface; admits++;
 	return injected == EFI_DEVICE_ERROR ? injected : EFI_SUCCESS;
 }
-static EFI_STATUS remove_device(void *context, void *interface)
+static EFI_STATUS remove_device(void *context, void *controller, void *interface)
 {
-	(void)context; (void)interface; removes++;
+	(void)context; (void)controller; (void)interface; removes++;
 	return injected == TEST_WRITE_PROTECTED ? injected : EFI_SUCCESS;
 }
 static int expect(int condition, const char *message)
