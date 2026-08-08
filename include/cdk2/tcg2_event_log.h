@@ -24,6 +24,8 @@ struct cdk2_tcg2_event {
 	const UINT8 *event;
 };
 
+struct cdk2_tcg2_data_span { const UINT8 *data; UINT32 size; };
+
 struct cdk2_tcg2_log {
 	UINT8 *buffer;
 	UINT32 capacity;
@@ -44,6 +46,9 @@ EFI_STATUS cdk2_tcg2_log_init(struct cdk2_tcg2_log *log, void *buffer,
 	UINT32 capacity);
 EFI_STATUS cdk2_tcg2_append_event(struct cdk2_tcg2_logs *logs,
 	const struct cdk2_tcg2_event *event);
+EFI_STATUS cdk2_tcg2_append_event_spans(struct cdk2_tcg2_logs *logs,
+	const struct cdk2_tcg2_event *event,
+	const struct cdk2_tcg2_data_span *spans, UINT32 span_count);
 EFI_STATUS cdk2_tcg2_import_event2_hobs(struct cdk2_tcg2_logs *logs,
 	const void *hob_list, const void *hob_end);
 void cdk2_tcg2_activate_final_log(struct cdk2_tcg2_logs *logs);

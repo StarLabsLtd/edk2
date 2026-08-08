@@ -106,6 +106,7 @@ static EFI_STATUS event_size(const struct cdk2_tcg2_event *event, UINT32 *size)
 }
 
 static EFI_STATUS encode_event(const struct cdk2_tcg2_event *event,
+	const struct cdk2_tcg2_data_span *spans, UINT32 span_count,
 	UINT8 *buffer, UINT32 capacity, UINT32 *written)
 {
 	UINT32 size;
@@ -125,7 +126,10 @@ static EFI_STATUS encode_event(const struct cdk2_tcg2_event *event,
 		offset += event->digests[index].size;
 	}
 	put32(buffer + offset, event->event_size); offset += 4;
-	copy_bytes(buffer + offset, event->event, event->event_size);
+	for (index = 0; index < span_count; index++) {
+		copy_bytes(buffer + offset, spans[index].data, spans[index].size);
+		offset += spans[index].size;
+	}
 	*written = size;
 	return EFI_SUCCESS;
 }
@@ -133,18 +137,41 @@ static EFI_STATUS encode_event(const struct cdk2_tcg2_event *event,
 EFI_STATUS cdk2_tcg2_append_event(struct cdk2_tcg2_logs *logs,
 	const struct cdk2_tcg2_event *event)
 {
+	struct cdk2_tcg2_data_span span;
+
+	if (event == NULL) return EFI_INVALID_PARAMETER;
+	span = (struct cdk2_tcg2_data_span){ event->event, event->event_size };
+	return cdk2_tcg2_append_event_spans(logs, event, &span, 1);
+}
+
+EFI_STATUS cdk2_tcg2_append_event_spans(struct cdk2_tcg2_logs *logs,
+	const struct cdk2_tcg2_event *event,
+	const struct cdk2_tcg2_data_span *spans, UINT32 span_count)
+{
 	UINT32 size;
 	UINT32 written;
+	UINT32 total_event_size = 0;
+	UINT32 index;
 	EFI_STATUS status;
 
-	if (logs == NULL) return EFI_INVALID_PARAMETER;
+	if (logs == NULL || event == NULL || spans == NULL || span_count == 0)
+		return EFI_INVALID_PARAMETER;
+	for (index = 0; index < span_count; index++) {
+		if (spans[index].size != 0 && spans[index].data == NULL)
+			return EFI_INVALID_PARAMETER;
+		if (spans[index].size > MAX_UINT32 - total_event_size)
+			return EFI_BAD_BUFFER_SIZE;
+		total_event_size += spans[index].size;
+	}
+	if (total_event_size != event->event_size) return EFI_COMPROMISED_DATA;
 	status = event_size(event, &size);
 	if (EFI_ERROR(status)) return status;
 	if (size > logs->main.capacity - logs->main.used) {
 		logs->main.truncated = TRUE;
 		return EFI_VOLUME_FULL;
 	}
-	status = encode_event(event, logs->main.buffer + logs->main.used,
+	status = encode_event(event, spans, span_count,
+		logs->main.buffer + logs->main.used,
 		logs->main.capacity - logs->main.used, &written);
 	if (EFI_ERROR(status) || written != size) return EFI_COMPROMISED_DATA;
 	logs->main.used += size;
@@ -154,7 +181,7 @@ EFI_STATUS cdk2_tcg2_append_event(struct cdk2_tcg2_logs *logs,
 			logs->final.truncated = TRUE;
 			status = EFI_VOLUME_FULL;
 		} else {
-			EFI_STATUS final_status = encode_event(event,
+			EFI_STATUS final_status = encode_event(event, spans, span_count,
 				logs->final.buffer + logs->final.used,
 				logs->final.capacity - logs->final.used, &written);
 			if (EFI_ERROR(final_status) || written != size)
