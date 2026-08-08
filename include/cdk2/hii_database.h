@@ -169,5 +169,10 @@ EFI_STATUS cdk2_hii_set_keyboard_layout(struct cdk2_hii_database *database,
 	const EFI_GUID *layout);
 void cdk2_hii_set_keyboard_notify(struct cdk2_hii_database *database,
 	void (*notify)(void *context, const EFI_GUID *layout), void *context);
+EFI_STATUS cdk2_hii_block_to_config(struct cdk2_hii_database *database,
+	const CHAR16 *request, const UINT8 *block, UINTN block_size,
+	CHAR16 **configuration, const CHAR16 **progress);
+EFI_STATUS cdk2_hii_config_to_block(const CHAR16 *configuration, UINT8 *block,
+	UINTN *block_size, const CHAR16 **progress);
 
 #endif
