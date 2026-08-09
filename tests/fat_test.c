@@ -486,5 +486,21 @@ int main(void)
 	failures += expect(cdk2_fat_write_file(&volume, 2U, 1024U, 0U, &size,
 		"X") == CDK2_FAT_WRITE_PROTECTED,
 		"write-protected volume admitted byte write");
+	volume.write_protected = 0U;
+	memset(mutation.bytes + 1536U, 0, 512U);
+	memcpy(mutation.bytes + 1536U, "MY VOLUME  ", 11U);
+	mutation.bytes[1536U + 11U] = 0x08U;
+	write32(mutation.bytes + 1024U + 8U, 3U);
+	write32(mutation.bytes + 1024U + 12U, 0x0fffffffU);
+	write32(mutation.bytes + 1024U + 16U, 0U);
+	write32(mutation.bytes + 1024U + 20U, 0U);
+	{
+		struct cdk2_fat_volume_info volume_info;
+		failures += expect(cdk2_fat_get_volume_info(&volume, &volume_info) ==
+			EFI_SUCCESS && volume_info.volume_size == 2048U &&
+			volume_info.free_space == 1024U && volume_info.block_size == 512U &&
+			volume_info.label[0] == 'M' && volume_info.label[2] == 'V',
+			"volume size/free-space/label information is wrong");
+	}
 	return failures == 0 ? 0 : 1;
 }

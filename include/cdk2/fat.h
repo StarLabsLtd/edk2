@@ -59,6 +59,12 @@ struct cdk2_fat_file_info {
 	uint64_t attributes;
 	uint16_t name[256];
 };
+struct cdk2_fat_volume_info {
+	uint64_t volume_size, free_space;
+	uint32_t block_size;
+	uint8_t read_only;
+	uint16_t label[12];
+};
 
 uint64_t cdk2_fat_probe(struct cdk2_fat_volume *volume,
 	cdk2_fat_read_fn *read, void *context, uint64_t media_size);
@@ -115,5 +121,7 @@ uint64_t cdk2_fat_file_resize(struct cdk2_fat_file *file, uint32_t new_size,
 	struct cdk2_fat_change *changes, size_t *change_count);
 uint64_t cdk2_fat_file_delete(struct cdk2_fat_file *file,
 	struct cdk2_fat_change *changes, size_t *change_count);
+uint64_t cdk2_fat_get_volume_info(const struct cdk2_fat_volume *volume,
+	struct cdk2_fat_volume_info *info);
 
 #endif

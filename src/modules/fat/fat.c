@@ -1367,3 +1367,41 @@ uint64_t cdk2_fat_file_delete(struct cdk2_fat_file *file,
 	}
 	return status;
 }
+
+uint64_t cdk2_fat_get_volume_info(const struct cdk2_fat_volume *volume,
+	struct cdk2_fat_volume_info *info)
+{
+	uint8_t record[32];
+	uint32_t cluster, value, free_clusters = 0U;
+	uint64_t cluster_size, index = 0U, status;
+	size_t source, output;
+	if (volume == NULL || info == NULL)
+		return EFI_INVALID_PARAMETER;
+	cluster_size = (uint64_t)volume->bytes_per_sector *
+		volume->sectors_per_cluster;
+	if (cluster_size == 0U || volume->cluster_count > UINT64_MAX / cluster_size)
+		return FAT_VOLUME_CORRUPTED;
+	for (cluster = 2U; cluster < volume->cluster_count + 2U; cluster++) {
+		status = raw_fat_value(volume, cluster, &value);
+		if (status != EFI_SUCCESS) return status;
+		if (value == 0U) free_clusters++;
+	}
+	*info = (struct cdk2_fat_volume_info) {
+		.volume_size = cluster_size * volume->cluster_count,
+		.free_space = cluster_size * free_clusters,
+		.block_size = (uint32_t)cluster_size,
+		.read_only = volume->read_only || volume->write_protected
+	};
+	for (;;) {
+		status = directory_record(volume, volume->fat_type == CDK2_FAT32 ?
+			volume->root_cluster : 0U, index++, record);
+		if (status == EFI_NOT_FOUND) break;
+		if (status != EFI_SUCCESS) return status;
+		if (record[0] == 0U) break;
+		if (record[0] == 0xe5U || record[11U] != 0x08U) continue;
+		for (source = output = 0U; source < 11U; source++)
+			if (record[source] != ' ') info->label[output++] = record[source];
+		info->label[output] = 0U; break;
+	}
+	return EFI_SUCCESS;
+}
