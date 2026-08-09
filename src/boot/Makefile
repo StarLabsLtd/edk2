@@ -25,7 +25,8 @@ CDK2_NATIVE_FVREPLACE ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-fvreplace
 CDK2_NATIVE_PERELOCCHECK ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-pereloccheck
 CDK2_NATIVE_METRONOME_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-metronome-test
 CDK2_NATIVE_PCD_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-pcd-test
-CDK2_NATIVE_PCD_DATABASE ?= $(CDK2_NATIVE_BUILD_DIR)/PcdDxe.database
+CDK2_NATIVE_PCD_GENERATED_DATABASE ?= $(CDK2_NATIVE_BUILD_DIR)/PcdDxe.database
+CDK2_NATIVE_PCD_DATABASE ?= $(CDK2_NATIVE_PCD_GENERATED_DATABASE)
 CDK2_NATIVE_PCD_MODEL_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/pcd-model.o
 CDK2_NATIVE_PCD_ENTRY_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/pcd-entry.o
 CDK2_NATIVE_PCD_PE ?= $(CDK2_NATIVE_BUILD_DIR)/PcdDxe.efi
@@ -426,6 +427,9 @@ native-check: $(CDK2_CONFIG_HEADER) $(CDK2_NATIVE_ELF) $(CDK2_NATIVE_OVERRIDE_EL
 	@"$(CDK2_NATIVE_FFSBUILD_TEST)" "$(CDK2_NATIVE_FFSBUILD)" "$(CDK2_NATIVE_BUILD_DIR)"
 	@"$(CDK2_NATIVE_METRONOME_TEST)"
 	@"$(CDK2_NATIVE_PCD_TEST)"
+	@"$(CDK2_DIR)/tests/pcd_database_override_test.sh" "$(MAKE)" \
+		"$(CDK2_DIR)/src/boot/Makefile" "$(CDK2_DIR)" "$(CDK2_BUILD_DIR)" \
+		"$(CDK2_NATIVE_PCD_DATABASE)" "$(CDK2_NATIVE_PRE_PCD_FV)"
 	@"$(CDK2_NATIVE_WATCHDOG_TEST)"
 	@"$(CDK2_NATIVE_STATUS_CODE_ROUTER_TEST)"
 	@"$(CDK2_NATIVE_STATUS_CODE_HANDLER_TEST)"
@@ -1551,10 +1555,17 @@ $(CDK2_NATIVE_PCD_TEST): $(CDK2_DIR)/tests/pcd_test.c $(CDK2_DIR)/src/modules/pc
 
 native-pcd-package: $(CDK2_NATIVE_PCD_FFS)
 
+.PHONY: native-pcd-override-test
+native-pcd-override-test: $(CDK2_NATIVE_PCD_DATABASE) \
+		$(CDK2_DIR)/tests/pcd_database_override_test.sh
+	@"$(CDK2_DIR)/tests/pcd_database_override_test.sh" "$(MAKE)" \
+		"$(CDK2_DIR)/src/boot/Makefile" "$(CDK2_DIR)" "$(CDK2_BUILD_DIR)" \
+		"$(CDK2_NATIVE_PCD_DATABASE)" "$(CDK2_NATIVE_PRE_PCD_FV)"
+
 native-pcd-fv: $(CDK2_NATIVE_PCD_FV)
 	@printf '%s\n' "native pcd FV: $(CDK2_NATIVE_PCD_FV)"
 
-$(CDK2_NATIVE_PCD_DATABASE): $(CDK2_NATIVE_PRE_PCD_FV) | $(CDK2_NATIVE_BUILD_DIR)
+$(CDK2_NATIVE_PCD_GENERATED_DATABASE): $(CDK2_NATIVE_PRE_PCD_FV) | $(CDK2_NATIVE_BUILD_DIR)
 	@dd if="$<" of="$@" bs=1 skip=279020 count=1040 status=none
 	@test "$$(wc -c < "$@")" -eq 1040
 
@@ -1569,7 +1580,7 @@ $(CDK2_NATIVE_PCD_ENTRY_OBJ): $(CDK2_DIR)/src/modules/pcd/entry.c $(CDK2_DIR)/in
 		$(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
 
 $(CDK2_NATIVE_PCD_PE): $(CDK2_NATIVE_PCD_MODEL_OBJ) $(CDK2_NATIVE_PCD_ENTRY_OBJ) $(CDK2_NATIVE_BUILD_DIR)/mem.o $(CDK2_DIR)/src/modules/pcd/pcd.ld $(CDK2_NATIVE_PERELOCCHECK)
-	@$(LD) -mi386pep --subsystem 11 --entry cdk2_pcd_driver_entry --image-base 0 \
+	@$(CDK2_NATIVE_LD) -mi386pep --subsystem 11 --entry cdk2_pcd_driver_entry --image-base 0 \
 		--section-alignment 0x1000 --file-alignment 0x1000 --build-id=none \
 		--no-insert-timestamp -s --nxcompat -T "$(CDK2_DIR)/src/modules/pcd/pcd.ld" \
 		-o "$@" $(CDK2_NATIVE_PCD_MODEL_OBJ) $(CDK2_NATIVE_PCD_ENTRY_OBJ) $(CDK2_NATIVE_BUILD_DIR)/mem.o

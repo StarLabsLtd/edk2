@@ -16,6 +16,12 @@ static const EFI_GUID space = {
 static const EFI_GUID module_space = {
 	0xa1aff049, 0xfdeb, 0x442a, { 0xb3, 0x20, 0x13, 0xab, 0x4c, 0xb7, 0x2b, 0xbc }
 };
+static const EFI_GUID hob_list = {
+	0x7739f24c, 0x93d7, 0x11d4, { 0x9a, 0x3a, 0x00, 0x90, 0x27, 0x3f, 0xc1, 0x4d }
+};
+static const EFI_GUID pcd_hob = {
+	0xea296d92, 0x0b69, 0x423c, { 0x8c, 0x28, 0x33, 0xb4, 0xe0, 0xa9, 0x12, 0x68 }
+};
 static unsigned int callbacks;
 static unsigned int installs, uninstalls;
 static uint64_t second_install_status;
@@ -24,9 +30,41 @@ static struct cdk2_get_pcd_info_protocol *published_info;
 static struct fixture *raw_fixture;
 static size_t raw_fixture_size;
 static uint8_t variable_data[8192];
+static size_t variable_return_size = sizeof(variable_data);
 static unsigned int variable_writes, variable_locks;
 static uint64_t allocation_status;
 static unsigned int allocations, frees;
+static uint32_t section_authentication;
+static unsigned int policy_registrations;
+static int expose_policy;
+
+static uint64_t CDK2_MS_ABI mock_register_policy(const void *policy)
+{
+	const uint8_t *bytes = policy;
+	uint16_t size, name_offset;
+
+	memcpy(&size, bytes + 4, sizeof(size));
+	memcpy(&name_offset, bytes + 6, sizeof(name_offset));
+	if (size <= name_offset || bytes[40] != 1U)
+		return EFI_INVALID_PARAMETER;
+	policy_registrations++;
+	return EFI_SUCCESS;
+}
+
+static uint64_t CDK2_MS_ABI mock_locate(const EFI_GUID *guid, void *registration,
+	void **interface)
+{
+	static struct { uint64_t revision; void *disable, *enabled;
+		uint64_t (CDK2_MS_ABI *register_policy)(const void *); } policy = {
+			0x20000U, NULL, NULL, mock_register_policy
+		};
+	(void)guid;
+	(void)registration;
+	if (!expose_policy)
+		return EFI_NOT_FOUND;
+	*interface = &policy;
+	return EFI_SUCCESS;
+}
 
 static uint64_t CDK2_MS_ABI mock_get_variable(const uint16_t *name,
 	const EFI_GUID *guid, uint32_t *attributes, size_t *size, void *data)
@@ -34,12 +72,12 @@ static uint64_t CDK2_MS_ABI mock_get_variable(const uint16_t *name,
 	(void)name;
 	(void)guid;
 	(void)attributes;
-	if (*size < sizeof(variable_data)) {
-		*size = sizeof(variable_data);
+	if (*size < variable_return_size) {
+		*size = variable_return_size;
 		return EFI_BUFFER_TOO_SMALL;
 	}
-	memcpy(data, variable_data, sizeof(variable_data));
-	*size = sizeof(variable_data);
+	memcpy(data, variable_data, variable_return_size);
+	*size = variable_return_size;
 	return EFI_SUCCESS;
 }
 
@@ -70,12 +108,15 @@ struct fv_view {
 	uint64_t (CDK2_MS_ABI *read_section)(void *, const EFI_GUID *, uint8_t,
 		size_t, void **, size_t *, uint32_t *);
 };
+struct config_view { EFI_GUID guid; void *table; };
 struct system_view {
 	uint8_t header[24];
 	uint16_t *vendor;
 	uint32_t revision, pad;
 	void *console[6], *runtime;
 	struct cdk2_pcd_boot_services *boot;
+	size_t table_count;
+	struct config_view *tables;
 };
 struct runtime_view {
 	uint8_t header[24];
@@ -96,7 +137,7 @@ static uint64_t CDK2_MS_ABI mock_read_section(void *self, const EFI_GUID *file,
 	assert(*buffer != NULL);
 	memcpy(*buffer, raw_fixture, raw_fixture_size);
 	*size = raw_fixture_size;
-	*auth = 0;
+	*auth = section_authentication;
 	return EFI_SUCCESS;
 }
 
@@ -179,6 +220,13 @@ struct fixture {
 	uint64_t wide;
 };
 
+struct pcd_hob_fixture {
+	struct { uint16_t type, length; uint32_t reserved; } header;
+	EFI_GUID guid;
+	struct fixture database;
+	struct { uint16_t type, length; uint32_t reserved; } end;
+};
+
 struct delta_fixture {
 	struct fixture base;
 	uint64_t sku, compared;
@@ -223,6 +271,33 @@ struct hii_pointer_fixture {
 	uint16_t name[2];
 	uint16_t sizes[2];
 };
+
+struct name_fixture {
+	struct cdk2_pcd_database_header header;
+	uint32_t local, value;
+	struct { uint32_t space, name; } names[1];
+	char strings[32];
+};
+
+static void make_name(struct name_fixture *fixture)
+{
+	memset(fixture, 0, sizeof(*fixture));
+	fixture->header.signature = signature;
+	fixture->header.build_version = CDK2_PCD_SERVICE_VERSION;
+	fixture->header.length = fixture->header.length_all_skus = sizeof(*fixture);
+	fixture->header.local_tokens_offset = offsetof(struct name_fixture, local);
+	fixture->header.sku_offset = fixture->header.local_tokens_offset;
+	fixture->header.ex_map_offset = fixture->header.guid_offset =
+		offsetof(struct name_fixture, names);
+	fixture->header.name_offset = offsetof(struct name_fixture, names);
+	fixture->header.string_offset = offsetof(struct name_fixture, strings);
+	fixture->header.size_offset = sizeof(*fixture);
+	fixture->header.local_token_count = 1;
+	fixture->local = 0x04000000U | offsetof(struct name_fixture, value);
+	memcpy(fixture->strings, "gPkg\0Token", 11);
+	fixture->names[0].space = 0;
+	fixture->names[0].name = 5;
+}
 
 static void make_pointer(struct pointer_fixture *fixture)
 {
@@ -348,10 +423,13 @@ int main(void)
 	struct hii_pointer_fixture hii_pointer;
 	struct pointer_fixture pointer;
 	struct ex_fixture ex;
+	struct name_fixture named;
 	struct cdk2_pcd_context context;
 	struct cdk2_pcd_boot_services boot_services;
 	struct system_view system;
 	struct runtime_view runtime;
+	struct pcd_hob_fixture production_hob;
+	struct config_view config;
 	void *value;
 	size_t size;
 	uint32_t replacement = 42, token = 0;
@@ -366,6 +444,7 @@ int main(void)
 	boot_services.install_multiple_protocols = mock_install;
 	boot_services.uninstall_multiple_protocols = mock_uninstall;
 	boot_services.handle_protocol = mock_handle;
+	boot_services.locate_protocol = mock_locate;
 	boot_services.allocate_pool = mock_allocate;
 	boot_services.free_pool = mock_free;
 	memset(&system, 0, sizeof(system));
@@ -382,12 +461,25 @@ int main(void)
 	failures += expect(cdk2_pcd_get_info(&context, NULL, 2, &info.pcd_type,
 		&info.pcd_size) == EFI_SUCCESS && info.pcd_type == 3 && info.pcd_size == 8,
 		"GetInfo reports the actual UINT64 datum type");
+	make_name(&named);
+	failures += expect(cdk2_pcd_init(&context, &named, sizeof(named)) == EFI_SUCCESS,
+		"generated-name fixture initialized");
+	context.allocate_pool = mock_allocate;
+	context.free_pool = mock_free;
+	info.pcd_name = NULL;
+	failures += expect(cdk2_pcd_get_name(&context, NULL, 1, &info.pcd_name) ==
+		EFI_SUCCESS && strcmp(info.pcd_name, "gPkg.Token") == 0,
+		"generated token-space and pcd names are returned");
+	(void)mock_free(info.pcd_name);
 	make_ex(&ex);
 	failures += expect(cdk2_pcd_init(&context, &ex, sizeof(ex)) == EFI_SUCCESS,
 		"unordered DynamicEx fixture accepted");
 	token = 0;
 	failures += expect(cdk2_pcd_next_token(&context, &space, &token) == EFI_SUCCESS &&
 		token == 10, "DynamicEx iteration selects lowest succeeding token");
+	token = 0;
+	failures += expect(cdk2_pcd_next_token(&context, NULL, &token) == EFI_NOT_FOUND,
+		"default iteration excludes DynamicEx-only tokens");
 	make_pointer(&pointer);
 	failures += expect(cdk2_pcd_init(&context, &pointer, sizeof(pointer)) == EFI_SUCCESS &&
 		cdk2_pcd_get(&context, NULL, 3, &value, &size) == EFI_SUCCESS && size == 16,
@@ -399,6 +491,10 @@ int main(void)
 	size = 8;
 	failures += expect(cdk2_pcd_set(&context, NULL, 3, &space, &size) == EFI_SUCCESS &&
 		pointer.sizes[1] == 8, "pointer mutation updates compact current size");
+	pointer.string_head = UINT32_MAX;
+	failures += expect(cdk2_pcd_get(&context, NULL, 3, &value, &size) ==
+		EFI_INVALID_PARAMETER, "overflowing pointer string index rejected");
+	pointer.string_head = 0;
 	size = 17;
 	failures += expect(cdk2_pcd_set(&context, NULL, 3, &space, &size) ==
 		EFI_INVALID_PARAMETER && size == 16, "oversized pointer reports generated maximum");
@@ -502,14 +598,42 @@ int main(void)
 	second_install_status = EFI_SUCCESS;
 	raw_fixture = &fixture;
 	raw_fixture_size = sizeof(fixture);
+	allocations = frees = 0;
 	failures += expect(cdk2_pcd_driver_entry((void *)1, &system) == EFI_SUCCESS &&
 		installs == 2 && allocations == 1 && frees == 1,
 		"entry expands authenticated RAW section and publishes");
+	memset(&production_hob, 0, sizeof(production_hob));
+	production_hob.header.type = 4;
+	production_hob.header.length = offsetof(struct pcd_hob_fixture, end);
+	production_hob.guid = pcd_hob;
+	make_fixture(&production_hob.database);
+	production_hob.database.value = 0x55667788U;
+	production_hob.end.type = 0xffffU;
+	production_hob.end.length = sizeof(production_hob.end);
+	config.guid = hob_list;
+	config.table = &production_hob;
+	system.table_count = 1;
+	system.tables = &config;
+	installs = 0;
+	failures += expect(cdk2_pcd_driver_entry((void *)1, &system) == EFI_SUCCESS &&
+		((uint32_t (CDK2_MS_ABI *)(const EFI_GUID *, size_t))
+		 published_native->get_ex[2])(&space, 77) == production_hob.database.value,
+		"production entry merges the pei pcd database guid hob");
+	system.table_count = 0;
+	system.tables = NULL;
+	allocations = frees = 0;
 	allocation_status = EFI_OUT_OF_RESOURCES;
 	failures += expect(cdk2_pcd_driver_entry((void *)1, &system) ==
-		EFI_OUT_OF_RESOURCES && allocations == 2 && frees == 2,
+		EFI_OUT_OF_RESOURCES && allocations == 1 && frees == 1,
 		"entry frees RAW section when database expansion fails");
 	allocation_status = EFI_SUCCESS;
+	section_authentication = 1U;
+	failures += expect(cdk2_pcd_driver_entry((void *)1, &system) == EFI_SUCCESS,
+		"non-failure authentication metadata accepted");
+	section_authentication = 8U;
+	failures += expect(cdk2_pcd_driver_entry((void *)1, &system) ==
+		EFI_SECURITY_VIOLATION, "authentication test-failure bit rejected");
+	section_authentication = 0;
 	make_hii(&hii);
 	memset(variable_data, 0, sizeof(variable_data));
 	variable_data[4] = 0x39;
@@ -517,9 +641,11 @@ int main(void)
 	raw_fixture_size = sizeof(hii);
 	system.runtime = &runtime;
 	installs = 0;
+	expose_policy = 1;
 	failures += expect(cdk2_pcd_driver_entry((void *)1, &system) == EFI_SUCCESS &&
-		published_native->get32(1) == 0x39,
+		published_native->get32(1) == 0x39 && policy_registrations == 1,
 		"driver entry wires production runtime HII variable services before publication");
+	expose_policy = 0;
 	make_fixture(&fixture);
 	fixture.map.external_token = 0x00030006U;
 	fixture.map.local_token = 1;
@@ -581,8 +707,16 @@ int main(void)
 	size = sizeof(space);
 	failures += expect(cdk2_pcd_set(&context, NULL, 1, &signature, &size) ==
 		EFI_SUCCESS && memcmp(variable_data + hii_pointer.head.variable_offset,
-		&signature, sizeof(signature)) == 0,
-		"HII pointer accepts its generated maximum size");
+		&signature, sizeof(signature)) == 0 &&
+		hii_pointer.sizes[1] == sizeof(signature),
+		"HII pointer records its compact current size");
+	memset(variable_data, 0xa5, sizeof(variable_data));
+	variable_return_size = 8;
+	size = sizeof(signature);
+	failures += expect(cdk2_pcd_set(&context, NULL, 1, &signature, &size) ==
+		EFI_SUCCESS && variable_data[8] == 0 && variable_data[31] == 0,
+		"HII variable extension zeroes the gap before pointer data");
+	variable_return_size = sizeof(variable_data);
 	make_hii(&hii);
 	hii.local = 0x44000000U | offsetof(struct hii_fixture, head);
 	*(uint32_t *)&hii.head = 3;
@@ -594,7 +728,24 @@ int main(void)
 	size = 4;
 	failures += expect(cdk2_pcd_set(&context, NULL, 1, &replacement, &size) !=
 		EFI_SUCCESS, "VPD mutation rejected");
+	make_hii_pointer(&hii_pointer);
+	hii_pointer.local = 0x50000000U | offsetof(struct hii_pointer_fixture, head);
+	hii_pointer.head.string_index = 3;
+	hii_pointer.sizes[1] = 8;
+	memcpy(vpd + 3, &space, 8);
+	failures += expect(cdk2_pcd_init(&context, &hii_pointer,
+		sizeof(hii_pointer)) == EFI_SUCCESS &&
+		cdk2_pcd_configure_storage(&context, NULL, NULL, vpd, sizeof(vpd)) ==
+		EFI_SUCCESS && cdk2_pcd_get(&context, NULL, 1, &value, &size) ==
+		EFI_SUCCESS && size == 8 && memcmp(value, &space, size) == 0,
+		"VPD pointer uses compact size metadata and bounded VPD storage");
 
+	make_fixture(&bad);
+	bad.local[0] |= 0x20000000U;
+	failures += expect(cdk2_pcd_init(&context, &bad, sizeof(bad)) == EFI_SUCCESS &&
+		cdk2_pcd_get(&context, NULL, 1, &value, &size) == EFI_SUCCESS &&
+		*(uint32_t *)value == bad.value,
+		"SKU-enabled flag is excluded from the storage offset");
 	make_fixture(&bad);
 	bad.header.signature.data1++;
 	failures += expect(cdk2_pcd_init(&context, &bad, sizeof(bad)) != EFI_SUCCESS,

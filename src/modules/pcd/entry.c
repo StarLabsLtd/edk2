@@ -19,6 +19,8 @@ static const EFI_GUID efi_info_guid = {
 static struct cdk2_pcd_context *active;
 static struct cdk2_pcd_context driver_context;
 static void *pcd_handle;
+static struct variable_policy_view *active_variable_policy;
+static struct cdk2_pcd_context *locking_context;
 
 typedef uint64_t CDK2_MS_ABI read_section_fn(void *, const EFI_GUID *, uint8_t,
 	size_t, void **, size_t *, uint32_t *);
@@ -42,6 +44,23 @@ struct system_table_view {
 	void *console[6];
 	void *runtime_services;
 	struct cdk2_pcd_boot_services *boot_services;
+	size_t table_count;
+	struct configuration_table_view *tables;
+};
+
+struct configuration_table_view {
+	EFI_GUID guid;
+	void *table;
+};
+
+struct hob_header {
+	uint16_t type, length;
+	uint32_t reserved;
+};
+
+struct guid_hob {
+	struct hob_header header;
+	EFI_GUID guid;
 };
 
 struct runtime_services_view {
@@ -51,6 +70,24 @@ struct runtime_services_view {
 	void *get_next_variable_name;
 	cdk2_pcd_set_variable_fn *set_variable;
 };
+
+typedef uint64_t CDK2_MS_ABI register_policy_fn(const void *);
+struct variable_policy_view {
+	uint64_t revision;
+	void *disable, *enabled;
+	register_policy_fn *register_policy;
+};
+
+#pragma pack(push, 1)
+struct variable_policy_entry {
+	uint32_t version;
+	uint16_t size, name_offset;
+	EFI_GUID namespace;
+	uint32_t minimum_size, maximum_size;
+	uint32_t attributes_must_have, attributes_cant_have;
+	uint8_t lock_type, padding[3];
+};
+#pragma pack(pop)
 
 static const EFI_GUID module_token_space = {
 	0xa1aff049, 0xfdeb, 0x442a, { 0xb3, 0x20, 0x13, 0xab, 0x4c, 0xb7, 0x2b, 0xbc }
@@ -65,6 +102,94 @@ static const EFI_GUID loaded_image_guid = {
 static const EFI_GUID pcd_file_guid = {
 	0x80cf7257, 0x87ab, 0x47f9, { 0xa3, 0xfe, 0xd5, 0x0b, 0x76, 0xd8, 0x95, 0x41 }
 };
+static const EFI_GUID hob_list_guid = {
+	0x7739f24c, 0x93d7, 0x11d4, { 0x9a, 0x3a, 0x00, 0x90, 0x27, 0x3f, 0xc1, 0x4d }
+};
+static const EFI_GUID pcd_hob_guid = {
+	0xea296d92, 0x0b69, 0x423c, { 0x8c, 0x28, 0x33, 0xb4, 0xe0, 0xa9, 0x12, 0x68 }
+};
+static const EFI_GUID variable_policy_guid = {
+	0x81d1675c, 0x86f6, 0x48df, { 0xbd, 0x95, 0x9a, 0x6e, 0x4f, 0x09, 0x25, 0xc3 }
+};
+
+#define EFI_AUTH_STATUS_TEST_FAILED 0x00000008U
+
+static int same_guid(const EFI_GUID *left, const EFI_GUID *right)
+{
+	return memcmp(left, right, sizeof(*left)) == 0;
+}
+
+static uint64_t merge_pei_pcd_hob(struct cdk2_pcd_context *context,
+	struct system_table_view *table)
+{
+	struct hob_header *hob = NULL;
+	size_t index;
+
+	if (table->table_count != 0 && table->tables == NULL)
+		return EFI_COMPROMISED_DATA;
+	for (index = 0; index < table->table_count; index++)
+		if (same_guid(&table->tables[index].guid, &hob_list_guid)) {
+			hob = table->tables[index].table;
+			break;
+		}
+	while (hob != NULL && hob->type != 0xffffU) {
+		struct guid_hob *guid;
+
+		if (hob->length < sizeof(*hob) || (hob->length & 7U) != 0)
+			return EFI_COMPROMISED_DATA;
+		if (hob->type == 4U) {
+			if (hob->length < sizeof(*guid))
+				return EFI_COMPROMISED_DATA;
+			guid = (struct guid_hob *)hob;
+			if (same_guid(&guid->guid, &pcd_hob_guid))
+				return cdk2_pcd_merge_hob(context, guid + 1,
+					hob->length - sizeof(*guid));
+		}
+		hob = (struct hob_header *)((uint8_t *)hob + hob->length);
+	}
+	return EFI_SUCCESS;
+}
+
+static uint64_t CDK2_MS_ABI register_read_only_variable(const uint16_t *name,
+	const EFI_GUID *guid)
+{
+	struct variable_policy_entry *entry;
+	size_t length = 0, bytes, available;
+	void *allocation;
+	uint64_t status;
+
+	if (locking_context == NULL || active_variable_policy == NULL ||
+	    active_variable_policy->register_policy == NULL || name == NULL)
+		return EFI_INVALID_PARAMETER;
+	if ((const uint8_t *)name < locking_context->database ||
+	    (const uint8_t *)name >= locking_context->database +
+		locking_context->header->length)
+		return EFI_COMPROMISED_DATA;
+	available = (size_t)(locking_context->database + locking_context->header->length -
+		(const uint8_t *)name) / sizeof(*name);
+	while (length < available && name[length] != 0)
+		length++;
+	if (length == available || length > (UINT16_MAX - sizeof(*entry)) /
+		sizeof(*name))
+		return EFI_COMPROMISED_DATA;
+	bytes = sizeof(*entry) + (length + 1) * sizeof(*name);
+	status = locking_context->allocate_pool(4U, bytes, &allocation);
+	if (status != EFI_SUCCESS)
+		return status;
+	entry = allocation;
+	memset(entry, 0, sizeof(*entry));
+	entry->version = 0x00010000U;
+	entry->size = (uint16_t)bytes;
+	entry->name_offset = sizeof(*entry);
+	entry->namespace = *guid;
+	entry->maximum_size = UINT32_MAX;
+	entry->lock_type = 1U;
+	memcpy((uint8_t *)entry + sizeof(*entry), name,
+		(length + 1) * sizeof(*name));
+	status = active_variable_policy->register_policy(entry);
+	(void)locking_context->free_pool(entry);
+	return status;
+}
 
 static void *get_value(const EFI_GUID *space, size_t token, size_t *size)
 {
@@ -313,7 +438,11 @@ static uint64_t info_common(const EFI_GUID *space, size_t token,
 		return status;
 	info->pcd_type = type;
 	info->pcd_size = size;
-	info->pcd_name = NULL;
+	status = cdk2_pcd_get_name(active, space, (uint32_t)token, &info->pcd_name);
+	if (status != EFI_SUCCESS && status != EFI_NOT_FOUND)
+		return status;
+	if (status == EFI_NOT_FOUND)
+		info->pcd_name = NULL;
 	return EFI_SUCCESS;
 }
 
@@ -416,7 +545,7 @@ uint64_t CDK2_MS_ABI cdk2_pcd_driver_entry(void *image_handle,
 		&size, &authentication);
 	if (status != EFI_SUCCESS)
 		return status;
-	if (authentication != 0) {
+	if ((authentication & EFI_AUTH_STATUS_TEST_FAILED) != 0) {
 		status = EFI_SECURITY_VIOLATION;
 		goto free_database;
 	}
@@ -450,6 +579,9 @@ free_database:
 		goto free_expanded;
 	driver_context.allocate_pool = table->boot_services->allocate_pool;
 	driver_context.free_pool = table->boot_services->free_pool;
+	status = merge_pei_pcd_hob(&driver_context, table);
+	if (status != EFI_SUCCESS)
+		goto free_expanded;
 	if (table->runtime_services != NULL) {
 		struct runtime_services_view *runtime = table->runtime_services;
 		void *vpd_value;
@@ -468,6 +600,17 @@ free_database:
 		}
 		status = cdk2_pcd_configure_storage(&driver_context,
 			runtime->get_variable, runtime->set_variable, vpd, vpd_size);
+		if (status != EFI_SUCCESS)
+			goto free_expanded;
+	}
+	if (table->boot_services->locate_protocol != NULL &&
+	    table->boot_services->locate_protocol(&variable_policy_guid, NULL,
+		(void **)&active_variable_policy) == EFI_SUCCESS) {
+		locking_context = &driver_context;
+		status = cdk2_pcd_lock_read_only(&driver_context,
+			register_read_only_variable);
+		locking_context = NULL;
+		active_variable_policy = NULL;
 		if (status != EFI_SUCCESS)
 			goto free_expanded;
 	}

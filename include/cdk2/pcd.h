@@ -161,6 +161,8 @@ uint64_t cdk2_pcd_get(struct cdk2_pcd_context *context, const EFI_GUID *space,
 	uint32_t token, void **value, size_t *size);
 uint64_t cdk2_pcd_get_info(struct cdk2_pcd_context *context,
 	const EFI_GUID *space, uint32_t token, size_t *datum_type, size_t *size);
+uint64_t cdk2_pcd_get_name(struct cdk2_pcd_context *context,
+	const EFI_GUID *space, uint32_t token, char **name);
 uint64_t cdk2_pcd_set(struct cdk2_pcd_context *context, const EFI_GUID *space,
 	uint32_t token, const void *value, size_t *size);
 uint64_t cdk2_pcd_register(struct cdk2_pcd_context *context,
