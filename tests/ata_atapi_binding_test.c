@@ -12,6 +12,7 @@
 struct fixture {
 	unsigned int step, fail_step, opens, closes, installs, uninstalls;
 	unsigned int restores, enables, ide_discovers, ahci_discovers;
+	unsigned int prepares, engine_releases;
 	UINT8 class_code[3];
 };
 static EFI_STATUS fault(struct fixture *fixture)
@@ -57,6 +58,11 @@ static EFI_STATUS install(void *opaque, void *handle,
 	struct cdk2_ata_topology *topology)
 { struct fixture *f = opaque; (void)handle; CHECK(topology->count != 0U);
 	f->installs++; return fault(f); }
+static EFI_STATUS prepare_engines(void *opaque, struct cdk2_ata_controller *controller)
+{ struct fixture *f = opaque; CHECK(controller->topology.count != 0U); f->prepares++;
+	return fault(f); }
+static void release_engines(void *opaque, struct cdk2_ata_controller *controller)
+{ struct fixture *f = opaque; (void)controller; f->engine_releases++; }
 static EFI_STATUS uninstall(void *opaque, void *handle,
 	struct cdk2_ata_topology *topology)
 { struct fixture *f = opaque; (void)handle; CHECK(topology->count != 0U);
@@ -69,6 +75,7 @@ static void initialize(struct fixture *fixture, struct cdk2_ata_binding *binding
 		.read_class = read_class, .get_attributes = get_attributes,
 		.enable_attributes = enable, .restore_attributes = restore,
 		.discover_ide = discover_ide, .discover_ahci = discover_ahci,
+		.prepare_engines = prepare_engines, .release_engines = release_engines,
 		.install = install, .uninstall = uninstall };
 	memset(fixture, 0, sizeof(*fixture)); fixture->class_code[2] = 1;
 	fixture->class_code[1] = 1;
@@ -93,7 +100,7 @@ int main(void)
 	CHECK(binding.count == 1 && binding.controllers[0].handle == (void *)2);
 	CHECK(cdk2_ata_binding_stop(&binding, (void *)2) == EFI_SUCCESS);
 	CHECK(binding.count == 0);
-	for (unsigned int failure = 1; failure <= 7; failure++) {
+	for (unsigned int failure = 1; failure <= 8; failure++) {
 		initialize(&fixture, &binding); fixture.fail_step = failure;
 		CHECK(EFI_ERROR(cdk2_ata_binding_start(&binding, (void *)3)));
 		CHECK(binding.count == 0);

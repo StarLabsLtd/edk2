@@ -83,6 +83,9 @@ EFI_STATUS cdk2_ata_validate_transfer(UINT8 protocol, UINT8 length,
 	const void *in_buffer, UINT32 in_length, const void *out_buffer,
 	UINT32 out_length, UINT32 io_align);
 
+struct cdk2_ata_controller;
+struct cdk2_ahci_engine;
+struct cdk2_ide_engine;
 struct cdk2_ata_binding_services {
 	void *context;
 	EFI_STATUS (*open_path)(void *context, void *controller);
@@ -99,6 +102,8 @@ struct cdk2_ata_binding_services {
 		struct cdk2_ata_topology *topology);
 	EFI_STATUS (*discover_ahci)(void *context, void *pci, UINT32 *capability,
 		UINT32 *ports_implemented, struct cdk2_ata_topology *topology);
+	EFI_STATUS (*prepare_engines)(void *context, struct cdk2_ata_controller *controller);
+	void (*release_engines)(void *context, struct cdk2_ata_controller *controller);
 	EFI_STATUS (*install)(void *context, void *controller,
 		struct cdk2_ata_topology *topology);
 	EFI_STATUS (*uninstall)(void *context, void *controller,
@@ -110,6 +115,8 @@ struct cdk2_ata_controller {
 	UINT64 original_attributes, enabled_attributes;
 	UINT32 ahci_capability, ports_implemented;
 	UINT8 started, protocols_installed;
+	struct cdk2_ahci_engine *ahci;
+	struct cdk2_ide_engine *ide_engine;
 };
 struct cdk2_ata_binding {
 	struct cdk2_ata_binding_services services;

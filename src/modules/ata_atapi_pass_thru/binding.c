@@ -46,6 +46,7 @@ EFI_STATUS cdk2_ata_binding_init(struct cdk2_ata_binding *binding,
 	    services->read_class == NULL || services->get_attributes == NULL ||
 	    services->enable_attributes == NULL || services->restore_attributes == NULL ||
 	    services->discover_ide == NULL || services->discover_ahci == NULL ||
+	    services->prepare_engines == NULL || services->release_engines == NULL ||
 	    services->install == NULL || services->uninstall == NULL)
 		return EFI_INVALID_PARAMETER;
 	memset(binding, 0, sizeof(*binding));
@@ -126,12 +127,17 @@ EFI_STATUS cdk2_ata_binding_start(struct cdk2_ata_binding *binding, void *contro
 			&staged.ahci_capability, &staged.ports_implemented, &staged.topology);
 	if (EFI_ERROR(status))
 		goto restore;
-	status = services->install(services->context, controller, &staged.topology);
+	status = services->prepare_engines(services->context, &staged);
 	if (EFI_ERROR(status))
 		goto restore;
+	status = services->install(services->context, controller, &staged.topology);
+	if (EFI_ERROR(status))
+		goto release_engines;
 	staged.protocols_installed = staged.started = 1;
 	binding->controllers[binding->count++] = staged;
 	return EFI_SUCCESS;
+release_engines:
+	services->release_engines(services->context, &staged);
 restore:
 	(void)services->restore_attributes(services->context, staged.pci,
 		staged.original_attributes);
@@ -167,6 +173,7 @@ EFI_STATUS cdk2_ata_binding_stop(struct cdk2_ata_binding *binding, void *control
 			&instance->topology);
 		return status;
 	}
+	binding->services.release_engines(binding->services.context, instance);
 	memmove(&binding->controllers[index], &binding->controllers[index + 1U],
 		(binding->count - index - 1U) * sizeof(binding->controllers[0]));
 	binding->count--;
