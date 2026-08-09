@@ -2199,7 +2199,7 @@ $(CDK2_NATIVE_BUILD_DIR)/pci-bus-%.o: $(CDK2_DIR)/src/modules/pci_bus/%.c | \
 	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
 		-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 -fno-builtin \
 		-mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args \
-		$(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+		$(CDK2_NATIVE_INCLUDES) -MMD -MP -MF "$(@:.o=.d)" -MT "$@" -c "$<" -o "$@"
 
 $(CDK2_NATIVE_PCI_BUS_PE): $(CDK2_NATIVE_PCI_BUS_OBJS) \
 		$(CDK2_NATIVE_BUILD_DIR)/mem.o \

@@ -10,7 +10,7 @@
 #define CDK2_PCI_MAX_VFS 64U
 #define CDK2_PCI_MAX_REBAR 6U
 #define CDK2_PCI_MAX_ROOTS 8U
-#define CDK2_PCI_RESOURCE_CLASSES 4U
+#define CDK2_PCI_RESOURCE_CLASSES 5U
 #define CDK2_PCI_MAX_ROM_IMAGES 16U
 #define CDK2_PCI_ROOT_PARENT UINT16_MAX
 
@@ -101,8 +101,8 @@ struct cdk2_pci_aperture {
 };
 
 struct cdk2_pci_allocation_policy {
-	struct cdk2_pci_aperture io, mem32, mem64, prefetch;
-	uint64_t hotplug_padding[4];
+	struct cdk2_pci_aperture io, mem32, prefetch32, mem64, prefetch64;
+	uint64_t hotplug_padding[CDK2_PCI_RESOURCE_CLASSES];
 	uint8_t maximum_rebar_size;
 	uint8_t enable_sriov;
 };
@@ -181,7 +181,7 @@ struct cdk2_pci_cardbus_socket {
 struct cdk2_pci_topology {
 	struct cdk2_pci_function functions[CDK2_PCI_MAX_FUNCTIONS];
 	size_t count;
-	struct cdk2_pci_bus_resource_request requests[4];
+	struct cdk2_pci_bus_resource_request requests[CDK2_PCI_RESOURCE_CLASSES];
 };
 
 int cdk2_pci_probe_function(const struct cdk2_pci_cfg *cfg,

@@ -47,8 +47,9 @@ int cdk2_pci_host_allocate(struct cdk2_pci_bus_host_model *host)
 			for (uint8_t bar = 0; bar < fn->bar_count; bar++) {
 				const struct cdk2_pci_bar *resource = &fn->bars[bar];
 				unsigned int kind = resource->kind == CDK2_PCI_BAR_IO ? 0U :
-					(resource->kind == CDK2_PCI_BAR_MEM64 ? 2U :
-					(resource->prefetchable ? 3U : 1U));
+					(resource->prefetchable ?
+					(resource->kind == CDK2_PCI_BAR_MEM64 ? 4U : 2U) :
+					(resource->kind == CDK2_PCI_BAR_MEM64 ? 3U : 1U));
 				if (UINT64_MAX - required[root][kind] < resource->size)
 					goto preflight_failed;
 				required[root][kind] += resource->size;

@@ -104,7 +104,8 @@ static struct cdk2_pci_aperture *bar_aperture(
 	if (bar->kind == CDK2_PCI_BAR_IO)
 		return &policy->io;
 	if (bar->prefetchable)
-		return &policy->prefetch;
+		return bar->kind == CDK2_PCI_BAR_MEM64 ? &policy->prefetch64 :
+			&policy->prefetch32;
 	return bar->kind == CDK2_PCI_BAR_MEM64 ? &policy->mem64 : &policy->mem32;
 }
 
@@ -452,8 +453,8 @@ static uint8_t resource_index(const struct cdk2_pci_bar *bar)
 	if (bar->kind == CDK2_PCI_BAR_IO)
 		return 0;
 	if (bar->prefetchable)
-		return 3;
-	return bar->kind == CDK2_PCI_BAR_MEM64 ? 2 : 1;
+		return bar->kind == CDK2_PCI_BAR_MEM64 ? 4 : 2;
+	return bar->kind == CDK2_PCI_BAR_MEM64 ? 3 : 1;
 }
 
 static int gap_allocate(const struct cdk2_pci_aperture *aperture,
@@ -500,7 +501,8 @@ static int stage_hot_bar(const struct cdk2_pci_cfg *cfg,
 	uint64_t base; uint32_t original; uint8_t resource = resource_index(bar);
 	const struct cdk2_pci_aperture *aperture = resource == 0 ? &policy->io :
 		(resource == 1 ? &policy->mem32 :
-		(resource == 2 ? &policy->mem64 : &policy->prefetch));
+		(resource == 2 ? &policy->prefetch32 :
+		(resource == 3 ? &policy->mem64 : &policy->prefetch64)));
 	if (gap_allocate(aperture, occupied, occupied_count, resource, length,
 		bar->size - 1U, &base) != 0 || cfg_read(cfg, fn, offset, 4,
 		&original) != 0 || stage_write(cfg, fn, offset, 4,

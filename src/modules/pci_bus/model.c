@@ -495,8 +495,9 @@ int cdk2_pci_enumerate(const struct cdk2_pci_cfg *cfg, uint8_t first_bus,
 		for (uint8_t j = 0; j < fn->bar_count; j++) {
 			struct cdk2_pci_bar *bar = &fn->bars[j];
 			unsigned int request = bar->kind == CDK2_PCI_BAR_IO ? 0U :
-				(bar->kind == CDK2_PCI_BAR_MEM64 ? 2U :
-				(bar->prefetchable ? 3U : 1U));
+				(bar->prefetchable ?
+				(bar->kind == CDK2_PCI_BAR_MEM64 ? 4U : 2U) :
+				(bar->kind == CDK2_PCI_BAR_MEM64 ? 3U : 1U));
 			uint64_t alignment = bar->size - 1U;
 			uint64_t length = staged.requests[request].length;
 			if (length > UINT64_MAX - alignment)
@@ -512,8 +513,9 @@ int cdk2_pci_enumerate(const struct cdk2_pci_cfg *cfg, uint8_t first_bus,
 		for (uint8_t j = 0; j < fn->vf_bar_count; j++) {
 			struct cdk2_pci_bar *bar = &fn->vf_bars[j];
 			unsigned int request = bar->kind == CDK2_PCI_BAR_IO ? 0U :
-				(bar->kind == CDK2_PCI_BAR_MEM64 ? 2U :
-				(bar->prefetchable ? 3U : 1U));
+				(bar->prefetchable ?
+				(bar->kind == CDK2_PCI_BAR_MEM64 ? 4U : 2U) :
+				(bar->kind == CDK2_PCI_BAR_MEM64 ? 3U : 1U));
 			uint64_t length = bar->size * fn->total_vfs;
 			if ((fn->total_vfs != 0U && length / fn->total_vfs != bar->size) ||
 			    UINT64_MAX - staged.requests[request].length < length)

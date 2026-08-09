@@ -126,22 +126,23 @@ static EFI_STATUS CDK2_MS_ABI submit(void *host, void *root, void *resources)
 { (void)host; (void)root; (void)resources; active->submits++; return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI get_proposed(void *host, void *root, void **resources)
 {
-	uint8_t *bytes = calloc(1, 4 * 46 + 2); (void)host; (void)root;
+	uint8_t *bytes = calloc(1, CDK2_PCI_RESOURCE_CLASSES * 46 + 2);
+	(void)host; (void)root;
 	if (active->fail_proposed && active->proposed++ == 1U) {
 		free(bytes);
 		return EFI_DEVICE_ERROR;
 	}
 	if (bytes == NULL)
 		return 9;
-	for (unsigned int i = 0; i < 4U; i++) {
+	for (unsigned int i = 0; i < CDK2_PCI_RESOURCE_CLASSES; i++) {
 		bytes[i * 46] = 0x8a; bytes[i * 46 + 1] = 43;
 		bytes[i * 46 + 3] = i == 0U ? 1U : 0U;
-		bytes[i * 46 + 6] = i == 2U ? 64U : (i == 0U ? 0U : 32U);
-		bytes[i * 46 + 5] = i == 3U ? 6U : 0U;
+		bytes[i * 46 + 6] = i >= 3U ? 64U : (i == 0U ? 0U : 32U);
+		bytes[i * 46 + 5] = i == 2U || i == 4U ? 6U : 0U;
 		bytes[i * 46 + 14] = 0x10U * (i + 1U);
 		bytes[i * 46 + 38] = 1;
 	}
-	bytes[4 * 46] = 0x79; *resources = bytes;
+	bytes[CDK2_PCI_RESOURCE_CLASSES * 46] = 0x79; *resources = bytes;
 	if (!active->fail_proposed)
 		active->proposed++;
 	return EFI_SUCCESS;

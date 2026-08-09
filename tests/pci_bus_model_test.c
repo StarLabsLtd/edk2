@@ -250,9 +250,12 @@ static int topology_test(void)
 	p = add(&f, 0, 2, 0, 0x1234, 2, 1); p->data[0x0b] = 6; p->data[0x0a] = 4;
 	put32(p->data + 0x18, 0x00020200); p->masks[6] = 0;
 	p = add(&f, 2, 0, 0, 0xabcd, 4, 0); p->masks[6] = 0;
+	p = add(&f, 0, 3, 0, 0xbeef, 5, 0); p->masks[6] = 0;
+	put32(p->data + 0x10, 0x0000000c); put32(p->data + 0x14, 1);
+	p->masks[0] = 0xfffff00c; p->masks[1] = 0xffffffffU;
 	memset(&topology, 0xa5, sizeof(topology));
 	CHECK(cdk2_pci_enumerate(&cfg, 0, 4, &topology) == 0);
-	CHECK(topology.count == 4); CHECK(topology.functions[0].bar_count == 1);
+	CHECK(topology.count == 5); CHECK(topology.functions[0].bar_count == 1);
 	CHECK(topology.functions[0].bars[0].size == 0x1000);
 	CHECK(topology.functions[1].pcie_cap == 0x40);
 	CHECK(topology.functions[1].ari_cap == 0x100);
@@ -269,8 +272,10 @@ static int topology_test(void)
 	CHECK(topology.functions[1].vf_rids[3] == 0x0019);
 	CHECK(topology.functions[1].selected_rebar_size == 4);
 	CHECK(topology.functions[3].bus == 2);
-	CHECK(topology.requests[3].length == 0x1000);
-	CHECK(topology.requests[3].alignment == 0xfff);
+	CHECK(topology.requests[2].length == 0x1000);
+	CHECK(topology.requests[2].alignment == 0xfff);
+	CHECK(topology.requests[4].length == 0x1000);
+	CHECK(topology.requests[4].alignment == 0xfff);
 	CHECK(get(f.devices[0].data + 4, 2) == 7);
 	CHECK(get(f.devices[0].data + 0x10, 4) == 0x80000008);
 	before = topology; f.fail_write = f.writes + 2;
@@ -317,7 +322,7 @@ static int allocator_test(void)
 		.io = { 0x1000, 0xffff, 0x1000 },
 		.mem32 = { 0x80000000, 0x8fffffff, 0x80000000 },
 		.mem64 = { 0x100000000ULL, 0x10fffffffULL, 0x100000000ULL },
-		.prefetch = { 0x90000000, 0x9fffffff, 0x90000000 },
+		.prefetch32 = { 0x90000000, 0x9fffffff, 0x90000000 },
 		.hotplug_padding = { 0x1000, 0x100000, 0, 0 },
 		.maximum_rebar_size = 4, .enable_sriov = 1,
 	};

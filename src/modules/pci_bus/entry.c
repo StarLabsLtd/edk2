@@ -422,9 +422,9 @@ static int add_padding(struct cdk2_pci_topology *topology, UINTN bridge,
 		else if (descriptor->resource_type != 0U)
 			return -1;
 		else if ((descriptor->specific & 6U) == 6U)
-			resource = 3;
+			resource = descriptor->granularity == 64U ? 4U : 2U;
 		else
-			resource = descriptor->granularity == 64U ? 2U : 1U;
+			resource = descriptor->granularity == 64U ? 3U : 1U;
 		if (UINT64_MAX - padding[resource] < descriptor->address_length)
 			return -1;
 		padding[resource] += descriptor->address_length;
@@ -515,9 +515,9 @@ static void make_submission(const struct cdk2_pci_topology *topology,
 		descriptor[count].descriptor = 0x8a;
 		descriptor[count].length = sizeof(descriptor[count]) - 3U;
 		descriptor[count].resource_type = index == 0U ? 1U : 0U;
-		descriptor[count].granularity = index == 2U ? 64U :
-			(index == 0U ? 0U : 32U);
-		descriptor[count].specific = index == 3U ? 6U : 0U;
+		descriptor[count].granularity = index == 0U ? 0U :
+			(index >= 3U ? 64U : 32U);
+		descriptor[count].specific = index == 2U || index == 4U ? 6U : 0U;
 		descriptor[count].maximum = topology->requests[index].alignment;
 		descriptor[count].address_length = topology->requests[index].length;
 		count++;
@@ -551,8 +551,13 @@ static int proposed_policy(const void *configuration,
 			 (descriptor->specific & 6U) == 0U)
 			aperture = &policy->mem64;
 		else if (descriptor->resource_type == 0U &&
+			 descriptor->granularity == 32U &&
 			 (descriptor->specific & 6U) == 6U)
-			aperture = &policy->prefetch;
+			aperture = &policy->prefetch32;
+		else if (descriptor->resource_type == 0U &&
+			 descriptor->granularity == 64U &&
+			 (descriptor->specific & 6U) == 6U)
+			aperture = &policy->prefetch64;
 		else
 			return -1;
 		aperture->base = descriptor->minimum;
@@ -845,6 +850,28 @@ static EFI_STATUS hotplug_remove(struct entry_context *entry, UINTN root,
 					if (function_same_bdf(&entry->driver.binding.children[child]->function,
 						&topology->functions[function]))
 						removed[function] = 1;
+	/* Removing a bridge also removes every published descendant. */
+	for (UINTN parent = 0; parent < topology->count; parent++)
+		if (removed[parent])
+			for (UINTN function = 0; function < topology->count; function++) {
+				UINT16 ancestor = topology->functions[function].parent_index;
+				while (ancestor != CDK2_PCI_ROOT_PARENT && !removed[function]) {
+					if (ancestor == parent)
+						removed[function] = 1;
+					else
+						ancestor = topology->functions[ancestor].parent_index;
+				}
+			}
+	count = 0;
+	for (UINTN function = topology->count; function != 0U; function--)
+		if (removed[function - 1U])
+			for (UINTN child = 0; child < entry->driver.binding.child_count; child++)
+				if (function_same_bdf(
+					&entry->driver.binding.children[child]->function,
+					&topology->functions[function - 1U])) {
+					selected[count++] = entry->driver.binding.children[child]->handle;
+					break;
+				}
 	if (cdk2_pci_bus_stop(&entry->driver.binding,
 		entry->roots[root].controller, selected, count) != 0)
 		return EFI_DEVICE_ERROR;
