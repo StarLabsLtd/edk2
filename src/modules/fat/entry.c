@@ -10,6 +10,7 @@ typedef EFI_STATUS CDK2_MS_ABI create_event_fn(UINT32, UINTN,
 	void (CDK2_MS_ABI *)(void *, void *), void *, void **);
 typedef EFI_STATUS CDK2_MS_ABI set_timer_fn(void *, UINT32, UINT64);
 typedef EFI_STATUS CDK2_MS_ABI close_event_fn(void *);
+typedef EFI_STATUS CDK2_MS_ABI wait_event_fn(UINTN, void **, UINTN *);
 typedef EFI_STATUS CDK2_MS_ABI open_fn(void *, const EFI_GUID *, void **, void *, void *, UINT32);
 typedef EFI_STATUS CDK2_MS_ABI close_fn(void *, const EFI_GUID *, void *, void *);
 typedef EFI_STATUS CDK2_MS_ABI locate_protocol_fn(const EFI_GUID *, void *, void **);
@@ -17,7 +18,7 @@ typedef EFI_STATUS CDK2_MS_ABI install_fn(void **, ...);
 typedef EFI_STATUS CDK2_MS_ABI uninstall_fn(void *, ...);
 struct boot_view { UINT8 hdr[24]; void *raise_tpl, *restore_tpl, *allocate_pages,
 	*free_pages, *get_memory_map; alloc_fn *allocate_pool; free_fn *free_pool;
-	create_event_fn *create_event; set_timer_fn *set_timer; void *wait_for_event;
+	create_event_fn *create_event; set_timer_fn *set_timer; wait_event_fn *wait_for_event;
 	signal_fn *signal_event; close_event_fn *close_event;
 	void *check_event, *install_protocol, *reinstall_protocol,
 	*uninstall_protocol, *handle_protocol, *reserved, *register_protocol_notify,
@@ -101,6 +102,26 @@ static void op_drain(void *c, void *cookie)
 	(void)e->boot->close_event(call->event);
 	call->function(call->context); op_release(e, call);
 }
+static EFI_STATUS op_create_event(void *c,
+	void (CDK2_MS_ABI *notify)(void *, void *), void *context, void **event)
+{
+	struct entry_context *e = c;
+	return e->boot->create_event == NULL ? EFI_UNSUPPORTED :
+		e->boot->create_event(0x200U, 8U, notify, context, event);
+}
+static EFI_STATUS op_close_event(void *c, void *event)
+{
+	struct entry_context *e = c;
+	return e->boot->close_event == NULL ? EFI_UNSUPPORTED :
+		e->boot->close_event(event);
+}
+static EFI_STATUS op_wait_event(void *c, void *event)
+{
+	struct entry_context *e = c;
+	UINTN index;
+	return e->boot->wait_for_event == NULL ? EFI_UNSUPPORTED :
+		e->boot->wait_for_event(1U, &event, &index);
+}
 static EFI_STATUS CDK2_MS_ABI supported(struct driver_view *d, void *controller, void *remaining)
 {
 	struct entry_context *e = entry_of(d); void *interface; EFI_STATUS status;
@@ -144,7 +165,8 @@ static EFI_STATUS CDK2_MS_ABI controller_name(struct component_view *c, void *co
 EFI_STATUS CDK2_MS_ABI cdk2_fat_entry(void *image, void *table)
 {
 	static const struct cdk2_fat_binding_ops ops = { op_open, op_close, op_publish,
-		op_unpublish, op_allocate, op_release, op_signal, op_queue, op_drain };
+		op_unpublish, op_allocate, op_release, op_signal, op_queue, op_drain,
+		op_create_event, op_close_event, op_wait_event };
 	struct system_view *system = table; EFI_STATUS status;
 	if (image == NULL || system == NULL || system->boot == NULL) return EFI_INVALID_PARAMETER;
 	__builtin_memset(&entry, 0, sizeof(entry)); entry.boot = system->boot; entry.image = image;

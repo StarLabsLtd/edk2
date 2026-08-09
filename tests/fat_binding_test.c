@@ -21,6 +21,9 @@ struct fixture {
 };
 static struct fixture *active;
 static void (*queued_function)(void *); static void *queued_context;
+static void (CDK2_MS_ABI *disk_notify)(void *, void *); static void *disk_context;
+static struct cdk2_disk_io2_token *disk_token;
+static UINT64 disk2_offset; static UINTN disk2_size; static void *disk2_buffer;
 static INTN CDK2_MS_ABI collate(struct cdk2_unicode_collation *self,
 	CHAR16 *left, CHAR16 *right)
 { (void)self; while (*left == *right && *left != 0U) { left++; right++; } return *left - *right; }
@@ -38,6 +41,10 @@ static void format(struct fixture *f, unsigned id)
 	put16(b + 14U, 1U); b[16U] = 2U; put16(b + 17U, 224U);
 	put16(b + 19U, 4096U); put16(b + 22U, 9U);
 	b[510U] = 0x55U; b[511U] = 0xaaU;
+	b[512U + 3U] = 3U; b[512U + 4U] = 0xf0U; b[512U + 5U] = 0xffU;
+	memcpy(b + 9728U, "ASYNC   TXT", 11U); b[9728U + 11U] = 0x20U;
+	put16(b + 9728U + 26U, 2U); b[9728U + 28U] = 0x58U; b[9728U + 29U] = 2U;
+	memset(b + 16896U, 'A', 512U); memset(b + 17408U, 'B', 88U);
 }
 static uint64_t CDK2_MS_ABI disk_read(struct cdk2_disk_io *disk, uint32_t media,
 	uint64_t offset, size_t size, void *buffer)
@@ -49,6 +56,16 @@ static uint64_t CDK2_MS_ABI disk_read(struct cdk2_disk_io *disk, uint32_t media,
 		return EFI_INVALID_PARAMETER;
 	memcpy(buffer, f->image[id] + offset, size); return EFI_SUCCESS;
 }
+static uint64_t CDK2_MS_ABI disk_flush(struct cdk2_disk_io2 *disk,
+	struct cdk2_disk_io2_token *token)
+{ (void)disk; disk_token = token; return EFI_SUCCESS; }
+static uint64_t CDK2_MS_ABI disk_read_ex(struct cdk2_disk_io2 *disk, uint32_t media,
+	uint64_t offset, struct cdk2_disk_io2_token *token, size_t size, void *buffer)
+{ (void)disk; (void)media; disk_token = token; disk2_offset = offset;
+	disk2_size = size; disk2_buffer = buffer; return EFI_SUCCESS; }
+static uint64_t CDK2_MS_ABI disk_write_ex(struct cdk2_disk_io2 *disk, uint32_t media,
+	uint64_t offset, struct cdk2_disk_io2_token *token, size_t size, void *buffer)
+{ return disk_read_ex(disk, media, offset, token, size, buffer); }
 static EFI_STATUS open_protocol(void *context, void *controller,
 	const EFI_GUID *guid, void **interface)
 {
@@ -80,13 +97,22 @@ static EFI_STATUS queue(void *context, void (*function)(void *), void *opaque, v
 { (void)context; queued_function = function; queued_context = opaque; *cookie = opaque; return EFI_SUCCESS; }
 static void drain(void *context, void *cookie)
 { (void)context; (void)cookie; queued_function(queued_context); queued_function = NULL; }
+static EFI_STATUS create_event(void *context,
+	void (CDK2_MS_ABI *notify)(void *, void *), void *opaque, void **event)
+{ (void)context; disk_notify = notify; disk_context = opaque; *event = (void *)4;
+	return EFI_SUCCESS; }
+static EFI_STATUS close_event(void *context, void *event)
+{ (void)context; (void)event; return EFI_SUCCESS; }
+static EFI_STATUS wait_event(void *context, void *event)
+{ (void)context; (void)event; return EFI_SUCCESS; }
 static int expect(int ok, const char *message)
 { if (!ok) fprintf(stderr, "FAT binding test: %s\n", message); return !ok; }
 
 int main(void)
 {
 	static const struct cdk2_fat_binding_ops ops = {
-		open_protocol, close_protocol, publish, unpublish, allocate, release, signal, queue, drain
+		open_protocol, close_protocol, publish, unpublish, allocate, release, signal, queue,
+		drain, create_event, close_event, wait_event
 	};
 	struct fixture f = { 0 };
 	struct cdk2_unicode_collation collation = { .stri_coll = collate,
@@ -106,6 +132,9 @@ int main(void)
 			.last_block = 4095U };
 		f.block[id].media = &f.media[id];
 		f.disk[id].read_disk = disk_read;
+		f.disk2[id].flush_disk_ex = disk_flush;
+		f.disk2[id].read_disk_ex = disk_read_ex;
+		f.disk2[id].write_disk_ex = disk_write_ex;
 	}
 	failures += expect(cdk2_fat_binding_start(&binding, (void *)1) == EFI_SUCCESS &&
 		cdk2_fat_binding_start(&binding, (void *)2) == EFI_SUCCESS &&
@@ -116,12 +145,55 @@ int main(void)
 		struct cdk2_fat_file_io_token async = { (void *)9, EFI_NOT_READY, 0U, NULL };
 		failures += expect(binding.mounts->simple_fs->protocol.open_volume(
 			&binding.mounts->simple_fs->protocol, &root) == EFI_SUCCESS &&
-			root->flush_ex(root, &async) == EFI_SUCCESS && queued_function != NULL &&
+			root->flush_ex(root, &async) == EFI_SUCCESS && disk_token != NULL &&
 			async.status == EFI_NOT_READY && f.signals == 1U,
-			"revision-2 request was not queued with handle residency");
+			"revision-2 request did not reach DiskIo2 with handle residency");
+		disk_token->transaction_status = EFI_SUCCESS;
+		disk_notify(disk_token->event, disk_context);
 		failures += expect(root->close(root) == EFI_SUCCESS && async.status == EFI_SUCCESS &&
-			f.signals == 2U && queued_function == NULL,
-			"Close did not drain queued completion before releasing residency");
+			f.signals == 2U, "DiskIo2 completion did not release handle residency");
+	}
+	{
+		struct cdk2_fat_file_protocol *root, *file;
+		UINT8 output[600];
+		struct cdk2_fat_file_io_token token = { (void *)9, EFI_NOT_READY,
+			sizeof(output), output };
+		failures += expect(binding.mounts->simple_fs->protocol.open_volume(
+			&binding.mounts->simple_fs->protocol, &root) == EFI_SUCCESS &&
+			root->open(root, &file, L"ASYNC.TXT", 1U, 0U) == EFI_SUCCESS &&
+			file->read_ex(file, &token) == EFI_SUCCESS && disk2_offset == 16896U &&
+			disk2_size == 512U && token.status == EFI_NOT_READY,
+			"fragmented ReadEx did not submit its first DiskIo2 extent");
+		memcpy(disk2_buffer, f.image[1] + disk2_offset, disk2_size);
+		disk_token->transaction_status = EFI_SUCCESS;
+		disk_notify(disk_token->event, disk_context);
+		failures += expect(disk2_offset == 17408U && disk2_size == 88U &&
+			token.status == EFI_NOT_READY,
+			"fragmented ReadEx did not chain its second DiskIo2 extent");
+		memcpy(disk2_buffer, f.image[1] + disk2_offset, disk2_size);
+		disk_token->transaction_status = EFI_SUCCESS;
+		disk_notify(disk_token->event, disk_context);
+		failures += expect(token.status == EFI_SUCCESS && token.buffer_size == 600U &&
+			output[0] == 'A' && output[511] == 'A' && output[512] == 'B',
+			"fragmented DiskIo2 completion did not publish exact data/status");
+		(void)file->close(file); (void)root->close(root);
+	}
+	{
+		struct cdk2_fat_file_protocol *root, *file;
+		UINT8 input[600];
+		struct cdk2_fat_file_io_token token = { (void *)9, EFI_NOT_READY,
+			sizeof(input), input };
+		memset(input, 'W', sizeof(input));
+		failures += expect(binding.mounts->simple_fs->protocol.open_volume(
+			&binding.mounts->simple_fs->protocol, &root) == EFI_SUCCESS &&
+			root->open(root, &file, L"ASYNC.TXT", 3U, 0U) == EFI_SUCCESS &&
+			file->write_ex(file, &token) == EFI_SUCCESS && disk2_offset == 16896U,
+			"fragmented WriteEx did not submit through DiskIo2");
+		disk_token->transaction_status = EFI_DEVICE_ERROR;
+		disk_notify(disk_token->event, disk_context);
+		failures += expect(token.status == EFI_DEVICE_ERROR && token.buffer_size == 0U,
+			"failed first DiskIo2 extent reported bytes or lost its status");
+		(void)file->close(file); (void)root->close(root);
 	}
 	failures += expect(cdk2_fat_binding_start(&binding, (void *)1) ==
 		FAT_ALREADY_STARTED, "repeated Start was not idempotently rejected");

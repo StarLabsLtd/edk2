@@ -17,6 +17,10 @@ struct cdk2_fat_binding_ops {
 	EFI_STATUS (*signal)(void *, void *);
 	EFI_STATUS (*queue)(void *, void (*)(void *), void *, void **);
 	void (*drain)(void *, void *);
+	EFI_STATUS (*create_event)(void *, void (CDK2_MS_ABI *)(void *, void *),
+		void *, void **);
+	EFI_STATUS (*close_event)(void *, void *);
+	EFI_STATUS (*wait_event)(void *, void *);
 };
 struct cdk2_fat_io_token { void *event; EFI_STATUS transaction_status; };
 struct cdk2_fat_binding;
