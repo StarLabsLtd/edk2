@@ -15,5 +15,5 @@ AND; AND; END`:
 - `13a3f0f6-264a-3ef0-f2e0-dec512342f34` (dynamic PCD protocol).
 
 The native FFS replaces that exact admitted envelope at `0x519ca8`. Later
-native PCD, Device Path, and Partition layers preserve it; the composed
-inventory now has 42 retained modules.
+native PCD, Device Path, Partition, and BlSupport layers preserve it; the
+composed inventory now has 41 retained modules.

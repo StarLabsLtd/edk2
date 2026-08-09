@@ -37,7 +37,6 @@ hardware-gated	OvmfPkg/SioBusDxe/SioBusDxe
 subsystem-sized	ShellPkg/Application/Shell/Shell
 hardware-gated	UefiCpuPkg/CpuDxe/CpuDxe
 hardware-gated	UefiCpuPkg/PiSmmCpuDxeSmm/PiSmmCpuDxeSmm
-unsafe-standalone	UefiPayloadPkg/BlSupportDxe/BlSupportDxe
 hardware-gated	UefiPayloadPkg/BlSupportSmm/BlSupportSmm
 hardware-gated	UefiPayloadPkg/EcAcpiBatteryStatusDxe/EcAcpiBatteryStatusDxe
 hardware-gated	UefiPayloadPkg/GraphicsOutputDxe/GraphicsOutputDxe

@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: BSD-2-Clause-Patent */
 
 #include <cdk2/bl_support.h>
+#include <cdk2/config.h>
 #include <cdk2/pcd.h>
 #include <pi/hob.h>
 
@@ -72,7 +73,14 @@ static EFI_STATUS hob_extent(const void *list, size_t *size)
 
 EFI_STATUS CDK2_MS_ABI cdk2_bl_support_entry(void *image_handle, void *system_table)
 {
-	static const struct cdk2_bl_support_policy policy = { 0 };
+	static const struct cdk2_bl_support_policy policy = {
+		.hidpi = CONFIG_CDK2_GOP_HIDPI,
+		.wide_cap = CONFIG_CDK2_GOP_HIDPI_ASPECT_CAP,
+		.threshold_horizontal = CONFIG_CDK2_GOP_HIDPI_H_THRESHOLD,
+		.threshold_vertical = CONFIG_CDK2_GOP_HIDPI_V_THRESHOLD,
+		.cap_width = CONFIG_CDK2_GOP_HIDPI_ASPECT_W,
+		.cap_height = CONFIG_CDK2_GOP_HIDPI_ASPECT_H,
+	};
 	struct system_table_view *system = system_table;
 	struct cdk2_pcd_protocol *pcd;
 	struct cdk2_bl_support_ops ops;

@@ -219,6 +219,14 @@ config CDK2_NATIVE_PARTITION
 	  Discover GPT, MBR, El Torito, and UDF partitions and publish child
 	  block, disk, device-path, and partition-information protocols.
 
+config CDK2_NATIVE_BL_SUPPORT
+	bool "Build native bootloader support services"
+	default y
+	depends on CDK2_NATIVE_STAGE && CDK2_NATIVE_PCD
+	help
+	  Consume the bounded coreboot graphics and board-information HOBs and
+	  publish their platform policy through the native configuration service.
+
 config CDK2_NATIVE_STATUS_CODE_HANDLER
 	bool "Build the native release status-code handler"
 	default y

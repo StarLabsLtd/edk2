@@ -151,7 +151,7 @@ int main(void)
 	make_fixture(&fixture); calls = 0; fail_call = 3;
 	failures += expect(cdk2_bl_support_apply(&fixture, sizeof(fixture), &admitted,
 		&ops) == EFI_DEVICE_ERROR && calls == 3,
-		"PCD mutation failure is returned and stops later lifecycle operations");
+		"configuration mutation failure stops later lifecycle operations");
 	fail_call = 0;
 	make_fixture(&fixture);
 	fixture.graphics.header.header.hob_length = 4;
@@ -179,10 +179,10 @@ int main(void)
 		system.boot = &boot; system.count = 1; system.tables = &table;
 		calls = 0;
 		failures += expect(cdk2_bl_support_entry((void *)1, &system) == EFI_SUCCESS &&
-			calls == 7, "real entry locates native PCD and consumes bounded HOB list");
+			calls == 7, "real entry locates configuration service and consumes HOBs");
 		boot.locate_protocol = NULL;
 		failures += expect(cdk2_bl_support_entry((void *)1, &system) ==
-			EFI_UNSUPPORTED, "missing PCD lifecycle dependency is reported");
+			EFI_UNSUPPORTED, "missing configuration dependency is reported");
 	}
 	return failures == 0 ? 0 : 1;
 }
