@@ -454,6 +454,60 @@ uint64_t cdk2_fat_read_file(const struct cdk2_fat_volume *volume,
 	return EFI_SUCCESS;
 }
 
+uint64_t cdk2_fat_write_file(struct cdk2_fat_volume *volume,
+	uint32_t first_cluster, uint32_t file_size, uint64_t position,
+	size_t *size, const void *buffer)
+{
+	const uint8_t *input = buffer;
+	uint64_t cluster_size, offset, status;
+	uint32_t cluster = first_cluster, next, steps = 0U;
+	size_t wanted, part;
+	int end;
+	if (volume == NULL || size == NULL || (*size != 0U && buffer == NULL) ||
+	    position > file_size || *size > (uint64_t)file_size - position)
+		return EFI_INVALID_PARAMETER;
+	if (volume->media_changed)
+		return CDK2_FAT_MEDIA_CHANGED;
+	if (volume->read_only || volume->write_protected)
+		return CDK2_FAT_WRITE_PROTECTED;
+	if (volume->write == NULL)
+		return EFI_UNSUPPORTED;
+	wanted = *size; *size = 0U;
+	if (wanted == 0U)
+		return EFI_SUCCESS;
+	cluster_size = (uint64_t)volume->bytes_per_sector *
+		volume->sectors_per_cluster;
+	if (cluster_size == 0U || first_cluster < 2U)
+		return FAT_VOLUME_CORRUPTED;
+	while (position >= cluster_size) {
+		status = cdk2_fat_next_cluster(volume, cluster, &next, &end);
+		if (status != EFI_SUCCESS || end)
+			return status == EFI_SUCCESS ? FAT_VOLUME_CORRUPTED : status;
+		cluster = next; position -= cluster_size;
+		if (++steps >= volume->cluster_count)
+			return FAT_VOLUME_CORRUPTED;
+	}
+	while (wanted != 0U) {
+		status = cdk2_fat_cluster_offset(volume, cluster, &offset);
+		if (status != EFI_SUCCESS)
+			return status;
+		part = (size_t)(cluster_size - position);
+		if (part > wanted) part = wanted;
+		status = volume->write(volume->context, offset + position, part, input);
+		if (status != EFI_SUCCESS)
+			return status;
+		*size += part; input += part; wanted -= part; position = 0U;
+		if (wanted == 0U) break;
+		status = cdk2_fat_next_cluster(volume, cluster, &next, &end);
+		if (status != EFI_SUCCESS || end)
+			return status == EFI_SUCCESS ? FAT_VOLUME_CORRUPTED : status;
+		cluster = next;
+		if (++steps >= volume->cluster_count)
+			return FAT_VOLUME_CORRUPTED;
+	}
+	return volume->flush == NULL ? EFI_SUCCESS : volume->flush(volume->context);
+}
+
 static uint8_t short_checksum(const uint8_t *name)
 {
 	uint8_t sum = 0U;

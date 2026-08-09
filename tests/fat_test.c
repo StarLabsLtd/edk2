@@ -439,5 +439,24 @@ int main(void)
 		0x20U, 3U, 512U, &offset) == EFI_DEVICE_ERROR &&
 		mutation.bytes[1536U] == 'F' && mutation.bytes[1536U + 32U] == 0U,
 		"failed rename did not restore old and replacement directory slots");
+	/* Existing-chain writes cross clusters, report partial faults, and flush. */
+	memset(mutation.bytes + 1536U, 0, 1024U);
+	write32(mutation.bytes + 1024U + 8U, 3U);
+	write32(mutation.bytes + 1024U + 12U, 0x0fffffffU);
+	mutation.fail_write = 0U; mutation.flush_status = EFI_SUCCESS;
+	mutation.writes = mutation.flushes = 0U; size = 6U;
+	failures += expect(cdk2_fat_write_file(&volume, 2U, 1024U, 510U, &size,
+		"ABCDEF") == EFI_SUCCESS && size == 6U &&
+		memcmp(mutation.bytes + 1536U + 510U, "AB", 2U) == 0 &&
+		memcmp(mutation.bytes + 2048U, "CDEF", 4U) == 0 && mutation.flushes == 1U,
+		"cross-cluster byte write or flush failed");
+	mutation.writes = 0U; mutation.fail_write = 2U; size = 6U;
+	failures += expect(cdk2_fat_write_file(&volume, 2U, 1024U, 510U, &size,
+		"GHIJKL") == EFI_DEVICE_ERROR && size == 2U,
+		"write fault did not report the exact committed prefix");
+	mutation.fail_write = 0U; volume.write_protected = 1U; size = 1U;
+	failures += expect(cdk2_fat_write_file(&volume, 2U, 1024U, 0U, &size,
+		"X") == CDK2_FAT_WRITE_PROTECTED,
+		"write-protected volume admitted byte write");
 	return failures == 0 ? 0 : 1;
 }

@@ -69,6 +69,9 @@ uint64_t cdk2_fat_next_cluster(const struct cdk2_fat_volume *volume,
 uint64_t cdk2_fat_read_file(const struct cdk2_fat_volume *volume,
 	uint32_t first_cluster, uint32_t file_size, uint64_t position,
 	size_t *size, void *buffer);
+uint64_t cdk2_fat_write_file(struct cdk2_fat_volume *volume,
+	uint32_t first_cluster, uint32_t file_size, uint64_t position,
+	size_t *size, const void *buffer);
 uint64_t cdk2_fat_parse_directory_entry(const uint8_t *records, size_t count,
 	struct cdk2_fat_directory_entry *entry, size_t *consumed);
 uint64_t cdk2_fat_open_root(const struct cdk2_fat_volume *volume,
