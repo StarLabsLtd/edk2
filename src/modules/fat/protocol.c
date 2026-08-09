@@ -269,7 +269,8 @@ struct async_task { struct fat_handle *handle; struct cdk2_fat_file_io_token *to
 	enum async_kind kind; struct cdk2_fat_file_protocol **result; CHAR16 *name;
 	UINT64 mode, attributes; struct async_task *next; void *cookie;
 	struct cdk2_disk_io2_token disk_token; UINT8 *buffer; UINTN remaining, transferred;
-	UINTN submitted; UINT64 cluster_position; UINT32 cluster, steps; BOOLEAN disk_write; };
+	UINTN submitted; UINT64 cluster_position, file_position; UINT32 cluster, steps;
+	BOOLEAN disk_write, started; };
 static void drain_tasks(struct fat_handle *h)
 {
 	while (h->tasks != NULL) {
@@ -332,14 +333,44 @@ static void unlink_task(struct async_task *task)
 		}
 	task->handle->pending--;
 }
+static void append_task(struct fat_handle *handle, struct async_task *task)
+{
+	struct async_task **link;
+	for (link = &handle->tasks; *link != NULL; link = &(*link)->next)
+		;
+	*link = task;
+	handle->pending++;
+}
+static EFI_STATUS start_disk_task(struct async_task *task);
+static void CDK2_MS_ABI disk_flush_complete(void *event, void *opaque);
+static void finish_disk_rw(struct async_task *task, EFI_STATUS status);
+static void start_next_task(struct fat_handle *handle)
+{
+	struct async_task *next = handle->tasks;
+	EFI_STATUS status;
+	if (next == NULL || next->started)
+		return;
+	status = start_disk_task(next);
+	if (EFI_ERROR(status)) {
+		if (next->kind == ASYNC_FLUSH)
+		{
+			next->disk_token.transaction_status = status;
+			disk_flush_complete(next->disk_token.event, next);
+		} else
+			finish_disk_rw(next, status);
+	} else if (next->kind != ASYNC_FLUSH && next->remaining == 0U)
+		finish_disk_rw(next, EFI_SUCCESS);
+}
 static void CDK2_MS_ABI disk_flush_complete(void *event, void *opaque)
 {
 	struct async_task *task = opaque;
+	struct fat_handle *handle = task->handle;
 	struct cdk2_fat_binding *binding = task->handle->owner->binding;
 	unlink_task(task);
 	(void)complete(task->handle, task->token, task->disk_token.transaction_status);
 	(void)binding->ops->close_event(binding->context, event);
 	binding->ops->release(binding->context, task);
+	start_next_task(handle);
 }
 static EFI_STATUS queue_disk_flush(struct fat_handle *h, struct async_task *task)
 {
@@ -357,11 +388,8 @@ static EFI_STATUS queue_disk_flush(struct fat_handle *h, struct async_task *task
 		return status;
 	}
 	task->token->status = EFI_NOT_READY;
-	h->pending++;
-	task->next = h->tasks;
-	h->tasks = task;
-	status = h->owner->mount->disk2->flush_disk_ex(h->owner->mount->disk2,
-		&task->disk_token);
+	append_task(h, task);
+	status = h->tasks == task ? start_disk_task(task) : EFI_SUCCESS;
 	if (EFI_ERROR(status)) {
 		unlink_task(task);
 		(void)binding->ops->close_event(binding->context, task->disk_token.event);
@@ -373,13 +401,15 @@ static EFI_STATUS submit_disk_rw(struct async_task *task);
 static void finish_disk_rw(struct async_task *task, EFI_STATUS status)
 {
 	struct cdk2_fat_binding *binding = task->handle->owner->binding;
+	struct fat_handle *handle = task->handle;
 	task->token->buffer_size = task->transferred;
 	if (!EFI_ERROR(status))
-		task->handle->file.position += task->transferred;
+		task->handle->file.position = task->file_position + task->transferred;
 	unlink_task(task);
 	(void)complete(task->handle, task->token, status);
 	(void)binding->ops->close_event(binding->context, task->disk_token.event);
 	binding->ops->release(binding->context, task);
+	start_next_task(handle);
 }
 static void CDK2_MS_ABI disk_rw_complete(void *event, void *opaque)
 {
@@ -437,6 +467,14 @@ static EFI_STATUS submit_disk_rw(struct async_task *task)
 		task->submitted = part;
 	return status;
 }
+static EFI_STATUS start_disk_task(struct async_task *task)
+{
+	task->started = TRUE;
+	if (task->kind == ASYNC_FLUSH)
+		return task->handle->owner->mount->disk2->flush_disk_ex(
+			task->handle->owner->mount->disk2, &task->disk_token);
+	return task->remaining == 0U ? EFI_SUCCESS : submit_disk_rw(task);
+}
 static EFI_STATUS queue_disk_rw(struct fat_handle *h, struct async_task *task,
 	BOOLEAN write)
 {
@@ -446,6 +484,11 @@ static EFI_STATUS queue_disk_rw(struct fat_handle *h, struct async_task *task,
 	UINT32 next;
 	int end;
 	EFI_STATUS status;
+	struct async_task *pending;
+	for (pending = h->tasks; pending != NULL; pending = pending->next)
+		if (pending->kind == ASYNC_READ || pending->kind == ASYNC_WRITE)
+			position += pending->token->buffer_size;
+	task->file_position = position;
 	if (binding->ops->create_event == NULL || binding->ops->close_event == NULL ||
 	    h->owner->mount->disk2 == NULL || (write ?
 	    h->owner->mount->disk2->write_disk_ex == NULL :
@@ -482,14 +525,13 @@ static EFI_STATUS queue_disk_rw(struct fat_handle *h, struct async_task *task,
 		return status;
 	}
 	task->token->status = EFI_NOT_READY;
-	h->pending++;
-	task->next = h->tasks;
-	h->tasks = task;
+	append_task(h, task);
 	if (task->remaining == 0U) {
-		finish_disk_rw(task, EFI_SUCCESS);
+		if (h->tasks == task)
+			finish_disk_rw(task, EFI_SUCCESS);
 		return EFI_SUCCESS;
 	}
-	status = submit_disk_rw(task);
+	status = h->tasks == task ? start_disk_task(task) : EFI_SUCCESS;
 	if (EFI_ERROR(status))
 		finish_disk_rw(task, status);
 	return status;

@@ -22,8 +22,11 @@ struct fixture {
 static struct fixture *active;
 static void (*queued_function)(void *); static void *queued_context;
 static void (CDK2_MS_ABI *disk_notify)(void *, void *); static void *disk_context;
+static void (CDK2_MS_ABI *event_notify[32])(void *, void *); static void *event_context[32];
+static unsigned event_count;
 static struct cdk2_disk_io2_token *disk_token;
 static UINT64 disk2_offset; static UINTN disk2_size; static void *disk2_buffer;
+static unsigned disk2_calls;
 static INTN CDK2_MS_ABI collate(struct cdk2_unicode_collation *self,
 	CHAR16 *left, CHAR16 *right)
 { (void)self; while (*left == *right && *left != 0U) { left++; right++; } return *left - *right; }
@@ -58,11 +61,14 @@ static uint64_t CDK2_MS_ABI disk_read(struct cdk2_disk_io *disk, uint32_t media,
 }
 static uint64_t CDK2_MS_ABI disk_flush(struct cdk2_disk_io2 *disk,
 	struct cdk2_disk_io2_token *token)
-{ (void)disk; disk_token = token; return EFI_SUCCESS; }
+{ unsigned id = (unsigned)(UINTN)token->event - 4U; (void)disk; disk_token = token;
+	disk_notify = event_notify[id]; disk_context = event_context[id]; return EFI_SUCCESS; }
 static uint64_t CDK2_MS_ABI disk_read_ex(struct cdk2_disk_io2 *disk, uint32_t media,
 	uint64_t offset, struct cdk2_disk_io2_token *token, size_t size, void *buffer)
-{ (void)disk; (void)media; disk_token = token; disk2_offset = offset;
-	disk2_size = size; disk2_buffer = buffer; return EFI_SUCCESS; }
+{ unsigned id = (unsigned)(UINTN)token->event - 4U;
+	(void)disk; (void)media; disk_token = token; disk2_offset = offset;
+	disk_notify = event_notify[id]; disk_context = event_context[id];
+	disk2_size = size; disk2_buffer = buffer; disk2_calls++; return EFI_SUCCESS; }
 static uint64_t CDK2_MS_ABI disk_write_ex(struct cdk2_disk_io2 *disk, uint32_t media,
 	uint64_t offset, struct cdk2_disk_io2_token *token, size_t size, void *buffer)
 { return disk_read_ex(disk, media, offset, token, size, buffer); }
@@ -99,8 +105,8 @@ static void drain(void *context, void *cookie)
 { (void)context; (void)cookie; queued_function(queued_context); queued_function = NULL; }
 static EFI_STATUS create_event(void *context,
 	void (CDK2_MS_ABI *notify)(void *, void *), void *opaque, void **event)
-{ (void)context; disk_notify = notify; disk_context = opaque; *event = (void *)4;
-	return EFI_SUCCESS; }
+{ unsigned id = event_count++; (void)context; event_notify[id] = notify;
+	event_context[id] = opaque; *event = (void *)(UINTN)(id + 4U); return EFI_SUCCESS; }
 static EFI_STATUS close_event(void *context, void *event)
 { (void)context; (void)event; return EFI_SUCCESS; }
 static EFI_STATUS wait_event(void *context, void *event)
@@ -176,6 +182,39 @@ int main(void)
 		failures += expect(token.status == EFI_SUCCESS && token.buffer_size == 600U &&
 			output[0] == 'A' && output[511] == 'A' && output[512] == 'B',
 			"fragmented DiskIo2 completion did not publish exact data/status");
+		(void)file->close(file); (void)root->close(root);
+	}
+	{
+		struct cdk2_fat_file_protocol *root, *file;
+		UINT8 first[300], second[300];
+		struct cdk2_fat_file_io_token one = { (void *)9, EFI_NOT_READY,
+			sizeof(first), first };
+		struct cdk2_fat_file_io_token two = { (void *)8, EFI_NOT_READY,
+			sizeof(second), second };
+		unsigned calls = disk2_calls;
+		(void)binding.mounts->simple_fs->protocol.open_volume(
+			&binding.mounts->simple_fs->protocol, &root);
+		(void)root->open(root, &file, L"ASYNC.TXT", 1U, 0U);
+		failures += expect(file->read_ex(file, &one) == EFI_SUCCESS &&
+			file->read_ex(file, &two) == EFI_SUCCESS && disk2_calls == calls + 1U,
+			"same-handle async requests were submitted out of order");
+		memcpy(disk2_buffer, f.image[1] + disk2_offset, disk2_size);
+		disk_token->transaction_status = EFI_SUCCESS;
+		disk_notify(disk_token->event, disk_context);
+		failures += expect(one.status == EFI_SUCCESS && two.status == EFI_NOT_READY &&
+			disk2_calls == calls + 2U && disk2_offset == 17196U,
+			"second same-handle request did not start after first completion");
+		memcpy(disk2_buffer, f.image[1] + disk2_offset, disk2_size);
+		disk_token->transaction_status = EFI_SUCCESS;
+		disk_notify(disk_token->event, disk_context);
+		failures += expect(two.status == EFI_NOT_READY && disk2_offset == 17408U &&
+			disk2_size == 88U, "serialized request did not cross its FAT extent");
+		memcpy(disk2_buffer, f.image[1] + disk2_offset, disk2_size);
+		disk_token->transaction_status = EFI_SUCCESS;
+		disk_notify(disk_token->event, disk_context);
+		failures += expect(two.status == EFI_SUCCESS && second[0] == 'A' &&
+			second[211] == 'A' && second[212] == 'B',
+			"serialized second request returned wrong fragmented data");
 		(void)file->close(file); (void)root->close(root);
 	}
 	{
