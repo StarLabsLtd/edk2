@@ -47,6 +47,7 @@ EFI_STATUS cdk2_ata_binding_init(struct cdk2_ata_binding *binding,
 	    services->enable_attributes == NULL || services->restore_attributes == NULL ||
 	    services->discover_ide == NULL || services->discover_ahci == NULL ||
 	    services->prepare_engines == NULL || services->release_engines == NULL ||
+	    services->create_protocols == NULL || services->destroy_protocols == NULL ||
 	    services->install == NULL || services->uninstall == NULL)
 		return EFI_INVALID_PARAMETER;
 	memset(binding, 0, sizeof(*binding));
@@ -130,12 +131,26 @@ EFI_STATUS cdk2_ata_binding_start(struct cdk2_ata_binding *binding, void *contro
 	status = services->prepare_engines(services->context, &staged);
 	if (EFI_ERROR(status))
 		goto restore;
-	status = services->install(services->context, controller, &staged.topology);
-	if (EFI_ERROR(status))
+	status = services->create_protocols(services->context, &staged,
+		&staged.protocols);
+	if (EFI_ERROR(status) || staged.protocols == NULL) {
+		status = EFI_ERROR(status) ? status : EFI_OUT_OF_RESOURCES;
+		if (staged.protocols != NULL)
+			services->destroy_protocols(services->context, staged.protocols);
 		goto release_engines;
+	}
+	status = services->install(services->context, controller, staged.protocols);
+	if (EFI_ERROR(status))
+		goto destroy_protocols;
 	staged.protocols_installed = staged.started = 1;
 	binding->controllers[binding->count++] = staged;
+	binding->controllers[binding->count - 1U].protocols->ata.controller =
+		&binding->controllers[binding->count - 1U];
+	binding->controllers[binding->count - 1U].protocols->ext_scsi.controller =
+		&binding->controllers[binding->count - 1U];
 	return EFI_SUCCESS;
+destroy_protocols:
+	services->destroy_protocols(services->context, staged.protocols);
 release_engines:
 	services->release_engines(services->context, &staged);
 restore:
@@ -155,14 +170,14 @@ EFI_STATUS cdk2_ata_binding_stop(struct cdk2_ata_binding *binding, void *control
 	if (instance == NULL)
 		return EFI_NOT_STARTED;
 	status = binding->services.uninstall(binding->services.context, controller,
-		&instance->topology);
+		instance->protocols);
 	if (EFI_ERROR(status))
 		return status;
 	status = binding->services.restore_attributes(binding->services.context,
 		instance->pci, instance->original_attributes);
 	if (EFI_ERROR(status)) {
 		(void)binding->services.install(binding->services.context, controller,
-			&instance->topology);
+			instance->protocols);
 		return status;
 	}
 	status = binding->services.close_ide(binding->services.context, controller);
@@ -170,12 +185,20 @@ EFI_STATUS cdk2_ata_binding_stop(struct cdk2_ata_binding *binding, void *control
 		(void)binding->services.enable_attributes(binding->services.context,
 			instance->pci, instance->enabled_attributes);
 		(void)binding->services.install(binding->services.context, controller,
-			&instance->topology);
+			instance->protocols);
 		return status;
 	}
 	binding->services.release_engines(binding->services.context, instance);
+	binding->services.destroy_protocols(binding->services.context,
+		instance->protocols);
 	memmove(&binding->controllers[index], &binding->controllers[index + 1U],
 		(binding->count - index - 1U) * sizeof(binding->controllers[0]));
 	binding->count--;
+	for (size_t current = index; current < binding->count; current++) {
+		binding->controllers[current].protocols->ata.controller =
+			&binding->controllers[current];
+		binding->controllers[current].protocols->ext_scsi.controller =
+			&binding->controllers[current];
+	}
 	return EFI_SUCCESS;
 }

@@ -12,8 +12,11 @@ typedef EFI_STATUS CDK2_MS_ABI uninstall_t(void *, const struct guid *, void *, 
 typedef EFI_STATUS CDK2_MS_ABI open_t(void *, const struct guid *, void **,
 	void *, void *, UINT32);
 typedef EFI_STATUS CDK2_MS_ABI close_t(void *, const struct guid *, void *, void *);
+typedef EFI_STATUS CDK2_MS_ABI allocate_t(UINT32, UINTN, void **);
+typedef EFI_STATUS CDK2_MS_ABI free_t(void *);
 struct cdk2_ata_boot_services {
-	UINT8 before_handle[152]; handle_t *handle_protocol;
+	UINT8 before_allocate[64]; allocate_t *allocate_pool; free_t *free_pool;
+	UINT8 before_handle[72]; handle_t *handle_protocol;
 	UINT8 before_open[120]; open_t *open_protocol; close_t *close_protocol;
 	UINT8 before_install[32]; install_t *install_multiple;
 	uninstall_t *uninstall_multiple;
@@ -32,6 +35,10 @@ typedef char open_offset_check[offsetof(struct cdk2_ata_boot_services,
 	open_protocol) == 280 ? 1 : -1];
 typedef char close_offset_check[offsetof(struct cdk2_ata_boot_services,
 	close_protocol) == 288 ? 1 : -1];
+typedef char allocate_offset_check[offsetof(struct cdk2_ata_boot_services,
+	allocate_pool) == 64 ? 1 : -1];
+typedef char free_offset_check[offsetof(struct cdk2_ata_boot_services,
+	free_pool) == 72 ? 1 : -1];
 
 static const struct guid loaded_image_guid = { 0x5b1b31a1, 0x9562, 0x11d2,
 	{ 0x8e, 0x3f, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b } };
@@ -47,6 +54,10 @@ static const struct guid pci_io_guid = { 0x4cf5b200, 0x68b8, 0x4ca5,
 	{ 0x9e, 0xec, 0xb2, 0x3e, 0x3f, 0x50, 0x02, 0x9a } };
 static const struct guid ide_init_guid = { 0xa1e37052, 0x80d9, 0x4e65,
 	{ 0xa3, 0x17, 0x3e, 0x9a, 0x55, 0xc4, 0x3e, 0xc9 } };
+static const struct guid ata_pass_thru_guid = { 0x1d3de7f0, 0x0807, 0x424f,
+	{ 0xaa, 0x69, 0x11, 0xa5, 0x4e, 0x19, 0xa4, 0x6f } };
+static const struct guid ext_scsi_guid = { 0x143b7632, 0xb81b, 0x4cb7,
+	{ 0xab, 0xd3, 0xb6, 0x25, 0xa5, 0xb9, 0xbf, 0xfe } };
 static CHAR16 driver_name[] = L"ATA/ATAPI Pass Thru Driver";
 static CHAR16 controller_name[] = L"ATA/ATAPI Controller";
 static struct cdk2_ata_entry *active_entry;
@@ -98,6 +109,64 @@ static EFI_STATUS service_get_pci(void *opaque, void *controller, void **pci)
 	(void)opaque;
 	return active_entry == NULL ? EFI_NOT_READY :
 		open_protocol(active_entry, controller, &pci_io_guid, pci, 0x02U);
+}
+static EFI_STATUS protocol_allocate(void *opaque, size_t size, void **buffer)
+{
+	struct cdk2_ata_entry *entry = active_entry;
+
+	(void)opaque;
+	return entry == NULL ? EFI_NOT_READY :
+		entry->boot->allocate_pool(4U, size, buffer);
+}
+static void protocol_release(void *opaque, void *buffer)
+{
+	(void)opaque;
+	if (active_entry != NULL)
+		(void)active_entry->boot->free_pool(buffer);
+}
+static EFI_STATUS service_create_protocols(void *opaque,
+	struct cdk2_ata_controller *controller,
+	struct cdk2_ata_protocol_bundle **protocols)
+{
+	struct cdk2_ata_protocol_services services = {
+		opaque, protocol_allocate, protocol_release };
+	EFI_STATUS status;
+
+	status = protocol_allocate(opaque, sizeof(**protocols), (void **)protocols);
+	if (EFI_ERROR(status))
+		return status;
+	memset(*protocols, 0, sizeof(**protocols));
+	status = cdk2_ata_protocol_init(&(*protocols)->ata, controller, &services,
+		sizeof(UINTN));
+	if (!EFI_ERROR(status))
+		status = cdk2_ext_scsi_init(&(*protocols)->ext_scsi, controller,
+			&services, sizeof(UINTN));
+	if (EFI_ERROR(status)) {
+		protocol_release(opaque, *protocols);
+		*protocols = NULL;
+	}
+	return status;
+}
+static void service_destroy_protocols(void *opaque,
+	struct cdk2_ata_protocol_bundle *protocols)
+{
+	protocol_release(opaque, protocols);
+}
+static EFI_STATUS service_install(void *opaque, void *controller,
+	struct cdk2_ata_protocol_bundle *protocols)
+{
+	(void)opaque;
+	return active_entry->boot->install_multiple(&controller,
+		&ata_pass_thru_guid, &protocols->ata.protocol,
+		&ext_scsi_guid, &protocols->ext_scsi.protocol, NULL);
+}
+static EFI_STATUS service_uninstall(void *opaque, void *controller,
+	struct cdk2_ata_protocol_bundle *protocols)
+{
+	(void)opaque;
+	return active_entry->boot->uninstall_multiple(controller,
+		&ata_pass_thru_guid, &protocols->ata.protocol,
+		&ext_scsi_guid, &protocols->ext_scsi.protocol, NULL);
 }
 
 static struct cdk2_ata_entry *from_driver(struct cdk2_ata_driver_binding *driver)
@@ -204,6 +273,10 @@ EFI_STATUS cdk2_ata_entry_publish_with_services(struct cdk2_ata_entry *entry,
 	services.open_ide = service_open_ide;
 	services.close_ide = service_close_ide;
 	services.get_pci = service_get_pci;
+	services.create_protocols = service_create_protocols;
+	services.destroy_protocols = service_destroy_protocols;
+	services.install = service_install;
+	services.uninstall = service_uninstall;
 	status = cdk2_ata_binding_init(binding, &services);
 	if (EFI_ERROR(status))
 		return status;

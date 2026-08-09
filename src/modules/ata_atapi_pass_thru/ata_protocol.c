@@ -171,7 +171,8 @@ EFI_STATUS cdk2_ata_protocol_init(struct cdk2_ata_protocol_instance *instance,
 	memset(instance, 0, sizeof(*instance));
 	instance->controller = controller;
 	instance->services = *services;
-	instance->mode.attributes = CDK2_ATA_PASS_THRU_ATTRIBUTES_PHYSICAL;
+	instance->mode.attributes = CDK2_ATA_PASS_THRU_ATTRIBUTES_PHYSICAL |
+		CDK2_ATA_PASS_THRU_ATTRIBUTES_LOGICAL;
 	instance->mode.io_align = io_align;
 	instance->protocol = (struct cdk2_ata_pass_thru_protocol) {
 		&instance->mode, pass_thru, next_port, next_device, build_path,

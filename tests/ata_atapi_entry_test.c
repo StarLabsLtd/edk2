@@ -19,7 +19,10 @@ typedef EFI_STATUS CDK2_MS_ABI uninstall_t(void *, ...);
 typedef EFI_STATUS CDK2_MS_ABI open_t(void *, const struct guid *, void **,
 	void *, void *, UINT32);
 typedef EFI_STATUS CDK2_MS_ABI close_t(void *, const struct guid *, void *, void *);
-struct fake_boot { UINT8 before_handle[152]; handle_t *handle;
+typedef EFI_STATUS CDK2_MS_ABI allocate_t(UINT32, UINTN, void **);
+typedef EFI_STATUS CDK2_MS_ABI free_t(void *);
+struct fake_boot { UINT8 before_allocate[64]; allocate_t *allocate; free_t *free;
+	UINT8 before_handle[72]; handle_t *handle;
 	UINT8 before_open[120]; open_t *open; close_t *close;
 	UINT8 before_install[32]; install_t *install; uninstall_t *uninstall; };
 struct fake_system { UINT8 before_boot[96]; struct fake_boot *boot; };
@@ -29,6 +32,11 @@ struct fixture { struct fake_boot boot; struct fake_system system;
 	unsigned int opens, closes; UINT32 open_guid[16], open_attributes[16];
 	UINT32 close_guid[16]; void *controller[16], *agent[16], *child[16]; };
 static struct fixture *active;
+static EFI_STATUS CDK2_MS_ABI allocate_pool(UINT32 type, UINTN size, void **buffer)
+{ (void)type; *buffer = calloc(1, size); return *buffer == NULL ?
+	EFI_OUT_OF_RESOURCES : EFI_SUCCESS; }
+static EFI_STATUS CDK2_MS_ABI free_pool(void *buffer)
+{ free(buffer); return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI handle(void *image, const void *guid, void **interface)
 { (void)image; (void)guid; *interface = &active->loaded; return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI install(void **handle, ...)
@@ -36,7 +44,8 @@ static EFI_STATUS CDK2_MS_ABI install(void **handle, ...)
 	return active->fail_install ? EFI_DEVICE_ERROR : EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI uninstall(void *handle, ...)
 { (void)handle; active->uninstalls++;
-	return active->fail_uninstall ? EFI_DEVICE_ERROR : EFI_SUCCESS; }
+	return active->fail_uninstall == active->uninstalls ?
+		EFI_DEVICE_ERROR : EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI open_protocol(void *controller,
 	const struct guid *guid, void **interface, void *agent, void *child,
 	UINT32 attributes)
@@ -83,9 +92,16 @@ static EFI_STATUS prepare(void *context, struct cdk2_ata_controller *controller)
 { (void)context; (void)controller; return EFI_SUCCESS; }
 static void release_engines(void *context, struct cdk2_ata_controller *controller)
 { (void)controller; ((struct fixture *)context)->releases++; }
+static EFI_STATUS create_protocols(void *context,
+	struct cdk2_ata_controller *controller,
+	struct cdk2_ata_protocol_bundle **protocols)
+{ (void)context; (void)controller; *protocols = calloc(1, sizeof(**protocols));
+	return *protocols == NULL ? EFI_OUT_OF_RESOURCES : EFI_SUCCESS; }
+static void destroy_protocols(void *context, struct cdk2_ata_protocol_bundle *protocols)
+{ (void)context; free(protocols); }
 static EFI_STATUS publish_protocols(void *context, void *controller,
-	struct cdk2_ata_topology *topology)
-{ (void)context; (void)controller; (void)topology; return EFI_SUCCESS; }
+	struct cdk2_ata_protocol_bundle *protocols)
+{ (void)context; (void)controller; (void)protocols; return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI old_unload(void *image)
 { (void)image; return EFI_SUCCESS; }
 static void initialize(struct fixture *fixture, struct cdk2_ata_binding *binding)
@@ -95,10 +111,12 @@ static void initialize(struct fixture *fixture, struct cdk2_ata_binding *binding
 		.enable_attributes = set_attributes,
 		.restore_attributes = set_attributes, .discover_ide = discover_ide,
 		.discover_ahci = discover_ahci, .prepare_engines = prepare,
-		.release_engines = release_engines, .install = publish_protocols,
+		.release_engines = release_engines, .create_protocols = create_protocols,
+		.destroy_protocols = destroy_protocols, .install = publish_protocols,
 		.uninstall = publish_protocols };
 	memset(fixture, 0, sizeof(*fixture)); active = fixture;
 	fixture->boot.handle = handle; fixture->boot.install = install;
+	fixture->boot.allocate = allocate_pool; fixture->boot.free = free_pool;
 	fixture->boot.uninstall = uninstall; fixture->boot.open = open_protocol;
 	fixture->boot.close = close_protocol; fixture->system.boot = &fixture->boot;
 	fixture->loaded.unload = old_unload;
@@ -111,6 +129,8 @@ int main(void)
 	struct fixture fixture; struct cdk2_ata_binding binding; struct cdk2_ata_entry entry;
 	CHAR16 *name = NULL;
 	CHECK(offsetof(struct fake_boot, handle) == 152);
+	CHECK(offsetof(struct fake_boot, allocate) == 64);
+	CHECK(offsetof(struct fake_boot, free) == 72);
 	CHECK(offsetof(struct fake_boot, open) == 280);
 	CHECK(offsetof(struct fake_boot, close) == 288);
 	CHECK(offsetof(struct fake_boot, install) == 328);
@@ -122,6 +142,7 @@ int main(void)
 			.enable_attributes = set_attributes, .restore_attributes = set_attributes,
 			.discover_ide = discover_ide, .discover_ahci = discover_ahci,
 			.prepare_engines = prepare, .release_engines = release_engines,
+			.create_protocols = create_protocols, .destroy_protocols = destroy_protocols,
 			.install = publish_protocols, .uninstall = publish_protocols };
 	CHECK(cdk2_ata_entry_publish_with_services(&entry, &binding, &services,
 		&fixture, &fixture.system) ==
@@ -136,6 +157,7 @@ int main(void)
 			.enable_attributes = set_attributes, .restore_attributes = set_attributes,
 			.discover_ide = discover_ide, .discover_ahci = discover_ahci,
 			.prepare_engines = prepare, .release_engines = release_engines,
+			.create_protocols = create_protocols, .destroy_protocols = destroy_protocols,
 			.install = publish_protocols, .uninstall = publish_protocols };
 	CHECK(cdk2_ata_entry_publish_with_services(&entry, &binding, &services,
 		&fixture, &fixture.system) == EFI_SUCCESS);
@@ -161,7 +183,7 @@ int main(void)
 	CHECK(entry.driver.start(&entry.driver, (void *)1, NULL) == EFI_SUCCESS);
 	CHECK(entry.driver.start(&entry.driver, (void *)2, NULL) == EFI_SUCCESS);
 	CHECK(binding.count == 2);
-	fixture.fail_uninstall = 1;
+	fixture.fail_uninstall = fixture.uninstalls + 3U;
 	CHECK(entry.loaded->unload(&fixture) == EFI_DEVICE_ERROR);
 	CHECK(entry.published && binding.count == 0);
 	fixture.fail_uninstall = 0;

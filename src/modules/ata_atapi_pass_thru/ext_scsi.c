@@ -321,7 +321,8 @@ EFI_STATUS cdk2_ext_scsi_init(struct cdk2_ext_scsi_instance *instance,
 	instance->controller = controller;
 	instance->services = *services;
 	instance->mode = (struct cdk2_ext_scsi_mode) { 0xffffffffU,
-		CDK2_ATA_PASS_THRU_ATTRIBUTES_PHYSICAL, io_align };
+		CDK2_ATA_PASS_THRU_ATTRIBUTES_PHYSICAL |
+		CDK2_ATA_PASS_THRU_ATTRIBUTES_LOGICAL, io_align };
 	instance->protocol = (struct cdk2_ext_scsi_protocol) { &instance->mode,
 		pass_thru, next_target_lun, build_path, get_target_lun,
 		reset_channel, reset_target, next_target };

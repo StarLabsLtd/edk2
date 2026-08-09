@@ -54,9 +54,18 @@ static EFI_STATUS discover_ahci(void *opaque, void *pci, UINT32 *cap, UINT32 *pi
 		return EFI_DEVICE_ERROR;
 	CHECK(cdk2_ata_add_device(topology, 0, 0xffff, CDK2_ATA_DISK) == EFI_SUCCESS);
 	return cdk2_ata_add_device(topology, 2, 0xffff, CDK2_ATA_DISK); }
+static EFI_STATUS create_protocols(void *opaque,
+	struct cdk2_ata_controller *controller,
+	struct cdk2_ata_protocol_bundle **protocols)
+{ struct fixture *f = opaque; (void)controller; *protocols = calloc(1, sizeof(**protocols));
+	if (*protocols == NULL)
+		return EFI_OUT_OF_RESOURCES;
+	return fault(f); }
+static void destroy_protocols(void *opaque, struct cdk2_ata_protocol_bundle *protocols)
+{ (void)opaque; free(protocols); }
 static EFI_STATUS install(void *opaque, void *handle,
-	struct cdk2_ata_topology *topology)
-{ struct fixture *f = opaque; (void)handle; CHECK(topology->count != 0U);
+	struct cdk2_ata_protocol_bundle *protocols)
+{ struct fixture *f = opaque; (void)handle; CHECK(protocols != NULL);
 	f->installs++; return fault(f); }
 static EFI_STATUS prepare_engines(void *opaque, struct cdk2_ata_controller *controller)
 { struct fixture *f = opaque; CHECK(controller->topology.count != 0U); f->prepares++;
@@ -64,8 +73,8 @@ static EFI_STATUS prepare_engines(void *opaque, struct cdk2_ata_controller *cont
 static void release_engines(void *opaque, struct cdk2_ata_controller *controller)
 { struct fixture *f = opaque; (void)controller; f->engine_releases++; }
 static EFI_STATUS uninstall(void *opaque, void *handle,
-	struct cdk2_ata_topology *topology)
-{ struct fixture *f = opaque; (void)handle; CHECK(topology->count != 0U);
+	struct cdk2_ata_protocol_bundle *protocols)
+{ struct fixture *f = opaque; (void)handle; CHECK(protocols != NULL);
 	f->uninstalls++; return fault(f); }
 static void initialize(struct fixture *fixture, struct cdk2_ata_binding *binding)
 {
@@ -76,6 +85,7 @@ static void initialize(struct fixture *fixture, struct cdk2_ata_binding *binding
 		.enable_attributes = enable, .restore_attributes = restore,
 		.discover_ide = discover_ide, .discover_ahci = discover_ahci,
 		.prepare_engines = prepare_engines, .release_engines = release_engines,
+		.create_protocols = create_protocols, .destroy_protocols = destroy_protocols,
 		.install = install, .uninstall = uninstall };
 	memset(fixture, 0, sizeof(*fixture)); fixture->class_code[2] = 1;
 	fixture->class_code[1] = 1;
@@ -98,9 +108,13 @@ int main(void)
 	CHECK(cdk2_ata_binding_start(&binding, (void *)2) == EFI_ALREADY_STARTED);
 	CHECK(cdk2_ata_binding_stop(&binding, (void *)1) == EFI_SUCCESS);
 	CHECK(binding.count == 1 && binding.controllers[0].handle == (void *)2);
+	CHECK(binding.controllers[0].protocols->ata.controller ==
+		&binding.controllers[0]);
+	CHECK(binding.controllers[0].protocols->ext_scsi.controller ==
+		&binding.controllers[0]);
 	CHECK(cdk2_ata_binding_stop(&binding, (void *)2) == EFI_SUCCESS);
 	CHECK(binding.count == 0);
-	for (unsigned int failure = 1; failure <= 8; failure++) {
+	for (unsigned int failure = 1; failure <= 9; failure++) {
 		initialize(&fixture, &binding); fixture.fail_step = failure;
 		CHECK(EFI_ERROR(cdk2_ata_binding_start(&binding, (void *)3)));
 		CHECK(binding.count == 0);

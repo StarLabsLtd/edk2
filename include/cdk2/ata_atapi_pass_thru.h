@@ -109,6 +109,7 @@ EFI_STATUS cdk2_ata_validate_transfer(UINT8 protocol, UINT8 length,
 	UINT32 out_length, UINT32 io_align);
 
 struct cdk2_ata_controller;
+struct cdk2_ata_protocol_bundle;
 struct cdk2_ahci_engine;
 struct cdk2_ide_engine;
 struct cdk2_ata_binding_services {
@@ -129,10 +130,15 @@ struct cdk2_ata_binding_services {
 		UINT32 *ports_implemented, struct cdk2_ata_topology *topology);
 	EFI_STATUS (*prepare_engines)(void *context, struct cdk2_ata_controller *controller);
 	void (*release_engines)(void *context, struct cdk2_ata_controller *controller);
+	EFI_STATUS (*create_protocols)(void *context,
+		struct cdk2_ata_controller *controller,
+		struct cdk2_ata_protocol_bundle **protocols);
+	void (*destroy_protocols)(void *context,
+		struct cdk2_ata_protocol_bundle *protocols);
 	EFI_STATUS (*install)(void *context, void *controller,
-		struct cdk2_ata_topology *topology);
+		struct cdk2_ata_protocol_bundle *protocols);
 	EFI_STATUS (*uninstall)(void *context, void *controller,
-		struct cdk2_ata_topology *topology);
+		struct cdk2_ata_protocol_bundle *protocols);
 };
 struct cdk2_ata_controller {
 	void *handle, *pci, *ide;
@@ -142,6 +148,7 @@ struct cdk2_ata_controller {
 	UINT8 started, protocols_installed;
 	struct cdk2_ahci_engine *ahci;
 	struct cdk2_ide_engine *ide_engine;
+	struct cdk2_ata_protocol_bundle *protocols;
 };
 struct cdk2_ata_binding {
 	struct cdk2_ata_binding_services services;
@@ -206,6 +213,10 @@ struct cdk2_ext_scsi_instance {
 	UINT8 previous[CDK2_EXT_SCSI_TARGET_BYTES];
 	UINT64 previous_lun;
 	UINT8 enumerated;
+};
+struct cdk2_ata_protocol_bundle {
+	struct cdk2_ata_protocol_instance ata;
+	struct cdk2_ext_scsi_instance ext_scsi;
 };
 EFI_STATUS cdk2_ext_scsi_init(struct cdk2_ext_scsi_instance *instance,
 	struct cdk2_ata_controller *controller,

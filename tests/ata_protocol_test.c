@@ -83,7 +83,8 @@ int main(void)
 	CHECK(cdk2_ide_engine_init(&engine, &ide_services, &channel, 1) == EFI_SUCCESS);
 	controller.ide_engine = &engine; controller.started = 1;
 	CHECK(cdk2_ata_protocol_init(&instance, &controller, &services, 4) == EFI_SUCCESS);
-	CHECK(instance.mode.attributes == CDK2_ATA_PASS_THRU_ATTRIBUTES_PHYSICAL);
+	CHECK(instance.mode.attributes == (CDK2_ATA_PASS_THRU_ATTRIBUTES_PHYSICAL |
+		CDK2_ATA_PASS_THRU_ATTRIBUTES_LOGICAL));
 	CHECK(instance.protocol.get_next_port(&instance.protocol, &port) == EFI_SUCCESS);
 	CHECK(port == 0);
 	CHECK(instance.protocol.get_next_device(&instance.protocol, port, &device) ==
