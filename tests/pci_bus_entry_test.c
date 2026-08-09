@@ -20,7 +20,9 @@ struct loaded_image {
 struct fake_boot {
 	uint8_t before_pool[64]; void *allocate_pool, *free_pool;
 	uint8_t before_handle[72]; void *handle_protocol;
-	uint8_t before_open[120]; void *open_protocol, *close_protocol;
+	uint8_t before_load[40]; void *load_image;
+	uint8_t before_unload[16]; void *unload_image;
+	uint8_t before_open[48]; void *open_protocol, *close_protocol;
 	uint8_t before_locate[24]; void *locate_protocol;
 	void *install_multiple, *uninstall_multiple;
 };
@@ -150,6 +152,8 @@ int main(void)
 	CHECK(offsetof(struct fake_boot, handle_protocol) == 152);
 	CHECK(offsetof(struct fake_boot, open_protocol) == 280);
 	CHECK(offsetof(struct fake_boot, close_protocol) == 288);
+	CHECK(offsetof(struct fake_boot, load_image) == 200);
+	CHECK(offsetof(struct fake_boot, unload_image) == 224);
 	CHECK(offsetof(struct fake_boot, locate_protocol) == 320);
 	CHECK(offsetof(struct fake_boot, install_multiple) == 328);
 	CHECK(offsetof(struct fake_boot, uninstall_multiple) == 336);

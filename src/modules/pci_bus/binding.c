@@ -148,6 +148,9 @@ static int destroy_child(struct cdk2_pci_bus_binding *binding,
 		return -1;
 	}
 	child->installed = 0;
+	if (binding->services.release_function != NULL)
+		binding->services.release_function(binding->services.context,
+			&child->function);
 	if (child->device_path != NULL)
 		binding->services.free(binding->services.context, child->device_path);
 	child->device_path = NULL;
@@ -197,6 +200,9 @@ rollback:
 			child, child->installed);
 	if (child->device_path != NULL)
 		binding->services.free(binding->services.context, child->device_path);
+	if (binding->services.release_function != NULL)
+		binding->services.release_function(binding->services.context,
+			&child->function);
 	binding->services.free(binding->services.context, child);
 	return -1;
 }

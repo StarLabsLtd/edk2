@@ -123,14 +123,16 @@ static void rom_free(void *context, void *buffer)
 	free(buffer);
 }
 
+static int rom_decompress_info(void *context, const void *source,
+	size_t source_size, size_t *destination_size, size_t *scratch_size)
+{ (void)context; (void)source; *destination_size = source_size; *scratch_size = 8; return 0; }
 static int rom_decompress(void *context, const void *source, size_t source_size,
-	void *destination, size_t *destination_size)
+	void *destination, size_t destination_size, void *scratch, size_t scratch_size)
 {
-	(void)context;
-	if (*destination_size < source_size)
+	(void)context; (void)scratch; (void)scratch_size;
+	if (destination_size < source_size)
 		return -1;
 	memcpy(destination, source, source_size);
-	*destination_size = source_size;
 	return 0;
 }
 
@@ -388,7 +390,7 @@ static int host_and_rom_test(void)
 	struct cdk2_pci_function function = { 0 }, before;
 	struct cdk2_pci_bus_resource_request proposed[CDK2_PCI_RESOURCE_CLASSES] = { 0 };
 	struct cdk2_pci_rom_ops rom_ops = { &f, rom_allocate, rom_free,
-		rom_decompress, rom_load, rom_unload };
+		rom_decompress_info, rom_decompress, rom_load, rom_unload };
 	uint8_t load_buffer[512], path[24] = { 4, 8, 24, 0 }; size_t load_size = 0;
 	add(&f, 0, 0, 0, 1, 1, 0);
 	add(&f, 2, 0, 0, 2, 2, 0);

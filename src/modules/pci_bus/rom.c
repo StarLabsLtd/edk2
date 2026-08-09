@@ -113,16 +113,30 @@ int cdk2_pci_prepare_option_rom(const struct cdk2_pci_cfg *cfg,
 		payload_size = staged.option_rom[i].size -
 			staged.option_rom[i].payload_offset;
 		if (staged.option_rom[i].compression == 1U) {
-			if (ops->decompress == NULL || payload_size > SIZE_MAX / 4U)
+			void *scratch = NULL;
+			size_t scratch_size;
+			if (ops->decompress_info == NULL || ops->decompress == NULL ||
+			    ops->decompress_info(ops->context, payload, payload_size,
+				&staged.option_rom[i].decompressed_size,
+				&scratch_size) != 0 ||
+			    staged.option_rom[i].decompressed_size == 0U)
 				goto rollback;
-			staged.option_rom[i].decompressed_size = payload_size * 4U;
 			staged.option_rom[i].decompressed = ops->allocate(ops->context,
 				staged.option_rom[i].decompressed_size);
+			if (scratch_size != 0U)
+				scratch = ops->allocate(ops->context, scratch_size);
 			if (staged.option_rom[i].decompressed == NULL ||
+			    (scratch_size != 0U && scratch == NULL) ||
 			    ops->decompress(ops->context, payload, payload_size,
 				staged.option_rom[i].decompressed,
-				&staged.option_rom[i].decompressed_size) != 0)
+				staged.option_rom[i].decompressed_size, scratch,
+				scratch_size) != 0) {
+				if (scratch != NULL)
+					ops->free(ops->context, scratch);
 				goto rollback;
+			}
+			if (scratch != NULL)
+				ops->free(ops->context, scratch);
 			payload = staged.option_rom[i].decompressed;
 			payload_size = staged.option_rom[i].decompressed_size;
 		}

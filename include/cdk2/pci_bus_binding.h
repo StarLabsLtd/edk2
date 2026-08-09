@@ -88,6 +88,7 @@ struct cdk2_pci_bus_services {
 	int (*close_parent_by_child)(void *context, void *parent, void *child);
 	int (*initialize_io)(void *context, const struct cdk2_pci_function *function,
 		struct cdk2_pci_io_model *io);
+	void (*release_function)(void *context, struct cdk2_pci_function *function);
 };
 
 struct cdk2_pci_bus_binding {

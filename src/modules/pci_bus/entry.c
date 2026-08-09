@@ -14,6 +14,8 @@ typedef EFI_STATUS CDK2_MS_ABI install_fn(void **, const EFI_GUID *, void *, ...
 typedef EFI_STATUS CDK2_MS_ABI uninstall_fn(void *, const EFI_GUID *, void *, ...);
 typedef EFI_STATUS CDK2_MS_ABI image_unload_fn(void *);
 typedef EFI_STATUS CDK2_MS_ABI locate_fn(const EFI_GUID *, void *, void **);
+typedef EFI_STATUS CDK2_MS_ABI load_image_fn(BOOLEAN, void *, void *, void *,
+	UINTN, void **);
 struct root_io_protocol;
 typedef EFI_STATUS CDK2_MS_ABI root_access_fn(struct root_io_protocol *, UINTN,
 	UINT64, UINTN, void *);
@@ -49,7 +51,9 @@ struct root_io_protocol {
 struct boot_services_view {
 	UINT8 before_pool[64]; pool_fn *allocate_pool; free_fn *free_pool;
 	UINT8 before_handle[72]; handle_fn *handle_protocol;
-	UINT8 before_open[120]; open_fn *open_protocol; close_fn *close_protocol;
+	UINT8 before_load[40]; load_image_fn *load_image;
+	UINT8 before_unload[16]; image_unload_fn *unload_image;
+	UINT8 before_open[48]; open_fn *open_protocol; close_fn *close_protocol;
 	UINT8 before_locate[24]; locate_fn *locate_protocol;
 	install_fn *install_multiple;
 	uninstall_fn *uninstall_multiple;
@@ -60,6 +64,10 @@ typedef char handle_offset_check[offsetof(struct boot_services_view,
 	handle_protocol) == 152 ? 1 : -1];
 typedef char open_offset_check[offsetof(struct boot_services_view,
 	open_protocol) == 280 ? 1 : -1];
+typedef char load_offset_check[offsetof(struct boot_services_view,
+	load_image) == 200 ? 1 : -1];
+typedef char unload_offset_check[offsetof(struct boot_services_view,
+	unload_image) == 224 ? 1 : -1];
 typedef char install_offset_check[offsetof(struct boot_services_view,
 	install_multiple) == 328 ? 1 : -1];
 typedef char locate_offset_check[offsetof(struct boot_services_view,
@@ -93,6 +101,8 @@ static const EFI_GUID loaded_image_guid = { 0x5b1b31a1, 0x9562, 0x11d2,
 	{ 0x8e, 0x3f, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b } };
 static const EFI_GUID host_resource_guid = { 0xcf8034be, 0x6768, 0x4d8b,
 	{ 0xb7, 0x39, 0x7c, 0xce, 0x68, 0x3a, 0x9f, 0xbe } };
+static const EFI_GUID decompress_guid = { 0xd8117cfe, 0x94a6, 0x11d4,
+	{ 0x9a, 0x3a, 0x00, 0x90, 0x27, 0x3f, 0xc1, 0x4d } };
 
 typedef EFI_STATUS CDK2_MS_ABI host_notify_fn(void *, UINTN);
 typedef EFI_STATUS CDK2_MS_ABI host_next_fn(void *, void **);
@@ -107,6 +117,11 @@ struct host_resource_protocol {
 	host_set_bus_fn *set_bus_numbers; host_submit_fn *submit_resources;
 	host_proposed_fn *get_proposed_resources; void *preprocess_controller;
 };
+typedef EFI_STATUS CDK2_MS_ABI decompress_info_fn(void *, void *, UINT32,
+	UINT32 *, UINT32 *);
+typedef EFI_STATUS CDK2_MS_ABI decompress_fn(void *, void *, UINT32, void *,
+	UINT32, void *, UINT32);
+struct decompress_protocol { decompress_info_fn *get_info; decompress_fn *decompress; };
 
 #pragma pack(push, 1)
 struct address_descriptor {
@@ -366,6 +381,65 @@ static int proposed_policy(const void *configuration,
 	return bytes[offset] == 0x79U ? 0 : -1;
 }
 
+static int rom_read(void *opaque, uint64_t address, void *buffer, size_t size)
+{
+	struct entry_context *entry = opaque;
+	struct root_io_protocol *root = entry->roots[entry->building_root].root;
+	return root == NULL || EFI_ERROR(root->mem.read(root, 0U, address, size,
+		buffer)) ? -1 : 0;
+}
+static void *rom_allocate(void *opaque, size_t size)
+{ return allocate(opaque, size); }
+static void rom_free(void *opaque, void *buffer)
+{ release(opaque, buffer); }
+static int rom_decompress_info(void *opaque, const void *source,
+	size_t source_size, size_t *destination_size, size_t *scratch_size)
+{
+	struct entry_context *entry = opaque; struct decompress_protocol *protocol;
+	UINT32 destination, scratch;
+	if (source_size > UINT32_MAX || EFI_ERROR(entry->boot->locate_protocol(
+		&decompress_guid, NULL, (void **)&protocol)) || protocol == NULL ||
+	    protocol->get_info == NULL || EFI_ERROR(protocol->get_info(protocol,
+		(void *)source, source_size, &destination, &scratch)))
+		return -1;
+	*destination_size = destination; *scratch_size = scratch;
+	return 0;
+}
+static int rom_decompress(void *opaque, const void *source, size_t source_size,
+	void *destination, size_t destination_size, void *scratch,
+	size_t scratch_size)
+{
+	struct entry_context *entry = opaque; struct decompress_protocol *protocol;
+	if (source_size > UINT32_MAX || destination_size > UINT32_MAX ||
+	    scratch_size > UINT32_MAX || EFI_ERROR(entry->boot->locate_protocol(
+		&decompress_guid, NULL, (void **)&protocol)) || protocol == NULL ||
+	    protocol->decompress == NULL)
+		return -1;
+	return EFI_ERROR(protocol->decompress(protocol, (void *)source, source_size,
+		destination, destination_size, scratch, scratch_size)) ? -1 : 0;
+}
+static int rom_load(void *opaque, const void *image, size_t size, void **handle)
+{
+	struct entry_context *entry = opaque;
+	if (entry->boot->load_image == NULL)
+		return -1;
+	return EFI_ERROR(entry->boot->load_image(FALSE, entry->image, NULL,
+		(void *)image, size, handle)) ? -1 : 0;
+}
+static void rom_unload(void *opaque, void *handle)
+{
+	struct entry_context *entry = opaque;
+	if (entry->boot->unload_image != NULL)
+		(void)entry->boot->unload_image(handle);
+}
+static const struct cdk2_pci_rom_ops rom_ops = {
+	.context = &context, .allocate = rom_allocate, .free = rom_free,
+	.decompress_info = rom_decompress_info, .decompress = rom_decompress,
+	.load_image = rom_load, .unload_image = rom_unload
+};
+static void release_function(void *opaque, struct cdk2_pci_function *function)
+{ cdk2_pci_release_option_rom(&rom_ops, function); (void)opaque; }
+
 static EFI_STATUS global_start(void *opaque, void *controller, void *remaining)
 {
 	struct entry_context *entry = opaque;
@@ -495,12 +569,32 @@ static EFI_STATUS global_start(void *opaque, void *controller, void *remaining)
 			}
 		release(entry, combined);
 	}
+	for (UINTN root = 0; root < count; root++) {
+		struct cdk2_pci_cfg cfg = { .context = entry, .read_memory = rom_read };
+		entry->building_root = root;
+		for (UINTN function = 0; function < roots[root].topology->count;
+		     function++) {
+			struct cdk2_pci_function *device =
+				&roots[root].topology->functions[function];
+			int has_rom = 0;
+			for (UINTN bar = 0; bar < device->bar_count; bar++)
+				if (device->bars[bar].kind == CDK2_PCI_BAR_ROM &&
+				    device->bars[bar].base != 0U && device->bars[bar].size != 0U)
+					has_rom = 1;
+			if (has_rom && cdk2_pci_prepare_option_rom(&cfg, &rom_ops,
+				device) != 0) {
+				status = EFI_DEVICE_ERROR;
+				goto rollback;
+			}
+		}
+	}
 	status = host->notify_phase(host, 5U);
 	if (EFI_ERROR(status))
 		goto rollback;
 	status = host->notify_phase(host, 7U);
 	if (EFI_ERROR(status))
 		goto rollback;
+	entry->driver.binding.services.release_function = NULL;
 	for (published = 0; published < count; published++) {
 		entry->building_root = published;
 		if (cdk2_pci_bus_start(&entry->driver.binding, roots[published].handle,
@@ -510,12 +604,14 @@ static EFI_STATUS global_start(void *opaque, void *controller, void *remaining)
 		}
 		finish_discovery(entry, roots[published].handle, 1);
 	}
+	entry->driver.binding.services.release_function = release_function;
 	entry->global_started = 1;
 	for (UINTN root = 0; root < count; root++) {
 		release(entry, roots[root].path); release(entry, roots[root].topology);
 	}
 	return EFI_SUCCESS;
 rollback:
+	entry->driver.binding.services.release_function = NULL;
 	while (published != 0U) {
 		published--;
 		(void)cdk2_pci_bus_stop(&entry->driver.binding,
@@ -527,6 +623,11 @@ rollback:
 		finish_discovery(entry, roots[root].handle, 0);
 		if (roots[root].path != NULL)
 			release(entry, roots[root].path);
+		if (roots[root].topology != NULL)
+			for (UINTN function = 0;
+			     function < roots[root].topology->count; function++)
+				cdk2_pci_release_option_rom(&rom_ops,
+					&roots[root].topology->functions[function]);
 		if (roots[root].topology != NULL)
 			release(entry, roots[root].topology);
 	}
@@ -752,7 +853,8 @@ EFI_STATUS CDK2_MS_ABI cdk2_pci_bus_entry(void *image, void *system_table)
 		.binding.services = { .context = &context, .allocate = allocate,
 			.free = release, .install = install_child,
 			.uninstall = uninstall_child, .open_parent_by_child = child_open,
-			.close_parent_by_child = child_close, .initialize_io = initialize_io } };
+			.close_parent_by_child = child_close, .initialize_io = initialize_io,
+			.release_function = release_function } };
 	if (!EFI_ERROR(context.boot->handle_protocol(image, &loaded_image_guid,
 		(void **)&context.loaded)) && context.loaded != NULL) {
 		context.original_unload = context.loaded->unload;

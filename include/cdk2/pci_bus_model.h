@@ -152,8 +152,11 @@ struct cdk2_pci_rom_ops {
 	void *context;
 	void *(*allocate)(void *context, size_t size);
 	void (*free)(void *context, void *buffer);
+	int (*decompress_info)(void *context, const void *source, size_t source_size,
+		size_t *destination_size, size_t *scratch_size);
 	int (*decompress)(void *context, const void *source, size_t source_size,
-		void *destination, size_t *destination_size);
+		void *destination, size_t destination_size, void *scratch,
+		size_t scratch_size);
 	int (*load_image)(void *context, const void *image, size_t size, void **handle);
 	void (*unload_image)(void *context, void *handle);
 };
