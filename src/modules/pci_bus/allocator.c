@@ -234,20 +234,24 @@ static int stage_bridge(const struct cdk2_pci_cfg *cfg,
 	}
 	if (bridge->hotplug_bridge) {
 		uint64_t base;
-		if (policy->hotplug_padding[0] != 0U &&
-		    allocate(&policy->io, policy->hotplug_padding[0], 0xfffU, &base) == 0) {
+		uint64_t io_padding = bridge->hotplug_padding[0] != 0U ?
+			bridge->hotplug_padding[0] : policy->hotplug_padding[0];
+		uint64_t mem_padding = bridge->hotplug_padding[1] != 0U ?
+			bridge->hotplug_padding[1] : policy->hotplug_padding[1];
+		if (io_padding != 0U &&
+		    allocate(&policy->io, io_padding, 0xfffU, &base) == 0) {
 			if (base < io_min)
 				io_min = base;
-			if (base + policy->hotplug_padding[0] - 1U > io_max)
-				io_max = base + policy->hotplug_padding[0] - 1U;
+			if (base + io_padding - 1U > io_max)
+				io_max = base + io_padding - 1U;
 		}
-		if (policy->hotplug_padding[1] != 0U &&
-		    allocate(&policy->mem32, policy->hotplug_padding[1], 0xfffffU,
+		if (mem_padding != 0U &&
+		    allocate(&policy->mem32, mem_padding, 0xfffffU,
 			&base) == 0) {
 			if (base < mem_min)
 				mem_min = base;
-			if (base + policy->hotplug_padding[1] - 1U > mem_max)
-				mem_max = base + policy->hotplug_padding[1] - 1U;
+			if (base + mem_padding - 1U > mem_max)
+				mem_max = base + mem_padding - 1U;
 		}
 	}
 	if (stage_write(cfg, bridge, PCI_BRIDGE_IO, 4,
@@ -286,20 +290,24 @@ static int stage_cardbus(const struct cdk2_pci_cfg *cfg,
 	struct journal *journal)
 {
 	uint64_t base;
-	if (policy->hotplug_padding[1] != 0U) {
-		if (allocate(&policy->mem32, policy->hotplug_padding[1], 0xfffU,
+	uint64_t mem_padding = bridge->hotplug_padding[1] != 0U ?
+		bridge->hotplug_padding[1] : policy->hotplug_padding[1];
+	uint64_t io_padding = bridge->hotplug_padding[0] != 0U ?
+		bridge->hotplug_padding[0] : policy->hotplug_padding[0];
+	if (mem_padding != 0U) {
+		if (allocate(&policy->mem32, mem_padding, 0xfffU,
 			&base) != 0 || base > UINT32_MAX ||
 		    stage_write(cfg, bridge, 0x1cU, 4, (uint32_t)base, journal) != 0 ||
 		    stage_write(cfg, bridge, 0x20U, 4,
-			(uint32_t)(base + policy->hotplug_padding[1] - 1U), journal) != 0)
+			(uint32_t)(base + mem_padding - 1U), journal) != 0)
 			return -1;
 	}
-	if (policy->hotplug_padding[0] != 0U) {
-		if (allocate(&policy->io, policy->hotplug_padding[0], 3U, &base) != 0 ||
+	if (io_padding != 0U) {
+		if (allocate(&policy->io, io_padding, 3U, &base) != 0 ||
 		    base > UINT32_MAX ||
 		    stage_write(cfg, bridge, 0x2cU, 4, (uint32_t)base, journal) != 0 ||
 		    stage_write(cfg, bridge, 0x30U, 4,
-			(uint32_t)(base + policy->hotplug_padding[0] - 1U), journal) != 0)
+			(uint32_t)(base + io_padding - 1U), journal) != 0)
 			return -1;
 	}
 	return 0;

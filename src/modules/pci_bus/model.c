@@ -391,7 +391,8 @@ int cdk2_pci_probe_function(const struct cdk2_pci_cfg *cfg,
 	}
 	if (decode_bridge_windows(cfg, fn) != 0)
 		return -1;
-	if ((fn->header_type & 0x7fU) == 1U) {
+	if ((fn->header_type & 0x7fU) == 1U ||
+	    (fn->header_type & 0x7fU) == 2U) {
 		if (read_cfg(cfg, fn->bus, fn->device, fn->function, PCI_BRIDGE_BUSES,
 			4, &value) != 0)
 			return -1;
@@ -434,13 +435,17 @@ static int scan_bus(const struct cdk2_pci_cfg *cfg, uint8_t bus, uint8_t last,
 			if (cdk2_pci_probe_function(cfg, fn) != 0)
 				return -1;
 			topology->count++;
-			if ((fn->header_type & 0x7fU) == 1U) {
+			if ((fn->header_type & 0x7fU) == 1U ||
+			    (fn->header_type & 0x7fU) == 2U) {
 				uint32_t original_buses;
 				uint8_t child = fn->secondary_bus;
 				int temporary = 0, status;
 				if (child == 0U) {
-					if (*next_bus >= last)
+					if (*next_bus >= last &&
+					    (fn->header_type & 0x7fU) == 1U)
 						return -1;
+					if (*next_bus >= last)
+						continue;
 					child = ++*next_bus;
 					if (read_cfg(cfg, bus, device, function, PCI_BRIDGE_BUSES,
 						4, &original_buses) != 0 ||

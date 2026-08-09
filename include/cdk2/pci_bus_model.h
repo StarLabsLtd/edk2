@@ -9,6 +9,8 @@
 #define CDK2_PCI_MAX_BARS 7U
 #define CDK2_PCI_MAX_VFS 64U
 #define CDK2_PCI_MAX_REBAR 6U
+#define CDK2_PCI_MAX_ROOTS 8U
+#define CDK2_PCI_RESOURCE_CLASSES 4U
 
 enum cdk2_pci_bar_kind {
 	CDK2_PCI_BAR_NONE,
@@ -49,6 +51,7 @@ struct cdk2_pci_function {
 	uint8_t ari_forwarding;
 	uint8_t selected_rebar_size;
 	uint8_t hotplug_bridge;
+	uint64_t hotplug_padding[CDK2_PCI_RESOURCE_CLASSES];
 	uint8_t rebar_count;
 	struct {
 		uint16_t control_offset;
@@ -66,6 +69,15 @@ struct cdk2_pci_function {
 	uint8_t option_rom_images;
 	uint8_t option_rom_efi_images;
 	uint8_t option_rom_load_file;
+	void *option_rom_shadow;
+	size_t option_rom_shadow_size;
+	void *option_rom_image_handle;
+};
+
+struct cdk2_pci_resource_request {
+	enum cdk2_pci_bar_kind kind;
+	uint64_t length;
+	uint64_t alignment;
 };
 
 struct cdk2_pci_aperture {
@@ -95,12 +107,33 @@ struct cdk2_pci_host_model {
 	const struct cdk2_pci_cfg *cfg;
 	struct cdk2_pci_allocation_policy proposed;
 	int allocation_status;
+	struct {
+		uint16_t segment;
+		uint8_t first_bus, last_bus;
+		struct cdk2_pci_resource_request proposed[CDK2_PCI_RESOURCE_CLASSES];
+		int status[CDK2_PCI_RESOURCE_CLASSES];
+	} roots[CDK2_PCI_MAX_ROOTS];
+	size_t root_count;
 };
 
-struct cdk2_pci_resource_request {
-	enum cdk2_pci_bar_kind kind;
-	uint64_t length;
-	uint64_t alignment;
+struct cdk2_pci_hotplug_ops {
+	void *context;
+	int (*initialize_controller)(void *context,
+		const struct cdk2_pci_function *bridge);
+	void (*deinitialize_controller)(void *context,
+		const struct cdk2_pci_function *bridge);
+	int (*get_padding)(void *context, const struct cdk2_pci_function *bridge,
+		uint64_t padding[CDK2_PCI_RESOURCE_CLASSES]);
+};
+
+struct cdk2_pci_rom_ops {
+	void *context;
+	void *(*allocate)(void *context, size_t size);
+	void (*free)(void *context, void *buffer);
+	int (*decompress)(void *context, const void *source, size_t source_size,
+		void *destination, size_t *destination_size);
+	int (*load_image)(void *context, const void *image, size_t size, void **handle);
+	void (*unload_image)(void *context, void *handle);
 };
 
 struct cdk2_pci_topology {
@@ -123,7 +156,17 @@ int cdk2_pci_host_submit(struct cdk2_pci_host_model *host,
 int cdk2_pci_host_allocate(struct cdk2_pci_host_model *host);
 int cdk2_pci_host_set(struct cdk2_pci_host_model *host);
 int cdk2_pci_host_end(struct cdk2_pci_host_model *host);
+int cdk2_pci_host_add_root(struct cdk2_pci_host_model *host, uint16_t segment,
+	uint8_t first_bus, uint8_t last_bus,
+	const struct cdk2_pci_resource_request proposed[CDK2_PCI_RESOURCE_CLASSES]);
+int cdk2_pci_apply_hotplug(const struct cdk2_pci_hotplug_ops *ops,
+	struct cdk2_pci_topology *topology,
+	struct cdk2_pci_allocation_policy *policy);
 int cdk2_pci_discover_option_rom(const struct cdk2_pci_cfg *cfg,
+	struct cdk2_pci_function *function);
+int cdk2_pci_prepare_option_rom(const struct cdk2_pci_cfg *cfg,
+	const struct cdk2_pci_rom_ops *ops, struct cdk2_pci_function *function);
+void cdk2_pci_release_option_rom(const struct cdk2_pci_rom_ops *ops,
 	struct cdk2_pci_function *function);
 
 #endif

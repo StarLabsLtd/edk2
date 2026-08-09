@@ -18,6 +18,8 @@ struct fixture {
 	unsigned int fail_write;
 	unsigned int crs_reads;
 	uint8_t rom[1024];
+	unsigned int allocations, frees, loads, unloads, hotplug_inits, hotplug_deinits;
+	int fail_load, fail_hotplug;
 };
 
 static void put16(uint8_t *p, uint16_t v) { p[0] = v; p[1] = v >> 8; }
@@ -97,6 +99,73 @@ static int read_memory(void *context, uint64_t address, void *buffer, size_t siz
 	    size > sizeof(fixture->rom) - (address - 0x100000U))
 		return -1;
 	memcpy(buffer, fixture->rom + address - 0x100000U, size);
+	return 0;
+}
+
+static void *rom_allocate(void *context, size_t size)
+{
+	struct fixture *fixture = context;
+	fixture->allocations++;
+	return malloc(size);
+}
+
+static void rom_free(void *context, void *buffer)
+{
+	struct fixture *fixture = context;
+	fixture->frees++;
+	free(buffer);
+}
+
+static int rom_decompress(void *context, const void *source, size_t source_size,
+	void *destination, size_t *destination_size)
+{
+	(void)context;
+	if (*destination_size < source_size)
+		return -1;
+	memcpy(destination, source, source_size);
+	*destination_size = source_size;
+	return 0;
+}
+
+static int rom_load(void *context, const void *image, size_t size, void **handle)
+{
+	struct fixture *fixture = context;
+	(void)image; (void)size;
+	fixture->loads++;
+	if (fixture->fail_load)
+		return -1;
+	*handle = fixture;
+	return 0;
+}
+
+static void rom_unload(void *context, void *handle)
+{
+	struct fixture *fixture = context;
+	(void)handle;
+	fixture->unloads++;
+}
+
+static int hotplug_init(void *context, const struct cdk2_pci_function *bridge)
+{
+	struct fixture *fixture = context;
+	(void)bridge;
+	fixture->hotplug_inits++;
+	return fixture->fail_hotplug && fixture->hotplug_inits == 2U ? -1 : 0;
+}
+
+static void hotplug_deinit(void *context, const struct cdk2_pci_function *bridge)
+{
+	struct fixture *fixture = context;
+	(void)bridge;
+	fixture->hotplug_deinits++;
+}
+
+static int hotplug_padding(void *context, const struct cdk2_pci_function *bridge,
+	uint64_t padding[CDK2_PCI_RESOURCE_CLASSES])
+{
+	(void)context; (void)bridge;
+	memset(padding, 0, sizeof(uint64_t) * CDK2_PCI_RESOURCE_CLASSES);
+	padding[1] = 0x100000;
 	return 0;
 }
 
@@ -275,14 +344,20 @@ static int host_and_rom_test(void)
 	struct cdk2_pci_allocation_policy policy = {
 		.mem32 = { 0x80000000, 0x8fffffff, 0x80000000 } };
 	struct cdk2_pci_function function = { 0 }, before;
+	struct cdk2_pci_resource_request proposed[CDK2_PCI_RESOURCE_CLASSES] = { 0 };
+	struct cdk2_pci_rom_ops rom_ops = { &f, rom_allocate, rom_free,
+		rom_decompress, rom_load, rom_unload };
 	add(&f, 0, 0, 0, 1, 1, 0);
 	topology.count = 1;
 	CHECK(cdk2_pci_host_set(&host) != 0);
 	CHECK(cdk2_pci_host_begin(&host, &cfg, &topology) == 0);
 	CHECK(cdk2_pci_host_end(&host) != 0);
 	CHECK(cdk2_pci_host_submit(&host, &policy) == 0);
+	proposed[1].kind = CDK2_PCI_BAR_MEM32; proposed[1].length = 0x100000;
+	CHECK(cdk2_pci_host_add_root(&host, 0, 0, 0, proposed) == 0);
 	CHECK(cdk2_pci_host_allocate(&host) == 0);
 	CHECK(host.allocation_status == 0);
+	CHECK(host.roots[0].status[1] == 0);
 	CHECK(cdk2_pci_host_set(&host) == 0);
 	CHECK(cdk2_pci_host_end(&host) == 0);
 	function.bar_count = 1;
@@ -295,9 +370,43 @@ static int host_and_rom_test(void)
 	CHECK(function.option_rom_images == 1);
 	CHECK(function.option_rom_efi_images == 1);
 	CHECK(function.option_rom_load_file == 1);
+	CHECK(cdk2_pci_prepare_option_rom(&cfg, &rom_ops, &function) == 0);
+	CHECK(function.option_rom_shadow != NULL);
+	CHECK(function.option_rom_image_handle == &f);
+	cdk2_pci_release_option_rom(&rom_ops, &function);
+	CHECK(function.option_rom_shadow == NULL);
+	CHECK(f.unloads == 1);
+	function.option_rom_images = 0; function.option_rom_efi_images = 0;
+	f.fail_load = 1; before = function;
+	CHECK(cdk2_pci_prepare_option_rom(&cfg, &rom_ops, &function) != 0);
+	CHECK(memcmp(&before, &function, sizeof(before)) == 0);
 	before = function; f.rom[0x20] = 0;
 	CHECK(cdk2_pci_discover_option_rom(&cfg, &function) != 0);
 	CHECK(memcmp(&before, &function, sizeof(before)) == 0);
+	return 0;
+}
+
+static int hotplug_rollback_test(void)
+{
+	struct fixture f = { .fail_hotplug = 1 };
+	struct cdk2_pci_topology topology = { .count = 2 }, before;
+	struct cdk2_pci_allocation_policy policy = { 0 }, policy_before;
+	struct cdk2_pci_hotplug_ops ops = { &f, hotplug_init, hotplug_deinit,
+		hotplug_padding };
+	topology.functions[0].header_type = 1;
+	topology.functions[1].header_type = 2;
+	before = topology; policy_before = policy;
+	CHECK(cdk2_pci_apply_hotplug(&ops, &topology, &policy) != 0);
+	CHECK(memcmp(&before, &topology, sizeof(before)) == 0);
+	CHECK(memcmp(&policy_before, &policy, sizeof(policy_before)) == 0);
+	CHECK(f.hotplug_deinits == 1);
+	f.fail_hotplug = 0; f.hotplug_inits = 0;
+	CHECK(cdk2_pci_apply_hotplug(&ops, &topology, &policy) == 0);
+	CHECK(topology.functions[0].hotplug_bridge == 1);
+	CHECK(topology.functions[1].hotplug_bridge == 1);
+	CHECK(policy.hotplug_padding[1] == 0);
+	CHECK(topology.functions[0].hotplug_padding[1] == 0x100000);
+	CHECK(topology.functions[1].hotplug_padding[1] == 0x100000);
 	return 0;
 }
 
@@ -351,7 +460,7 @@ int main(void)
 {
 	if (topology_test() || temporary_bridge_and_crs_test() ||
 	    overflow_and_cardbus_test() || allocator_test() || host_and_rom_test() ||
-	    corruption_test())
+	    hotplug_rollback_test() || corruption_test())
 		return 1;
 	puts("pci bus model tests: PASS");
 	return 0;

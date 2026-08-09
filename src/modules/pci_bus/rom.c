@@ -57,3 +57,68 @@ int cdk2_pci_discover_option_rom(const struct cdk2_pci_cfg *cfg,
 	}
 	return -1;
 }
+
+int cdk2_pci_prepare_option_rom(const struct cdk2_pci_cfg *cfg,
+	const struct cdk2_pci_rom_ops *ops, struct cdk2_pci_function *function)
+{
+	struct cdk2_pci_function staged;
+	const struct cdk2_pci_bar *rom = NULL;
+	void *shadow, *expanded = NULL, *handle = NULL;
+	size_t shadow_size, expanded_size;
+	if (cfg == NULL || ops == NULL || ops->allocate == NULL || ops->free == NULL ||
+	    ops->load_image == NULL || function == NULL ||
+	    function->option_rom_shadow != NULL)
+		return -1;
+	staged = *function;
+	if (cdk2_pci_discover_option_rom(cfg, &staged) != 0)
+		return -1;
+	for (uint8_t i = 0; i < function->bar_count; i++)
+		if (function->bars[i].kind == CDK2_PCI_BAR_ROM)
+			rom = &function->bars[i];
+	if (rom == NULL || rom->size > SIZE_MAX)
+		return -1;
+	shadow_size = (size_t)rom->size;
+	shadow = ops->allocate(ops->context, shadow_size);
+	if (shadow == NULL || cfg->read_memory(cfg->context, rom->base, shadow,
+		shadow_size) != 0) {
+		if (shadow != NULL)
+			ops->free(ops->context, shadow);
+		return -1;
+	}
+	if (ops->decompress != NULL && shadow_size <= SIZE_MAX / 4U) {
+		expanded_size = shadow_size * 4U;
+		expanded = ops->allocate(ops->context, expanded_size);
+		if (expanded != NULL && ops->decompress(ops->context, shadow, shadow_size,
+			expanded, &expanded_size) == 0) {
+			ops->free(ops->context, shadow);
+			shadow = expanded;
+			shadow_size = expanded_size;
+			expanded = NULL;
+		}
+		if (expanded != NULL)
+			ops->free(ops->context, expanded);
+	}
+	if (ops->load_image(ops->context, shadow, shadow_size, &handle) != 0) {
+		ops->free(ops->context, shadow);
+		return -1;
+	}
+	staged.option_rom_shadow = shadow;
+	staged.option_rom_shadow_size = shadow_size;
+	staged.option_rom_image_handle = handle;
+	*function = staged;
+	return 0;
+}
+
+void cdk2_pci_release_option_rom(const struct cdk2_pci_rom_ops *ops,
+	struct cdk2_pci_function *function)
+{
+	if (ops == NULL || function == NULL)
+		return;
+	if (function->option_rom_image_handle != NULL && ops->unload_image != NULL)
+		ops->unload_image(ops->context, function->option_rom_image_handle);
+	if (function->option_rom_shadow != NULL && ops->free != NULL)
+		ops->free(ops->context, function->option_rom_shadow);
+	function->option_rom_image_handle = NULL;
+	function->option_rom_shadow = NULL;
+	function->option_rom_shadow_size = 0;
+}
