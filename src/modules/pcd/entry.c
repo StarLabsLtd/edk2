@@ -28,8 +28,13 @@ struct firmware_volume2_view {
 	read_section_fn *read_section;
 };
 
-struct table_header { uint64_t signature; uint32_t revision, header_size,
-	crc32, reserved; };
+struct table_header {
+	uint64_t signature;
+	uint32_t revision;
+	uint32_t header_size;
+	uint32_t crc32;
+	uint32_t reserved;
+};
 struct system_table_view {
 	struct table_header header;
 	uint16_t *vendor;
@@ -69,22 +74,59 @@ static void CDK2_MS_ABI abi_set_sku(size_t sku)
 		(void)cdk2_pcd_set_sku(active, sku);
 }
 
-#define GET_NATIVE(bits, type) \
-	static type CDK2_MS_ABI abi_get##bits(size_t token) \
-	{ size_t size = sizeof(type); void *p = get_value(NULL, token, &size); \
-	  type value = 0; if (p != NULL) memcpy(&value, p, sizeof(value)); return value; }
-#define GET_EX(bits, type) \
-	static type CDK2_MS_ABI abi_get##bits##_ex(const EFI_GUID *space, size_t token) \
-	{ size_t size = sizeof(type); void *p = get_value(space, token, &size); \
-	  type value = 0; if (p != NULL) memcpy(&value, p, sizeof(value)); return value; }
-GET_NATIVE(8, uint8_t)
-GET_NATIVE(16, uint16_t)
-GET_NATIVE(32, uint32_t)
-GET_NATIVE(64, uint64_t)
-GET_EX(8, uint8_t)
-GET_EX(16, uint16_t)
-GET_EX(32, uint32_t)
-GET_EX(64, uint64_t)
+static uint64_t get_scalar(const EFI_GUID *space, size_t token, size_t size)
+{
+	uint64_t value = 0;
+	void *source = get_value(space, token, &size);
+	uint8_t *destination = (uint8_t *)&value;
+	const uint8_t *bytes = source;
+	size_t index;
+
+	if (source != NULL)
+		for (index = 0; index < size; index++)
+			destination[index] = bytes[index];
+	return value;
+}
+
+static uint8_t CDK2_MS_ABI abi_get8(size_t token)
+{
+	return (uint8_t)get_scalar(NULL, token, sizeof(uint8_t));
+}
+
+static uint16_t CDK2_MS_ABI abi_get16(size_t token)
+{
+	return (uint16_t)get_scalar(NULL, token, sizeof(uint16_t));
+}
+
+static uint32_t CDK2_MS_ABI abi_get32(size_t token)
+{
+	return (uint32_t)get_scalar(NULL, token, sizeof(uint32_t));
+}
+
+static uint64_t CDK2_MS_ABI abi_get64(size_t token)
+{
+	return get_scalar(NULL, token, sizeof(uint64_t));
+}
+
+static uint8_t CDK2_MS_ABI abi_get8_ex(const EFI_GUID *space, size_t token)
+{
+	return (uint8_t)get_scalar(space, token, sizeof(uint8_t));
+}
+
+static uint16_t CDK2_MS_ABI abi_get16_ex(const EFI_GUID *space, size_t token)
+{
+	return (uint16_t)get_scalar(space, token, sizeof(uint16_t));
+}
+
+static uint32_t CDK2_MS_ABI abi_get32_ex(const EFI_GUID *space, size_t token)
+{
+	return (uint32_t)get_scalar(space, token, sizeof(uint32_t));
+}
+
+static uint64_t CDK2_MS_ABI abi_get64_ex(const EFI_GUID *space, size_t token)
+{
+	return get_scalar(space, token, sizeof(uint64_t));
+}
 
 static void *CDK2_MS_ABI abi_get_ptr(size_t token)
 {
@@ -121,21 +163,49 @@ static uint64_t set_value(const EFI_GUID *space, size_t token, uint64_t value,
 		(uint32_t)token, &value, &size);
 }
 
-#define SET_NATIVE(bits, type) \
-	static uint64_t CDK2_MS_ABI abi_set##bits(size_t token, type value) \
-	{ return set_value(NULL, token, value, sizeof(value)); }
-#define SET_EX(bits, type) \
-	static uint64_t CDK2_MS_ABI abi_set##bits##_ex(const EFI_GUID *space, \
-		size_t token, type value) \
-	{ return set_value(space, token, value, sizeof(value)); }
-SET_NATIVE(8, uint8_t)
-SET_NATIVE(16, uint16_t)
-SET_NATIVE(32, uint32_t)
-SET_NATIVE(64, uint64_t)
-SET_EX(8, uint8_t)
-SET_EX(16, uint16_t)
-SET_EX(32, uint32_t)
-SET_EX(64, uint64_t)
+static uint64_t CDK2_MS_ABI abi_set8(size_t token, uint8_t value)
+{
+	return set_value(NULL, token, value, sizeof(value));
+}
+
+static uint64_t CDK2_MS_ABI abi_set16(size_t token, uint16_t value)
+{
+	return set_value(NULL, token, value, sizeof(value));
+}
+
+static uint64_t CDK2_MS_ABI abi_set32(size_t token, uint32_t value)
+{
+	return set_value(NULL, token, value, sizeof(value));
+}
+
+static uint64_t CDK2_MS_ABI abi_set64(size_t token, uint64_t value)
+{
+	return set_value(NULL, token, value, sizeof(value));
+}
+
+static uint64_t CDK2_MS_ABI abi_set8_ex(const EFI_GUID *space, size_t token,
+	uint8_t value)
+{
+	return set_value(space, token, value, sizeof(value));
+}
+
+static uint64_t CDK2_MS_ABI abi_set16_ex(const EFI_GUID *space, size_t token,
+	uint16_t value)
+{
+	return set_value(space, token, value, sizeof(value));
+}
+
+static uint64_t CDK2_MS_ABI abi_set32_ex(const EFI_GUID *space, size_t token,
+	uint32_t value)
+{
+	return set_value(space, token, value, sizeof(value));
+}
+
+static uint64_t CDK2_MS_ABI abi_set64_ex(const EFI_GUID *space, size_t token,
+	uint64_t value)
+{
+	return set_value(space, token, value, sizeof(value));
+}
 
 static uint64_t CDK2_MS_ABI abi_set_ptr(size_t token, size_t *size, void *value)
 {
@@ -289,7 +359,10 @@ uint64_t CDK2_MS_ABI cdk2_pcd_driver_entry(void *image_handle,
 	struct firmware_volume2_view *volume = NULL;
 	struct { uint32_t revision, pad; void *parent, *system, *device; } *loaded = NULL;
 	void *database = NULL;
+	void *expanded = NULL;
 	size_t size = 0;
+	size_t expanded_size;
+	size_t index;
 	uint32_t authentication = 0;
 	uint64_t status;
 
@@ -313,10 +386,43 @@ uint64_t CDK2_MS_ABI cdk2_pcd_driver_entry(void *image_handle,
 		&size, &authentication);
 	if (status != EFI_SUCCESS)
 		return status;
-	if (authentication != 0)
-		return EFI_SECURITY_VIOLATION;
-	status = cdk2_pcd_init(&driver_context, database, size);
+	if (authentication != 0) {
+		status = EFI_SECURITY_VIOLATION;
+		goto free_database;
+	}
+	if (database == NULL || size < sizeof(struct cdk2_pcd_database_header))
+		status = EFI_COMPROMISED_DATA;
+	else {
+		struct cdk2_pcd_database_header *header = database;
+
+		if (header->length > size || header->uninitialized_size > SIZE_MAX - size)
+			status = EFI_COMPROMISED_DATA;
+		else if (table->boot_services->allocate_pool == NULL)
+			status = EFI_UNSUPPORTED;
+		else {
+			expanded_size = size + header->uninitialized_size;
+			status = table->boot_services->allocate_pool(4U, expanded_size, &expanded);
+			if (status == EFI_SUCCESS) {
+				for (index = 0; index < size; index++)
+					((uint8_t *)expanded)[index] = ((uint8_t *)database)[index];
+				for (; index < expanded_size; index++)
+					((uint8_t *)expanded)[index] = 0;
+			}
+		}
+	}
+free_database:
+	if (table->boot_services->free_pool != NULL)
+		(void)table->boot_services->free_pool(database);
 	if (status != EFI_SUCCESS)
 		return status;
-	return cdk2_pcd_publish(&driver_context, table->boot_services);
+	status = cdk2_pcd_init(&driver_context, expanded, expanded_size);
+	if (status != EFI_SUCCESS)
+		goto free_expanded;
+	status = cdk2_pcd_publish(&driver_context, table->boot_services);
+	if (status == EFI_SUCCESS)
+		return status;
+free_expanded:
+	if (table->boot_services->free_pool != NULL)
+		(void)table->boot_services->free_pool(expanded);
+	return status;
 }

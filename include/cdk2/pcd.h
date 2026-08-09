@@ -135,9 +135,14 @@ typedef uint64_t CDK2_MS_ABI cdk2_pcd_uninstall_fn(void *,
 	const EFI_GUID *, void *, ...);
 typedef uint64_t CDK2_MS_ABI cdk2_pcd_locate_fn(const EFI_GUID *, void *, void **);
 typedef uint64_t CDK2_MS_ABI cdk2_pcd_handle_fn(void *, const EFI_GUID *, void **);
+typedef uint64_t CDK2_MS_ABI cdk2_pcd_allocate_fn(uint32_t, size_t, void **);
+typedef uint64_t CDK2_MS_ABI cdk2_pcd_free_fn(void *);
 
 struct cdk2_pcd_boot_services {
-	uint8_t before_handle[152];
+	uint8_t before_allocate_pool[64];
+	cdk2_pcd_allocate_fn *allocate_pool;
+	cdk2_pcd_free_fn *free_pool;
+	uint8_t before_handle[72];
 	cdk2_pcd_handle_fn *handle_protocol;
 	uint8_t before_locate[160];
 	cdk2_pcd_locate_fn *locate_protocol;

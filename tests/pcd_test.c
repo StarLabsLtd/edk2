@@ -2,7 +2,9 @@
 
 #include <cdk2/pcd.h>
 
+#include <assert.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static const EFI_GUID signature = {
@@ -11,14 +13,16 @@ static const EFI_GUID signature = {
 static const EFI_GUID space = {
 	0x12345678, 0xabcd, 0xef01, { 1, 2, 3, 4, 5, 6, 7, 8 }
 };
-static unsigned callbacks;
-static unsigned installs, uninstalls;
+static unsigned int callbacks;
+static unsigned int installs, uninstalls;
 static uint64_t second_install_status;
 static struct cdk2_pcd_protocol *published_native;
 static struct fixture *raw_fixture;
 static size_t raw_fixture_size;
 static uint8_t variable_data[16];
-static unsigned variable_writes, variable_locks;
+static unsigned int variable_writes, variable_locks;
+static uint64_t allocation_status;
+static unsigned int allocations, frees;
 
 static uint64_t CDK2_MS_ABI mock_get_variable(const uint16_t *name,
 	const EFI_GUID *guid, uint32_t *attributes, size_t *size, void *data)
@@ -75,9 +79,28 @@ static uint64_t CDK2_MS_ABI mock_read_section(void *self, const EFI_GUID *file,
 	(void)file;
 	if (type != 0x19 || instance != 0)
 		return EFI_NOT_FOUND;
-	*buffer = raw_fixture;
+	*buffer = malloc(raw_fixture_size);
+	assert(*buffer != NULL);
+	memcpy(*buffer, raw_fixture, raw_fixture_size);
 	*size = raw_fixture_size;
 	*auth = 0;
+	return EFI_SUCCESS;
+}
+
+static uint64_t CDK2_MS_ABI mock_allocate(uint32_t type, size_t size, void **buffer)
+{
+	(void)type;
+	allocations++;
+	if (allocation_status != EFI_SUCCESS)
+		return allocation_status;
+	*buffer = calloc(1, size);
+	return *buffer == NULL ? EFI_OUT_OF_RESOURCES : EFI_SUCCESS;
+}
+
+static uint64_t CDK2_MS_ABI mock_free(void *buffer)
+{
+	free(buffer);
+	frees++;
 	return EFI_SUCCESS;
 }
 
@@ -227,6 +250,8 @@ int main(void)
 	boot_services.install_multiple_protocols = mock_install;
 	boot_services.uninstall_multiple_protocols = mock_uninstall;
 	boot_services.handle_protocol = mock_handle;
+	boot_services.allocate_pool = mock_allocate;
+	boot_services.free_pool = mock_free;
 	memset(&system, 0, sizeof(system));
 	system.boot = &boot_services;
 	failures += expect(cdk2_pcd_init(&context, &fixture, sizeof(fixture)) == EFI_SUCCESS,
@@ -235,6 +260,17 @@ int main(void)
 		size == 8 && *(uint64_t *)value == fixture.wide, "native token lookup");
 	failures += expect(cdk2_pcd_get(&context, &space, 77, &value, &size) == EFI_SUCCESS &&
 		*(uint32_t *)value == fixture.value, "dynamic-ex mapping");
+	/* Dynamic data may occupy the generated database's zero-filled tail. */
+	make_fixture(&bad);
+	bad.header.length = bad.header.length_all_skus = offsetof(struct fixture, value);
+	bad.header.uninitialized_size = sizeof(bad) - offsetof(struct fixture, value);
+	bad.header.string_offset = bad.header.size_offset = bad.header.name_offset =
+		bad.header.length;
+	failures += expect(cdk2_pcd_init(&context, &bad, sizeof(bad)) == EFI_SUCCESS &&
+		cdk2_pcd_get(&context, NULL, 2, &value, &size) == EFI_SUCCESS &&
+		size == sizeof(bad.wide), "uninitialized dynamic datum uses full capacity");
+	failures += expect(cdk2_pcd_init(&context, &fixture, sizeof(fixture)) == EFI_SUCCESS,
+		"ordinary fixture restored after uninitialized-tail check");
 	make_fixture(&pei);
 	pei.value = 0x10203040;
 	failures += expect(cdk2_pcd_merge_hob(&context, &pei, sizeof(pei)) == EFI_SUCCESS &&
@@ -282,7 +318,13 @@ int main(void)
 	raw_fixture = &fixture;
 	raw_fixture_size = sizeof(fixture);
 	failures += expect(cdk2_pcd_driver_entry((void *)1, &system) == EFI_SUCCESS &&
-		installs == 2, "entry acquires authenticated RAW section and publishes");
+		installs == 2 && allocations == 1 && frees == 1,
+		"entry expands authenticated RAW section and publishes");
+	allocation_status = EFI_OUT_OF_RESOURCES;
+	failures += expect(cdk2_pcd_driver_entry((void *)1, &system) ==
+		EFI_OUT_OF_RESOURCES && allocations == 2 && frees == 2,
+		"entry frees RAW section when database expansion fails");
+	allocation_status = EFI_SUCCESS;
 	make_hii(&hii);
 	memset(variable_data, 0, sizeof(variable_data));
 	variable_data[4] = 0x78;

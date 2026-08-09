@@ -114,6 +114,7 @@ uint64_t cdk2_pcd_init(struct cdk2_pcd_context *context, void *database,
 	if (!same_guid(&header->signature, &database_guid) ||
 	    header->build_version != CDK2_PCD_SERVICE_VERSION ||
 	    header->length < sizeof(*header) || header->length > capacity ||
+	    header->uninitialized_size > capacity - header->length ||
 	    header->length_all_skus < header->length ||
 	    header->length_all_skus > capacity ||
 	    !bounds(header->local_tokens_offset, header->local_token_count,
@@ -127,7 +128,7 @@ uint64_t cdk2_pcd_init(struct cdk2_pcd_context *context, void *database,
 		return PCD_INVALID_PARAMETER;
 	memset(context, 0, sizeof(*context));
 	context->database = database;
-	context->capacity = capacity;
+	context->capacity = header->length + header->uninitialized_size;
 	context->header = header;
 	for (i = 0; i < header->local_token_count; i++) {
 		uint32_t entry = local_table(context)[i];
@@ -148,7 +149,7 @@ uint64_t cdk2_pcd_init(struct cdk2_pcd_context *context, void *database,
 			width = 4;
 		else if ((entry & PCD_DATUM_MASK) == 0x02000000U)
 			width = 2;
-		if (!bounds(offset, 1, width, header->length))
+		if (!bounds(offset, 1, width, context->capacity))
 			return PCD_INVALID_PARAMETER;
 	}
 	return EFI_SUCCESS;
@@ -212,6 +213,8 @@ static uint64_t locate(struct cdk2_pcd_context *context, uint16_t local,
 		*size = width;
 		return status;
 	}
+	if (!bounds(offset, 1, width, context->capacity))
+		return PCD_INVALID_PARAMETER;
 	*value = context->database + offset;
 	*size = width;
 	return EFI_SUCCESS;
