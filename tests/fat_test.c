@@ -223,6 +223,9 @@ int main(void)
 			'd', 'i', 'r', '/', 'n', 'e', 's', 't', '.', 't', 'x', 't', 0
 		}, &file) == EFI_SUCCESS && !file.is_directory,
 		"case-insensitive nested path lookup failed");
+	failures += expect(file.parent_directory_cluster == 4U &&
+		file.record_index == 0U && file.record_count == 1U,
+		"opened file did not retain its exact parent directory record range");
 	size = 0U;
 	failures += expect(cdk2_fat_file_get_info(&file, &size, NULL) ==
 		EFI_BUFFER_TOO_SMALL && size == offsetof(struct cdk2_fat_file_info, name) +

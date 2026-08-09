@@ -668,7 +668,7 @@ uint64_t cdk2_fat_open(struct cdk2_fat_file *directory, const uint16_t *path,
 {
 	struct cdk2_fat_directory_entry found;
 	uint32_t cluster;
-	uint64_t position, status;
+	uint64_t position, start = 0U, status;
 	size_t length;
 
 	if (directory == NULL || directory->volume == NULL || path == NULL ||
@@ -690,6 +690,7 @@ uint64_t cdk2_fat_open(struct cdk2_fat_file *directory, const uint16_t *path,
 			return EFI_INVALID_PARAMETER;
 		position = 0U;
 		do {
+			start = position;
 			status = next_directory_entry(directory->volume, cluster, &position,
 				&found);
 			if (status != EFI_SUCCESS)
@@ -707,6 +708,8 @@ uint64_t cdk2_fat_open(struct cdk2_fat_file *directory, const uint16_t *path,
 	*file = (struct cdk2_fat_file) {
 		.volume = directory->volume, .entry = found,
 		.directory_cluster = found.first_cluster,
+		.parent_directory_cluster = cluster,
+		.record_index = start, .record_count = (size_t)(position - start),
 		.is_directory = (found.attributes & 0x10U) != 0U
 	};
 	return EFI_SUCCESS;
@@ -1227,6 +1230,45 @@ uint64_t cdk2_fat_rename_entry(struct cdk2_fat_volume *volume,
 	if (status != EFI_SUCCESS) {
 		(void)write_records(volume, directory_cluster, old_index, old, old_count);
 		(void)write_records(volume, directory_cluster, *new_index, placed_old, count);
+	}
+	return status;
+}
+
+uint64_t cdk2_fat_file_resize(struct cdk2_fat_file *file, uint32_t new_size,
+	struct cdk2_fat_change *changes, size_t *change_count)
+{
+	uint64_t status;
+	if (file == NULL || file->volume == NULL || file->is_root ||
+	    file->is_directory)
+		return EFI_INVALID_PARAMETER;
+	status = cdk2_fat_resize_file((struct cdk2_fat_volume *)file->volume,
+		file->parent_directory_cluster, file->record_index, file->record_count,
+		&file->entry.first_cluster, file->entry.size, new_size, changes,
+		change_count);
+	if (status == EFI_SUCCESS) {
+		file->entry.size = new_size;
+		if (file->position > new_size)
+			file->position = new_size;
+	}
+	return status;
+}
+
+uint64_t cdk2_fat_file_delete(struct cdk2_fat_file *file,
+	struct cdk2_fat_change *changes, size_t *change_count)
+{
+	uint64_t status;
+	uint32_t allocation_size;
+	if (file == NULL || file->volume == NULL || file->is_root)
+		return EFI_INVALID_PARAMETER;
+	allocation_size = file->is_directory && file->entry.first_cluster >= 2U ?
+		(uint32_t)file->volume->bytes_per_sector *
+		file->volume->sectors_per_cluster : file->entry.size;
+	status = cdk2_fat_delete_entry((struct cdk2_fat_volume *)file->volume,
+		file->parent_directory_cluster, file->record_index, file->record_count,
+		&file->entry.first_cluster, allocation_size, file->is_directory, changes,
+		change_count);
+	if (status == EFI_SUCCESS) {
+		file->entry.size = 0U; file->position = 0U;
 	}
 	return status;
 }

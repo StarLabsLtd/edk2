@@ -48,6 +48,9 @@ struct cdk2_fat_file {
 	struct cdk2_fat_directory_entry entry;
 	uint64_t position;
 	uint32_t directory_cluster;
+	uint32_t parent_directory_cluster;
+	uint64_t record_index;
+	size_t record_count;
 	uint8_t is_directory, is_root;
 };
 
@@ -105,5 +108,9 @@ uint64_t cdk2_fat_rename_entry(struct cdk2_fat_volume *volume,
 	uint32_t directory_cluster, uint64_t old_index, size_t old_count,
 	const uint16_t *new_name, uint8_t attributes, uint32_t first_cluster,
 	uint32_t file_size, uint64_t *new_index);
+uint64_t cdk2_fat_file_resize(struct cdk2_fat_file *file, uint32_t new_size,
+	struct cdk2_fat_change *changes, size_t *change_count);
+uint64_t cdk2_fat_file_delete(struct cdk2_fat_file *file,
+	struct cdk2_fat_change *changes, size_t *change_count);
 
 #endif
