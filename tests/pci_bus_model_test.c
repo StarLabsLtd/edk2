@@ -626,6 +626,8 @@ static int multi_root_atomic_test(void)
 struct binding_fixture {
 	unsigned int installs, uninstalls, opens, closes;
 	unsigned int fail_install;
+	unsigned int publishes, unpublishes;
+	int fail_publish;
 };
 
 static void *binding_allocate(void *context, size_t size)
@@ -674,18 +676,48 @@ static int binding_lifecycle_test(void)
 		.close_parent_by_child = binding_close, .initialize_io = binding_io } };
 	struct cdk2_pci_topology topology = { .count = 2 };
 	uint8_t parent_path[4] = { 0x7f, 0xff, 4, 0 };
+	uint8_t rom_data[4] = { 1, 2, 3, 4 }, load_path[28] = { 4, 8, 24, 0 };
+	uint8_t load_data[4]; UINTN load_size = 0;
 	const char *name; void *parent = &binding, *first;
+	CHAR16 *wide_name;
+	cdk2_pci_bus_initialize_component_names(&binding);
 	topology.functions[0].device = 1;
+	topology.functions[0].header_type = 1;
+	topology.functions[0].parent_index = CDK2_PCI_ROOT_PARENT;
 	topology.functions[1].device = 1; topology.functions[1].function = 3;
+	topology.functions[1].parent_index = 0;
 	topology.functions[1].option_rom_load_file = 1;
+	topology.functions[1].option_rom_images = 1;
+	topology.functions[1].option_rom[0].code_type = 3;
+	topology.functions[1].option_rom[0].size = sizeof(rom_data);
+	topology.functions[1].option_rom_shadow = rom_data;
+	topology.functions[1].option_rom_shadow_size = sizeof(rom_data);
+	put64(load_path + 8, 0); put64(load_path + 16, 3);
+	load_path[24] = 0x7f; load_path[25] = 0xff;
+	load_path[26] = 4;
 	CHECK(cdk2_pci_bus_start(&binding, parent, parent_path, sizeof(parent_path),
 		&topology) == 0);
 	CHECK(binding.child_count == 2 && fixture.opens == 2);
-	CHECK((((uint8_t *)binding.children[1]->device_path)[4]) == 3);
+	CHECK(binding.children[1]->device_path_size == 16);
+	CHECK((((uint8_t *)binding.children[1]->device_path)[10]) == 3);
 	CHECK((binding.children[1]->installed & CDK2_PCI_CHILD_LOAD_FILE) != 0U);
+	CHECK(binding.children[1]->load_file.protocol.load_file(
+		&binding.children[1]->load_file.protocol, load_path, 0, &load_size,
+		NULL) == EFI_BUFFER_TOO_SMALL);
+	CHECK(load_size == sizeof(load_data));
+	CHECK(binding.children[1]->load_file.protocol.load_file(
+		&binding.children[1]->load_file.protocol, load_path, 0, &load_size,
+		load_data) == EFI_SUCCESS);
+	CHECK(memcmp(load_data, rom_data, sizeof(load_data)) == 0);
 	CHECK(cdk2_pci_bus_component_name("eng", &name) == 0);
 	CHECK(cdk2_pci_bus_controller_name(&binding, parent,
 		binding.children[0]->handle, "en", &name) == 0);
+	CHECK(binding.component_name.protocol.get_driver_name(
+		&binding.component_name.protocol, (CHAR8 *)"eng", &wide_name) == EFI_SUCCESS);
+	CHECK(wide_name[0] == 'P');
+	CHECK(binding.component_name2.protocol.get_controller_name(
+		&binding.component_name2.protocol, parent, binding.children[0]->handle,
+		(CHAR8 *)"en", &wide_name) == EFI_SUCCESS);
 	first = binding.children[0]->handle;
 	CHECK(cdk2_pci_bus_stop(&binding, parent, &first, 1) == 0);
 	CHECK(binding.child_count == 1);
@@ -719,6 +751,64 @@ static int boot_adapter_status_test(void)
 	CHECK(instance.protocol.mem.read(&instance.protocol, 0, 0, 0, 1,
 		&value) == EFI_UNSUPPORTED);
 	CHECK(cdk2_pci_io_adapter_status(&adapter) == EFI_UNSUPPORTED);
+	return 0;
+}
+
+static int driver_probe(void *context, void *controller, void *remaining)
+{ (void)context; (void)controller; (void)remaining; return 0; }
+static int driver_discover(void *context, void *controller, void *remaining,
+	struct cdk2_pci_topology *topology, void **path, size_t *path_size)
+{
+	(void)context; (void)controller; (void)remaining;
+	*path = malloc(4); *path_size = 4;
+	if (*path == NULL)
+		return -1;
+	memcpy(*path, (uint8_t[]) { 0x7f, 0xff, 4, 0 }, 4);
+	topology->count = 1;
+	topology->functions[0].parent_index = CDK2_PCI_ROOT_PARENT;
+	return 0;
+}
+static void driver_release(void *context, void *path)
+{ (void)context; free(path); }
+static int driver_publish(void *context, struct cdk2_pci_bus_driver *driver)
+{
+	struct binding_fixture *f = context;
+	f->publishes++;
+	if (f->fail_publish)
+		return -1;
+	driver->protocol.driver_binding_handle = driver;
+	return 0;
+}
+static int driver_unpublish(void *context, struct cdk2_pci_bus_driver *driver)
+{ struct binding_fixture *f = context; (void)driver; f->unpublishes++; return 0; }
+
+static int driver_entry_test(void)
+{
+	struct binding_fixture fixture = { 0 };
+	struct cdk2_pci_bus_driver driver_instance = {
+		.context = &fixture, .probe = driver_probe, .discover = driver_discover,
+		.release_discovery = driver_release, .publish = driver_publish,
+		.unpublish = driver_unpublish,
+		.binding = { .services = { .context = &fixture, .allocate = binding_allocate,
+			.free = binding_free, .install = binding_install,
+			.uninstall = binding_uninstall,
+			.open_parent_by_child = binding_open,
+			.close_parent_by_child = binding_close,
+			.initialize_io = binding_io } } };
+	CHECK(sizeof(driver_instance.protocol) == 48);
+	CHECK(offsetof(struct cdk2_driver_binding_protocol, image_handle) == 32);
+	CHECK(cdk2_pci_bus_driver_entry(&driver_instance, &fixture) == 0);
+	CHECK(fixture.publishes == 1);
+	CHECK(driver_instance.protocol.supported(&driver_instance.protocol, &fixture,
+		NULL) == EFI_SUCCESS);
+	CHECK(driver_instance.protocol.start(&driver_instance.protocol, &fixture,
+		NULL) == EFI_SUCCESS);
+	CHECK(driver_instance.binding.child_count == 1);
+	CHECK(cdk2_pci_bus_driver_unload(&driver_instance) == 0);
+	CHECK(driver_instance.binding.child_count == 0 && fixture.unpublishes == 1);
+	fixture.fail_publish = 1;
+	CHECK(cdk2_pci_bus_driver_entry(&driver_instance, &fixture) != 0);
+	CHECK(driver_instance.published == 0 && driver_instance.protocol.start == NULL);
 	return 0;
 }
 
@@ -775,7 +865,7 @@ int main(void)
 	    hotplug_rollback_test() || cardbus_socket_test() || corruption_test())
 		return 1;
 	if (pci_io_core_test() || multi_root_atomic_test() || binding_lifecycle_test() ||
-	    boot_adapter_status_test())
+	    boot_adapter_status_test() || driver_entry_test())
 		return 1;
 	puts("pci bus model tests: PASS");
 	return 0;

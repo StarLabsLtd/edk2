@@ -2154,6 +2154,7 @@ $(CDK2_NATIVE_PCI_BUS_MODEL_TEST): $(CDK2_DIR)/tests/pci_bus_model_test.c \
 		$(CDK2_DIR)/src/modules/pci_bus/pci_io_abi.c \
 		$(CDK2_DIR)/src/modules/pci_bus/binding.c \
 		$(CDK2_DIR)/src/modules/pci_bus/adapter.c \
+		$(CDK2_DIR)/src/modules/pci_bus/driver.c \
 		$(CDK2_DIR)/include/cdk2/pci_io_model.h \
 		$(CDK2_DIR)/include/cdk2/pci_io_abi.h \
 		$(CDK2_DIR)/include/cdk2/pci_bus_binding.h \
@@ -2169,7 +2170,8 @@ $(CDK2_NATIVE_PCI_BUS_MODEL_TEST): $(CDK2_DIR)/tests/pci_bus_model_test.c \
 		$(CDK2_DIR)/src/modules/pci_bus/pci_io.c \
 		$(CDK2_DIR)/src/modules/pci_bus/pci_io_abi.c \
 		$(CDK2_DIR)/src/modules/pci_bus/binding.c \
-		$(CDK2_DIR)/src/modules/pci_bus/adapter.c
+		$(CDK2_DIR)/src/modules/pci_bus/adapter.c \
+		$(CDK2_DIR)/src/modules/pci_bus/driver.c
 
 .PHONY: native-pci-host-bridge-package
 native-pci-host-bridge-package: $(CDK2_NATIVE_PCI_HOST_BRIDGE_FFS)

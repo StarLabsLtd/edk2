@@ -404,7 +404,7 @@ int cdk2_pci_probe_function(const struct cdk2_pci_cfg *cfg,
 
 static int scan_bus(const struct cdk2_pci_cfg *cfg, uint8_t bus, uint8_t last,
 	struct cdk2_pci_topology *topology, uint8_t visited[32], uint8_t *next_bus,
-	int ari_bus)
+	int ari_bus, uint16_t parent_index)
 {
 	uint32_t id, header;
 	uint8_t device, function, limit;
@@ -423,6 +423,7 @@ static int scan_bus(const struct cdk2_pci_cfg *cfg, uint8_t bus, uint8_t last,
 		limit = ari_bus ? 8U : (((header >> 16) & 0x80U) ? 8U : 1U);
 		for (function = 0; function < limit; function++) {
 			struct cdk2_pci_function *fn;
+			uint16_t current_index;
 			if (read_id(cfg, bus, device, function, &id) != 0)
 				return -1;
 			if ((id & 0xffffU) == 0xffffU)
@@ -432,8 +433,10 @@ static int scan_bus(const struct cdk2_pci_cfg *cfg, uint8_t bus, uint8_t last,
 			fn = &topology->functions[topology->count];
 			memset(fn, 0, sizeof(*fn));
 			fn->bus = bus; fn->device = device; fn->function = function;
+			fn->parent_index = parent_index;
 			if (cdk2_pci_probe_function(cfg, fn) != 0)
 				return -1;
+			current_index = (uint16_t)topology->count;
 			topology->count++;
 			if ((fn->header_type & 0x7fU) == 1U ||
 			    (fn->header_type & 0x7fU) == 2U) {
@@ -463,7 +466,7 @@ static int scan_bus(const struct cdk2_pci_cfg *cfg, uint8_t bus, uint8_t last,
 					fn->subordinate_bus >= child) ?
 					scan_bus(cfg, child, fn->subordinate_bus < last ?
 					fn->subordinate_bus : last, topology, visited, next_bus,
-					fn->ari_forwarding) : 0;
+					fn->ari_forwarding, current_index) : 0;
 				if (temporary && restore_cfg(cfg, bus, device, function,
 					PCI_BRIDGE_BUSES, 4, original_buses) != 0)
 					status = -1;
@@ -484,7 +487,8 @@ int cdk2_pci_enumerate(const struct cdk2_pci_cfg *cfg, uint8_t first_bus,
 	if (topology == NULL || first_bus > last_bus)
 		return -1;
 	memset(&staged, 0, sizeof(staged));
-	if (scan_bus(cfg, first_bus, last_bus, &staged, visited, &next_bus, 0) != 0)
+	if (scan_bus(cfg, first_bus, last_bus, &staged, visited, &next_bus, 0,
+		CDK2_PCI_ROOT_PARENT) != 0)
 		return -1;
 	for (size_t i = 0; i < staged.count; i++) {
 		struct cdk2_pci_function *fn = &staged.functions[i];

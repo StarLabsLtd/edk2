@@ -12,6 +12,7 @@
 #define CDK2_PCI_MAX_ROOTS 8U
 #define CDK2_PCI_RESOURCE_CLASSES 4U
 #define CDK2_PCI_MAX_ROM_IMAGES 16U
+#define CDK2_PCI_ROOT_PARENT UINT16_MAX
 
 enum cdk2_pci_bar_kind {
 	CDK2_PCI_BAR_NONE,
@@ -41,6 +42,7 @@ struct cdk2_pci_bar {
 
 struct cdk2_pci_function {
 	uint8_t bus, device, function;
+	uint16_t parent_index;
 	uint8_t header_type, class_code, subclass, programming_interface;
 	uint8_t secondary_bus, subordinate_bus;
 	uint16_t vendor_id, device_id;

@@ -9,32 +9,127 @@ static int language_supported(const char *language)
 		(strcmp(language, "eng") == 0 || strcmp(language, "en") == 0);
 }
 
+static CHAR16 driver_name[] = { 'P', 'C', 'I', ' ', 'B', 'u', 's', ' ',
+	'D', 'r', 'i', 'v', 'e', 'r', 0 };
+static CHAR16 controller_name[] = { 'P', 'C', 'I', ' ', 'D', 'e', 'v', 'i', 'c', 'e', 0 };
+static CHAR8 english[] = "eng";
+static CHAR8 english2[] = "en";
+
+static int component_language(struct cdk2_component_name_instance *instance,
+	const CHAR8 *language)
+{
+	return language != NULL && strcmp((const char *)language,
+		instance->iso639 ? "eng" : "en") == 0;
+}
+
+static EFI_STATUS CDK2_MS_ABI get_driver_name(
+	struct cdk2_component_name_protocol *protocol, cdk2_char8_pointer language,
+	cdk2_char16_pointer_pointer name)
+{
+	struct cdk2_component_name_instance *instance =
+		(struct cdk2_component_name_instance *)protocol;
+	if (name == NULL || !component_language(instance, language))
+		return EFI_UNSUPPORTED;
+	*name = driver_name;
+	return EFI_SUCCESS;
+}
+
+static EFI_STATUS CDK2_MS_ABI get_controller_name(
+	struct cdk2_component_name_protocol *protocol, void *controller, void *child,
+	cdk2_char8_pointer language, cdk2_char16_pointer_pointer name)
+{
+	struct cdk2_component_name_instance *instance =
+		(struct cdk2_component_name_instance *)protocol;
+	if (name == NULL || child == NULL ||
+	    !component_language(instance, language))
+		return EFI_UNSUPPORTED;
+	for (size_t i = 0; i < instance->binding->child_count; i++)
+		if (instance->binding->children[i]->parent == controller &&
+		    instance->binding->children[i]->handle == child) {
+			*name = controller_name;
+			return EFI_SUCCESS;
+		}
+	return EFI_UNSUPPORTED;
+}
+
+void cdk2_pci_bus_initialize_component_names(struct cdk2_pci_bus_binding *binding)
+{
+	binding->component_name = (struct cdk2_component_name_instance) {
+		.protocol = { get_driver_name, get_controller_name, english },
+		.binding = binding, .iso639 = 1 };
+	binding->component_name2 = (struct cdk2_component_name_instance) {
+		.protocol = { get_driver_name, get_controller_name, english2 },
+		.binding = binding, .iso639 = 0 };
+}
+
+static EFI_STATUS CDK2_MS_ABI load_file2(
+	struct cdk2_efi_load_file2_protocol *protocol, const void *path,
+	BOOLEAN boot_policy,
+	cdk2_uintn_pointer buffer_size, void *buffer)
+{
+	struct cdk2_pci_bus_child *child =
+		((struct cdk2_pci_load_file_instance *)protocol)->child;
+	size_t native_size;
+	int call_status;
+	const uint8_t *bytes = path;
+	if (child == NULL || path == NULL || buffer_size == NULL || boot_policy ||
+	    bytes[2] != 24U || bytes[3] != 0U || bytes[24] != 0x7fU ||
+	    bytes[26] != 4U || bytes[27] != 0U)
+		return EFI_INVALID_PARAMETER;
+	native_size = *buffer_size;
+	call_status = cdk2_pci_option_rom_load_file_path(&child->function, path, 24,
+		0, buffer, &native_size);
+	*buffer_size = native_size;
+	return call_status == 0 ? EFI_SUCCESS :
+		(call_status == 1 ? EFI_BUFFER_TOO_SMALL : EFI_NOT_FOUND);
+}
+
 static int make_path(struct cdk2_pci_bus_binding *binding, const void *parent,
-	size_t parent_size, const struct cdk2_pci_function *function,
+	size_t parent_size, const struct cdk2_pci_topology *topology, size_t index,
 	void **path, size_t *path_size)
 {
 	uint8_t *output;
+	uint16_t chain[CDK2_PCI_MAX_FUNCTIONS];
+	size_t depth = 0, cursor;
+	const struct cdk2_pci_function *function;
+	if (topology == NULL || index >= topology->count)
+		return -1;
+	function = &topology->functions[index];
 	if (parent == NULL || parent_size < 4U || path == NULL || path_size == NULL ||
 	    function->device >= 32U || function->function >= 8U ||
 	    ((const uint8_t *)parent)[parent_size - 4U] != 0x7fU ||
 	    ((const uint8_t *)parent)[parent_size - 2U] != 4U ||
 	    ((const uint8_t *)parent)[parent_size - 1U] != 0U)
 		return -1;
-	if (parent_size > SIZE_MAX - 6U)
+	while (index != CDK2_PCI_ROOT_PARENT) {
+		if (index >= topology->count || depth == CDK2_PCI_MAX_FUNCTIONS)
+			return -1;
+		if (topology->functions[index].device >= 32U ||
+		    topology->functions[index].function >= 8U)
+			return -1;
+		chain[depth++] = (uint16_t)index;
+		index = topology->functions[index].parent_index;
+	}
+	if (depth > (SIZE_MAX - parent_size) / 6U)
 		return -1;
-	output = binding->services.allocate(binding->services.context, parent_size + 6U);
+	*path_size = parent_size + depth * 6U;
+	output = binding->services.allocate(binding->services.context, *path_size);
 	if (output == NULL)
 		return -1;
 	/* Replace the parent's end node with a PCI hardware node and a new end. */
 	memcpy(output, parent, parent_size - 4U);
-	output[parent_size - 4U] = 1U; output[parent_size - 3U] = 1U;
-	output[parent_size - 2U] = 6U; output[parent_size - 1U] = 0U;
-	output[parent_size] = function->function;
-	output[parent_size + 1U] = function->device;
-	output[parent_size + 2U] = 0x7fU; output[parent_size + 3U] = 0xffU;
-	output[parent_size + 4U] = 4U; output[parent_size + 5U] = 0U;
+	cursor = parent_size - 4U;
+	while (depth != 0U) {
+		function = &topology->functions[chain[--depth]];
+		output[cursor] = 1U; output[cursor + 1U] = 1U;
+		output[cursor + 2U] = 6U; output[cursor + 3U] = 0U;
+		output[cursor + 4U] = function->function;
+		output[cursor + 5U] = function->device;
+		cursor += 6U;
+	}
+	output[cursor] = 0x7fU; output[cursor + 1U] = 0xffU;
+	output[cursor + 2U] = 4U; output[cursor + 3U] = 0U;
 	*path = output;
-	*path_size = parent_size + 6U;
 	return 0;
 }
 
@@ -62,9 +157,10 @@ static int destroy_child(struct cdk2_pci_bus_binding *binding,
 
 static int create_child(struct cdk2_pci_bus_binding *binding, void *parent,
 	const void *parent_path, size_t parent_path_size,
-	const struct cdk2_pci_function *function,
+	const struct cdk2_pci_topology *topology, size_t index,
 	struct cdk2_pci_bus_child **result)
 {
+	const struct cdk2_pci_function *function = &topology->functions[index];
 	struct cdk2_pci_bus_child *child;
 	unsigned int protocols = CDK2_PCI_CHILD_PCI_IO | CDK2_PCI_CHILD_DEVICE_PATH;
 	child = binding->services.allocate(binding->services.context, sizeof(*child));
@@ -72,7 +168,7 @@ static int create_child(struct cdk2_pci_bus_binding *binding, void *parent,
 		return -1;
 	memset(child, 0, sizeof(*child));
 	child->parent = parent; child->function = *function;
-	if (make_path(binding, parent_path, parent_path_size, function,
+	if (make_path(binding, parent_path, parent_path_size, topology, index,
 		&child->device_path, &child->device_path_size) != 0 ||
 	    binding->services.initialize_io(binding->services.context, function,
 		&child->io_model) != 0)
@@ -80,8 +176,11 @@ static int create_child(struct cdk2_pci_bus_binding *binding, void *parent,
 	child->io_model.rom_image = function->option_rom_shadow;
 	child->io_model.rom_size = function->option_rom_shadow_size;
 	cdk2_pci_io_initialize_protocol(&child->io, &child->io_model);
-	if (function->option_rom_load_file)
+	if (function->option_rom_load_file) {
 		protocols |= CDK2_PCI_CHILD_LOAD_FILE;
+		child->load_file.protocol.load_file = load_file2;
+		child->load_file.child = child;
+	}
 	if (binding->services.install(binding->services.context, &child->handle,
 		child, protocols) != 0)
 		goto rollback;
@@ -119,7 +218,7 @@ int cdk2_pci_bus_start(struct cdk2_pci_bus_binding *binding, void *parent,
 	for (size_t i = 0; i < topology->count; i++) {
 		struct cdk2_pci_bus_child *child;
 		if (create_child(binding, parent, parent_path, parent_path_size,
-			&topology->functions[i], &child) != 0)
+			topology, i, &child) != 0)
 			goto rollback;
 		binding->children[binding->child_count++] = child;
 	}
