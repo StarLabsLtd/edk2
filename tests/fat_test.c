@@ -378,6 +378,34 @@ int main(void)
 			EFI_DEVICE_ERROR && mutation.bytes[1536U + 15U * 32U] == 0U,
 			"partial directory placement was not rolled back");
 	}
+	/* A full growable directory allocates and zeroes one new cluster. */
+	memset(mutation.bytes + 1536U, 'A', 512U);
+	memset(mutation.bytes + 2048U, 0xcc, 512U);
+	write32(mutation.bytes + 1024U + 8U, 0x0fffffffU);
+	write32(mutation.bytes + 1024U + 12U, 0U);
+	mutation.writes = 0U; mutation.fail_write = 0U;
+	{
+		uint8_t rollback[64]; uint64_t placed; size_t rollback_count = 2U;
+		failures += expect(cdk2_fat_place_directory_records(&volume, 2U,
+			built_records, 2U, &placed, rollback, &rollback_count) == EFI_SUCCESS &&
+			placed == 16U && (test_read32(mutation.bytes + 1024U + 8U) &
+			0x0fffffffU) == 3U && mutation.bytes[2048U] == 0x41U,
+			"full directory did not transactionally grow its cluster chain");
+	}
+	memset(mutation.bytes + 1536U, 'A', 512U);
+	write32(mutation.bytes + 1024U + 8U, 0x0fffffffU);
+	write32(mutation.bytes + 1024U + 12U, 0U);
+	mutation.writes = 0U; mutation.fail_write = 3U;
+	{
+		uint8_t rollback[64]; uint64_t placed; size_t rollback_count = 2U;
+		failures += expect(cdk2_fat_place_directory_records(&volume, 2U,
+			built_records, 2U, &placed, rollback, &rollback_count) ==
+			EFI_DEVICE_ERROR && (test_read32(mutation.bytes + 1024U + 8U) &
+			0x0fffffffU) == 0x0fffffffU &&
+			test_read32(mutation.bytes + 1024U + 12U) == 0U,
+			"directory initialization failure leaked its allocated cluster");
+	}
+	mutation.fail_write = 0U;
 	/* Short aliases must advance past an existing collision. */
 	memset(mutation.bytes + 1536U, 0, 1024U);
 	memcpy(mutation.bytes + 1536U, "LONGFI~1TXT", 11U);

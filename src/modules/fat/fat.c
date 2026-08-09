@@ -1031,6 +1031,10 @@ uint64_t cdk2_fat_place_directory_records(struct cdk2_fat_volume *volume,
 {
 	uint8_t record[32];
 	uint64_t index = 0U, start = 0U, offset, status;
+	struct cdk2_fat_change growth[2];
+	uint32_t first, cluster, next, clusters = 1U;
+	size_t growth_count = 2U, slots, zero;
+	int end, grew = 0;
 	size_t free_count = 0U, written;
 
 	if (volume == NULL || records == NULL || record_count == 0U ||
@@ -1048,6 +1052,41 @@ uint64_t cdk2_fat_place_directory_records(struct cdk2_fat_volume *volume,
 	}
 	for (;;) {
 		status = directory_record(volume, directory_cluster, index, record);
+		if (status == EFI_NOT_FOUND && !grew &&
+		    !(directory_cluster == 0U && volume->fat_type != CDK2_FAT32)) {
+			first = directory_cluster == 0U ? volume->root_cluster :
+				directory_cluster;
+			cluster = first;
+			while (1) {
+				status = cdk2_fat_next_cluster(volume, cluster, &next, &end);
+				if (status != EFI_SUCCESS) return status;
+				if (end) break;
+				cluster = next;
+				if (++clusters >= volume->cluster_count)
+					return FAT_VOLUME_CORRUPTED;
+			}
+			status = cdk2_fat_resize_chain(volume, &first,
+				clusters * volume->bytes_per_sector * volume->sectors_per_cluster,
+				(clusters + 1U) * volume->bytes_per_sector *
+				volume->sectors_per_cluster, growth, &growth_count);
+			if (status != EFI_SUCCESS) return status;
+			status = cdk2_fat_next_cluster(volume, cluster, &next, &end);
+			if (status != EFI_SUCCESS || end) {
+				rollback_changes(volume, growth, growth_count);
+				return status == EFI_SUCCESS ? FAT_VOLUME_CORRUPTED : status;
+			}
+			status = cdk2_fat_cluster_offset(volume, next, &offset);
+			slots = (size_t)volume->bytes_per_sector *
+				volume->sectors_per_cluster / 32U;
+			__builtin_memset(record, 0, sizeof(record));
+			for (zero = 0U; status == EFI_SUCCESS && zero < slots; zero++)
+				status = volume->write(volume->context, offset + zero * 32U,
+					32U, record);
+			if (status != EFI_SUCCESS) {
+				rollback_changes(volume, growth, growth_count); return status;
+			}
+			grew = 1; continue;
+		}
 		if (status != EFI_SUCCESS)
 			return status == EFI_NOT_FOUND ? EFI_VOLUME_FULL : status;
 		if (record[0] == 0xe5U || record[0] == 0x00U) {
@@ -1091,6 +1130,8 @@ rollback:
 	}
 	if (volume->flush != NULL)
 		(void)volume->flush(volume->context);
+	if (grew)
+		rollback_changes(volume, growth, growth_count);
 	return status;
 }
 
