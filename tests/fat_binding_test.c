@@ -161,6 +161,25 @@ int main(void)
 	}
 	{
 		struct cdk2_fat_file_protocol *root, *file;
+		struct cdk2_fat_file_io_token token = { (void *)9, EFI_NOT_READY, 0U, NULL };
+		unsigned guard = 0U, calls = disk2_calls;
+		failures += expect(binding.mounts->simple_fs->protocol.open_volume(
+			&binding.mounts->simple_fs->protocol, &root) == EFI_SUCCESS &&
+			root->open_ex(root, &file, L"ASYNC.TXT", 1U, 0U, &token) == EFI_SUCCESS &&
+			token.status == EFI_NOT_READY && disk2_calls == calls + 1U,
+			"OpenEx did not submit its first metadata read through DiskIo2");
+		while (token.status == EFI_NOT_READY && guard++ < 16U) {
+			memcpy(disk2_buffer, f.image[1] + disk2_offset, disk2_size);
+			disk_token->transaction_status = EFI_SUCCESS;
+			disk_notify(disk_token->event, disk_context);
+		}
+		failures += expect(token.status == EFI_SUCCESS && file != NULL &&
+			queued_function == NULL,
+			"OpenEx metadata continuation used the synchronous work queue");
+		(void)file->close(file); (void)root->close(root);
+	}
+	{
+		struct cdk2_fat_file_protocol *root, *file;
 		UINT8 output[600];
 		struct cdk2_fat_file_io_token token = { (void *)9, EFI_NOT_READY,
 			sizeof(output), output };
