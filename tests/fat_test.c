@@ -9,9 +9,18 @@
 
 struct medium { uint8_t boot[512]; uint64_t size; uint64_t status; };
 struct chain_medium { uint8_t fat[32], data[128]; };
+struct mutation_medium {
+	uint8_t bytes[2048];
+	unsigned int writes, fail_write, flushes;
+	uint64_t flush_status;
+};
 
 static void write16(uint8_t *data, uint16_t value)
 { data[0] = value; data[1] = value >> 8; }
+static uint16_t test_read16(const uint8_t *data)
+{ return (uint16_t)data[0] | ((uint16_t)data[1] << 8); }
+static uint32_t test_read32(const uint8_t *data)
+{ return (uint32_t)test_read16(data) | ((uint32_t)test_read16(data + 2U) << 16); }
 static void write32(uint8_t *data, uint32_t value)
 { write16(data, value); write16(data + 2U, value >> 16); }
 static uint64_t read_media(void *opaque, uint64_t offset, size_t size, void *buffer)
@@ -34,6 +43,33 @@ static uint64_t read_chain(void *opaque, uint64_t offset, size_t size, void *buf
 	else
 		return EFI_INVALID_PARAMETER;
 	return EFI_SUCCESS;
+}
+static uint64_t mutation_read(void *opaque, uint64_t offset, size_t size,
+	void *buffer)
+{
+	struct mutation_medium *medium = opaque;
+	if (offset > sizeof(medium->bytes) || size > sizeof(medium->bytes) - offset)
+		return EFI_INVALID_PARAMETER;
+	memcpy(buffer, medium->bytes + offset, size);
+	return EFI_SUCCESS;
+}
+static uint64_t mutation_write(void *opaque, uint64_t offset, size_t size,
+	const void *buffer)
+{
+	struct mutation_medium *medium = opaque;
+	medium->writes++;
+	if (medium->fail_write != 0U && medium->writes == medium->fail_write)
+		return EFI_DEVICE_ERROR;
+	if (offset > sizeof(medium->bytes) || size > sizeof(medium->bytes) - offset)
+		return EFI_INVALID_PARAMETER;
+	memcpy(medium->bytes + offset, buffer, size);
+	return EFI_SUCCESS;
+}
+static uint64_t mutation_flush(void *opaque)
+{
+	struct mutation_medium *medium = opaque;
+	medium->flushes++;
+	return medium->flush_status;
 }
 static void make_bpb(struct medium *medium, uint32_t sectors, uint16_t roots,
 	uint16_t fat16, uint32_t fat32, uint8_t cluster)
@@ -74,6 +110,8 @@ int main(void)
 	struct cdk2_fat_volume volume;
 	struct medium medium;
 	struct chain_medium chain = { 0 };
+	struct mutation_medium mutation = { 0 };
+	struct cdk2_fat_change changes[8];
 	struct cdk2_fat_directory_entry entry;
 	struct cdk2_fat_file root, file;
 	struct cdk2_fat_file_info info;
@@ -208,5 +246,84 @@ int main(void)
 		cdk2_fat_file_set_position(&root, 1U) == EFI_UNSUPPORTED &&
 		cdk2_fat_file_set_position(&root, 0U) == EFI_SUCCESS,
 		"directory iteration or position reset semantics failed");
+	volume = (struct cdk2_fat_volume) {
+		.read = mutation_read, .context = &mutation, .media_size = 512U,
+		.fat_offset = 64U, .data_offset = 128U, .cluster_count = 6U,
+		.fat_sectors = 1U, .bytes_per_sector = 32U, .sectors_per_cluster = 1U,
+		.fat_count = 2U, .fat_type = CDK2_FAT16
+	};
+	cdk2_fat_set_write_ops(&volume, mutation_write, mutation_flush);
+	write16(mutation.bytes + 64U + 4U, 0xffffU);
+	write16(mutation.bytes + 96U + 4U, 0xffffU);
+	{
+		uint32_t first = 2U;
+		size_t change_count = 8U;
+		failures += expect(cdk2_fat_resize_chain(&volume, &first, 1U, 96U,
+			changes, &change_count) == EFI_SUCCESS && first == 2U &&
+			change_count == 3U && test_read16(mutation.bytes + 64U + 4U) == 3U &&
+			test_read16(mutation.bytes + 64U + 6U) == 4U &&
+			test_read16(mutation.bytes + 64U + 8U) == 0xffffU &&
+			memcmp(mutation.bytes + 64U, mutation.bytes + 96U, 32U) == 0,
+			"chain extension or FAT mirroring failed");
+		change_count = 8U;
+		failures += expect(cdk2_fat_resize_chain(&volume, &first, 96U, 0U,
+			changes, &change_count) == EFI_SUCCESS && first == 0U &&
+			test_read16(mutation.bytes + 64U + 4U) == 0U &&
+			test_read16(mutation.bytes + 64U + 6U) == 0U,
+			"chain deletion did not release clusters");
+		write16(mutation.bytes + 64U + 4U, 0xffffU);
+		write16(mutation.bytes + 96U + 4U, 0xffffU);
+		first = 2U;
+		mutation.writes = 0U; mutation.fail_write = 3U; change_count = 8U;
+		failures += expect(cdk2_fat_resize_chain(&volume, &first, 1U, 64U,
+			changes, &change_count) == EFI_DEVICE_ERROR &&
+			test_read16(mutation.bytes + 64U + 4U) == 0xffffU &&
+			test_read16(mutation.bytes + 64U + 6U) == 0U,
+			"failed mirrored FAT write was not rolled back");
+		mutation.fail_write = 0U; volume.read_only = 1U; change_count = 8U;
+		failures += expect(cdk2_fat_resize_chain(&volume, &first, 1U, 64U,
+			changes, &change_count) == CDK2_FAT_WRITE_PROTECTED,
+			"read-only volume admitted mutation");
+		volume.read_only = 0U; volume.media_changed = 1U;
+		failures += expect(cdk2_fat_resize_chain(&volume, &first, 1U, 64U,
+			changes, &change_count) == CDK2_FAT_MEDIA_CHANGED,
+			"media-changed volume admitted mutation");
+		volume.media_changed = 0U; volume.write_protected = 1U;
+		failures += expect(cdk2_fat_resize_chain(&volume, &first, 1U, 64U,
+			changes, &change_count) == CDK2_FAT_WRITE_PROTECTED,
+			"write-protected medium admitted mutation");
+	}
+	memset(&mutation, 0, sizeof(mutation));
+	volume = (struct cdk2_fat_volume) {
+		.read = mutation_read, .context = &mutation, .media_size = 2048U,
+		.fat_offset = 1024U, .data_offset = 1536U, .cluster_count = 4U,
+		.total_sectors = 4U, .fat_sectors = 1U, .bytes_per_sector = 512U,
+		.sectors_per_cluster = 1U, .fat_count = 1U, .fat_type = CDK2_FAT32,
+		.fsinfo_sector = 1U
+	};
+	cdk2_fat_set_write_ops(&volume, mutation_write, mutation_flush);
+	write32(mutation.bytes + 512U, 0x41615252U);
+	write32(mutation.bytes + 512U + 484U, 0x61417272U);
+	write32(mutation.bytes + 512U + 488U, 3U);
+	write32(mutation.bytes + 512U + 492U, 3U);
+	write32(mutation.bytes + 512U + 508U, 0xaa550000U);
+	write32(mutation.bytes + 1024U + 8U, 0x0fffffffU);
+	{
+		uint32_t first = 2U;
+		size_t change_count = 8U;
+		failures += expect(cdk2_fat_resize_chain(&volume, &first, 1U, 1024U,
+			changes, &change_count) == EFI_SUCCESS &&
+			mutation.bytes[512U + 488U] == 0xffU &&
+			mutation.bytes[512U + 492U] == 0xffU && mutation.flushes == 1U,
+			"FAT32 FSInfo was not conservatively invalidated and flushed");
+		write32(mutation.bytes + 1024U + 8U, 0x0fffffffU);
+		write32(mutation.bytes + 1024U + 12U, 0U);
+		mutation.flush_status = EFI_DEVICE_ERROR; change_count = 8U;
+		failures += expect(cdk2_fat_resize_chain(&volume, &first, 1U, 1024U,
+			changes, &change_count) == EFI_DEVICE_ERROR &&
+			(test_read32(mutation.bytes + 1024U + 8U) & 0x0fffffffU) ==
+				0x0fffffffU && test_read32(mutation.bytes + 1024U + 12U) == 0U,
+			"flush failure did not roll back FAT allocation");
+	}
 	return failures == 0 ? 0 : 1;
 }

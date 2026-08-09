@@ -9,18 +9,31 @@
 #define CDK2_FAT12 12U
 #define CDK2_FAT16 16U
 #define CDK2_FAT32 32U
+#define CDK2_FAT_WRITE_PROTECTED (0x8000000000000000ULL | 8ULL)
+#define CDK2_FAT_MEDIA_CHANGED (0x8000000000000000ULL | 13ULL)
 
 typedef uint64_t cdk2_fat_read_fn(void *context, uint64_t offset, size_t size,
 	void *buffer);
+typedef uint64_t cdk2_fat_write_fn(void *context, uint64_t offset, size_t size,
+	const void *buffer);
+typedef uint64_t cdk2_fat_flush_fn(void *context);
 
 struct cdk2_fat_volume {
 	cdk2_fat_read_fn *read;
+	cdk2_fat_write_fn *write;
+	cdk2_fat_flush_fn *flush;
 	void *context;
 	uint64_t media_size;
 	uint64_t fat_offset, data_offset, root_offset;
 	uint32_t total_sectors, fat_sectors, cluster_count, root_cluster;
 	uint16_t bytes_per_sector, root_entries;
+	uint16_t fsinfo_sector;
 	uint8_t sectors_per_cluster, fat_count, fat_type;
+	uint8_t read_only, write_protected, media_changed;
+};
+
+struct cdk2_fat_change {
+	uint32_t cluster, old_value;
 };
 
 struct cdk2_fat_directory_entry {
@@ -67,5 +80,10 @@ uint64_t cdk2_fat_file_set_position(struct cdk2_fat_file *file,
 	uint64_t position);
 uint64_t cdk2_fat_file_get_info(const struct cdk2_fat_file *file,
 	size_t *size, struct cdk2_fat_file_info *info);
+void cdk2_fat_set_write_ops(struct cdk2_fat_volume *volume,
+	cdk2_fat_write_fn *write, cdk2_fat_flush_fn *flush);
+uint64_t cdk2_fat_resize_chain(struct cdk2_fat_volume *volume,
+	uint32_t *first_cluster, uint32_t old_size, uint32_t new_size,
+	struct cdk2_fat_change *changes, size_t *change_count);
 
 #endif

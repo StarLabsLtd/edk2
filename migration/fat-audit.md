@@ -19,3 +19,10 @@ cluster geometry.  It deliberately publishes no production protocol yet.
 Standalone ABI entry, filesystem mutation, asynchronous I/O, and exact FFS
 packaging remain blocked on later tested slices; the retained inventory and FV
 are unchanged.
+
+The mutation core uses caller-provided rollback storage so allocation never
+depends on hidden global memory.  It mirrors FAT changes, invalidates valid
+FAT32 FSInfo hints, flushes, and restores FAT entries after write or flush
+failure.  Directory-entry/LFN creation and deletion are not yet connected to
+this allocator, so no writable file-handle or production protocol claim is
+made by this slice.

@@ -84,10 +84,20 @@ uint64_t cdk2_fat_probe(struct cdk2_fat_volume *volume,
 		.cluster_count = data_sectors / sectors_per_cluster,
 		.root_cluster = fat_type == CDK2_FAT32 ? read32(sector + 44U) : 0U,
 		.bytes_per_sector = bytes_per_sector, .root_entries = root_entries,
+		.fsinfo_sector = fat_type == CDK2_FAT32 ? read16(sector + 48U) : 0U,
 		.sectors_per_cluster = sectors_per_cluster, .fat_count = fat_count,
 		.fat_type = fat_type
 	};
 	return EFI_SUCCESS;
+}
+
+void cdk2_fat_set_write_ops(struct cdk2_fat_volume *volume,
+	cdk2_fat_write_fn *write, cdk2_fat_flush_fn *flush)
+{
+	if (volume == NULL)
+		return;
+	volume->write = write;
+	volume->flush = flush;
 }
 
 uint64_t cdk2_fat_cluster_offset(const struct cdk2_fat_volume *volume,
@@ -147,6 +157,242 @@ uint64_t cdk2_fat_next_cluster(const struct cdk2_fat_volume *volume,
 		return FAT_VOLUME_CORRUPTED;
 	*next = value;
 	return EFI_SUCCESS;
+}
+
+static uint64_t raw_fat_value(const struct cdk2_fat_volume *volume,
+	uint32_t cluster, uint32_t *value)
+{
+	uint8_t data[4];
+	uint64_t offset, status;
+	size_t width;
+
+	if (volume->fat_type == CDK2_FAT12) {
+		offset = volume->fat_offset + cluster + cluster / 2U; width = 2U;
+	} else if (volume->fat_type == CDK2_FAT16) {
+		offset = volume->fat_offset + (uint64_t)cluster * 2U; width = 2U;
+	} else {
+		offset = volume->fat_offset + (uint64_t)cluster * 4U; width = 4U;
+	}
+	status = volume->read(volume->context, offset, width, data);
+	if (status != EFI_SUCCESS)
+		return status;
+	*value = width == 2U ? read16(data) : read32(data);
+	if (volume->fat_type == CDK2_FAT12)
+		*value = (cluster & 1U) != 0U ? *value >> 4 : *value & 0xfffU;
+	else if (volume->fat_type == CDK2_FAT32)
+		*value &= 0x0fffffffU;
+	return EFI_SUCCESS;
+}
+
+static uint32_t end_marker(const struct cdk2_fat_volume *volume)
+{
+	return volume->fat_type == CDK2_FAT12 ? 0xfffU :
+		volume->fat_type == CDK2_FAT16 ? 0xffffU : 0x0fffffffU;
+}
+
+static uint64_t write_fat_value(struct cdk2_fat_volume *volume,
+	uint32_t cluster, uint32_t value)
+{
+	uint8_t data[4];
+	uint64_t base, offset, status;
+	uint32_t mirror;
+	size_t width;
+
+	for (mirror = 0U; mirror < volume->fat_count; mirror++) {
+		base = volume->fat_offset + (uint64_t)mirror * volume->fat_sectors *
+			volume->bytes_per_sector;
+		if (volume->fat_type == CDK2_FAT12) {
+			offset = base + cluster + cluster / 2U; width = 2U;
+			status = volume->read(volume->context, offset, width, data);
+			if (status != EFI_SUCCESS)
+				return status;
+			if ((cluster & 1U) != 0U) {
+				data[0] = (uint8_t)((data[0] & 0x0fU) | (value << 4));
+				data[1] = (uint8_t)(value >> 4);
+			} else {
+				data[0] = (uint8_t)value;
+				data[1] = (uint8_t)((data[1] & 0xf0U) | (value >> 8));
+			}
+		} else if (volume->fat_type == CDK2_FAT16) {
+			offset = base + (uint64_t)cluster * 2U; width = 2U;
+			data[0] = (uint8_t)value; data[1] = (uint8_t)(value >> 8);
+		} else {
+			offset = base + (uint64_t)cluster * 4U; width = 4U;
+			status = volume->read(volume->context, offset, width, data);
+			if (status != EFI_SUCCESS)
+				return status;
+			value &= 0x0fffffffU;
+			data[0] = (uint8_t)value; data[1] = (uint8_t)(value >> 8);
+			data[2] = (uint8_t)(value >> 16);
+			data[3] = (uint8_t)((data[3] & 0xf0U) | (value >> 24));
+		}
+		status = volume->write(volume->context, offset, width, data);
+		if (status != EFI_SUCCESS)
+			return status;
+	}
+	return EFI_SUCCESS;
+}
+
+static uint64_t invalidate_fsinfo(struct cdk2_fat_volume *volume)
+{
+	uint8_t sector[4096];
+	uint64_t offset, status;
+
+	if (volume->fat_type != CDK2_FAT32 || volume->fsinfo_sector == 0U ||
+	    volume->fsinfo_sector >= volume->total_sectors)
+		return EFI_SUCCESS;
+	offset = (uint64_t)volume->fsinfo_sector * volume->bytes_per_sector;
+	status = volume->read(volume->context, offset, volume->bytes_per_sector, sector);
+	if (status != EFI_SUCCESS)
+		return status;
+	if (read32(sector) != 0x41615252U || read32(sector + 484U) != 0x61417272U ||
+	    read32(sector + 508U) != 0xaa550000U)
+		return EFI_SUCCESS;
+	sector[488U] = sector[489U] = sector[490U] = sector[491U] = 0xffU;
+	sector[492U] = sector[493U] = sector[494U] = sector[495U] = 0xffU;
+	return volume->write(volume->context, offset, volume->bytes_per_sector, sector);
+}
+
+static void rollback_changes(struct cdk2_fat_volume *volume,
+	struct cdk2_fat_change *changes, size_t count)
+{
+	while (count != 0U) {
+		count--;
+		(void)write_fat_value(volume, changes[count].cluster,
+			changes[count].old_value);
+	}
+	if (volume->flush != NULL)
+		(void)volume->flush(volume->context);
+}
+
+uint64_t cdk2_fat_resize_chain(struct cdk2_fat_volume *volume,
+	uint32_t *first_cluster, uint32_t old_size, uint32_t new_size,
+	struct cdk2_fat_change *changes, size_t *change_count)
+{
+	uint64_t cluster_size, status;
+	uint32_t old_count, new_count, cluster, next, value, last = 0U;
+	uint32_t index, needed, candidate;
+	size_t capacity, count = 0U;
+	int end;
+
+	if (volume == NULL || first_cluster == NULL || changes == NULL ||
+	    change_count == NULL)
+		return EFI_INVALID_PARAMETER;
+	if (volume->media_changed)
+		return CDK2_FAT_MEDIA_CHANGED;
+	if (volume->read_only || volume->write_protected)
+		return CDK2_FAT_WRITE_PROTECTED;
+	if (volume->write == NULL)
+		return EFI_UNSUPPORTED;
+	cluster_size = (uint64_t)volume->bytes_per_sector *
+		volume->sectors_per_cluster;
+	old_count = old_size == 0U ? 0U : (uint32_t)((old_size + cluster_size - 1U) /
+		cluster_size);
+	new_count = new_size == 0U ? 0U : (uint32_t)((new_size + cluster_size - 1U) /
+		cluster_size);
+	capacity = *change_count; *change_count = 0U;
+	if (old_count != 0U && (*first_cluster < 2U ||
+	    *first_cluster >= volume->cluster_count + 2U))
+		return FAT_VOLUME_CORRUPTED;
+	cluster = *first_cluster;
+	for (index = 0U; index < old_count; index++) {
+		last = cluster;
+		if (index + 1U == old_count)
+			break;
+		status = cdk2_fat_next_cluster(volume, cluster, &next, &end);
+		if (status != EFI_SUCCESS || end)
+			return status == EFI_SUCCESS ? FAT_VOLUME_CORRUPTED : status;
+		cluster = next;
+	}
+	if (new_count > old_count) {
+		needed = new_count - old_count;
+		for (candidate = 2U; candidate < volume->cluster_count + 2U &&
+		     needed != 0U; candidate++) {
+			status = raw_fat_value(volume, candidate, &value);
+			if (status != EFI_SUCCESS)
+				return status;
+			if (value != 0U)
+				continue;
+			if (count == capacity) {
+				*change_count = count + needed;
+				return EFI_BUFFER_TOO_SMALL;
+			}
+			changes[count++] = (struct cdk2_fat_change) { candidate, 0U };
+			needed--;
+		}
+		if (needed != 0U)
+			return EFI_VOLUME_FULL;
+		if (old_count != 0U) {
+			if (count == capacity) {
+				*change_count = count + 1U;
+				return EFI_BUFFER_TOO_SMALL;
+			}
+			status = raw_fat_value(volume, last, &value);
+			if (status != EFI_SUCCESS)
+				return status;
+			changes[count++] = (struct cdk2_fat_change) { last, value };
+		}
+		for (index = 0U; index < new_count - old_count; index++) {
+			next = index + 1U < new_count - old_count ?
+				changes[index + 1U].cluster : end_marker(volume);
+			status = write_fat_value(volume, changes[index].cluster, next);
+			if (status != EFI_SUCCESS)
+				goto rollback;
+		}
+		if (old_count != 0U) {
+			status = write_fat_value(volume, last, changes[0].cluster);
+			if (status != EFI_SUCCESS)
+				goto rollback;
+		} else {
+			*first_cluster = changes[0].cluster;
+		}
+	} else if (new_count < old_count) {
+		cluster = *first_cluster;
+		for (index = 0U; index < old_count; index++) {
+			status = raw_fat_value(volume, cluster, &value);
+			if (status != EFI_SUCCESS)
+				return status;
+			if (index + 1U >= new_count) {
+				if (count == capacity) {
+					*change_count = count + old_count - index;
+					return EFI_BUFFER_TOO_SMALL;
+				}
+				changes[count++] = (struct cdk2_fat_change) { cluster, value };
+			}
+			if (index + 1U == old_count)
+				break;
+			status = cdk2_fat_next_cluster(volume, cluster, &next, &end);
+			if (status != EFI_SUCCESS || end)
+				return status == EFI_SUCCESS ? FAT_VOLUME_CORRUPTED : status;
+			cluster = next;
+		}
+		if (new_count != 0U)
+			status = write_fat_value(volume, changes[0].cluster,
+				end_marker(volume));
+		else
+			status = EFI_SUCCESS;
+		for (index = new_count == 0U ? 0U : 1U;
+		     status == EFI_SUCCESS && index < count; index++)
+			status = write_fat_value(volume, changes[index].cluster, 0U);
+		if (status != EFI_SUCCESS)
+			goto rollback;
+		if (new_count == 0U)
+			*first_cluster = 0U;
+	}
+	status = invalidate_fsinfo(volume);
+	if (status != EFI_SUCCESS)
+		goto rollback;
+	if (volume->flush != NULL) {
+		status = volume->flush(volume->context);
+		if (status != EFI_SUCCESS)
+			goto rollback;
+	}
+	*change_count = count;
+	return EFI_SUCCESS;
+rollback:
+	rollback_changes(volume, changes, count);
+	*change_count = count;
+	return status;
 }
 
 uint64_t cdk2_fat_read_file(const struct cdk2_fat_volume *volume,
