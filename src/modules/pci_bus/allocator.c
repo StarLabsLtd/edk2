@@ -204,10 +204,22 @@ static int stage_sriov(const struct cdk2_pci_cfg *cfg,
 
 static int stage_bridge(const struct cdk2_pci_cfg *cfg,
 	struct cdk2_pci_function *bridge, const struct cdk2_pci_topology *topology,
-	struct cdk2_pci_allocation_policy *policy, struct journal *journal)
+	struct cdk2_pci_allocation_policy *policy, struct journal *journal,
+	const struct cdk2_pci_function *preserve)
 {
 	uint64_t io_min = UINT64_MAX, io_max = 0, mem_min = UINT64_MAX, mem_max = 0;
 	uint64_t pref_min = UINT64_MAX, pref_max = 0;
+	if (preserve != NULL) {
+		if (preserve->io_base <= preserve->io_limit) {
+			io_min = preserve->io_base; io_max = preserve->io_limit;
+		}
+		if (preserve->memory_base <= preserve->memory_limit) {
+			mem_min = preserve->memory_base; mem_max = preserve->memory_limit;
+		}
+		if (preserve->prefetch_base <= preserve->prefetch_limit) {
+			pref_min = preserve->prefetch_base; pref_max = preserve->prefetch_limit;
+		}
+	}
 	for (size_t i = 0; i < topology->count; i++) {
 		const struct cdk2_pci_function *child = &topology->functions[i];
 		if (child->bus < bridge->secondary_bus || child->bus > bridge->subordinate_bus)
@@ -402,7 +414,7 @@ int cdk2_pci_allocate_root_resources(const struct cdk2_pci_cfg *cfg,
 		if (root < 0)
 			return -1;
 		if ((fn->header_type & 0x7fU) == 1U &&
-		    stage_bridge(cfg, fn, &staged, &policies[root], &journal) != 0)
+		    stage_bridge(cfg, fn, &staged, &policies[root], &journal, NULL) != 0)
 			return -1;
 		if ((fn->header_type & 0x7fU) == 2U &&
 		    stage_cardbus(cfg, fn, &policies[root], &journal) != 0)
@@ -424,4 +436,196 @@ int cdk2_pci_allocate_resources(const struct cdk2_pci_cfg *cfg,
 	root = (struct cdk2_pci_root_allocation) {
 		.segment = 0, .first_bus = 0, .last_bus = 0xff, .policy = *policy };
 	return cdk2_pci_allocate_root_resources(cfg, topology, &root, 1);
+}
+
+struct occupied_interval { uint64_t base, limit; uint8_t resource; };
+
+static int same_bdf(const struct cdk2_pci_function *left,
+	const struct cdk2_pci_function *right)
+{
+	return left->bus == right->bus && left->device == right->device &&
+		left->function == right->function;
+}
+
+static uint8_t resource_index(const struct cdk2_pci_bar *bar)
+{
+	if (bar->kind == CDK2_PCI_BAR_IO)
+		return 0;
+	if (bar->prefetchable)
+		return 3;
+	return bar->kind == CDK2_PCI_BAR_MEM64 ? 2 : 1;
+}
+
+static int gap_allocate(const struct cdk2_pci_aperture *aperture,
+	struct occupied_interval occupied[], size_t *occupied_count, uint8_t resource,
+	uint64_t size, uint64_t alignment, uint64_t *base)
+{
+	uint64_t candidate;
+	if (size == 0U || (alignment & (alignment + 1U)) != 0U ||
+	    aperture->base > UINT64_MAX - alignment)
+		return -1;
+	candidate = (aperture->base + alignment) & ~alignment;
+	for (;;) {
+		uint64_t next = candidate; int overlap = 0;
+		if (candidate > aperture->limit || size - 1U > aperture->limit - candidate)
+			return -1;
+		for (size_t i = 0; i < *occupied_count; i++)
+			if (occupied[i].resource == resource &&
+			    candidate <= occupied[i].limit &&
+			    candidate + size - 1U >= occupied[i].base) {
+				if (occupied[i].limit == UINT64_MAX ||
+				    occupied[i].limit + 1U > UINT64_MAX - alignment)
+					return -1;
+				next = (occupied[i].limit + 1U + alignment) & ~alignment;
+				overlap = 1;
+			}
+		if (!overlap)
+			break;
+		candidate = next;
+	}
+	if (*occupied_count == JOURNAL_MAX)
+		return -1;
+	occupied[(*occupied_count)++] = (struct occupied_interval) {
+		candidate, candidate + size - 1U, resource };
+	*base = candidate;
+	return 0;
+}
+
+static int stage_hot_bar(const struct cdk2_pci_cfg *cfg,
+	struct cdk2_pci_function *fn, struct cdk2_pci_bar *bar,
+	const struct cdk2_pci_allocation_policy *policy,
+	struct occupied_interval occupied[], size_t *occupied_count,
+	uint64_t length, uint16_t offset, struct journal *journal)
+{
+	uint64_t base; uint32_t original; uint8_t resource = resource_index(bar);
+	const struct cdk2_pci_aperture *aperture = resource == 0 ? &policy->io :
+		(resource == 1 ? &policy->mem32 :
+		(resource == 2 ? &policy->mem64 : &policy->prefetch));
+	if (gap_allocate(aperture, occupied, occupied_count, resource, length,
+		bar->size - 1U, &base) != 0 || cfg_read(cfg, fn, offset, 4,
+		&original) != 0 || stage_write(cfg, fn, offset, 4,
+		(uint32_t)base | (original & (bar->kind == CDK2_PCI_BAR_IO ? 3U :
+		(bar->kind == CDK2_PCI_BAR_ROM ? 0x7ffU : 0x0fU))), journal) != 0)
+		return -1;
+	bar->base = base;
+	if (bar->kind == CDK2_PCI_BAR_MEM64 && stage_write(cfg, fn, offset + 4U,
+		4, (uint32_t)(base >> 32), journal) != 0)
+		return -1;
+	return 0;
+}
+
+static int hot_add(const struct cdk2_pci_cfg *cfg,
+	const struct cdk2_pci_topology *retained,
+	struct cdk2_pci_topology *discovered,
+	const struct cdk2_pci_allocation_policy *policy,
+	int (*publish)(void *context, const struct cdk2_pci_topology *topology),
+	void *context)
+{
+	struct cdk2_pci_topology staged;
+	struct occupied_interval occupied[JOURNAL_MAX]; size_t occupied_count = 0;
+	struct journal journal = { 0 }; uint8_t existing[CDK2_PCI_MAX_FUNCTIONS] = { 0 };
+	uint32_t commands[CDK2_PCI_MAX_FUNCTIONS];
+	if (cfg == NULL || cfg->read == NULL || cfg->write == NULL || retained == NULL ||
+	    discovered == NULL || policy == NULL || retained->count > discovered->count)
+		return -1;
+	staged = *discovered;
+	for (size_t old = 0; old < retained->count; old++) {
+		size_t found;
+		for (found = 0; found < staged.count; found++)
+			if (same_bdf(&retained->functions[old], &staged.functions[found]))
+				break;
+		if (found == staged.count || existing[found] ||
+		    retained->functions[old].bar_count != staged.functions[found].bar_count)
+			return -1;
+		existing[found] = 1;
+		for (uint8_t bar = 0; bar < retained->functions[old].bar_count; bar++) {
+			const struct cdk2_pci_bar *live = &retained->functions[old].bars[bar];
+			struct cdk2_pci_bar *probe = &staged.functions[found].bars[bar];
+			if (live->kind != probe->kind || live->size != probe->size ||
+			    live->base > UINT64_MAX - (live->size - 1U) ||
+			    occupied_count == JOURNAL_MAX)
+				return -1;
+			*probe = *live;
+			occupied[occupied_count++] = (struct occupied_interval) {
+				live->base, live->base + live->size - 1U,
+				resource_index(live) };
+		}
+	}
+	for (size_t i = 0; i < staged.count; i++) {
+		struct cdk2_pci_function *fn = &staged.functions[i];
+		if (existing[i])
+			continue;
+		if (cfg_read(cfg, fn, PCI_COMMAND, 2, &commands[i]) != 0 ||
+		    stage_write(cfg, fn, PCI_COMMAND, 2, commands[i] & ~3U,
+			&journal) != 0 || stage_controls(cfg, fn, policy, &journal) != 0)
+			return -1;
+		for (uint8_t bar = 0; bar < fn->bar_count; bar++) {
+			struct cdk2_pci_bar *resource = &fn->bars[bar];
+			uint16_t offset = resource->index == 6U ?
+				(((fn->header_type & 0x7fU) == 1U) ? 0x38U : 0x30U) :
+				(uint16_t)(PCI_BAR0 + resource->index * 4U);
+			if (stage_hot_bar(cfg, fn, resource, policy, occupied,
+				&occupied_count, resource->size, offset, &journal) != 0)
+				return -1;
+		}
+		for (uint8_t bar = 0; policy->enable_sriov && bar < fn->vf_bar_count;
+		     bar++) {
+			struct cdk2_pci_bar *resource = &fn->vf_bars[bar];
+			if (fn->total_vfs == 0U || resource->size > UINT64_MAX / fn->total_vfs ||
+			    stage_hot_bar(cfg, fn, resource, policy, occupied, &occupied_count,
+				resource->size * fn->total_vfs,
+				fn->sriov_cap + 0x24U + resource->index * 4U,
+				&journal) != 0)
+				return -1;
+		}
+		if (stage_sriov(cfg, fn, policy, &journal) != 0 ||
+		    stage_write(cfg, fn, PCI_COMMAND, 2, commands[i], &journal) != 0)
+			return -1;
+	}
+	for (size_t i = staged.count; i != 0U; i--) {
+		struct cdk2_pci_function *bridge = &staged.functions[i - 1U];
+		const struct cdk2_pci_function *preserve = NULL;
+		if ((bridge->header_type & 0x7fU) != 1U)
+			continue;
+		for (size_t old = 0; old < retained->count; old++)
+			if (same_bdf(bridge, &retained->functions[old]))
+				preserve = &retained->functions[old];
+		bridge->hotplug_bridge = 0;
+		if (stage_bridge(cfg, bridge, &staged,
+			(struct cdk2_pci_allocation_policy *)policy, &journal,
+			preserve) != 0)
+			return -1;
+	}
+	if (commit(cfg, &journal) != 0)
+		return -1;
+	if (publish != NULL && publish(context, &staged) != 0) {
+		while (journal.count != 0U) {
+			struct journal_entry *entry = &journal.entries[--journal.count];
+			if (cfg->write(cfg->context, entry->bus, entry->device,
+				entry->function, entry->offset, entry->width,
+				entry->original) != 0)
+				return -1;
+		}
+		return -1;
+	}
+	*discovered = staged;
+	return 0;
+}
+
+int cdk2_pci_allocate_hot_add(const struct cdk2_pci_cfg *cfg,
+	const struct cdk2_pci_topology *retained,
+	struct cdk2_pci_topology *discovered,
+	const struct cdk2_pci_allocation_policy *policy)
+{ return hot_add(cfg, retained, discovered, policy, NULL, NULL); }
+
+int cdk2_pci_hot_add_transaction(const struct cdk2_pci_cfg *cfg,
+	const struct cdk2_pci_topology *retained,
+	struct cdk2_pci_topology *discovered,
+	const struct cdk2_pci_allocation_policy *policy,
+	int (*publish)(void *context, const struct cdk2_pci_topology *topology),
+	void *context)
+{
+	if (publish == NULL)
+		return -1;
+	return hot_add(cfg, retained, discovered, policy, publish, context);
 }

@@ -194,6 +194,16 @@ int cdk2_pci_allocate_resources(const struct cdk2_pci_cfg *cfg,
 int cdk2_pci_allocate_root_resources(const struct cdk2_pci_cfg *cfg,
 	struct cdk2_pci_topology *topology,
 	const struct cdk2_pci_root_allocation *roots, size_t root_count);
+int cdk2_pci_allocate_hot_add(const struct cdk2_pci_cfg *cfg,
+	const struct cdk2_pci_topology *retained,
+	struct cdk2_pci_topology *discovered,
+	const struct cdk2_pci_allocation_policy *policy);
+int cdk2_pci_hot_add_transaction(const struct cdk2_pci_cfg *cfg,
+	const struct cdk2_pci_topology *retained,
+	struct cdk2_pci_topology *discovered,
+	const struct cdk2_pci_allocation_policy *policy,
+	int (*publish)(void *context, const struct cdk2_pci_topology *topology),
+	void *context);
 int cdk2_pci_host_begin(struct cdk2_pci_bus_host_model *host,
 	const struct cdk2_pci_cfg *cfg, struct cdk2_pci_topology *topology);
 int cdk2_pci_host_submit(struct cdk2_pci_bus_host_model *host,

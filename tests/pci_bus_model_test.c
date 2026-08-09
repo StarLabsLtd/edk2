@@ -847,6 +847,46 @@ static int temporary_bridge_and_crs_test(void)
 	return 0;
 }
 
+static int reject_hot_add(void *context, const struct cdk2_pci_topology *topology)
+{ (void)context; (void)topology; return -1; }
+
+static int hot_add_allocator_test(void)
+{
+	struct fixture f = { 0 };
+	struct cdk2_pci_cfg cfg = { .context = &f, .read = rd, .write = wr };
+	struct cdk2_pci_topology retained = { .count = 1 }, discovered;
+	struct cdk2_pci_allocation_policy policy = {
+		.mem32 = { 0x80000000, 0x8000ffff, 0x80000000 } };
+	struct device *new_device;
+	add(&f, 0, 1, 0, 1, 1, 0); new_device = add(&f, 0, 2, 0, 2, 2, 0);
+	retained.functions[0] = (struct cdk2_pci_function) {
+		.device = 1, .parent_index = CDK2_PCI_ROOT_PARENT, .bar_count = 1,
+		.bars[0] = { CDK2_PCI_BAR_MEM32, 0, 0, 0x80000000, 0x1000 } };
+	discovered = retained; discovered.count = 2;
+	discovered.functions[1] = (struct cdk2_pci_function) {
+		.device = 2, .parent_index = CDK2_PCI_ROOT_PARENT, .bar_count = 1,
+		.bars[0] = { CDK2_PCI_BAR_MEM32, 0, 0, 0, 0x1000 } };
+	CHECK(cdk2_pci_allocate_hot_add(&cfg, &retained, &discovered, &policy) == 0);
+	CHECK(discovered.functions[0].bars[0].base == 0x80000000);
+	CHECK(discovered.functions[1].bars[0].base == 0x80001000);
+	CHECK(get(new_device->data + 0x10, 4) == 0x80001000);
+	put32(new_device->data + 0x10, 0); discovered = retained;
+	discovered.count = 2;
+	discovered.functions[1] = (struct cdk2_pci_function) {
+		.device = 2, .parent_index = CDK2_PCI_ROOT_PARENT, .bar_count = 1,
+		.bars[0] = { CDK2_PCI_BAR_MEM32, 0, 0, 0, 0x1000 } };
+	f.fail_write = 2; f.writes = 0;
+	CHECK(cdk2_pci_allocate_hot_add(&cfg, &retained, &discovered, &policy) != 0);
+	CHECK(get(new_device->data + 0x10, 4) == 0);
+	CHECK(discovered.functions[1].bars[0].base == 0);
+	f.fail_write = 0; f.writes = 0;
+	CHECK(cdk2_pci_hot_add_transaction(&cfg, &retained, &discovered, &policy,
+		reject_hot_add, NULL) != 0);
+	CHECK(get(new_device->data + 0x10, 4) == 0);
+	CHECK(discovered.functions[1].bars[0].base == 0);
+	return 0;
+}
+
 static int corruption_test(void)
 {
 	struct fixture f = { 0 };
@@ -863,7 +903,8 @@ static int corruption_test(void)
 int main(void)
 {
 	if (topology_test() || temporary_bridge_and_crs_test() ||
-	    overflow_and_cardbus_test() || allocator_test() || host_and_rom_test() ||
+	    overflow_and_cardbus_test() || allocator_test() || hot_add_allocator_test() ||
+	    host_and_rom_test() ||
 	    hotplug_rollback_test() || cardbus_socket_test() || corruption_test())
 		return 1;
 	if (pci_io_core_test() || multi_root_atomic_test() || binding_lifecycle_test() ||
