@@ -15,9 +15,13 @@ struct boot_view {
 	wait_event_fn *wait_event;
 	void *signal_event;
 	close_event_fn *close_event;
-	UINT8 before_locate[216];
+	UINT8 before_locate[224];
 	locate_fn *locate_protocol;
 };
+typedef char create_event_offset_must_be_56[
+	offsetof(struct boot_view, create_event) == 56U ? 1 : -1];
+typedef char locate_protocol_offset_must_be_320[
+	offsetof(struct boot_view, locate_protocol) == 320U ? 1 : -1];
 struct system_view {
 	UINT8 before_boot[96];
 	struct boot_view *boot;
@@ -69,11 +73,14 @@ EFI_STATUS CDK2_MS_ABI fat_qemu_entry(void *image, void *table)
 	serial("CDK2_FAT_ORACLE_ENTRY\r\n");
 	if (system == NULL || system->boot == NULL || system->boot->locate_protocol == NULL ||
 	    EFI_ERROR(system->boot->locate_protocol(&simple_fs_guid, NULL, (void **)&fs)) ||
-	    fs == NULL || EFI_ERROR(fs->open_volume(fs, &root)))
+	    fs == NULL)
+		goto bad;
+	if (EFI_ERROR(fs->open_volume(fs, &root)))
 		goto bad;
 	status = root->open(root, &file, L"\x00e4-sync.tmp", 0x8000000000000003ULL, 0U);
-	if (EFI_ERROR(status) || file == NULL)
+	if (EFI_ERROR(status) || file == NULL) {
 		goto bad;
+	}
 	size = sizeof(written);
 	if (EFI_ERROR(file->write(file, &size, written)) || size != sizeof(written))
 		goto bad;
@@ -83,8 +90,9 @@ EFI_STATUS CDK2_MS_ABI fat_qemu_entry(void *image, void *table)
 	if (EFI_ERROR(file->read(file, &size, readback)))
 		goto bad;
 	for (compare = 0U; compare < sizeof(written); compare++)
-		if (written[compare] != readback[compare])
+		if (written[compare] != readback[compare]) {
 			goto bad;
+		}
 	info.size = sizeof(info);
 	info.file_size = sizeof(written);
 	info.attribute = 0U;

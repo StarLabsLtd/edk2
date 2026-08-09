@@ -53,6 +53,7 @@ struct test_file_info {
 struct test_label_info {
 	CHAR16 label[2];
 };
+extern BOOLEAN cdk2_fat_time_is_valid(const void *time);
 static INTN CDK2_MS_ABI collate(struct cdk2_unicode_collation *self, uint16_t *left,
 				uint16_t *right)
 {
@@ -293,6 +294,12 @@ int main(void)
 	struct cdk2_fat_binding binding = {&ops, &f, NULL, &collation};
 	struct cdk2_fat_mount *first;
 	int failures = 0;
+	struct test_time zero_time = {0};
+	struct test_time invalid_time = {.year = 2026U, .month = 13U, .day = 1U,
+		.timezone = 0x07ff};
+	failures += expect(cdk2_fat_time_is_valid(&zero_time) &&
+			   !cdk2_fat_time_is_valid(&invalid_time),
+			   "SetInfo timestamp validation rejected no-change zero time");
 	unsigned int id;
 	struct cdk2_fat_io_token token = {(void *)3, EFI_SUCCESS};
 	active = &f;

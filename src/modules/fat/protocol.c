@@ -76,11 +76,15 @@ static BOOLEAN bounded_string(const CHAR16 *text, UINTN bytes)
 			return TRUE;
 	return FALSE;
 }
-static BOOLEAN valid_time(const struct efi_time *time)
+BOOLEAN cdk2_fat_time_is_valid(const void *raw)
 {
+	const struct efi_time *time = raw;
+	static const struct efi_time zero_time;
 	static const UINT8 days[] = {31U, 28U, 31U, 30U, 31U, 30U,
 				     31U, 31U, 30U, 31U, 30U, 31U};
 	UINTN limit;
+	if (__builtin_memcmp(time, &zero_time, sizeof(*time)) == 0)
+		return TRUE;
 	if (time->year < 1980U || time->year > 2107U || time->month < 1U || time->month > 12U ||
 	    time->hour > 23U || time->minute > 59U || time->second > 59U ||
 	    time->nanosecond > 999999999U ||
@@ -429,16 +433,24 @@ static EFI_STATUS CDK2_MS_ABI file_set_info(struct cdk2_fat_file_protocol *p, EF
 			    i->size - offsetof(struct efi_file_info, file_name)) ||
 	    i->file_size > UINT32_MAX || (i->attribute & ~0x37ULL) != 0U ||
 	    ((i->attribute ^ h->file.entry.attributes) & 0x10U) != 0U ||
-	    !valid_time(&i->create) || !valid_time(&i->modify))
+	    !cdk2_fat_time_is_valid(&i->create) || !cdk2_fat_time_is_valid(&i->modify))
 		return EFI_INVALID_PARAMETER;
-	create_date =
-	    (UINT16)(((i->create.year - 1980U) << 9) | (i->create.month << 5) | i->create.day);
-	create_time = (UINT16)((i->create.hour << 11) | (i->create.minute << 5) |
-			       (i->create.second / 2U));
-	write_date =
-	    (UINT16)(((i->modify.year - 1980U) << 9) | (i->modify.month << 5) | i->modify.day);
-	write_time = (UINT16)((i->modify.hour << 11) | (i->modify.minute << 5) |
-			      (i->modify.second / 2U));
+	create_date = i->create.year == 0U
+			      ? h->file.entry.creation_date
+			      : (UINT16)(((i->create.year - 1980U) << 9) |
+					 (i->create.month << 5) | i->create.day);
+	create_time = i->create.year == 0U
+			      ? h->file.entry.creation_time
+			      : (UINT16)((i->create.hour << 11) | (i->create.minute << 5) |
+					 (i->create.second / 2U));
+	write_date = i->modify.year == 0U
+			     ? h->file.entry.write_date
+			     : (UINT16)(((i->modify.year - 1980U) << 9) |
+					(i->modify.month << 5) | i->modify.day);
+	write_time = i->modify.year == 0U
+			     ? h->file.entry.write_time
+			     : (UINT16)((i->modify.hour << 11) | (i->modify.minute << 5) |
+					(i->modify.second / 2U));
 	count = h->file.volume->cluster_count;
 	if ((h->mode & 2U) == 0U)
 		return FAT_ACCESS_DENIED;
