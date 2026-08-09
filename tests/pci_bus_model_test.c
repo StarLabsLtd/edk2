@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 #include <cdk2/pci_bus_model.h>
 #include <cdk2/pci_io_model.h>
+#include <cdk2/pci_io_abi.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -503,34 +504,90 @@ static int hotplug_rollback_test(void)
 	return 0;
 }
 
+struct io_fixture { uint64_t observed; uint16_t command; unsigned int frees; };
+
 static int io_access(void *context, enum cdk2_pci_io_space space, int write,
 	unsigned int width, uint64_t address, size_t count, void *buffer)
 {
-	uint64_t *observed = context;
-	(void)space; (void)write; (void)width; (void)count; (void)buffer;
-	*observed = address;
+	struct io_fixture *fixture = context;
+	(void)width; (void)count;
+	fixture->observed = address;
+	if (space == CDK2_PCI_IO_CONFIG && address == 4U) {
+		if (write)
+			fixture->command = *(uint16_t *)buffer;
+		else
+			*(uint16_t *)buffer = fixture->command;
+	} else if (!write) {
+		*(uint64_t *)buffer = 0x55;
+	}
 	return 0;
 }
 
+static int io_delay(void *context, uint64_t ticks)
+{ (void)context; (void)ticks; return 0; }
+static void *io_allocate(void *context, size_t pages, int below_4g)
+{ (void)context; (void)below_4g; return calloc(pages, 4096); }
+static int io_free(void *context, size_t pages, void *buffer)
+{ struct io_fixture *f = context; (void)pages; f->frees++; free(buffer); return 0; }
+static void *io_allocate_pool(void *context, size_t size)
+{ (void)context; return calloc(1, size); }
+
 static int pci_io_core_test(void)
 {
-	uint64_t observed = 0, value = 0, attributes;
+	struct io_fixture fixture = { 0 };
+	uint64_t value = 0, attributes, poll_result;
+	struct cdk2_pci_io_instance instance;
+	uint8_t dma[16] = { 1, 2, 3 }; size_t dma_size = sizeof(dma);
+	uint64_t device_address; void *mapping, *allocated;
+	void *bar_resources; UINT64 bar_supports;
+	uint16_t segment; uint8_t bus, device, function;
 	struct cdk2_pci_io_model io = {
-		.backend = { &observed, io_access },
+		.backend = { .context = &fixture, .access = io_access, .delay = io_delay,
+			.allocate = io_allocate, .free = io_free,
+			.allocate_pool = io_allocate_pool },
 		.bar_base = { 0x80000000 }, .bar_size = { 0x1000 },
-		.supported_attributes = 7,
+		.supported_attributes = 0x700, .segment = 1, .bus = 2, .device = 3,
+		.function = 4,
 	};
 	CHECK(cdk2_pci_io_access(&io, CDK2_PCI_IO_MEM, 0, 0, 0x100, 2, 4,
 		&value) == 0);
-	CHECK(observed == 0x80000100);
+	CHECK(fixture.observed == 0x80000100);
 	CHECK(cdk2_pci_io_access(&io, CDK2_PCI_IO_MEM, 0, 0, 0xfff, 2, 1,
 		&value) != 0);
 	CHECK(cdk2_pci_io_access(&io, CDK2_PCI_IO_CONFIG, 0, 0, 0xffc, 2, 1,
 		&value) == 0);
-	CHECK(cdk2_pci_io_attributes(&io, 2, 3, NULL) == 0);
+	CHECK(cdk2_pci_io_poll(&io, CDK2_PCI_IO_MEM, 0, 0, 0, UINT64_MAX, 0x55, 1,
+		&poll_result) == 0);
+	CHECK(cdk2_pci_io_attributes(&io, 2, 0x300, NULL) == 0);
+	CHECK(fixture.command == 3);
 	CHECK(cdk2_pci_io_attributes(&io, 0, 0, &attributes) == 0);
-	CHECK(attributes == 3);
+	CHECK(attributes == 0x300);
 	CHECK(cdk2_pci_io_attributes(&io, 1, 8, NULL) != 0);
+	cdk2_pci_io_initialize_protocol(&instance, &io);
+	CHECK(sizeof(instance.protocol) == 168);
+	CHECK(offsetof(struct cdk2_efi_pci_io_protocol, map) == 80);
+	CHECK(offsetof(struct cdk2_efi_pci_io_protocol, attributes) == 128);
+	CHECK(offsetof(struct cdk2_efi_pci_io_protocol, rom_image) == 160);
+	CHECK(instance.protocol.mem.read(&instance.protocol, 2, 0, 0, 1,
+		&value) == EFI_SUCCESS);
+	CHECK(instance.protocol.rom_size == io.rom_size);
+	CHECK(instance.protocol.get_bar_attributes(&instance.protocol, 0, &bar_supports,
+		&bar_resources) == EFI_SUCCESS);
+	CHECK(((uint8_t *)bar_resources)[0] == 0x8a);
+	free(bar_resources);
+	CHECK(cdk2_pci_io_map(&io, 0, dma, &dma_size, &device_address, &mapping) == 0);
+	CHECK(mapping != NULL && *(uint8_t *)(uintptr_t)device_address == 1);
+	CHECK(cdk2_pci_io_unmap(&io, mapping) == 0);
+	dma_size = sizeof(dma);
+	CHECK(cdk2_pci_io_map(&io, 1, dma, &dma_size, &device_address, &mapping) == 0);
+	*(uint8_t *)(uintptr_t)device_address = 9;
+	CHECK(cdk2_pci_io_unmap(&io, mapping) == 0 && dma[0] == 9);
+	allocated = cdk2_pci_io_allocate_buffer(&io, 1, 0);
+	CHECK(allocated != NULL);
+	CHECK(cdk2_pci_io_free_buffer(&io, 1, allocated) == 0);
+	CHECK(cdk2_pci_io_flush(&io) == 0);
+	CHECK(cdk2_pci_io_get_location(&io, &segment, &bus, &device, &function) == 0);
+	CHECK(segment == 1 && bus == 2 && device == 3 && function == 4);
 	return 0;
 }
 
