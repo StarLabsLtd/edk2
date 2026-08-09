@@ -490,14 +490,14 @@ static EFI_STATUS render_messaging(struct writer *writer, const UINT8 *node,
 			node[8] == 9 ? "UsbHub" : node[8] == 10 ? "UsbCDCData" :
 			node[8] == 11 ? "UsbSmartCard" : node[8] == 14 ? "UsbVideo" :
 			node[8] == 0xdc ? "UsbDiagnostic" : node[8] == 0xe0 ? "UsbWireless" : NULL;
-		if (node[8] == 0xfe && node[9] >= 1 && node[9] <= 3) {
+		if (shortcuts && node[8] == 0xfe && node[9] >= 1 && node[9] <= 3) {
 			name = node[9] == 1 ? "UsbDeviceFirmwareUpdate" :
 				node[9] == 2 ? "UsbIrdaBridge" : "UsbTestAndMeasurement";
 			puts8(writer, name); put(writer, '('); put_0x(writer, read16(node + 4));
 			put(writer, ','); put_0x(writer, read16(node + 6)); put(writer, ',');
 			put_0x(writer, node[10]); put(writer, ')'); return EFI_SUCCESS;
 		}
-		if (name != NULL) {
+		if (name != NULL && shortcuts) {
 			puts8(writer, name); put(writer, '('); put_0x(writer, read16(node + 4));
 			put(writer, ','); put_0x(writer, read16(node + 6)); put(writer, ',');
 			put_0x(writer, node[9]); put(writer, ','); put_0x(writer, node[10]);

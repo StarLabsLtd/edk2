@@ -143,6 +143,49 @@ static int parser_tests(const struct cdk2_device_path_allocator *allocator)
 	failures += expect(cdk2_device_path_from_text(text, allocator, &path) ==
 		EFI_OUT_OF_RESOURCES && path == NULL, "parser allocation failure escaped");
 	fail_allocation = FALSE;
+	{
+		CHAR16 many[512];
+		UINTN at = 0;
+		static const char prefix[] = "AcpiAdr(";
+		for (index = 0; prefix[index] != 0; index++)
+			many[at++] = (CHAR16)prefix[index];
+		for (index = 0; index < 65; index++) {
+			if (index != 0)
+				many[at++] = ',';
+			many[at++] = '1';
+		}
+		many[at++] = ')';
+		many[at] = 0;
+		path = NULL;
+		failures += expect(cdk2_device_path_from_text(many, allocator, &path) ==
+			EFI_SUCCESS && cdk2_device_path_node_length(path) == 264,
+			"variable ACPI ADR parser retained 64-argument cap");
+		if (path != NULL)
+			allocator->free(allocator->context, path);
+	}
+	{
+		CHAR16 many[1024];
+		UINTN at = 0;
+		static const char prefix[] = "Dns(";
+		static const char address[] = "1.1.1.1";
+		for (index = 0; prefix[index] != 0; index++)
+			many[at++] = (CHAR16)prefix[index];
+		for (index = 0; index < 65; index++) {
+			UINTN character;
+			if (index != 0)
+				many[at++] = ',';
+			for (character = 0; address[character] != 0; character++)
+				many[at++] = (CHAR16)address[character];
+		}
+		many[at++] = ')';
+		many[at] = 0;
+		path = NULL;
+		failures += expect(cdk2_device_path_from_text(many, allocator, &path) ==
+			EFI_SUCCESS && cdk2_device_path_node_length(path) == 1045,
+			"variable DNS parser retained 64-argument cap");
+		if (path != NULL)
+			allocator->free(allocator->context, path);
+	}
 	return failures;
 }
 
@@ -198,6 +241,40 @@ static int messaging_parser_tests(const struct cdk2_device_path_allocator *alloc
 			EFI_INVALID_PARAMETER && path == NULL && allocations == before,
 			"malformed messaging input accepted");
 	}
+	text16(text, "Uri(abc)");
+	path = NULL;
+	failures += expect(cdk2_device_path_from_text(text, allocator, &path) == EFI_SUCCESS &&
+		cdk2_device_path_node_length(path) == 8 && ((UINT8 *)path)[7] == 0,
+		"URI parser omitted CHAR8 terminator");
+	if (path != NULL)
+		allocator->free(allocator->context, path);
+	text16(text, "UsbWwid(1,2,3,\"serial\")");
+	path = NULL;
+	failures += expect(cdk2_device_path_from_text(text, allocator, &path) == EFI_SUCCESS &&
+		cdk2_device_path_node_length(path) == 24 && ((UINT8 *)path)[22] == 0 &&
+		((UINT8 *)path)[23] == 0, "USB WWID parser omitted CHAR16 terminator");
+	if (path != NULL)
+		allocator->free(allocator->context, path);
+	text16(text, "IPv4(192.0.2.1)");
+	path = NULL;
+	failures += expect(cdk2_device_path_from_text(text, allocator, &path) == EFI_SUCCESS &&
+		cdk2_device_path_node_length(path) == 27,
+		"abbreviated IPv4 parser emitted legacy-size node");
+	if (path != NULL)
+		allocator->free(allocator->context, path);
+	text16(text, "IPv6(0001:0002:0003:0004:0005:0006:0007:0008)");
+	path = NULL;
+	failures += expect(cdk2_device_path_from_text(text, allocator, &path) == EFI_SUCCESS &&
+		cdk2_device_path_node_length(path) == 60,
+		"abbreviated IPv6 parser emitted legacy-size node");
+	if (path != NULL)
+		allocator->free(allocator->context, path);
+	text16(text, "UsbWwid(1,2,3,\"a)b\")");
+	path = NULL;
+	failures += expect(cdk2_device_path_from_text(text, allocator, &path) == EFI_SUCCESS,
+		"whole-path scanner treated quoted parenthesis as syntax");
+	if (path != NULL)
+		allocator->free(allocator->context, path);
 	return failures;
 }
 
@@ -209,6 +286,8 @@ static int media_bbs_parser_tests(const struct cdk2_device_path_allocator *alloc
 		"HD(3,7,0,0x5000,0x6000)", "CDROM(0x1,0x200,0x300)",
 		"VenMedia(11223344-5566-7788-0102-030405060708,aa05)",
 		"\\EFI\\BOOT\\BOOTX64.EFI",
+		"\\EFI\\Linux\\kernel(backup).efi",
+		"kernel(backup).efi",
 		"Media(11223344-5566-7788-0102-030405060708)",
 		"FvFile(11223344-5566-7788-0102-030405060708)",
 		"Fv(11223344-5566-7788-0102-030405060708)",
@@ -519,9 +598,13 @@ static int messaging_formatter_tests(void)
 	node[8] = 3; node[9] = 1; node[10] = 2;
 	failures += expect_text(node, 11, FALSE, TRUE,
 		"UsbHID(0x0,0x0,0x1,0x2)", "USB class alias");
+	failures += expect_text(node, 11, FALSE, FALSE,
+		"UsbClass(0x0,0x0,0x3,0x1,0x2)", "disabled USB class alias");
 	node[8] = 0xfe; node[9] = 1;
 	failures += expect_text(node, 11, FALSE, TRUE,
 		"UsbDeviceFirmwareUpdate(0x0,0x0,0x2)", "USB reserved class alias");
+	failures += expect_text(node, 11, FALSE, FALSE,
+		"UsbClass(0x0,0x0,0xfe,0x1,0x2)", "disabled reserved USB class alias");
 	memset(node, 0, sizeof(node));
 	set_node((void *)node, 3, 0x0e, 19);
 	put64(node + 8, 115200); node[16] = 8; node[17] = 1; node[18] = 1;
@@ -676,6 +759,22 @@ int main(void)
 		size == 21, "append node failed");
 	release(NULL, node);
 	release(NULL, result);
+	{
+		struct cdk2_device_path *maximum;
+		failures += expect(cdk2_device_path_create_node(3, 0x7e, MAX_UINT16,
+			&allocator, &maximum) == EFI_SUCCESS,
+			"maximum-length node creation failed");
+		if (maximum != NULL) {
+			failures += expect(cdk2_device_path_append_node(first, maximum, &allocator,
+				&result) == EFI_SUCCESS &&
+				cdk2_device_path_size(result, MAX_UINT16 + 12U, &size) == EFI_SUCCESS &&
+				size == MAX_UINT16 + 12U,
+				"maximum-length node append failed");
+			release(NULL, maximum);
+			if (result != NULL)
+				release(NULL, result);
+		}
+	}
 	failures += expect(cdk2_device_path_append_instance(first, second, &allocator,
 		&result) == EFI_SUCCESS && cdk2_device_path_is_multi_instance(result),
 		"append instance failed");
@@ -689,6 +788,28 @@ int main(void)
 		"final instance failed");
 	release(NULL, node);
 	release(NULL, result);
+	{
+		UINT8 *unterminated = calloc(1, CDK2_DEVICE_PATH_MAX_SIZE);
+		UINTN used = 0;
+		if (unterminated == NULL) {
+			failures += expect(FALSE, "boundary fixture allocation failed");
+		} else {
+			for (UINTN i = 0; i < 16; i++) {
+				set_node((void *)(unterminated + used), 1, 0x7e, MAX_UINT16);
+				used += MAX_UINT16;
+			}
+			set_node((void *)(unterminated + used), 1, 0x7e, 13);
+			used += 13;
+			cursor = (const void *)unterminated;
+			failures += expect(used == CDK2_DEVICE_PATH_MAX_SIZE - 3 &&
+				!cdk2_device_path_is_multi_instance((const void *)unterminated),
+				"multi-instance scan crossed bounded header boundary");
+			failures += expect(cdk2_device_path_next_instance(&cursor, &size,
+				&allocator, &node) == EFI_COMPROMISED_DATA,
+				"next-instance scan crossed bounded header boundary");
+			free(unterminated);
+		}
+	}
 	fail_allocation = TRUE;
 	result = (void *)(UINTN)1;
 	failures += expect(cdk2_device_path_duplicate(first, &allocator, &result) ==

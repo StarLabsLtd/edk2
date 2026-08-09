@@ -159,8 +159,7 @@ EFI_STATUS cdk2_device_path_append_node(const struct cdk2_device_path *path,
 	if (node == NULL || !allocator_valid(allocator) || result == NULL)
 		return EFI_INVALID_PARAMETER;
 	length = cdk2_device_path_node_length(node);
-	if (length < CDK2_DEVICE_PATH_HEADER_SIZE ||
-	    length > MAX_UINT16 - CDK2_DEVICE_PATH_HEADER_SIZE)
+	if (length < CDK2_DEVICE_PATH_HEADER_SIZE)
 		return EFI_COMPROMISED_DATA;
 	status = allocator->allocate(allocator->context,
 		length + CDK2_DEVICE_PATH_HEADER_SIZE, (void **)&temporary);
@@ -217,6 +216,8 @@ EFI_STATUS cdk2_device_path_next_instance(const struct cdk2_device_path **path,
 	    !allocator_valid(allocator))
 		return EFI_INVALID_PARAMETER;
 	for (;;) {
+		if (used > CDK2_DEVICE_PATH_MAX_SIZE - CDK2_DEVICE_PATH_HEADER_SIZE)
+			return EFI_COMPROMISED_DATA;
 		node = (const void *)((const UINT8 *)*path + used);
 		length = cdk2_device_path_node_length(node);
 		if (length < CDK2_DEVICE_PATH_HEADER_SIZE ||
@@ -244,6 +245,8 @@ BOOLEAN cdk2_device_path_is_multi_instance(const struct cdk2_device_path *path)
 	if (path == NULL)
 		return FALSE;
 	for (;;) {
+		if (used > CDK2_DEVICE_PATH_MAX_SIZE - CDK2_DEVICE_PATH_HEADER_SIZE)
+			return FALSE;
 		length = cdk2_device_path_node_length((const void *)((const UINT8 *)path + used));
 		if (length < CDK2_DEVICE_PATH_HEADER_SIZE ||
 		    used > CDK2_DEVICE_PATH_MAX_SIZE - length)

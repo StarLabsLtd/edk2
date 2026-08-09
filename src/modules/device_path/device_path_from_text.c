@@ -175,6 +175,44 @@ static BOOLEAN args(struct slice inside, struct slice *a, UINTN capacity, UINTN 
 	return TRUE;
 }
 
+static BOOLEAN arg_count(struct slice inside, UINTN *count)
+{
+	UINTN i, n = 1;
+	BOOLEAN quoted = FALSE;
+	for (i = 0; i < inside.n; i++) {
+		if (inside.p[i] == '"')
+			quoted = !quoted;
+		else if (inside.p[i] == ',' && !quoted) {
+			if (n == MAX_UINTN)
+				return FALSE;
+			n++;
+		}
+	}
+	if (quoted)
+		return FALSE;
+	*count = n;
+	return TRUE;
+}
+
+static BOOLEAN next_arg(struct slice inside, UINTN *offset, struct slice *result)
+{
+	UINTN i, start;
+	BOOLEAN quoted = FALSE;
+	if (*offset > inside.n)
+		return FALSE;
+	start = *offset;
+	for (i = start; i <= inside.n; i++) {
+		if (i < inside.n && inside.p[i] == '"')
+			quoted = !quoted;
+		if (i == inside.n || (inside.p[i] == ',' && !quoted)) {
+			*result = (struct slice){inside.p + start, i - start};
+			*offset = i == inside.n ? inside.n + 1 : i + 1;
+			return TRUE;
+		}
+	}
+	return FALSE;
+}
+
 static void header(UINT8 *p, UINT8 type, UINT8 subtype, UINT16 length)
 {
 	if (p != NULL) {
@@ -728,7 +766,7 @@ static EFI_STATUS parse_msg(struct slice name, struct slice inside, struct slice
 			return EFI_INVALID_PARAMETER;
 		proto = 0;
 		method = 0;
-		length = n == 6 ? 27 : 19;
+		length = 27;
 		if (n > 1 && (!protocol(a[1], &proto) ||
 			      !(equal(a[2], "DHCP")	? (method = 0, TRUE)
 				: equal(a[2], "Static") ? (method = 1, TRUE)
@@ -752,7 +790,7 @@ static EFI_STATUS parse_msg(struct slice name, struct slice inside, struct slice
 			return EFI_INVALID_PARAMETER;
 		proto = 0;
 		method = 0;
-		length = n == 6 ? 60 : 44;
+		length = 60;
 		if (n > 1 && (!protocol(a[1], &proto) ||
 			      !(equal(a[2], "Static")			? (method = 0, TRUE)
 				: equal(a[2], "StatelessAutoConfigure") ? (method = 1, TRUE)
@@ -845,9 +883,9 @@ not_usb:
 	if (equal(name, "UsbWwid")) {
 		if (n != 4 || a[3].n < 2 || a[3].p[0] != '"' || a[3].p[a[3].n - 1] != '"' ||
 		    !number(a[0], MAX_UINT16, &x[0]) || !number(a[1], MAX_UINT16, &x[1]) ||
-		    !number(a[2], MAX_UINT16, &x[2]) || a[3].n - 2 > (MAX_UINT16 - 10) / 2)
+		    !number(a[2], MAX_UINT16, &x[2]) || a[3].n - 2 > (MAX_UINT16 - 12) / 2)
 			return EFI_INVALID_PARAMETER;
-		length = 10 + (a[3].n - 2) * 2;
+		length = 12 + (a[3].n - 2) * 2;
 		*size = length;
 		header(out, MSG, 0x10, (UINT16)length);
 		if (out) {
@@ -961,9 +999,9 @@ not_usb:
 		return EFI_SUCCESS;
 	}
 	if (equal(name, "Uri")) {
-		if (inside.n > MAX_UINT16 - 4)
+		if (inside.n > MAX_UINT16 - 5)
 			return EFI_INVALID_PARAMETER;
-		length = 4 + inside.n;
+		length = 5 + inside.n;
 		*size = length;
 		header(out, MSG, 0x18, (UINT16)length);
 		if (out)
@@ -1212,6 +1250,32 @@ static EFI_STATUS parse_file_path(struct slice text, UINT8 *out, UINTN *size)
 	return EFI_SUCCESS;
 }
 
+static BOOLEAN known_node_name(struct slice name)
+{
+	static const char *const names[] = {
+		"Pci", "PcCard", "MemoryMapped", "VenHw", "Ctrl", "BMC",
+		"PciRoot", "PcieRoot", "Floppy", "Keyboard", "Serial", "ParallelPort",
+		"Acpi", "AcpiAdr", "AcpiExp", "AcpiEx", "HardwarePath", "AcpiPath",
+		"Scsi", "Fibre", "I1394", "USB", "I2O", "Unit", "Sata", "Vlan",
+		"UFS", "SD", "eMMC", "Bluetooth", "BluetoothLE", "VenMsg",
+		"VenPcAnsi", "VenVt100", "VenVt100Plus", "VenUtf8", "DebugPort",
+		"UartFlowCtrl", "SAS", "Ata", "Infiniband", "MAC", "IPv4", "IPv6",
+		"Uart", "UsbClass", "UsbAudio", "UsbCDCControl", "UsbHID", "UsbImage",
+		"UsbPrinter", "UsbMassStorage", "UsbHub", "UsbCDCData", "UsbSmartCard",
+		"UsbVideo", "UsbDiagnostic", "UsbWireless", "UsbDeviceFirmwareUpdate",
+		"UsbIrdaBridge", "UsbTestAndMeasurement", "UsbWwid", "iSCSI", "FibreEx",
+		"SasEx", "NVMe", "Uri", "Wi-Fi", "Dns", "VenMedia", "HD", "CDROM",
+		"Media", "FvFile", "Fv", "Offset", "RamDisk", "VirtualDisk",
+		"VirtualCD", "PersistentVirtualDisk", "PersistentVirtualCD", "MediaPath",
+		"BBS", "Msg", "Path"
+	};
+	UINTN i;
+	for (i = 0; i < ARRAY_SIZE(names); i++)
+		if (equal(name, names[i]))
+			return TRUE;
+	return FALSE;
+}
+
 static EFI_STATUS parse_node(struct slice text, UINT8 *out, UINTN *size)
 {
 	UINTN i, count;
@@ -1221,10 +1285,57 @@ static EFI_STATUS parse_node(struct slice text, UINT8 *out, UINTN *size)
 		;
 	if (i == text.n)
 		return parse_file_path(text, out, size);
-	if (i == 0 || i + 1 >= text.n || text.p[text.n - 1] != ')')
+	if (i == 0)
 		return EFI_INVALID_PARAMETER;
 	name = (struct slice){text.p, i};
+	if (i + 1 >= text.n || text.p[text.n - 1] != ')')
+		return known_node_name(name) ? EFI_INVALID_PARAMETER :
+			parse_file_path(text, out, size);
 	inside = (struct slice){text.p + i + 1, text.n - i - 2};
+	if (equal(name, "AcpiAdr")) {
+		UINT64 value;
+		UINTN offset = 0;
+		if (!arg_count(inside, &count) || count == 0 ||
+		    count > (MAX_UINT16 - 4) / 4)
+			return EFI_INVALID_PARAMETER;
+		for (i = 0; i < count; i++) {
+			struct slice argument;
+			if (!next_arg(inside, &offset, &argument) ||
+			    !number(argument, MAX_UINT32, &value))
+				return EFI_INVALID_PARAMETER;
+			if (out != NULL)
+				put32(out + 4 + i * 4, (UINT32)value);
+		}
+		*size = 4 + count * 4;
+		header(out, ACPI, 3, (UINT16)*size);
+		return EFI_SUCCESS;
+	}
+	if (equal(name, "Dns")) {
+		BOOLEAN six;
+		struct slice argument;
+		UINTN offset = 0;
+		if (!arg_count(inside, &count) || count == 0 ||
+		    count > (MAX_UINT16 - 5) / 16 || !next_arg(inside, &offset, &argument))
+			return EFI_INVALID_PARAMETER;
+		if (count == 1 && argument.n == 0) {
+			*size = 5;
+			header(out, MSG, 0x1f, 5);
+			return EFI_SUCCESS;
+		}
+		six = !ipv4(argument, NULL);
+		offset = 0;
+		for (i = 0; i < count; i++) {
+			if (!next_arg(inside, &offset, &argument) ||
+			    (six ? !ipv6(argument, out ? out + 5 + i * 16 : NULL)
+				 : !ipv4(argument, out ? out + 5 + i * 16 : NULL)))
+				return EFI_INVALID_PARAMETER;
+		}
+		*size = 5 + count * 16;
+		header(out, MSG, 0x1f, (UINT16)*size);
+		if (out != NULL)
+			out[4] = six;
+		return EFI_SUCCESS;
+	}
 	if (!args(inside, a, ARRAY_SIZE(a), &count))
 		return EFI_INVALID_PARAMETER;
 	status = parse_hw(name, a, count, out, size);
@@ -1243,25 +1354,31 @@ static EFI_STATUS parse_node(struct slice text, UINT8 *out, UINTN *size)
 	if (status != EFI_UNSUPPORTED)
 		return status;
 	status = parse_raw(name, a, count, out, size);
-	return status == EFI_UNSUPPORTED ? EFI_INVALID_PARAMETER : status;
+	if (status != EFI_UNSUPPORTED)
+		return status;
+	return known_node_name(name) ? EFI_INVALID_PARAMETER :
+		parse_file_path(text, out, size);
 }
 
 static EFI_STATUS parse_path(const CHAR16 *text, UINT8 *out, UINTN *total)
 {
 	UINTN at = 0, start = 0, depth = 0, used = 0, node_size;
+	BOOLEAN quoted = FALSE;
 	EFI_STATUS status;
 	if (text == NULL || text[0] == 0)
 		return EFI_INVALID_PARAMETER;
 	for (;;) {
 		CHAR16 c = text[at];
-		if (c == '(')
+		if (c == '"')
+			quoted = !quoted;
+		else if (c == '(' && !quoted)
 			depth++;
-		else if (c == ')') {
+		else if (c == ')' && !quoted) {
 			if (depth == 0)
 				return EFI_INVALID_PARAMETER;
 			depth--;
 		}
-		if ((c == '/' || c == ',' || c == 0) && depth == 0) {
+		if ((c == '/' || c == ',' || c == 0) && depth == 0 && !quoted) {
 			if (at == start)
 				return EFI_INVALID_PARAMETER;
 			status = parse_node((struct slice){text + start, at - start},
@@ -1280,7 +1397,7 @@ static EFI_STATUS parse_path(const CHAR16 *text, UINT8 *out, UINTN *total)
 				break;
 		}
 		if (c == 0) {
-			if (depth != 0)
+			if (depth != 0 || quoted)
 				return EFI_INVALID_PARAMETER;
 			break;
 		}
