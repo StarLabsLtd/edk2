@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 #include <cdk2/pci_bus_model.h>
+#include <cdk2/pci_io_model.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -26,6 +27,8 @@ struct fixture {
 static void put16(uint8_t *p, uint16_t v) { p[0] = v; p[1] = v >> 8; }
 static void put32(uint8_t *p, uint32_t v)
 { p[0] = v; p[1] = v >> 8; p[2] = v >> 16; p[3] = v >> 24; }
+static void put64(uint8_t *p, uint64_t v)
+{ put32(p, (uint32_t)v); put32(p + 4, (uint32_t)(v >> 32)); }
 static uint32_t get(const uint8_t *p, uint8_t w)
 {
 	uint32_t v = p[0];
@@ -190,6 +193,17 @@ static int socket_notify(void *context, int inserted, uint64_t generation)
 	(void)inserted; (void)generation;
 	fixture->socket_notify++;
 	return 0;
+}
+
+static int socket_bind(void *context, void **handle)
+{
+	*handle = context;
+	return 0;
+}
+
+static void socket_unbind(void *context, void *handle)
+{
+	(void)context; (void)handle;
 }
 
 static struct device *add(struct fixture *f, uint8_t b, uint8_t d, uint8_t n,
@@ -363,16 +377,23 @@ static int host_and_rom_test(void)
 	struct cdk2_pci_cfg cfg = { .context = &f, .read = rd, .write = wr,
 		.read_memory = read_memory };
 	struct cdk2_pci_topology topology = { 0 };
-	struct cdk2_pci_host_model host = { 0 };
+	struct cdk2_pci_bus_host_model host = { 0 };
 	struct cdk2_pci_allocation_policy policy = {
 		.mem32 = { 0x80000000, 0x8fffffff, 0x80000000 } };
+	struct cdk2_pci_allocation_policy root2_policy = {
+		.mem32 = { 0x90000000, 0x9fffffff, 0x90000000 } };
 	struct cdk2_pci_function function = { 0 }, before;
-	struct cdk2_pci_resource_request proposed[CDK2_PCI_RESOURCE_CLASSES] = { 0 };
+	struct cdk2_pci_bus_resource_request proposed[CDK2_PCI_RESOURCE_CLASSES] = { 0 };
 	struct cdk2_pci_rom_ops rom_ops = { &f, rom_allocate, rom_free,
 		rom_decompress, rom_load, rom_unload };
-	uint8_t load_buffer[512]; size_t load_size = 0;
+	uint8_t load_buffer[512], path[24] = { 4, 8, 24, 0 }; size_t load_size = 0;
 	add(&f, 0, 0, 0, 1, 1, 0);
-	topology.count = 1;
+	add(&f, 2, 0, 0, 2, 2, 0);
+	topology.count = 2;
+	topology.functions[1].bus = 2;
+	topology.functions[1].bar_count = 1;
+	topology.functions[1].bars[0] = (struct cdk2_pci_bar) {
+		.kind = CDK2_PCI_BAR_MEM32, .index = 0, .size = 0x1000 };
 	CHECK(cdk2_pci_host_set(&host) != 0);
 	CHECK(cdk2_pci_host_begin(&host, &cfg, &topology) == 0);
 	CHECK(cdk2_pci_host_end(&host) != 0);
@@ -381,10 +402,12 @@ static int host_and_rom_test(void)
 	CHECK(cdk2_pci_host_add_root(&host, 0, 0, 0, proposed) == 0);
 	CHECK(cdk2_pci_host_add_root(&host, 0, 0, 2, proposed) != 0);
 	CHECK(cdk2_pci_host_add_root(&host, 0, 2, 2, proposed) == 0);
+	CHECK(cdk2_pci_host_set_root_policy(&host, 1, &root2_policy) == 0);
 	CHECK(cdk2_pci_host_allocate(&host) == 0);
 	CHECK(host.allocation_status == 0);
 	CHECK(host.roots[0].status[1] == 0);
 	CHECK(host.roots[1].status[1] == 0);
+	CHECK(topology.functions[1].bars[0].base == 0x90000000);
 	CHECK(cdk2_pci_host_set(&host) == 0);
 	CHECK(cdk2_pci_host_end(&host) == 0);
 	function.bar_count = 1;
@@ -408,6 +431,12 @@ static int host_and_rom_test(void)
 	CHECK(load_size == 448);
 	CHECK(cdk2_pci_option_rom_load_file(&function, 0, 0, load_buffer,
 		&load_size) == 0);
+	put64(path + 8, 0x40); put64(path + 16, 0x1ff);
+	CHECK(cdk2_pci_option_rom_load_file_path(&function, path, sizeof(path), 0,
+		load_buffer, &load_size) == 0);
+	path[1] = 7;
+	CHECK(cdk2_pci_option_rom_load_file_path(&function, path, sizeof(path), 0,
+		load_buffer, &load_size) != 0);
 	cdk2_pci_release_option_rom(&rom_ops, &function);
 	CHECK(function.option_rom_shadow == NULL);
 	CHECK(f.unloads == 1);
@@ -424,15 +453,29 @@ static int host_and_rom_test(void)
 static int cardbus_socket_test(void)
 {
 	struct fixture f = { 0 };
-	struct cdk2_pci_cardbus_socket socket = { &f, socket_power, socket_reset,
-		socket_notify, 0, 0, 0 };
+	struct cdk2_pci_cardbus_socket socket = { .context = &f,
+		.set_power = socket_power, .reset = socket_reset, .notify = socket_notify,
+		.bind_child = socket_bind, .unbind_child = socket_unbind,
+		.debounce_ticks = 10 };
 	CHECK(cdk2_pci_cardbus_remove(&socket) != 0);
 	CHECK(cdk2_pci_cardbus_insert(&socket) == 0);
 	CHECK(socket.present == 1 && socket.powered == 1 && socket.generation == 1);
+	CHECK(socket.child_handle == &f);
 	CHECK(f.socket_reset == 1 && f.socket_notify == 1);
 	CHECK(cdk2_pci_cardbus_insert(&socket) != 0);
 	CHECK(cdk2_pci_cardbus_remove(&socket) == 0);
 	CHECK(socket.present == 0 && socket.powered == 0 && socket.generation == 2);
+	CHECK(socket.child_handle == NULL);
+	CHECK(cdk2_pci_cardbus_queue_event(&socket, 1, 100) == 0);
+	CHECK(cdk2_pci_cardbus_queue_event(&socket, 0, 105) == 0);
+	CHECK(socket.event_count == 1);
+	CHECK(cdk2_pci_cardbus_queue_event(&socket, 1, 120) == 0);
+	CHECK(socket.event_count == 2);
+	CHECK(cdk2_pci_cardbus_process_event(&socket) != 0);
+	/* Failed duplicate removal remains queued; replace it after state changes. */
+	socket.events[socket.event_head].inserted = 1;
+	CHECK(cdk2_pci_cardbus_process_event(&socket) == 0);
+	CHECK(cdk2_pci_cardbus_process_event(&socket) != 0);
 	return 0;
 }
 
@@ -457,6 +500,67 @@ static int hotplug_rollback_test(void)
 	CHECK(policy.hotplug_padding[1] == 0);
 	CHECK(topology.functions[0].hotplug_padding[1] == 0x100000);
 	CHECK(topology.functions[1].hotplug_padding[1] == 0x100000);
+	return 0;
+}
+
+static int io_access(void *context, enum cdk2_pci_io_space space, int write,
+	unsigned int width, uint64_t address, size_t count, void *buffer)
+{
+	uint64_t *observed = context;
+	(void)space; (void)write; (void)width; (void)count; (void)buffer;
+	*observed = address;
+	return 0;
+}
+
+static int pci_io_core_test(void)
+{
+	uint64_t observed = 0, value = 0, attributes;
+	struct cdk2_pci_io_model io = {
+		.backend = { &observed, io_access },
+		.bar_base = { 0x80000000 }, .bar_size = { 0x1000 },
+		.supported_attributes = 7,
+	};
+	CHECK(cdk2_pci_io_access(&io, CDK2_PCI_IO_MEM, 0, 0, 0x100, 2, 4,
+		&value) == 0);
+	CHECK(observed == 0x80000100);
+	CHECK(cdk2_pci_io_access(&io, CDK2_PCI_IO_MEM, 0, 0, 0xfff, 2, 1,
+		&value) != 0);
+	CHECK(cdk2_pci_io_access(&io, CDK2_PCI_IO_CONFIG, 0, 0, 0xffc, 2, 1,
+		&value) == 0);
+	CHECK(cdk2_pci_io_attributes(&io, 2, 3, NULL) == 0);
+	CHECK(cdk2_pci_io_attributes(&io, 0, 0, &attributes) == 0);
+	CHECK(attributes == 3);
+	CHECK(cdk2_pci_io_attributes(&io, 1, 8, NULL) != 0);
+	return 0;
+}
+
+static int multi_root_atomic_test(void)
+{
+	struct fixture f = { 0 };
+	struct cdk2_pci_cfg cfg = { .context = &f, .read = rd, .write = wr };
+	struct cdk2_pci_topology topology = { .count = 2 }, before;
+	struct cdk2_pci_root_allocation roots[2] = {
+		{ .first_bus = 0, .last_bus = 0,
+		  .policy.mem32 = { 0x80000000, 0x8fffffff, 0x80000000 } },
+		{ .first_bus = 2, .last_bus = 2,
+		  .policy.mem32 = { 0x90000000, 0x9fffffff, 0x90000000 } },
+	};
+	add(&f, 0, 0, 0, 1, 1, 0); add(&f, 2, 0, 0, 2, 2, 0);
+	for (unsigned int i = 0; i < 2U; i++) {
+		topology.functions[i].bus = i == 0U ? 0 : 2;
+		topology.functions[i].bar_count = 1;
+		topology.functions[i].bars[0] = (struct cdk2_pci_bar) {
+			.kind = CDK2_PCI_BAR_MEM32, .size = 0x1000 };
+	}
+	before = topology; f.fail_write = 4;
+	CHECK(cdk2_pci_allocate_root_resources(&cfg, &topology, roots, 2) != 0);
+	CHECK(memcmp(&before, &topology, sizeof(before)) == 0);
+	CHECK(get(f.devices[0].data + 0x10, 4) == 0);
+	CHECK(get(f.devices[1].data + 0x10, 4) == 0);
+	f.fail_write = 0; f.writes = 0;
+	CHECK(cdk2_pci_allocate_root_resources(&cfg, &topology, roots, 2) == 0);
+	CHECK(topology.functions[0].bars[0].base == 0x80000000);
+	CHECK(topology.functions[1].bars[0].base == 0x90000000);
 	return 0;
 }
 
@@ -511,6 +615,8 @@ int main(void)
 	if (topology_test() || temporary_bridge_and_crs_test() ||
 	    overflow_and_cardbus_test() || allocator_test() || host_and_rom_test() ||
 	    hotplug_rollback_test() || cardbus_socket_test() || corruption_test())
+		return 1;
+	if (pci_io_core_test() || multi_root_atomic_test())
 		return 1;
 	puts("pci bus model tests: PASS");
 	return 0;

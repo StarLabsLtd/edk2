@@ -3,7 +3,7 @@
 
 #include <string.h>
 
-int cdk2_pci_host_begin(struct cdk2_pci_host_model *host,
+int cdk2_pci_host_begin(struct cdk2_pci_bus_host_model *host,
 	const struct cdk2_pci_cfg *cfg, struct cdk2_pci_topology *topology)
 {
 	if (host == NULL || cfg == NULL || topology == NULL ||
@@ -18,7 +18,7 @@ int cdk2_pci_host_begin(struct cdk2_pci_host_model *host,
 	return 0;
 }
 
-int cdk2_pci_host_submit(struct cdk2_pci_host_model *host,
+int cdk2_pci_host_submit(struct cdk2_pci_bus_host_model *host,
 	const struct cdk2_pci_allocation_policy *proposed)
 {
 	if (host == NULL || proposed == NULL || host->phase != CDK2_PCI_HOST_BEGIN)
@@ -27,8 +27,9 @@ int cdk2_pci_host_submit(struct cdk2_pci_host_model *host,
 	return 0;
 }
 
-int cdk2_pci_host_allocate(struct cdk2_pci_host_model *host)
+int cdk2_pci_host_allocate(struct cdk2_pci_bus_host_model *host)
 {
+	struct cdk2_pci_root_allocation allocations[CDK2_PCI_MAX_ROOTS];
 	if (host == NULL || host->phase != CDK2_PCI_HOST_BEGIN ||
 	    host->cfg == NULL || host->topology == NULL)
 		return -1;
@@ -59,9 +60,18 @@ int cdk2_pci_host_allocate(struct cdk2_pci_host_model *host)
 				if (required[root][resource] >
 				    host->roots[root].proposed[resource].length)
 					goto preflight_failed;
+		for (size_t root = 0; root < host->root_count; root++) {
+			allocations[root].segment = host->roots[root].segment;
+			allocations[root].first_bus = host->roots[root].first_bus;
+			allocations[root].last_bus = host->roots[root].last_bus;
+			allocations[root].policy = host->roots[root].policy_valid ?
+				host->roots[root].policy : host->proposed;
+		}
 	}
-	host->allocation_status = cdk2_pci_allocate_resources(host->cfg,
-		host->topology, &host->proposed);
+	host->allocation_status = host->root_count == 0U ?
+		cdk2_pci_allocate_resources(host->cfg, host->topology, &host->proposed) :
+		cdk2_pci_allocate_root_resources(host->cfg, host->topology, allocations,
+			host->root_count);
 	for (size_t root = 0; root < host->root_count; root++)
 		for (unsigned int resource = 0; resource < CDK2_PCI_RESOURCE_CLASSES;
 		     resource++)
@@ -79,9 +89,20 @@ preflight_failed:
 	return -1;
 }
 
-int cdk2_pci_host_add_root(struct cdk2_pci_host_model *host, uint16_t segment,
+int cdk2_pci_host_set_root_policy(struct cdk2_pci_bus_host_model *host, size_t root,
+	const struct cdk2_pci_allocation_policy *policy)
+{
+	if (host == NULL || policy == NULL || host->phase != CDK2_PCI_HOST_BEGIN ||
+	    root >= host->root_count)
+		return -1;
+	host->roots[root].policy = *policy;
+	host->roots[root].policy_valid = 1;
+	return 0;
+}
+
+int cdk2_pci_host_add_root(struct cdk2_pci_bus_host_model *host, uint16_t segment,
 	uint8_t first_bus, uint8_t last_bus,
-	const struct cdk2_pci_resource_request proposed[CDK2_PCI_RESOURCE_CLASSES])
+	const struct cdk2_pci_bus_resource_request proposed[CDK2_PCI_RESOURCE_CLASSES])
 {
 	if (host == NULL || proposed == NULL || host->phase != CDK2_PCI_HOST_BEGIN ||
 	    host->root_count == CDK2_PCI_MAX_ROOTS || first_bus > last_bus)
@@ -142,7 +163,7 @@ rollback:
 	return -1;
 }
 
-int cdk2_pci_host_set(struct cdk2_pci_host_model *host)
+int cdk2_pci_host_set(struct cdk2_pci_bus_host_model *host)
 {
 	if (host == NULL || host->phase != CDK2_PCI_HOST_ALLOCATED)
 		return -1;
@@ -150,7 +171,7 @@ int cdk2_pci_host_set(struct cdk2_pci_host_model *host)
 	return 0;
 }
 
-int cdk2_pci_host_end(struct cdk2_pci_host_model *host)
+int cdk2_pci_host_end(struct cdk2_pci_bus_host_model *host)
 {
 	if (host == NULL || host->phase != CDK2_PCI_HOST_SET)
 		return -1;

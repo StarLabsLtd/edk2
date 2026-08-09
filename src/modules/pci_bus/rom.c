@@ -200,3 +200,36 @@ int cdk2_pci_option_rom_load_file(const struct cdk2_pci_function *function,
 	*size = available;
 	return 0;
 }
+
+static uint64_t get64(const uint8_t *bytes)
+{
+	uint64_t value = 0;
+	for (unsigned int byte = 0; byte < 8U; byte++)
+		value |= (uint64_t)bytes[byte] << (byte * 8U);
+	return value;
+}
+
+int cdk2_pci_option_rom_load_file_path(const struct cdk2_pci_function *function,
+	const void *device_path, size_t path_size, size_t offset, void *buffer,
+	size_t *size)
+{
+	const uint8_t *path = device_path;
+	uint64_t start, end;
+	if (function == NULL || path == NULL || path_size != 24U || path[0] != 4U ||
+	    path[1] != 8U || get16(path + 2) != 24U)
+		return -1;
+	start = get64(path + 8);
+	end = get64(path + 16);
+	if (start > end)
+		return -1;
+	for (unsigned int image = 0; image < function->option_rom_images; image++) {
+		uint64_t image_start = function->option_rom[image].offset +
+			function->option_rom[image].payload_offset;
+		uint64_t image_end = function->option_rom[image].offset +
+			function->option_rom[image].size - 1U;
+		if (start == image_start && end == image_end)
+			return cdk2_pci_option_rom_load_file(function, image, offset,
+				buffer, size);
+	}
+	return -1;
+}

@@ -17,6 +17,7 @@ struct allocation_item {
 	struct cdk2_pci_bar *bar;
 	uint64_t length;
 	uint8_t vf;
+	struct cdk2_pci_allocation_policy *policy;
 };
 
 struct journal_entry {
@@ -313,41 +314,60 @@ static int stage_cardbus(const struct cdk2_pci_cfg *cfg,
 	return 0;
 }
 
-int cdk2_pci_allocate_resources(const struct cdk2_pci_cfg *cfg,
+static int root_for_bus(const struct cdk2_pci_root_allocation *roots,
+	size_t root_count, uint8_t bus)
+{
+	for (size_t root = 0; root < root_count; root++)
+		if (bus >= roots[root].first_bus && bus <= roots[root].last_bus)
+			return (int)root;
+	return -1;
+}
+
+int cdk2_pci_allocate_root_resources(const struct cdk2_pci_cfg *cfg,
 	struct cdk2_pci_topology *topology,
-	const struct cdk2_pci_allocation_policy *input_policy)
+	const struct cdk2_pci_root_allocation *roots, size_t root_count)
 {
 	struct cdk2_pci_topology staged;
-	struct cdk2_pci_allocation_policy policy;
+	struct cdk2_pci_allocation_policy policies[CDK2_PCI_MAX_ROOTS];
 	struct journal journal = { 0 };
 	struct allocation_item items[JOURNAL_MAX];
 	uint32_t commands[CDK2_PCI_MAX_FUNCTIONS];
 	size_t item_count = 0;
 	if (cfg == NULL || cfg->read == NULL || cfg->write == NULL ||
-	    topology == NULL || input_policy == NULL)
+	    topology == NULL || roots == NULL || root_count == 0U ||
+	    root_count > CDK2_PCI_MAX_ROOTS)
 		return -1;
 	staged = *topology;
-	policy = *input_policy;
+	for (size_t root = 0; root < root_count; root++) {
+		if (roots[root].segment != 0U || roots[root].first_bus > roots[root].last_bus)
+			return -1;
+		policies[root] = roots[root].policy;
+	}
 	for (size_t i = 0; i < staged.count; i++) {
 		struct cdk2_pci_function *fn = &staged.functions[i];
+		int root = root_for_bus(roots, root_count, fn->bus);
+		if (root < 0)
+			return -1;
 		if (cfg_read(cfg, fn, PCI_COMMAND, 2, &commands[i]) != 0 ||
 		    stage_write(cfg, fn, PCI_COMMAND, 2, commands[i] & ~3U, &journal) != 0 ||
-		    stage_controls(cfg, fn, &policy, &journal) != 0)
+		    stage_controls(cfg, fn, &policies[root], &journal) != 0)
 			return -1;
 		for (uint8_t bar = 0; bar < fn->bar_count; bar++) {
 			if (item_count == JOURNAL_MAX)
 				return -1;
 			items[item_count++] = (struct allocation_item) {
-				fn, &fn->bars[bar], fn->bars[bar].size, 0 };
+				fn, &fn->bars[bar], fn->bars[bar].size, 0,
+				&policies[root] };
 		}
-		if (policy.enable_sriov)
+		if (policies[root].enable_sriov)
 			for (uint8_t bar = 0; bar < fn->vf_bar_count; bar++) {
 				if (item_count == JOURNAL_MAX || fn->total_vfs == 0U ||
 				    fn->vf_bars[bar].size > UINT64_MAX / fn->total_vfs)
 					return -1;
 				items[item_count++] = (struct allocation_item) {
 					fn, &fn->vf_bars[bar],
-					fn->vf_bars[bar].size * fn->total_vfs, 1 };
+					fn->vf_bars[bar].size * fn->total_vfs, 1,
+					&policies[root] };
 			}
 	}
 	for (size_t i = 1; i < item_count; i++) {
@@ -361,28 +381,47 @@ int cdk2_pci_allocate_resources(const struct cdk2_pci_cfg *cfg,
 	}
 	for (size_t i = 0; i < item_count; i++) {
 		int status = items[i].vf ?
-			stage_vf_bar(cfg, items[i].function, items[i].bar, &policy,
+			stage_vf_bar(cfg, items[i].function, items[i].bar, items[i].policy,
 				&journal) :
-			stage_bar(cfg, items[i].function, items[i].bar, &policy, &journal);
+			stage_bar(cfg, items[i].function, items[i].bar, items[i].policy,
+				&journal);
 		if (status != 0)
 			return -1;
 	}
-	for (size_t i = 0; i < staged.count; i++)
-		if (stage_sriov(cfg, &staged.functions[i], &policy, &journal) != 0 ||
+	for (size_t i = 0; i < staged.count; i++) {
+		int root = root_for_bus(roots, root_count, staged.functions[i].bus);
+		if (root < 0 ||
+		    stage_sriov(cfg, &staged.functions[i], &policies[root], &journal) != 0 ||
 		    stage_write(cfg, &staged.functions[i], PCI_COMMAND, 2, commands[i],
 			&journal) != 0)
 			return -1;
+	}
 	for (size_t i = staged.count; i != 0U; i--) {
 		struct cdk2_pci_function *fn = &staged.functions[i - 1U];
+		int root = root_for_bus(roots, root_count, fn->bus);
+		if (root < 0)
+			return -1;
 		if ((fn->header_type & 0x7fU) == 1U &&
-		    stage_bridge(cfg, fn, &staged, &policy, &journal) != 0)
+		    stage_bridge(cfg, fn, &staged, &policies[root], &journal) != 0)
 			return -1;
 		if ((fn->header_type & 0x7fU) == 2U &&
-		    stage_cardbus(cfg, fn, &policy, &journal) != 0)
+		    stage_cardbus(cfg, fn, &policies[root], &journal) != 0)
 			return -1;
 	}
 	if (commit(cfg, &journal) != 0)
 		return -1;
 	*topology = staged;
 	return 0;
+}
+
+int cdk2_pci_allocate_resources(const struct cdk2_pci_cfg *cfg,
+	struct cdk2_pci_topology *topology,
+	const struct cdk2_pci_allocation_policy *policy)
+{
+	struct cdk2_pci_root_allocation root;
+	if (policy == NULL)
+		return -1;
+	root = (struct cdk2_pci_root_allocation) {
+		.segment = 0, .first_bus = 0, .last_bus = 0xff, .policy = *policy };
+	return cdk2_pci_allocate_root_resources(cfg, topology, &root, 1);
 }
