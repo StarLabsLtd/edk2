@@ -885,9 +885,6 @@ native-graphics-console-test: $(CDK2_NATIVE_GRAPHICS_CONSOLE_TEST) $(CDK2_NATIVE
 	@"$(CDK2_NATIVE_GRAPHICS_PACKAGE_TEST)"
 	@"$(CDK2_NATIVE_GRAPHICS_ENTRY_TEST)"
 
-native-graphics-console-fv: $(CDK2_NATIVE_GRAPHICS_CONSOLE_FV)
-	@printf '%s\n' "native graphics console FV: $(CDK2_NATIVE_GRAPHICS_CONSOLE_FV)"
-
 native-hii-database-test: $(CDK2_NATIVE_HII_DATABASE_TEST)
 	@"$(CDK2_NATIVE_HII_DATABASE_TEST)"
 
