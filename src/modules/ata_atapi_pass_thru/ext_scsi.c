@@ -35,11 +35,15 @@ static EFI_STATUS execute(struct cdk2_ext_scsi_instance *instance, UINT16 port,
 {
 	struct cdk2_ata_command_block acb = { .command = 0xa0U };
 	struct cdk2_ata_status_block asb;
+	UINT8 packet_cdb[16] = { 0 };
+	size_t packet_cdb_length = cdb_length <= 12U ? 12U : 16U;
 	struct cdk2_ata_command_packet ata = { .asb = &asb, .acb = &acb,
 		.timeout = packet->timeout, .in_data = packet->in_data,
 		.out_data = packet->out_data, .in_length = packet->in_length,
 		.out_length = packet->out_length, .length = 0x20U };
 	EFI_STATUS status;
+
+	memcpy(packet_cdb, cdb, cdb_length);
 
 	ata.protocol = packet->direction == CDK2_EXT_SCSI_DIRECTION_READ ? 4U :
 		packet->direction == CDK2_EXT_SCSI_DIRECTION_WRITE ? 5U : 2U;
@@ -47,13 +51,14 @@ static EFI_STATUS execute(struct cdk2_ext_scsi_instance *instance, UINT16 port,
 		if (instance->controller->ahci == NULL)
 			return EFI_NOT_READY;
 		status = cdk2_ahci_execute(instance->controller->ahci, port, &ata,
-			cdb, cdb_length, packet->timeout);
+			packet_cdb, packet_cdb_length, packet->timeout);
 	} else {
 		if (instance->controller->ide_engine == NULL || port > 1U ||
 		    multiplier > 1U)
 			return EFI_NOT_READY;
 		status = cdk2_ide_atapi_execute(instance->controller->ide_engine,
-			(UINT8)port, (UINT8)multiplier, &ata, cdb, cdb_length,
+			(UINT8)port, (UINT8)multiplier, &ata, packet_cdb,
+			packet_cdb_length,
 			packet->timeout);
 	}
 	packet->in_length = ata.in_length;

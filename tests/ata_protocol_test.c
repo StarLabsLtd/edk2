@@ -72,7 +72,7 @@ int main(void)
 	UINT8 cdb[12] = { 0 };
 	UINT64 lun = 0;
 	struct cdk2_ext_scsi_packet scsi_packet = { .cdb = cdb,
-		.cdb_length = sizeof(cdb), .direction = CDK2_EXT_SCSI_DIRECTION_READ,
+		.cdb_length = 6, .direction = CDK2_EXT_SCSI_DIRECTION_READ,
 		.timeout = 100 };
 
 	CHECK(sizeof(struct cdk2_ata_pass_thru_protocol) == 8 * sizeof(void *));
