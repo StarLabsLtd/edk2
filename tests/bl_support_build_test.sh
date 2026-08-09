@@ -25,3 +25,10 @@ MAKEFLAGS= MAKEOVERRIDES= "$make_cmd" -s -C "$repo" CDK2_BUILD_DIR="$tmp/build" 
 	>"$tmp/disabled.out"
 test "$(grep -xc 'native BlSupportDxe: disabled by Kconfig' "$tmp/disabled.out")" -eq 2
 test ! -e "$tmp/build/native/BlSupportDxe.ffs"
+
+if MAKEFLAGS= MAKEOVERRIDES= "$make_cmd" -s -C "$repo" \
+	CDK2_CONFIG_READY= CDK2_BUILD_DIR="$build" CDK2_PAYLOAD_FV= \
+	native-bl-support-fv >"$tmp/no-payload.out" 2>&1; then
+	exit 1
+fi
+grep -q 'native-bl-support-fv requires CDK2_PAYLOAD_FV=' "$tmp/no-payload.out"
