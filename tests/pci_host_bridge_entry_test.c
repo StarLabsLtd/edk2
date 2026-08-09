@@ -12,6 +12,7 @@ uint64_t CDK2_MS_ABI cdk2_pci_host_bridge_entry(void *, void *);
 static void *installed;
 static unsigned int allocations, frees, installs;
 static int provide_pcd;
+static int provide_pcd_names = 1;
 static unsigned int uninstalls;
 static unsigned int gcd_memory_adds, gcd_io_adds;
 static unsigned int fail_install_on;
@@ -192,6 +193,8 @@ struct hob_fixture {
 static uint64_t CDK2_MS_ABI pcd_next(const EFI_GUID *space, size_t *token)
 {
 	(void)space;
+	if (!provide_pcd_names)
+		return EFI_NOT_FOUND;
 	if (*token != 0)
 		return EFI_NOT_FOUND;
 	*token = 7;
@@ -214,7 +217,7 @@ static uint64_t CDK2_MS_ABI pcd_info(size_t token, struct cdk2_pcd_info *info)
 
 static uint64_t CDK2_MS_ABI pcd_get64(size_t token)
 {
-	return token == 7 ? 0xe0000000ULL : 0;
+	return token == 7 || token == 33 ? 0xe0000000ULL : 0;
 }
 
 static struct cdk2_pcd_protocol pcd = { .get64 = pcd_get64,
@@ -387,6 +390,10 @@ int main(void)
 	provide_pcd = 1;
 	failures += expect(cdk2_pci_host_bridge_entry((void *)0x44, &system) ==
 		EFI_SUCCESS, "generated segment-zero configuration base was not consumed");
+	provide_pcd_names = 0;
+	failures += expect(cdk2_pci_host_bridge_entry((void *)0x44, &system) ==
+		EFI_SUCCESS, "generated token 33 configuration base was not consumed");
+	provide_pcd_names = 1;
 	hob.payload.bridge.no_extended_config = 1;
 	provide_pcd = 0;
 	{

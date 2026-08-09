@@ -180,6 +180,8 @@ static const EFI_GUID device_path_protocol_guid = {
 	0x09576e91, 0x6d3f, 0x11d2, { 0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b }
 };
 
+#define CDK2_PCD_PCIE_BASE_TOKEN 33U
+
 static int is_pci_express_base_name(const char *name)
 {
 	static const char short_name[] = "PciExpressBaseAddress";
@@ -220,8 +222,12 @@ static uint64_t discover_pci_express_base(struct boot_services_view *boot,
 		return EFI_UNSUPPORTED;
 	for (;;) {
 		status = pcd->get_next_token(NULL, &token);
-		if (status != EFI_SUCCESS)
-			return EFI_UNSUPPORTED;
+		if (status != EFI_SUCCESS) {
+			*base = pcd->get64(CDK2_PCD_PCIE_BASE_TOKEN);
+			return *base == 0 || (*base & 0xfffffffU) != 0 ||
+				*base > UINT64_MAX - 0xfffffffU ?
+				EFI_UNSUPPORTED : EFI_SUCCESS;
+		}
 		memset(&description, 0, sizeof(description));
 		status = info->get_info(token, &description);
 		if (status != EFI_SUCCESS)
@@ -890,6 +896,7 @@ uint64_t CDK2_MS_ABI cdk2_pci_host_bridge_entry(void *image, void *system)
 		status = initialize_gcd_apertures(table->boot, dxe);
 		if (status != EFI_SUCCESS)
 			return status;
-		return publish_protocols(table->boot);
+		status = publish_protocols(table->boot);
+		return status;
 	}
 }
