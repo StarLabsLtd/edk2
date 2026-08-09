@@ -45,6 +45,12 @@ typedef uint64_t CDK2_MS_ABI cdk2_pcd_lock_variable_fn(const uint16_t *,
 	const EFI_GUID *);
 typedef uint64_t CDK2_MS_ABI cdk2_pcd_allocate_fn(uint32_t, size_t, void **);
 typedef uint64_t CDK2_MS_ABI cdk2_pcd_free_fn(void *);
+typedef void CDK2_MS_ABI cdk2_pcd_event_notify_fn(void *, void *);
+typedef uint64_t CDK2_MS_ABI cdk2_pcd_create_event_fn(uint32_t, size_t,
+	cdk2_pcd_event_notify_fn *, void *, void **);
+typedef uint64_t CDK2_MS_ABI cdk2_pcd_close_event_fn(void *);
+typedef uint64_t CDK2_MS_ABI cdk2_pcd_register_notify_fn(const EFI_GUID *,
+	void *, void **);
 
 struct cdk2_pcd_context {
 	uint8_t *database;
@@ -147,9 +153,14 @@ struct cdk2_pcd_boot_services {
 	uint8_t before_allocate_pool[64];
 	cdk2_pcd_allocate_fn *allocate_pool;
 	cdk2_pcd_free_fn *free_pool;
-	uint8_t before_handle[72];
+	cdk2_pcd_create_event_fn *create_event;
+	uint8_t before_close_event[24];
+	cdk2_pcd_close_event_fn *close_event;
+	uint8_t before_handle[32];
 	cdk2_pcd_handle_fn *handle_protocol;
-	uint8_t before_locate[160];
+	void *reserved;
+	cdk2_pcd_register_notify_fn *register_protocol_notify;
+	uint8_t before_locate[144];
 	cdk2_pcd_locate_fn *locate_protocol;
 	cdk2_pcd_install_fn *install_multiple_protocols;
 	cdk2_pcd_uninstall_fn *uninstall_multiple_protocols;

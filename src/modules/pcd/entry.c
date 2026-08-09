@@ -4,6 +4,8 @@
 
 #include <string.h>
 
+#define PCD_ALREADY_STARTED ((1ULL << 63) | 20ULL)
+
 static const EFI_GUID pcd_guid = {
 	0x11b34006, 0xd85b, 0x4d0a, { 0xa2, 0x90, 0xd5, 0xa5, 0x71, 0x31, 0x0e, 0xf7 }
 };
@@ -21,6 +23,9 @@ static struct cdk2_pcd_context driver_context;
 static void *pcd_handle;
 static struct variable_policy_view *active_variable_policy;
 static struct cdk2_pcd_context *locking_context;
+static struct cdk2_pcd_boot_services *policy_boot_services;
+static void *policy_event;
+static void *policy_registration;
 
 typedef uint64_t CDK2_MS_ABI read_section_fn(void *, const EFI_GUID *, uint8_t,
 	size_t, void **, size_t *, uint32_t *);
@@ -191,12 +196,74 @@ static uint64_t CDK2_MS_ABI register_read_only_variable(const uint16_t *name,
 	return status;
 }
 
+static void CDK2_MS_ABI variable_policy_available(void *event, void *context)
+{
+	struct cdk2_pcd_context *pcd = context;
+	uint64_t status;
+
+	(void)event;
+	if (policy_boot_services == NULL ||
+	    policy_boot_services->locate_protocol == NULL)
+		return;
+	status = policy_boot_services->locate_protocol(&variable_policy_guid, NULL,
+		(void **)&active_variable_policy);
+	if (status != EFI_SUCCESS)
+		return;
+	locking_context = pcd;
+	status = cdk2_pcd_lock_read_only(pcd, register_read_only_variable);
+	locking_context = NULL;
+	active_variable_policy = NULL;
+	if (status == EFI_SUCCESS && policy_event != NULL &&
+	    policy_boot_services->close_event != NULL) {
+		(void)policy_boot_services->close_event(policy_event);
+		policy_event = NULL;
+		policy_registration = NULL;
+	}
+}
+
+static uint64_t defer_variable_policy(struct cdk2_pcd_context *context,
+	struct cdk2_pcd_boot_services *boot_services)
+{
+	uint64_t status;
+
+	if (boot_services->create_event == NULL ||
+	    boot_services->register_protocol_notify == NULL ||
+	    boot_services->close_event == NULL)
+		return EFI_UNSUPPORTED;
+	policy_boot_services = boot_services;
+	status = boot_services->create_event(0x200U, 8U, variable_policy_available,
+		context, &policy_event);
+	if (status != EFI_SUCCESS)
+		return status;
+	status = boot_services->register_protocol_notify(&variable_policy_guid,
+		policy_event, &policy_registration);
+	if (status != EFI_SUCCESS) {
+		(void)boot_services->close_event(policy_event);
+		policy_event = NULL;
+		policy_registration = NULL;
+		return status;
+	}
+	variable_policy_available(policy_event, context);
+	return EFI_SUCCESS;
+}
+
+static void cancel_variable_policy_notification(void)
+{
+	if (policy_event != NULL && policy_boot_services != NULL &&
+	    policy_boot_services->close_event != NULL)
+		(void)policy_boot_services->close_event(policy_event);
+	policy_event = NULL;
+	policy_registration = NULL;
+	policy_boot_services = NULL;
+}
+
 static void *get_value(const EFI_GUID *space, size_t token, size_t *size)
 {
 	void *value = NULL;
 	size_t found = 0;
 
-	if (active != NULL && cdk2_pcd_get(active, space, (uint32_t)token,
+	if (token <= UINT32_MAX && active != NULL &&
+	    cdk2_pcd_get(active, space, (uint32_t)token,
 		&value, &found) == EFI_SUCCESS && (size == NULL || *size == found)) {
 		if (size != NULL)
 			*size = found;
@@ -208,8 +275,10 @@ static void *get_value(const EFI_GUID *space, size_t token, size_t *size)
 static void CDK2_MS_ABI abi_set_sku(size_t sku)
 {
 	if (active != NULL) {
-		uint64_t status = sku == 0 ? EFI_NOT_FOUND :
-			cdk2_pcd_apply_sku_delta(active, sku);
+		uint64_t status = sku != 0 &&
+			(active->header->system_sku_id != 0 &&
+			 active->header->system_sku_id != sku) ? PCD_ALREADY_STARTED :
+			sku == 0 ? EFI_NOT_FOUND : cdk2_pcd_apply_sku_delta(active, sku);
 
 		if (status == EFI_NOT_FOUND)
 			(void)cdk2_pcd_set_sku(active, sku);
@@ -285,7 +354,8 @@ static size_t CDK2_MS_ABI abi_get_size(size_t token)
 	void *value;
 	size_t size = 0;
 
-	return active != NULL && cdk2_pcd_get(active, NULL, token, &value, &size) ==
+	return token <= UINT32_MAX && active != NULL &&
+		cdk2_pcd_get(active, NULL, (uint32_t)token, &value, &size) ==
 		EFI_SUCCESS ? size : 0;
 }
 
@@ -294,14 +364,16 @@ static size_t CDK2_MS_ABI abi_get_size_ex(const EFI_GUID *space, size_t token)
 	void *value;
 	size_t size = 0;
 
-	return active != NULL && cdk2_pcd_get(active, space, token, &value, &size) ==
+	return token <= UINT32_MAX && active != NULL &&
+		cdk2_pcd_get(active, space, (uint32_t)token, &value, &size) ==
 		EFI_SUCCESS ? size : 0;
 }
 
 static uint64_t set_value(const EFI_GUID *space, size_t token, uint64_t value,
 	size_t size)
 {
-	return active == NULL ? EFI_NOT_READY : cdk2_pcd_set(active, space,
+	return active == NULL ? EFI_NOT_READY : token > UINT32_MAX ? EFI_INVALID_PARAMETER :
+		cdk2_pcd_set(active, space,
 		(uint32_t)token, &value, &size);
 }
 
@@ -351,29 +423,31 @@ static uint64_t CDK2_MS_ABI abi_set64_ex(const EFI_GUID *space, size_t token,
 
 static uint64_t CDK2_MS_ABI abi_set_ptr(size_t token, size_t *size, void *value)
 {
-	return active == NULL ? EFI_NOT_READY : cdk2_pcd_set(active, NULL, token,
+	return active == NULL ? EFI_NOT_READY : token > UINT32_MAX ? EFI_INVALID_PARAMETER :
+		cdk2_pcd_set(active, NULL, (uint32_t)token,
 		value, size);
 }
 
 static uint64_t CDK2_MS_ABI abi_set_ptr_ex(const EFI_GUID *space, size_t token,
 	size_t *size, void *value)
 {
-	return active == NULL ? EFI_NOT_READY : cdk2_pcd_set(active, space, token,
+	return active == NULL ? EFI_NOT_READY : token > UINT32_MAX ? EFI_INVALID_PARAMETER :
+		cdk2_pcd_set(active, space, (uint32_t)token,
 		value, size);
 }
 
 static uint64_t CDK2_MS_ABI abi_callback(const EFI_GUID *space, size_t token,
 	cdk2_pcd_callback callback)
 {
-	return active == NULL ? EFI_NOT_READY : cdk2_pcd_register(active, space,
-		token, callback);
+	return active == NULL ? EFI_NOT_READY : token > UINT32_MAX ? EFI_INVALID_PARAMETER :
+		cdk2_pcd_register(active, space, (uint32_t)token, callback);
 }
 
 static uint64_t CDK2_MS_ABI abi_cancel(const EFI_GUID *space, size_t token,
 	cdk2_pcd_callback callback)
 {
-	return active == NULL ? EFI_NOT_READY : cdk2_pcd_unregister(active, space,
-		token, callback);
+	return active == NULL ? EFI_NOT_READY : token > UINT32_MAX ? EFI_INVALID_PARAMETER :
+		cdk2_pcd_unregister(active, space, (uint32_t)token, callback);
 }
 
 static uint64_t CDK2_MS_ABI abi_next(const EFI_GUID *space, size_t *token)
@@ -431,9 +505,9 @@ static uint64_t info_common(const EFI_GUID *space, size_t token,
 	size_t type;
 	uint64_t status;
 
-	if (info == NULL)
+	if (info == NULL || token > UINT32_MAX)
 		return EFI_INVALID_PARAMETER;
-	status = cdk2_pcd_get_info(active, space, token, &type, &size);
+	status = cdk2_pcd_get_info(active, space, (uint32_t)token, &type, &size);
 	if (status != EFI_SUCCESS)
 		return status;
 	info->pcd_type = type;
@@ -613,11 +687,16 @@ free_database:
 		active_variable_policy = NULL;
 		if (status != EFI_SUCCESS)
 			goto free_expanded;
+	} else if (table->boot_services->locate_protocol != NULL) {
+		status = defer_variable_policy(&driver_context, table->boot_services);
+		if (status != EFI_SUCCESS)
+			goto free_expanded;
 	}
 	status = cdk2_pcd_publish(&driver_context, table->boot_services);
 	if (status == EFI_SUCCESS)
 		return status;
 free_expanded:
+	cancel_variable_policy_notification();
 	if (table->boot_services->free_pool != NULL)
 		(void)table->boot_services->free_pool(expanded);
 	return status;

@@ -37,6 +37,36 @@ static unsigned int allocations, frees;
 static uint32_t section_authentication;
 static unsigned int policy_registrations;
 static int expose_policy;
+static cdk2_pcd_event_notify_fn *policy_notify;
+static void *policy_notify_context;
+static unsigned int event_closes;
+
+static uint64_t CDK2_MS_ABI mock_create_event(uint32_t type, size_t tpl,
+	cdk2_pcd_event_notify_fn *notify, void *context, void **event)
+{
+	(void)type;
+	(void)tpl;
+	policy_notify = notify;
+	policy_notify_context = context;
+	*event = (void *)3;
+	return EFI_SUCCESS;
+}
+
+static uint64_t CDK2_MS_ABI mock_close_event(void *event)
+{
+	(void)event;
+	event_closes++;
+	return EFI_SUCCESS;
+}
+
+static uint64_t CDK2_MS_ABI mock_register_notify(const EFI_GUID *guid,
+	void *event, void **registration)
+{
+	(void)guid;
+	(void)event;
+	*registration = (void *)4;
+	return EFI_SUCCESS;
+}
 
 static uint64_t CDK2_MS_ABI mock_register_policy(const void *policy)
 {
@@ -447,6 +477,9 @@ int main(void)
 	boot_services.locate_protocol = mock_locate;
 	boot_services.allocate_pool = mock_allocate;
 	boot_services.free_pool = mock_free;
+	boot_services.create_event = mock_create_event;
+	boot_services.close_event = mock_close_event;
+	boot_services.register_protocol_notify = mock_register_notify;
 	memset(&system, 0, sizeof(system));
 	system.boot = &boot_services;
 	memset(&runtime, 0, sizeof(runtime));
@@ -513,6 +546,18 @@ int main(void)
 	pei.value = 0x10203040;
 	failures += expect(cdk2_pcd_merge_hob(&context, &pei, sizeof(pei)) == EFI_SUCCESS &&
 		fixture.value == pei.value, "validated PEI HOB DynamicEx state merged");
+	make_fixture(&fixture);
+	make_fixture(&pei);
+	fixture.map.local_token = pei.map.local_token = 2;
+	pei.value = 0x31415926U;
+	pei.wide = 0x8877665544332211ULL;
+	failures += expect(cdk2_pcd_init(&context, &fixture, sizeof(fixture)) == EFI_SUCCESS &&
+		cdk2_pcd_merge_hob(&context, &pei, sizeof(pei)) == EFI_SUCCESS &&
+		fixture.value == pei.value && fixture.wide == pei.wide,
+		"PEI HOB merges default-space and DynamicEx state");
+	make_fixture(&fixture);
+	failures += expect(cdk2_pcd_init(&context, &fixture, sizeof(fixture)) == EFI_SUCCESS,
+		"ordinary fixture restored after PEI merge coverage");
 	failures += expect(cdk2_pcd_register(&context, &space, 77, changed) == EFI_SUCCESS,
 		"callback registration");
 	size = sizeof(replacement);
@@ -564,6 +609,12 @@ int main(void)
 	failures += expect((delta_fixture.base.value & 0xff) == 0x6b &&
 		delta_fixture.base.header.system_sku_id == 7,
 		"SetSku protocol applies the selected SKU delta");
+	delta_fixture.base.header.system_sku_id = 9;
+	delta_fixture.base.value = 0xaabbccddU;
+	published_native->set_sku(7);
+	failures += expect(delta_fixture.base.value == 0xaabbccddU &&
+		delta_fixture.base.header.system_sku_id == 9,
+		"SetSku rejects reselection before mutating delta bytes");
 	/* Restore the ordinary fixture for publication ABI checks. */
 	failures += expect(cdk2_pcd_init(&context, &fixture, sizeof(fixture)) == EFI_SUCCESS,
 		"base database restored");
@@ -576,6 +627,15 @@ int main(void)
 	failures += expect(published_info != NULL &&
 		published_info->get_info(2, &info) == EFI_SUCCESS && info.pcd_type == 3,
 		"published GetInfo reports UINT64 rather than the zero enum");
+#if SIZE_MAX > UINT32_MAX
+	failures += expect(published_native->get32((size_t)UINT32_MAX + 2U) == 0 &&
+		published_native->set32((size_t)UINT32_MAX + 2U, 1) == EFI_INVALID_PARAMETER &&
+		published_native->callback_on_set(NULL, (size_t)UINT32_MAX + 2U, changed) ==
+		EFI_INVALID_PARAMETER &&
+		published_info->get_info((size_t)UINT32_MAX + 2U, &info) ==
+		EFI_INVALID_PARAMETER,
+		"protocol wrappers reject tokens before UINT32 narrowing");
+#endif
 	make_ex(&ex);
 	failures += expect(cdk2_pcd_init(&context, &ex, sizeof(ex)) == EFI_SUCCESS,
 		"token-space fixture restored");
@@ -646,6 +706,19 @@ int main(void)
 		published_native->get32(1) == 0x39 && policy_registrations == 1,
 		"driver entry wires production runtime HII variable services before publication");
 	expose_policy = 0;
+	policy_registrations = event_closes = 0;
+	policy_notify = NULL;
+	make_hii(&hii);
+	raw_fixture = (struct fixture *)&hii;
+	raw_fixture_size = sizeof(hii);
+	failures += expect(cdk2_pcd_driver_entry((void *)1, &system) == EFI_SUCCESS &&
+		policy_notify != NULL && policy_registrations == 0,
+		"driver defers read-only locks until VariablePolicy is installed");
+	expose_policy = 1;
+	policy_notify((void *)3, policy_notify_context);
+	failures += expect(policy_registrations == 1 && event_closes == 1,
+		"VariablePolicy notification locks HII variables and closes itself");
+	expose_policy = 0;
 	make_fixture(&fixture);
 	fixture.map.external_token = 0x00030006U;
 	fixture.map.local_token = 1;
@@ -712,10 +785,15 @@ int main(void)
 		"HII pointer records its compact current size");
 	memset(variable_data, 0xa5, sizeof(variable_data));
 	variable_return_size = 8;
+	context.variable_capacity = 16;
+	allocations = 0;
 	size = sizeof(signature);
 	failures += expect(cdk2_pcd_set(&context, NULL, 1, &signature, &size) ==
-		EFI_SUCCESS && variable_data[8] == 0 && variable_data[31] == 0,
-		"HII variable extension zeroes the gap before pointer data");
+		EFI_SUCCESS && allocations == 1 && variable_data[8] == 0 &&
+		variable_data[31] == 0,
+		"HII variable extension grows storage and zeroes the preserved gap");
+	if (context.variable != context.variable_inline)
+		(void)mock_free(context.variable);
 	variable_return_size = sizeof(variable_data);
 	make_hii(&hii);
 	hii.local = 0x44000000U | offsetof(struct hii_fixture, head);
@@ -739,6 +817,24 @@ int main(void)
 		EFI_SUCCESS && cdk2_pcd_get(&context, NULL, 1, &value, &size) ==
 		EFI_SUCCESS && size == 8 && memcmp(value, &space, size) == 0,
 		"VPD pointer uses compact size metadata and bounded VPD storage");
+	make_hii_pointer(&hii_pointer);
+	hii_pointer.head.string_index = 1;
+	failures += expect(cdk2_pcd_init(&context, &hii_pointer,
+		sizeof(hii_pointer)) == EFI_SUCCESS &&
+		cdk2_pcd_get(&context, NULL, 1, &value, &size) == EFI_INVALID_PARAMETER,
+		"misaligned HII variable name is rejected");
+	make_hii(&hii);
+	hii.name[0] = 'X';
+	hii.name[1] = 'Y';
+	failures += expect(cdk2_pcd_init(&context, &hii, sizeof(hii)) == EFI_SUCCESS &&
+		cdk2_pcd_get(&context, NULL, 1, &value, &size) == EFI_INVALID_PARAMETER,
+		"unterminated HII variable name is rejected within database bounds");
+	make_hii_pointer(&hii_pointer);
+	hii_pointer.name[0] = 'X';
+	hii_pointer.sizes[0] = hii_pointer.sizes[1] = 0xffffU;
+	failures += expect(cdk2_pcd_init(&context, &hii_pointer,
+		offsetof(struct hii_pointer_fixture, sizes)) == EFI_INVALID_PARAMETER,
+		"combined HII pointer requires a complete four-byte header");
 
 	make_fixture(&bad);
 	bad.local[0] |= 0x20000000U;
