@@ -121,6 +121,12 @@ int main(void)
 	EXPECT(parse(&fixture, BLOCK_SIZE, partitions, 4U, &count) ==
 		EFI_COMPROMISED_DATA);
 	make_extended(&fixture);
+	entry(fixture.disk[100], 0, 0x07U, 1U, 200U);
+	entry(fixture.disk[100], 1, 0x0fU, 50U, 100U);
+	seal(fixture.disk[100]);
+	EXPECT(parse(&fixture, BLOCK_SIZE, partitions, 4U, &count) ==
+		EFI_COMPROMISED_DATA);
+	make_extended(&fixture);
 	entry(fixture.disk[130], 0, 0x83U, 1U, 200U);
 	EXPECT(parse(&fixture, BLOCK_SIZE, partitions, 4U, &count) ==
 		EFI_COMPROMISED_DATA);

@@ -2,6 +2,24 @@
 
 #include <cdk2/partition.h>
 
+#define MEDIA_CHANGED EFIERR(13)
+#define ABORTED EFIERR(21)
+#define BLOCK_IO_REVISION2 0x00020001ULL
+
+struct cdk2_partition_async_request {
+	struct cdk2_partition_async_request *next;
+	struct cdk2_partition_child *child;
+	struct cdk2_disk_io2_token *caller_token;
+	struct cdk2_disk_io2_token parent_token;
+	UINT32 media_id;
+	UINT64 parent_offset;
+	UINTN size;
+	void *buffer;
+	void *event;
+	BOOLEAN write;
+	BOOLEAN flush;
+};
+
 struct cdk2_partition_child {
 	struct cdk2_block_io block;
 	struct cdk2_block_io2 block2;
@@ -21,6 +39,7 @@ struct cdk2_partition_child {
 	UINT64 byte_offset;
 	UINT64 byte_size;
 	BOOLEAN parent_open;
+	struct cdk2_partition_async_scheduler *scheduler;
 };
 
 static const EFI_GUID efi_system_partition_guid = {
@@ -67,7 +86,9 @@ static struct cdk2_partition_child *from_disk2(struct cdk2_disk_io2 *disk)
 static EFI_STATUS block_range(struct cdk2_partition_child *child, UINT32 media_id,
 	UINT64 lba, UINTN size, void *buffer, UINT64 *parent_lba)
 {
-	if (media_id != child->media.media_id || (size != 0 && buffer == NULL))
+	if (media_id != child->media.media_id)
+		return MEDIA_CHANGED;
+	if (size != 0 && buffer == NULL)
 		return EFI_INVALID_PARAMETER;
 	if (size % child->media.block_size != 0)
 		return EFI_BAD_BUFFER_SIZE;
@@ -83,7 +104,9 @@ static EFI_STATUS block_range(struct cdk2_partition_child *child, UINT32 media_i
 static EFI_STATUS disk_range(struct cdk2_partition_child *child, UINT32 media_id,
 	UINT64 offset, UINTN size, void *buffer, UINT64 *parent_offset)
 {
-	if (media_id != child->media.media_id || (size != 0 && buffer == NULL) ||
+	if (media_id != child->media.media_id)
+		return MEDIA_CHANGED;
+	if ((size != 0 && buffer == NULL) ||
 	    (size == 0 && offset > child->byte_size) ||
 	    (size != 0 && (offset >= child->byte_size || size - 1U >
 	    child->byte_size - offset - 1U)))
@@ -219,6 +242,87 @@ static EFI_STATUS disk_transfer(struct cdk2_disk_io *disk, BOOLEAN write,
 		child->parent_disk, media_id, parent_offset, size, buffer);
 }
 
+static void dispatch_async(struct cdk2_partition_async_scheduler *scheduler);
+
+static void CDK2_MS_ABI async_complete(void *event, void *context)
+{
+	struct cdk2_partition_async_request *request = context;
+	struct cdk2_partition_async_scheduler *scheduler = request->child->scheduler;
+
+	(void)event;
+	request->caller_token->transaction_status = request->parent_token.transaction_status;
+	(void)request->child->services->signal_event(request->caller_token->event);
+	scheduler->active = NULL;
+	(void)request->child->services->close_event(request->event);
+	request->child->services->free(request);
+	dispatch_async(scheduler);
+}
+
+static void dispatch_async(struct cdk2_partition_async_scheduler *scheduler)
+{
+	struct cdk2_partition_async_request *request;
+	EFI_STATUS status;
+
+	if (scheduler == NULL || scheduler->canceling || scheduler->active != NULL ||
+	    scheduler->head == NULL)
+		return;
+	request = scheduler->head;
+	scheduler->head = request->next;
+	if (scheduler->head == NULL)
+		scheduler->tail = NULL;
+	scheduler->active = request;
+	if (request->flush)
+		status = scheduler->parent->flush_disk_ex(scheduler->parent,
+			&request->parent_token);
+	else
+		status = (request->write ? scheduler->parent->write_disk_ex :
+			scheduler->parent->read_disk_ex)(scheduler->parent, request->media_id,
+			request->parent_offset, &request->parent_token, request->size,
+			request->buffer);
+	if (EFI_ERROR(status)) {
+		request->parent_token.transaction_status = status;
+		async_complete(request->event, request);
+	}
+}
+
+static EFI_STATUS queue_async(struct cdk2_partition_child *child, BOOLEAN write,
+	UINT32 media_id, UINT64 parent_offset, struct cdk2_disk_io2_token *token,
+	UINTN size, void *buffer, BOOLEAN flush)
+{
+	struct cdk2_partition_async_request *request;
+	EFI_STATUS status;
+
+	if (child->scheduler == NULL || child->parent_disk2 == NULL || token == NULL ||
+	    token->event == NULL)
+		return EFI_UNSUPPORTED;
+	status = child->services->allocate(sizeof(*request), (void **)&request);
+	if (EFI_ERROR(status))
+		return status;
+	__builtin_memset(request, 0, sizeof(*request));
+	request->child = child;
+	request->caller_token = token;
+	request->media_id = media_id;
+	request->parent_offset = parent_offset;
+	request->size = size;
+	request->buffer = buffer;
+	request->write = write;
+	request->flush = flush;
+	status = child->services->create_event(async_complete, request, &request->event);
+	if (EFI_ERROR(status)) {
+		child->services->free(request);
+		return status;
+	}
+	request->parent_token.event = request->event;
+	request->parent_token.transaction_status = EFI_NOT_READY;
+	if (child->scheduler->tail == NULL)
+		child->scheduler->head = request;
+	else
+		((struct cdk2_partition_async_request *)child->scheduler->tail)->next = request;
+	child->scheduler->tail = request;
+	dispatch_async(child->scheduler);
+	return EFI_SUCCESS;
+}
+
 static uint64_t CDK2_MS_ABI child_read_disk(struct cdk2_disk_io *disk,
 	uint32_t media_id, uint64_t offset, size_t size, void *buffer)
 {
@@ -250,13 +354,11 @@ static EFI_STATUS disk2_transfer(struct cdk2_disk_io2 *disk, BOOLEAN write,
 		}
 		return token != NULL && token->event != NULL ? EFI_SUCCESS : status;
 	}
-	/* Complete through Disk I/O so Cancel remains scoped to this child. */
+	if (token != NULL && token->event != NULL && child->parent_disk2 != NULL)
+		return queue_async(child, write, media_id, parent_offset, token, size, buffer,
+			FALSE);
 	status = disk_transfer(&child->disk, write, media_id, offset, size, buffer);
-	if (token != NULL) {
-		token->transaction_status = status;
-		if (token->event != NULL)
-			(void)child->services->signal_event(token->event);
-	}
+	complete(child, (struct cdk2_block_io2_token *)token, status);
 	return token != NULL && token->event != NULL ? EFI_SUCCESS : status;
 }
 
@@ -277,10 +379,37 @@ static uint64_t CDK2_MS_ABI child_write_disk2(struct cdk2_disk_io2 *disk,
 static uint64_t CDK2_MS_ABI child_cancel(struct cdk2_disk_io2 *disk)
 {
 	struct cdk2_partition_child *child = from_disk2(disk);
+	struct cdk2_partition_async_scheduler *scheduler = child->scheduler;
+	struct cdk2_partition_async_request **link;
+	struct cdk2_partition_async_request *request;
+	EFI_STATUS status = EFI_SUCCESS;
 
-	/* Child requests complete synchronously and never enter the parent's queue. */
-	(void)child;
-	return EFI_SUCCESS;
+	if (scheduler == NULL)
+		return EFI_SUCCESS;
+	link = (struct cdk2_partition_async_request **)&scheduler->head;
+	while (*link != NULL) {
+		request = *link;
+		if (request->child != child) {
+			link = &request->next;
+			continue;
+		}
+		*link = request->next;
+		request->caller_token->transaction_status = ABORTED;
+		(void)child->services->signal_event(request->caller_token->event);
+		(void)child->services->close_event(request->event);
+		child->services->free(request);
+	}
+	scheduler->tail = NULL;
+	for (request = scheduler->head; request != NULL; request = request->next)
+		scheduler->tail = request;
+	request = scheduler->active;
+	if (request != NULL && request->child == child) {
+		scheduler->canceling = TRUE;
+		status = scheduler->parent->cancel(scheduler->parent);
+		scheduler->canceling = FALSE;
+		dispatch_async(scheduler);
+	}
+	return status;
 }
 
 static uint64_t CDK2_MS_ABI child_flush_disk2(struct cdk2_disk_io2 *disk,
@@ -289,6 +418,9 @@ static uint64_t CDK2_MS_ABI child_flush_disk2(struct cdk2_disk_io2 *disk,
 	struct cdk2_partition_child *child = from_disk2(disk);
 	EFI_STATUS status;
 
+	if (token != NULL && token->event != NULL && child->parent_disk2 != NULL)
+		return queue_async(child, FALSE, child->media.media_id, 0, token, 0, NULL,
+			TRUE);
 	status = child->parent_block->flush_blocks(child->parent_block);
 	if (token != NULL) {
 		token->transaction_status = status;
@@ -302,6 +434,7 @@ EFI_STATUS cdk2_partition_child_create(
 	const struct cdk2_partition_child_services *services, void *parent,
 	struct cdk2_block_io *parent_block, struct cdk2_block_io2 *parent_block2,
 	struct cdk2_disk_io *parent_disk, struct cdk2_disk_io2 *parent_disk2,
+	struct cdk2_partition_async_scheduler *scheduler,
 	void *device_path, const struct cdk2_partition *partition,
 	struct cdk2_partition_child **child_out)
 {
@@ -312,7 +445,8 @@ EFI_STATUS cdk2_partition_child_create(
 	if (services == NULL || services->allocate == NULL || services->free == NULL ||
 	    services->install == NULL || services->uninstall == NULL ||
 	    services->open_parent == NULL || services->close_parent == NULL ||
-	    services->signal_event == NULL || parent_block == NULL ||
+	    services->signal_event == NULL || services->create_event == NULL ||
+	    services->close_event == NULL || parent_block == NULL ||
 	    parent_block->media == NULL || parent_disk == NULL || partition == NULL ||
 	    child_out == NULL || partition->start_lba > partition->end_lba ||
 	    partition->end_lba > parent_block->media->last_block)
@@ -333,10 +467,28 @@ EFI_STATUS cdk2_partition_child_create(
 	child->parent_block2 = parent_block2;
 	child->parent_disk = parent_disk;
 	child->parent_disk2 = parent_disk2;
+	child->scheduler = scheduler;
 	child->device_path = device_path;
-	child->media = *parent_block->media;
+	__builtin_memcpy(&child->media, parent_block->media,
+		offsetof(struct cdk2_block_media, lowest_aligned_lba));
+	if (parent_block->revision >= BLOCK_IO_REVISION2)
+		__builtin_memcpy(&child->media.lowest_aligned_lba,
+			&parent_block->media->lowest_aligned_lba,
+			sizeof(child->media) -
+			offsetof(struct cdk2_block_media, lowest_aligned_lba));
 	child->media.logical_partition = TRUE;
 	child->media.last_block = blocks - 1U;
+	if (parent_block->revision >= BLOCK_IO_REVISION2 &&
+	    child->media.logical_blocks_per_physical_block > 1U) {
+		UINT64 physical = child->media.logical_blocks_per_physical_block;
+		UINT64 parent_alignment = child->media.lowest_aligned_lba % physical;
+		UINT64 start_alignment = partition->start_lba % physical;
+
+		child->media.lowest_aligned_lba =
+			(parent_alignment + physical - start_alignment) % physical;
+	} else {
+		child->media.lowest_aligned_lba = 0;
+	}
 	child->byte_offset = partition->start_lba * parent_block->media->block_size;
 	child->byte_size = blocks * parent_block->media->block_size;
 	child->partition = *partition;
@@ -396,6 +548,9 @@ EFI_STATUS cdk2_partition_child_destroy(struct cdk2_partition_child *child)
 
 	if (child == NULL)
 		return EFI_INVALID_PARAMETER;
+	status = child_cancel(&child->disk2);
+	if (EFI_ERROR(status))
+		return status;
 	if (child->parent_open) {
 		status = child->services->close_parent(child->parent, child->handle);
 		if (EFI_ERROR(status))

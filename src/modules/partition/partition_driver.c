@@ -8,6 +8,7 @@
 #define OPEN_BY_DRIVER 0x10U
 #define MAX_PARTITIONS 128U
 #define GPT_ENTRY_CAPACITY (1024U * 1024U)
+#define ALREADY_STARTED EFIERR(20)
 
 typedef EFI_STATUS CDK2_MS_ABI allocate_pool_fn(UINT32, UINTN, void **);
 typedef EFI_STATUS CDK2_MS_ABI free_pool_fn(void *);
@@ -18,20 +19,36 @@ typedef EFI_STATUS CDK2_MS_ABI close_protocol_fn(void *, const EFI_GUID *, void 
 typedef EFI_STATUS CDK2_MS_ABI install_multiple_fn(void **, ...);
 typedef EFI_STATUS CDK2_MS_ABI uninstall_multiple_fn(void *, ...);
 typedef EFI_STATUS CDK2_MS_ABI signal_event_fn(void *);
+typedef EFI_STATUS CDK2_MS_ABI create_event_fn(UINT32, UINTN,
+	void (CDK2_MS_ABI *)(void *, void *), void *, void **);
+typedef EFI_STATUS CDK2_MS_ABI close_event_fn(void *);
 
 struct boot_services_view {
 	UINT8 to_allocate_pool[64];
 	allocate_pool_fn *allocate_pool;
 	free_pool_fn *free_pool;
-	UINT8 to_signal_event[24];
+	create_event_fn *create_event;
+	void *set_timer;
+	void *wait_for_event;
 	signal_event_fn *signal_event;
-	UINT8 to_open_protocol[168];
+	close_event_fn *close_event;
+	UINT8 to_open_protocol[160];
 	open_protocol_fn *open_protocol;
 	close_protocol_fn *close_protocol;
 	UINT8 to_install_multiple[32];
 	install_multiple_fn *install_multiple;
 	uninstall_multiple_fn *uninstall_multiple;
 };
+typedef char create_event_offset_check[
+	offsetof(struct boot_services_view, create_event) == 80U ? 1 : -1];
+typedef char signal_event_offset_check[
+	offsetof(struct boot_services_view, signal_event) == 104U ? 1 : -1];
+typedef char close_event_offset_check[
+	offsetof(struct boot_services_view, close_event) == 112U ? 1 : -1];
+typedef char open_protocol_offset_check[
+	offsetof(struct boot_services_view, open_protocol) == 280U ? 1 : -1];
+typedef char install_multiple_offset_check[
+	offsetof(struct boot_services_view, install_multiple) == 328U ? 1 : -1];
 
 struct system_table_view {
 	UINT8 before_boot_services[96];
@@ -57,12 +74,18 @@ struct child_record {
 	struct child_record *next;
 	struct cdk2_partition_child *child;
 	void *device_path;
+	struct cdk2_partition partition;
 };
 
 struct controller_record {
 	struct controller_record *next;
 	void *controller;
 	struct cdk2_disk_io *disk;
+	struct cdk2_block_io *block;
+	struct cdk2_block_io2 *block2;
+	struct cdk2_disk_io2 *disk2;
+	void *parent_path;
+	struct cdk2_partition_async_scheduler scheduler;
 	struct child_record *children;
 };
 
@@ -93,6 +116,28 @@ static EFI_STATUS allocate(UINTN size, void **buffer)
 static void release(void *buffer)
 {
 	(void)boot->free_pool(buffer);
+}
+
+static EFI_STATUS allocate_aligned(UINTN size, UINT32 alignment, void **allocation,
+	void **buffer)
+{
+	UINTN address;
+	EFI_STATUS status;
+
+	if (allocation == NULL || buffer == NULL)
+		return EFI_INVALID_PARAMETER;
+	if (alignment <= 1U)
+		alignment = 1U;
+	else if ((alignment & (alignment - 1U)) != 0)
+		return EFI_UNSUPPORTED;
+	if (size > MAX_UINTN - (alignment - 1U))
+		return EFI_OUT_OF_RESOURCES;
+	status = allocate(size + alignment - 1U, allocation);
+	if (EFI_ERROR(status))
+		return status;
+	address = ((UINTN)*allocation + alignment - 1U) & ~((UINTN)alignment - 1U);
+	*buffer = (void *)address;
+	return EFI_SUCCESS;
 }
 
 static EFI_STATUS install_child(void **handle, struct cdk2_block_io *block,
@@ -134,9 +179,20 @@ static EFI_STATUS signal_child_event(void *event)
 	return boot->signal_event(event);
 }
 
+static EFI_STATUS create_child_event(void (CDK2_MS_ABI *notify)(void *, void *),
+	void *context, void **event)
+{
+	return boot->create_event(0x00000200U, 8U, notify, context, event);
+}
+
+static EFI_STATUS close_child_event(void *event)
+{
+	return boot->close_event(event);
+}
+
 static const struct cdk2_partition_child_services child_services = {
 	allocate, release, install_child, uninstall_child, open_parent, close_parent,
-	signal_child_event,
+	signal_child_event, create_child_event, close_child_event,
 };
 
 static EFI_STATUS media_read(void *context, UINT64 lba, UINTN blocks,
@@ -379,16 +435,32 @@ static EFI_STATUS CDK2_MS_ABI start(struct driver_binding *driver,
 	struct cdk2_disk_io2 *disk2 = NULL;
 	void *parent_path = NULL;
 	void *scratch = NULL;
+	void *scratch_allocation = NULL;
 	void *entries = NULL;
+	void *entries_allocation = NULL;
 	UINTN scratch_size;
 	UINTN count;
 	UINTN index;
 	UINTN created = 0;
 	BOOLEAN retained = FALSE;
+	BOOLEAN existing = FALSE;
 	EFI_STATUS status;
 
 	if (!remaining_valid(remaining))
 		return EFI_UNSUPPORTED;
+	for (record = controllers; record != NULL && record->controller != controller;
+	     record = record->next) { }
+	if (record != NULL) {
+		existing = TRUE;
+		block = record->block;
+		block2 = record->block2;
+		disk = record->disk;
+		disk2 = record->disk2;
+		parent_path = record->parent_path;
+		if (remaining == NULL)
+			return ALREADY_STARTED;
+		goto allocate_discovery;
+	}
 	status = boot->open_protocol(controller, &disk_io_guid, (void **)&disk,
 		driver->driver_binding_handle, controller, OPEN_BY_DRIVER);
 	if (EFI_ERROR(status))
@@ -408,21 +480,32 @@ static EFI_STATUS CDK2_MS_ABI start(struct driver_binding *driver,
 		driver->driver_binding_handle, controller, OPEN_GET_PROTOCOL);
 	(void)boot->open_protocol(controller, &disk_io2_guid, (void **)&disk2,
 		driver->driver_binding_handle, controller, OPEN_GET_PROTOCOL);
+
+allocate_discovery:
 	scratch_size = block->media->block_size > 2048U ?
 		block->media->block_size : 2048U;
-	status = allocate(scratch_size, &scratch);
+	status = allocate_aligned(scratch_size, block->media->io_align,
+		&scratch_allocation, &scratch);
 	if (!EFI_ERROR(status))
-		status = allocate(GPT_ENTRY_CAPACITY, &entries);
+		status = allocate_aligned(GPT_ENTRY_CAPACITY, block->media->io_align,
+			&entries_allocation, &entries);
 	if (!EFI_ERROR(status))
 		status = allocate(sizeof(*partitions) * MAX_PARTITIONS,
 			(void **)&partitions);
-	if (!EFI_ERROR(status))
+	if (!EFI_ERROR(status) && !existing)
 		status = allocate(sizeof(*record), (void **)&record);
 	if (EFI_ERROR(status))
 		goto fail;
-	__builtin_memset(record, 0, sizeof(*record));
-	record->controller = controller;
-	record->disk = disk;
+	if (!existing) {
+		__builtin_memset(record, 0, sizeof(*record));
+		record->controller = controller;
+		record->disk = disk;
+		record->block = block;
+		record->block2 = block2;
+		record->disk2 = disk2;
+		record->parent_path = parent_path;
+		record->scheduler.parent = disk2;
+	}
 	status = discover(block, scratch, scratch_size, entries, partitions, &count);
 	if (EFI_ERROR(status))
 		goto fail;
@@ -430,6 +513,12 @@ static EFI_STATUS CDK2_MS_ABI start(struct driver_binding *driver,
 		struct child_record *child;
 
 		if (!remaining_matches(remaining, &partitions[index]))
+			continue;
+		for (child = record->children; child != NULL; child = child->next)
+			if (child->partition.scheme == partitions[index].scheme &&
+			    child->partition.index == partitions[index].index)
+				break;
+		if (child != NULL)
 			continue;
 
 		status = allocate(sizeof(*child), (void **)&child);
@@ -440,7 +529,7 @@ static EFI_STATUS CDK2_MS_ABI start(struct driver_binding *driver,
 			&child->device_path);
 		if (!EFI_ERROR(status))
 			status = cdk2_partition_child_create(&child_services, controller,
-				block, block2, disk, disk2, child->device_path,
+				block, block2, disk, disk2, &record->scheduler, child->device_path,
 				&partitions[index], &child->child);
 		if (EFI_ERROR(status)) {
 			if (child->device_path != NULL)
@@ -449,6 +538,7 @@ static EFI_STATUS CDK2_MS_ABI start(struct driver_binding *driver,
 			goto fail;
 		}
 		child->next = record->children;
+		child->partition = partitions[index];
 		record->children = child;
 		created++;
 	}
@@ -456,14 +546,16 @@ static EFI_STATUS CDK2_MS_ABI start(struct driver_binding *driver,
 		status = EFI_NOT_FOUND;
 		goto fail;
 	}
-	record->next = controllers;
-	controllers = record;
+	if (!existing) {
+		record->next = controllers;
+		controllers = record;
+	}
 	release(partitions);
-	release(entries);
-	release(scratch);
+	release(entries_allocation);
+	release(scratch_allocation);
 	return EFI_SUCCESS;
 fail:
-	if (record != NULL) {
+	if (record != NULL && !existing) {
 		EFI_STATUS cleanup = destroy_records(record);
 
 		if (EFI_ERROR(cleanup)) {
@@ -479,11 +571,11 @@ fail:
 	}
 	if (partitions != NULL)
 		release(partitions);
-	if (entries != NULL)
-		release(entries);
-	if (scratch != NULL)
-		release(scratch);
-	if (!retained)
+	if (entries_allocation != NULL)
+		release(entries_allocation);
+	if (scratch_allocation != NULL)
+		release(scratch_allocation);
+	if (!retained && !existing)
 		(void)boot->close_protocol(controller, &disk_io_guid,
 			driver->driver_binding_handle, controller);
 	return status;

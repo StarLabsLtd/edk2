@@ -125,6 +125,19 @@ int main(void)
 
 	make_fixture();
 	catalog = iso_sector(20U);
+	catalog[64] = 0x90U;
+	catalog[128] = 0x44U;
+	catalog[160] = 0x91U;
+	catalog[161] = 0xefU;
+	write16(catalog + 160 + 2, 1U);
+	catalog[192] = 0x88U;
+	write16(catalog + 192 + 6, 1U);
+	write32(catalog + 192 + 8, 50U);
+	EXPECT(parse(partitions, 3U, &count) == EFI_SUCCESS && count == 3U &&
+		partitions[2].start_lba == 200U);
+
+	make_fixture();
+	catalog = iso_sector(20U);
 	write16(catalog + 64 + 2, 0x0101U);
 	catalog[97] = 0U;
 	catalog[128] = 0x88U;
@@ -160,7 +173,8 @@ int main(void)
 	make_fixture();
 	catalog = iso_sector(20U);
 	write32(catalog + 96 + 8, 30U);
-	EXPECT(parse(partitions, 3U, &count) == EFI_COMPROMISED_DATA);
+	EXPECT(parse(partitions, 3U, &count) == EFI_SUCCESS && count == 2U &&
+		partitions[0].start_lba == partitions[1].start_lba);
 	make_fixture();
 	catalog = iso_sector(20U);
 	write32(catalog + 32 + 8, 2000U);

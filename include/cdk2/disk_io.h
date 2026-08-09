@@ -18,6 +18,9 @@ struct cdk2_block_media {
 	uint32_t block_size;
 	uint32_t io_align;
 	uint64_t last_block;
+	uint64_t lowest_aligned_lba;
+	uint32_t logical_blocks_per_physical_block;
+	uint32_t optimal_transfer_length_granularity;
 };
 
 struct cdk2_block_io;

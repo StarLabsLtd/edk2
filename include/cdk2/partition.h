@@ -93,6 +93,14 @@ typedef char cdk2_partition_info_size[
 	(sizeof(struct cdk2_partition_info) == 144U) ? 1 : -1];
 
 struct cdk2_partition_child;
+typedef void CDK2_MS_ABI cdk2_partition_notify_fn(void *event, void *context);
+struct cdk2_partition_async_scheduler {
+	void *head;
+	void *tail;
+	void *active;
+	struct cdk2_disk_io2 *parent;
+	BOOLEAN canceling;
+};
 struct cdk2_partition_child_services {
 	EFI_STATUS (*allocate)(UINTN size, void **buffer);
 	void (*free)(void *buffer);
@@ -107,12 +115,16 @@ struct cdk2_partition_child_services {
 	EFI_STATUS (*open_parent)(void *parent, void *child);
 	EFI_STATUS (*close_parent)(void *parent, void *child);
 	EFI_STATUS (*signal_event)(void *event);
+	EFI_STATUS (*create_event)(cdk2_partition_notify_fn *notify,
+		void *context, void **event);
+	EFI_STATUS (*close_event)(void *event);
 };
 
 EFI_STATUS cdk2_partition_child_create(
 	const struct cdk2_partition_child_services *services, void *parent,
 	struct cdk2_block_io *parent_block, struct cdk2_block_io2 *parent_block2,
 	struct cdk2_disk_io *parent_disk, struct cdk2_disk_io2 *parent_disk2,
+	struct cdk2_partition_async_scheduler *scheduler,
 	void *device_path, const struct cdk2_partition *partition,
 	struct cdk2_partition_child **child);
 EFI_STATUS cdk2_partition_child_destroy(struct cdk2_partition_child *child);

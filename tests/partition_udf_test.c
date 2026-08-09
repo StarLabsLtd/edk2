@@ -145,8 +145,7 @@ int main(void)
 	fixture.disk[302][441] = 64U;
 	write16(fixture.disk[302] + 478, 5U);
 	seal(fixture.disk[302], 6U, 302U, 424U);
-	EXPECT(parse(partitions, 2U, &count) == EFI_SUCCESS && count == 1U &&
-		partitions[0].index == 6U);
+	EXPECT(parse(partitions, 2U, &count) == EFI_UNSUPPORTED);
 
 	make_fixture();
 	write32(fixture.disk[256] + 24, 4U * BLOCK_SIZE);
@@ -160,6 +159,12 @@ int main(void)
 	seal(fixture.disk[599], 2U, 599U, 16U);
 	fixture.disk[256][4] ^= 1U;
 	EXPECT(parse(partitions, 2U, &count) == EFI_SUCCESS);
+	make_fixture();
+	memcpy(fixture.disk[599], fixture.disk[256], BLOCK_SIZE);
+	write32(fixture.disk[599] + 20, 320U);
+	seal(fixture.disk[599], 2U, 599U, 16U);
+	fixture.disk[301][4] ^= 1U;
+	EXPECT(parse(partitions, 2U, &count) == EFI_SUCCESS && count == 1U);
 	make_fixture();
 	fixture.disk[256][4] ^= 1U;
 	EXPECT(parse(partitions, 2U, &count) == EFI_COMPROMISED_DATA);

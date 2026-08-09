@@ -33,14 +33,20 @@ typedef EFI_STATUS CDK2_MS_ABI close_protocol_fn(void *, const EFI_GUID *, void 
 typedef EFI_STATUS CDK2_MS_ABI install_multiple_fn(void **, ...);
 typedef EFI_STATUS CDK2_MS_ABI uninstall_multiple_fn(void *, ...);
 typedef EFI_STATUS CDK2_MS_ABI signal_event_fn(void *);
+typedef EFI_STATUS CDK2_MS_ABI create_event_fn(UINT32, UINTN,
+	void (CDK2_MS_ABI *)(void *, void *), void *, void **);
+typedef EFI_STATUS CDK2_MS_ABI close_event_fn(void *);
 
 struct boot_services_view {
 	UINT8 to_allocate_pool[64];
 	allocate_pool_fn *allocate_pool;
 	free_pool_fn *free_pool;
-	UINT8 to_signal_event[24];
+	create_event_fn *create_event;
+	void *set_timer;
+	void *wait_for_event;
 	signal_event_fn *signal_event;
-	UINT8 to_open_protocol[168];
+	close_event_fn *close_event;
+	UINT8 to_open_protocol[160];
 	open_protocol_fn *open_protocol;
 	close_protocol_fn *close_protocol;
 	UINT8 to_install_multiple[32];
@@ -69,6 +75,7 @@ static UINTN fail_allocation;
 static BOOLEAN fail_child_install;
 static BOOLEAN fail_child_open;
 static void *installed_path;
+static UINTN misaligned_reads;
 
 static void write32(UINT8 *bytes, UINT32 value)
 {
@@ -108,6 +115,20 @@ static void make_gpt(void)
 	write32(header + 16, cdk2_partition_crc32(header, 92U));
 }
 
+static void add_second_gpt(void)
+{
+	UINT8 *header = disk_image[1];
+	UINT8 *entry = disk_image[2] + 128U;
+
+	entry[0] = 3U;
+	entry[16] = 4U;
+	write64(entry + 32, 60U);
+	write64(entry + 40, 69U);
+	write32(header + 88, cdk2_partition_crc32(disk_image[2], BLOCK_SIZE));
+	write32(header + 16, 0U);
+	write32(header + 16, cdk2_partition_crc32(header, 92U));
+}
+
 static uint64_t CDK2_MS_ABI block_reset(struct cdk2_block_io *block, uint8_t ex)
 {
 	(void)block;
@@ -118,8 +139,12 @@ static uint64_t CDK2_MS_ABI block_reset(struct cdk2_block_io *block, uint8_t ex)
 static uint64_t CDK2_MS_ABI block_read(struct cdk2_block_io *block, uint32_t id,
 	uint64_t lba, size_t size, void *buffer)
 {
-	(void)block;
 	(void)id;
+	if (block->media->io_align > 1U &&
+	    ((UINTN)buffer & (block->media->io_align - 1U)) != 0) {
+		misaligned_reads++;
+		return EFI_INVALID_PARAMETER;
+	}
 	if (lba >= DISK_BLOCKS || size % BLOCK_SIZE != 0 ||
 	    size / BLOCK_SIZE > DISK_BLOCKS - lba)
 		return EFI_DEVICE_ERROR;
@@ -192,6 +217,20 @@ static EFI_STATUS CDK2_MS_ABI signal_event(void *event)
 	return EFI_SUCCESS;
 }
 
+static EFI_STATUS CDK2_MS_ABI create_event(UINT32 type, UINTN tpl,
+	void (CDK2_MS_ABI *notify)(void *, void *), void *context, void **event)
+{
+	(void)type; (void)tpl; (void)notify; (void)context;
+	*event = (void *)1;
+	return EFI_SUCCESS;
+}
+
+static EFI_STATUS CDK2_MS_ABI close_event(void *event)
+{
+	(void)event;
+	return EFI_SUCCESS;
+}
+
 static EFI_STATUS CDK2_MS_ABI open_protocol(void *handle, const EFI_GUID * guid,
 	void **interface, void *agent, void *controller, UINT32 attributes)
 {
@@ -249,7 +288,9 @@ static EFI_STATUS CDK2_MS_ABI uninstall_multiple(void *handle, ...)
 static struct boot_services_view boot_services = {
 	.allocate_pool = allocate_pool,
 	.free_pool = free_pool,
+	.create_event = create_event,
 	.signal_event = signal_event,
+	.close_event = close_event,
 	.open_protocol = open_protocol,
 	.close_protocol = close_protocol,
 	.install_multiple = install_multiple,
@@ -277,6 +318,7 @@ static void clear_faults(void)
 	fail_child_install = FALSE;
 	fail_child_open = FALSE;
 	installed_path = NULL;
+	misaligned_reads = 0;
 }
 
 int main(void)
@@ -314,15 +356,26 @@ int main(void)
 	remaining[24] = 2U; remaining[40] = 2U; remaining[41] = 2U;
 	remaining[42] = 0x7fU; remaining[43] = 0xffU; remaining[44] = 4U;
 	clear_faults();
+	media.io_align = 64U;
 	EXPECT(installed_binding->supported(installed_binding, controller, remaining) ==
 		EFI_SUCCESS);
 	EXPECT(installed_binding->start(installed_binding, controller, remaining) ==
-		EFI_SUCCESS && child_installs == 1U);
-	EXPECT(installed_binding->stop(installed_binding, controller, 1U,
-		&child_handle) == EFI_SUCCESS);
+		EFI_SUCCESS && child_installs == 1U && misaligned_reads == 0);
+	add_second_gpt();
+	write32(remaining + 4, 2U);
+	write64(remaining + 8, 60U);
+	remaining[24] = 4U;
+	EXPECT(installed_binding->start(installed_binding, controller, remaining) ==
+		EFI_SUCCESS && child_installs == 2U && misaligned_reads == 0);
+	{
+		void *children[2] = { child_handle, child_handle };
+		EXPECT(installed_binding->stop(installed_binding, controller, 2U,
+			children) == EFI_SUCCESS);
+	}
 	EXPECT(installed_binding->stop(installed_binding, controller, 0, NULL) ==
 		EFI_SUCCESS);
-	write32(remaining + 4, 2U);
+	media.io_align = 0;
+	write32(remaining + 4, 3U);
 	clear_faults();
 	EXPECT(installed_binding->start(installed_binding, controller, remaining) ==
 		EFI_NOT_FOUND && child_installs == 0);
