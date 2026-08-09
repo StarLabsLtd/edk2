@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 
 #include <cdk2/pci_host_bridge.h>
+#include <cdk2/pcd.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -9,7 +10,8 @@
 uint64_t CDK2_MS_ABI cdk2_pci_host_bridge_entry(void *, void *);
 
 static void *installed;
-static unsigned int allocations, frees;
+static unsigned int allocations, frees, installs;
+static int provide_pcd;
 
 static uint64_t CDK2_MS_ABI install(void **handle, const EFI_GUID *guid,
 	void *interface, ...)
@@ -17,6 +19,7 @@ static uint64_t CDK2_MS_ABI install(void **handle, const EFI_GUID *guid,
 	(void)guid;
 	*handle = (void *)0x55;
 	installed = interface;
+	installs++;
 	return EFI_SUCCESS;
 }
 
@@ -55,8 +58,8 @@ static uint64_t CDK2_MS_ABI gcd_free(uint64_t base, uint64_t length)
 }
 
 struct boot_view {
-	uint8_t pad[64]; void *allocate, *release; uint8_t before_install[248];
-	void *install;
+	uint8_t pad[64]; void *allocate, *release; uint8_t before_locate[240];
+	void *locate, *install, *uninstall;
 };
 struct config_view { EFI_GUID guid; void *table; };
 struct dxe_view {
@@ -98,6 +101,55 @@ struct hob_fixture {
 	struct { uint16_t type, length; uint32_t reserved; } end;
 };
 
+static uint64_t CDK2_MS_ABI pcd_next(const EFI_GUID *space, size_t *token)
+{
+	(void)space;
+	if (*token != 0)
+		return EFI_NOT_FOUND;
+	*token = 7;
+	return EFI_SUCCESS;
+}
+
+static uint64_t CDK2_MS_ABI pcd_info(size_t token, struct cdk2_pcd_info *info)
+{
+	static const char name[] = "gEfiMdePkgTokenSpaceGuid.PcdPciExpressBaseAddress";
+
+	if (token != 7)
+		return EFI_NOT_FOUND;
+	info->pcd_size = sizeof(uint64_t);
+	info->pcd_name = malloc(sizeof(name));
+	if (info->pcd_name == NULL)
+		return EFI_OUT_OF_RESOURCES;
+	memcpy(info->pcd_name, name, sizeof(name));
+	return EFI_SUCCESS;
+}
+
+static uint64_t CDK2_MS_ABI pcd_get64(size_t token)
+{
+	return token == 7 ? 0xe0000000ULL : 0;
+}
+
+static struct cdk2_pcd_protocol pcd = { .get64 = pcd_get64,
+	.get_next_token = pcd_next };
+static struct cdk2_get_pcd_info_protocol pcd_info_protocol = {
+	.get_info = pcd_info
+};
+
+static uint64_t CDK2_MS_ABI locate(const EFI_GUID *guid, void *registration,
+	void **interface)
+{
+	(void)registration;
+	if (!provide_pcd)
+		return EFI_NOT_FOUND;
+	if (guid->data1 == 0x11b34006)
+		*interface = &pcd;
+	else if (guid->data1 == 0x5be40f57)
+		*interface = &pcd_info_protocol;
+	else
+		return EFI_NOT_FOUND;
+	return EFI_SUCCESS;
+}
+
 static int expect(int condition, const char *message)
 {
 	if (!condition)
@@ -135,6 +187,7 @@ int main(void)
 	hob.payload.header.header.length = sizeof(hob.payload) - sizeof(hob.payload.padding);
 	hob.payload.header.count = 1;
 	hob.payload.bridge.allocation_attributes = 0x1234;
+	hob.payload.bridge.no_extended_config = 1;
 	hob.payload.bridge.aperture[0].limit = 0xff;
 	hob.payload.bridge.aperture[2].base = 0x80000000;
 	hob.payload.bridge.aperture[2].limit = 0x800fffff;
@@ -143,6 +196,7 @@ int main(void)
 	memset(&boot, 0, sizeof(boot));
 	boot.allocate = allocate;
 	boot.release = release;
+	boot.locate = locate;
 	boot.install = install;
 	memset(&dxe, 0, sizeof(dxe));
 	dxe.allocate_memory = gcd_allocate;
@@ -201,5 +255,21 @@ int main(void)
 	hob.payload.header.header.revision++;
 	failures += expect(cdk2_pci_host_bridge_entry((void *)0x44, &system) ==
 		EFI_COMPROMISED_DATA, "malformed handoff was published");
+	hob.payload.header.header.revision = CDK2_PCI_ROOT_BRIDGES_REVISION;
+	hob.payload.bridge.segment = 1;
+	failures += expect(cdk2_pci_host_bridge_entry((void *)0x44, &system) ==
+		EFI_UNSUPPORTED, "nonzero PCI segment was partially published");
+	hob.payload.bridge.segment = 0;
+	hob.payload.bridge.no_extended_config = 0;
+	provide_pcd = 0;
+	{
+		unsigned int before = installs;
+	failures += expect(cdk2_pci_host_bridge_entry((void *)0x44, &system) ==
+		EFI_UNSUPPORTED && installs == before,
+		"extended config without ECAM PCD was partially published");
+	}
+	provide_pcd = 1;
+	failures += expect(cdk2_pci_host_bridge_entry((void *)0x44, &system) ==
+		EFI_SUCCESS, "generated segment-zero ECAM PCD was not consumed");
 	return failures == 0 ? 0 : 1;
 }

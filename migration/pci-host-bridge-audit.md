@@ -34,3 +34,17 @@ translation-aware 64-bit fallback, conflict reporting, IOMMU integration, and
 per-root `EFI_PCI_ROOT_BRIDGE_IO_PROTOCOL` publication remain. No FV replacement
 target is provided until those semantics and hardware-backed CPU I/O paths are
 complete.
+
+## Admitted PCI configuration range
+
+The retained dependency envelope has no PCI-segment protocol and the Universal
+Payload root-bridge record has no per-segment ECAM base.  Consequently the
+native driver admits only segment zero.  A root marked `no_extended_config`
+uses CPU I/O2 CF8/CFC cycles for its conventional 256-byte configuration space.
+A root permitting extended configuration requires the generated native PCD
+named `PcdPciExpressBaseAddress` (the token-space-qualified form is accepted)
+to contain a nonzero 64-bit segment-zero ECAM base.  Entry prevalidates every
+root and returns `EFI_UNSUPPORTED` before publishing anything if a nonzero
+segment or an extended-config root without that PCD is present.  This preserves
+the exact admitted DEPEX instead of silently advertising inaccessible PCI
+configuration space.

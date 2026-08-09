@@ -1,12 +1,15 @@
 /* SPDX-License-Identifier: BSD-2-Clause-Patent */
 
 #include <cdk2/pci_host_bridge.h>
+#include <cdk2/pcd.h>
 
 #include <string.h>
 
 typedef uint64_t CDK2_MS_ABI install_fn(void **, const EFI_GUID *, void *, ...);
 typedef uint64_t CDK2_MS_ABI allocate_fn(uint32_t, size_t, void **);
 typedef uint64_t CDK2_MS_ABI free_fn(void *);
+typedef uint64_t CDK2_MS_ABI locate_fn(const EFI_GUID *, void *, void **);
+typedef uint64_t CDK2_MS_ABI uninstall_fn(void *, const EFI_GUID *, void *, ...);
 typedef uint64_t CDK2_MS_ABI gcd_allocate_fn(uint32_t, uint32_t, size_t,
 	uint64_t, uint64_t *, void *, void *);
 typedef uint64_t CDK2_MS_ABI gcd_free_fn(uint64_t, uint64_t);
@@ -15,8 +18,10 @@ struct boot_services_view {
 	uint8_t before_allocate[64];
 	allocate_fn *allocate_pool;
 	free_fn *free_pool;
-	uint8_t before_install[248];
+	uint8_t before_locate[240];
+	locate_fn *locate_protocol;
 	install_fn *install_multiple_protocols;
+	uninstall_fn *uninstall_multiple_protocols;
 };
 
 struct system_table_view {
@@ -78,6 +83,7 @@ static struct cdk2_pci_host_model host;
 static void *host_handle;
 static struct boot_services_view *boot_services;
 static struct gcd_context gcd;
+static uint64_t pci_express_base;
 
 static const EFI_GUID hob_list_guid = {
 	0x7739f24c, 0x93d7, 0x11d4, { 0x9a, 0x3a, 0x00, 0x90, 0x27, 0x3f, 0xc1, 0x4d }
@@ -91,6 +97,89 @@ static const EFI_GUID resource_protocol_guid = {
 static const EFI_GUID dxe_services_guid = {
 	0x05ad34ba, 0x6f02, 0x4214, { 0x95, 0x2e, 0x4d, 0xa0, 0x39, 0x8e, 0x2b, 0xb9 }
 };
+static const EFI_GUID pcd_protocol_guid = {
+	0x11b34006, 0xd85b, 0x4d0a, { 0xa2, 0x90, 0xd5, 0xa5, 0x71, 0x31, 0x0e, 0xf7 }
+};
+static const EFI_GUID pcd_info_protocol_guid = {
+	0x5be40f57, 0xfa68, 0x4610, { 0xbb, 0xbf, 0xe9, 0xc5, 0xfc, 0xda, 0xd3, 0x65 }
+};
+
+static int is_pci_express_base_name(const char *name)
+{
+	static const char short_name[] = "PciExpressBaseAddress";
+	static const char pcd_name[] = "PcdPciExpressBaseAddress";
+	const char *component, *cursor;
+	size_t length;
+
+	if (name == NULL)
+		return 0;
+	component = name;
+	for (cursor = name; *cursor != 0; cursor++)
+		if (*cursor == '.')
+			component = cursor + 1;
+	length = (size_t)(cursor - component) + 1U;
+	return (length == sizeof(short_name) &&
+		memcmp(component, short_name, sizeof(short_name)) == 0) ||
+		(length == sizeof(pcd_name) &&
+		 memcmp(component, pcd_name, sizeof(pcd_name)) == 0);
+}
+
+static uint64_t discover_pci_express_base(struct boot_services_view *boot,
+	uint64_t *base)
+{
+	struct cdk2_pcd_protocol *pcd;
+	struct cdk2_get_pcd_info_protocol *info;
+	struct cdk2_pcd_info description;
+	size_t token = CDK2_PCD_INVALID_TOKEN;
+	uint64_t status;
+
+	if (boot == NULL || base == NULL || boot->locate_protocol == NULL)
+		return EFI_UNSUPPORTED;
+	status = boot->locate_protocol(&pcd_protocol_guid, NULL, (void **)&pcd);
+	if (status != EFI_SUCCESS)
+		return EFI_UNSUPPORTED;
+	status = boot->locate_protocol(&pcd_info_protocol_guid, NULL, (void **)&info);
+	if (status != EFI_SUCCESS || pcd == NULL || info == NULL ||
+	    pcd->get_next_token == NULL || pcd->get64 == NULL || info->get_info == NULL)
+		return EFI_UNSUPPORTED;
+	for (;;) {
+		status = pcd->get_next_token(NULL, &token);
+		if (status != EFI_SUCCESS)
+			return EFI_UNSUPPORTED;
+		memset(&description, 0, sizeof(description));
+		status = info->get_info(token, &description);
+		if (status != EFI_SUCCESS)
+			return EFI_UNSUPPORTED;
+		if (is_pci_express_base_name(description.pcd_name)) {
+			if (description.pcd_size != sizeof(uint64_t)) {
+				(void)boot->free_pool(description.pcd_name);
+				return EFI_UNSUPPORTED;
+			}
+			*base = pcd->get64(token);
+			(void)boot->free_pool(description.pcd_name);
+			return *base == 0 ? EFI_UNSUPPORTED : EFI_SUCCESS;
+		}
+		if (description.pcd_name != NULL)
+			(void)boot->free_pool(description.pcd_name);
+	}
+}
+
+static uint64_t validate_config_backends(struct boot_services_view *boot)
+{
+	size_t index;
+	uint8_t needs_ecam = 0;
+
+	for (index = 0; index < host.count; index++) {
+		if (host.root[index].segment != 0)
+			return EFI_UNSUPPORTED;
+		needs_ecam |= host.root[index].no_extended_config == 0;
+	}
+	if (!needs_ecam) {
+		pci_express_base = 0;
+		return EFI_SUCCESS;
+	}
+	return discover_pci_express_base(boot, &pci_express_base);
+}
 
 static size_t alignment_exponent(uint64_t mask)
 {
@@ -417,6 +506,9 @@ uint64_t CDK2_MS_ABI cdk2_pci_host_bridge_entry(void *image, void *system)
 		    same_guid(&guid->guid, &root_hob_guid)) {
 			status = cdk2_pci_host_init(&host, guid + 1,
 				hob->length - sizeof(*guid));
+			if (status != EFI_SUCCESS)
+				return status;
+			status = validate_config_backends(table->boot);
 			if (status != EFI_SUCCESS)
 				return status;
 			gcd.services = dxe;
