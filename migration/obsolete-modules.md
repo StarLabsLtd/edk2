@@ -52,8 +52,8 @@ name appears in the serial log.
 The early three-module negative candidate, which removed `PcdDxe` before its
 native service existed, stopped immediately after coreboot transferred control
 to the payload. Native PCD now supplies the required protocols and database;
-the current composed inventory contains 41 retained modules after the native
-Partition and BlSupport driver replacements.
+the current composed inventory contains 40 retained modules after the native
+Partition, BlSupport, and PCI Host Bridge driver replacements.
 
 The later TPM-1.2-free candidate replaced `TcgDxe` with a valid pad while
 leaving `Tcg2Dxe` at its admitted offset. On the paired coreboot local-APIC

@@ -35,6 +35,9 @@ CDK2_NATIVE_PCI_HOST_BRIDGE_PE ?= $(CDK2_NATIVE_BUILD_DIR)/PciHostBridgeDxe.efi
 CDK2_NATIVE_PCI_HOST_BRIDGE_DEPEX_GEN ?= $(CDK2_NATIVE_BUILD_DIR)/pci-host-bridge-depex-gen
 CDK2_NATIVE_PCI_HOST_BRIDGE_DEPEX ?= $(CDK2_NATIVE_BUILD_DIR)/PciHostBridgeDxe.depex
 CDK2_NATIVE_PCI_HOST_BRIDGE_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/PciHostBridgeDxe.ffs
+CDK2_NATIVE_PCI_HOST_BRIDGE_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-pci-host-bridge.fv
+CDK2_NATIVE_PCI_HOST_BRIDGE_QEMU_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/pci-host-bridge-qemu.o
+CDK2_NATIVE_PCI_HOST_BRIDGE_QEMU_PE ?= $(CDK2_NATIVE_BUILD_DIR)/pci-host-bridge-qemu.efi
 CDK2_NATIVE_PCD_GENERATED_DATABASE ?= $(CDK2_NATIVE_BUILD_DIR)/PcdDxe.database
 CDK2_NATIVE_PCD_DATABASE ?= $(CDK2_NATIVE_PCD_GENERATED_DATABASE)
 CDK2_NATIVE_PCD_MODEL_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/pcd-model.o
@@ -559,10 +562,16 @@ CDK2_NATIVE_BL_SUPPORT_CHECK_DEPS := $(CDK2_NATIVE_BL_SUPPORT_PE) \
 	$(CDK2_NATIVE_BL_SUPPORT_FFS) $(CDK2_NATIVE_BL_SUPPORT_TEST)
 endif
 
+ifeq ($(CONFIG_CDK2_NATIVE_PCI_HOST_BRIDGE),y)
+CDK2_NATIVE_PCI_HOST_BRIDGE_CHECK_DEPS := $(CDK2_NATIVE_PCI_HOST_BRIDGE_PE) \
+	$(CDK2_NATIVE_PCI_HOST_BRIDGE_FFS)
+endif
+
 native-check: $(CDK2_CONFIG_HEADER) $(CDK2_NATIVE_ELF) $(CDK2_NATIVE_OVERRIDE_ELF) \
 		$(CDK2_NATIVE_COREBOOT_ELF) $(CDK2_NATIVE_COREBOOT_ENTRY) \
 		$(CDK2_NATIVE_HOST_TOOLS) $(CDK2_NATIVE_DEVICE_PATH_CHECK_DEPS) \
-		$(CDK2_NATIVE_PARTITION_CHECK_DEPS) $(CDK2_NATIVE_BL_SUPPORT_CHECK_DEPS)
+		$(CDK2_NATIVE_PARTITION_CHECK_DEPS) $(CDK2_NATIVE_BL_SUPPORT_CHECK_DEPS) \
+		$(CDK2_NATIVE_PCI_HOST_BRIDGE_CHECK_DEPS)
 	@$(CDK2_NATIVE_NM) "$(CDK2_NATIVE_ELF)" | grep -Eq '[[:space:]]W[[:space:]]cdk2_platform_initialize_native_context$$'
 	@$(CDK2_NATIVE_NM) "$(CDK2_NATIVE_ELF)" | grep -Eq '[[:space:]]W[[:space:]]cdk2_platform_late_init$$'
 	@$(CDK2_NATIVE_NM) "$(CDK2_NATIVE_OVERRIDE_ELF)" | grep -Eq '[[:space:]]T[[:space:]]cdk2_platform_initialize_native_context$$'
@@ -1646,6 +1655,22 @@ native-bl-support-fv:
 	@printf '%s\n' 'native BlSupportDxe: disabled by Kconfig'
 endif
 
+ifeq ($(CONFIG_CDK2_NATIVE_PCI_HOST_BRIDGE),y)
+CDK2_NATIVE_PRE_PCI_HOST_BRIDGE_FV := $(CDK2_NATIVE_FINAL_FV)
+CDK2_NATIVE_FINAL_FV := $(CDK2_NATIVE_PCI_HOST_BRIDGE_FV)
+
+native-pci-host-bridge-fv: $(CDK2_NATIVE_PCI_HOST_BRIDGE_FV)
+	@printf '%s\n' "native PCI Host Bridge FV: $(CDK2_NATIVE_PCI_HOST_BRIDGE_FV)"
+
+$(CDK2_NATIVE_PCI_HOST_BRIDGE_FV): $(CDK2_NATIVE_PRE_PCI_HOST_BRIDGE_FV) \
+		$(CDK2_NATIVE_PCI_HOST_BRIDGE_FFS) $(CDK2_NATIVE_FVREPLACE)
+	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_PRE_PCI_HOST_BRIDGE_FV)" \
+		0x2a4108 "$(CDK2_NATIVE_PCI_HOST_BRIDGE_FFS)" "$@"
+else
+native-pci-host-bridge-fv:
+	@printf '%s\n' 'native PciHostBridgeDxe: disabled by Kconfig'
+endif
+
 ifeq ($(CONFIG_CDK2_NATIVE_ENGLISH),y)
 $(CDK2_NATIVE_ENGLISH_OBJ): $(CDK2_DIR)/src/modules/english/english.c $(CDK2_DIR)/include/cdk2/english.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
@@ -1680,6 +1705,12 @@ ifeq ($(CONFIG_CDK2_NATIVE_BL_SUPPORT),y)
 native-bl-support-fv:
 	@printf '%s\n' \
 		'native-bl-support-fv requires CDK2_PAYLOAD_FV=/path/to/payload.fv' >&2
+	@exit 1
+endif
+ifeq ($(CONFIG_CDK2_NATIVE_PCI_HOST_BRIDGE),y)
+native-pci-host-bridge-fv:
+	@printf '%s\n' \
+		'native-pci-host-bridge-fv requires CDK2_PAYLOAD_FV=/path/to/payload.fv' >&2
 	@exit 1
 endif
 endif
@@ -1915,6 +1946,29 @@ $(CDK2_NATIVE_PCI_ROOT_IO_TEST): $(CDK2_DIR)/tests/pci_root_io_test.c \
 
 .PHONY: native-pci-host-bridge-package
 native-pci-host-bridge-package: $(CDK2_NATIVE_PCI_HOST_BRIDGE_FFS)
+
+.PHONY: native-pci-host-bridge-oracle
+native-pci-host-bridge-oracle: $(CDK2_NATIVE_PCI_HOST_BRIDGE_QEMU_PE)
+	@printf '%s\n' "native PCI Host Bridge oracle: $(CDK2_NATIVE_PCI_HOST_BRIDGE_QEMU_PE)"
+
+$(CDK2_NATIVE_PCI_HOST_BRIDGE_QEMU_OBJ): \
+		$(CDK2_DIR)/tests/pci_host_bridge_qemu.c \
+		$(CDK2_DIR)/include/cdk2/pci_host_bridge.h \
+		$(CDK2_DIR)/include/cdk2/pcd.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
+		-mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args \
+		$(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+
+$(CDK2_NATIVE_PCI_HOST_BRIDGE_QEMU_PE): \
+		$(CDK2_NATIVE_PCI_HOST_BRIDGE_QEMU_OBJ) \
+		$(CDK2_DIR)/tests/pci_host_bridge_qemu.ld $(CDK2_NATIVE_PERELOCCHECK)
+	@$(CDK2_NATIVE_LD) -mi386pep --subsystem 10 \
+		--entry pci_host_bridge_qemu_entry --image-base 0 \
+		--section-alignment 0x1000 --file-alignment 0x1000 --build-id=none \
+		--no-insert-timestamp -s --nxcompat \
+		-T "$(CDK2_DIR)/tests/pci_host_bridge_qemu.ld" -o "$@" \
+		"$(CDK2_NATIVE_PCI_HOST_BRIDGE_QEMU_OBJ)"
+	@"$(CDK2_NATIVE_PERELOCCHECK)" --subsystem 10 "$@"
 
 $(CDK2_NATIVE_PCI_HOST_BRIDGE_MODEL_OBJ): \
 		$(CDK2_DIR)/src/modules/pci_host_bridge/model.c \

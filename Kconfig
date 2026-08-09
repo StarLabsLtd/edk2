@@ -227,6 +227,14 @@ config CDK2_NATIVE_BL_SUPPORT
 	  Consume the bounded coreboot graphics and board-information HOBs and
 	  publish their platform policy through the native configuration service.
 
+config CDK2_NATIVE_PCI_HOST_BRIDGE
+	bool "Build native PCI host bridge services"
+	default y
+	depends on CDK2_NATIVE_STAGE && CDK2_NATIVE_BL_SUPPORT && CDK2_NATIVE_PCD
+	help
+	  Consume Universal Payload root-bridge handoff data and publish the PCI
+	  Host Bridge Resource Allocation and per-root Bridge I/O protocols.
+
 config CDK2_NATIVE_STATUS_CODE_HANDLER
 	bool "Build the native release status-code handler"
 	default y
