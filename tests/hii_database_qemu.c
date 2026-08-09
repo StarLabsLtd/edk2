@@ -3,9 +3,14 @@
 #include <cdk2/hii_database_abi.h>
 
 typedef EFI_STATUS CDK2_MS_ABI locate_protocol_fn(const EFI_GUID *, void *, void **);
-struct boot_services_view { UINT8 before_locate[320]; locate_protocol_fn *locate_protocol; };
+struct boot_services_view {
+	UINT8 before_locate[320];
+	locate_protocol_fn *locate_protocol;
+};
 struct system_table_view {
-	UINT8 header[24]; CHAR16 *vendor; UINT32 revision, pad;
+	UINT8 header[24];
+	CHAR16 *vendor;
+	UINT32 revision, pad;
 	void *console[6], *runtime; struct boot_services_view *boot;
 };
 
@@ -31,7 +36,8 @@ static UINT8 port_read(UINT16 port)
 static void serial_write(const char *text)
 {
 	while (*text != '\0') {
-		while ((port_read(0x3fd) & 0x20U) == 0U) ;
+		while ((port_read(0x3fd) & 0x20U) == 0U)
+			;
 		__asm__ volatile("outb %0, %w1" : : "a"((UINT8)*text++), "Nd"((UINT16)0x3f8));
 	}
 }
@@ -58,7 +64,8 @@ EFI_STATUS CDK2_MS_ABI hii_database_qemu_entry(void *image, void *table)
 		goto bad;
 	if (!locate(system, &database_guid, (void **)&database) ||
 	    database->list_package_lists == NULL || database->export_package_lists == NULL ||
-	    EFI_ERROR(database->list_package_lists(database, 0U, NULL, &size, NULL)))
+	    database->list_package_lists(database, 0U, NULL, &size, NULL) !=
+		EFI_BUFFER_TOO_SMALL || size == 0U)
 		goto bad;
 	serial_write("CDK2_HII_DATABASE_PROTOCOL_OK\r\n");
 	if (!locate(system, &string_guid, (void **)&string) || string->get_string == NULL ||

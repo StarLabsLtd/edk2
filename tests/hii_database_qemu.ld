@@ -6,3 +6,4 @@ SECTIONS {
 	.reloc ALIGN(0x1000) : { *(.reloc) }
 	/DISCARD/ : { *(.comment) *(.note*) *(.eh_frame*) }
 }
+/* SPDX-License-Identifier: GPL-2.0-only */

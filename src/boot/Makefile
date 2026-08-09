@@ -271,6 +271,7 @@ CDK2_NATIVE_TPM2_ACPI_TABLE_DEPEX ?= $(CDK2_NATIVE_BUILD_DIR)/Tpm2AcpiTableDxe.d
 CDK2_NATIVE_TPM2_ACPI_TABLE_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/Tpm2AcpiTableDxe.ffs
 CDK2_NATIVE_TPM2_ACPI_TABLE_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-tpm2-acpi-table.fv
 CDK2_NATIVE_HII_DATABASE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-hii-database-test
+CDK2_NATIVE_HII_PACKAGE_PARSE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-hii-package-parse-test
 CDK2_NATIVE_HII_DATABASE_OBJS := $(patsubst %.c,$(CDK2_NATIVE_BUILD_DIR)/hii-database-%.o,database.c string.c image.c font.c keyboard.c config.c keyword.c package_parse.c entry.c)
 CDK2_NATIVE_HII_DATABASE_PE ?= $(CDK2_NATIVE_BUILD_DIR)/HiiDatabase.efi
 CDK2_NATIVE_HII_DATABASE_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/HiiDatabase.ffs
@@ -891,8 +892,10 @@ native-graphics-console-test: $(CDK2_NATIVE_GRAPHICS_CONSOLE_TEST) $(CDK2_NATIVE
 	@"$(CDK2_NATIVE_GRAPHICS_PACKAGE_TEST)"
 	@"$(CDK2_NATIVE_GRAPHICS_ENTRY_TEST)"
 
-native-hii-database-test: $(CDK2_NATIVE_HII_DATABASE_TEST)
+native-hii-database-test: $(CDK2_NATIVE_HII_DATABASE_TEST) \
+		$(CDK2_NATIVE_HII_PACKAGE_PARSE_TEST)
 	@"$(CDK2_NATIVE_HII_DATABASE_TEST)"
+	@"$(CDK2_NATIVE_HII_PACKAGE_PARSE_TEST)"
 
 native-hii-database-ffs: $(CDK2_NATIVE_HII_DATABASE_FFS)
 	@printf '%s\n' "native HII database FFS: $(CDK2_NATIVE_HII_DATABASE_FFS)"
@@ -1826,6 +1829,18 @@ $(CDK2_NATIVE_HII_DATABASE_TEST): $(CDK2_DIR)/tests/hii_entry_test.c \
 	$(CDK2_DIR)/include/cdk2/hii_database_abi.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -fshort-wchar \
 		$(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_DIR)/tests/hii_entry_test.c" \
+		$(filter-out $(CDK2_DIR)/src/modules/hii_database/entry.c \
+		$(CDK2_DIR)/src/modules/hii_database/depex.c,$(wildcard $(CDK2_DIR)/src/modules/hii_database/*.c))
+
+$(CDK2_NATIVE_HII_PACKAGE_PARSE_TEST): $(CDK2_DIR)/tests/hii_platform_font_test.c \
+		$(filter-out $(CDK2_DIR)/src/modules/hii_database/entry.c \
+		$(CDK2_DIR)/src/modules/hii_database/depex.c,$(wildcard $(CDK2_DIR)/src/modules/hii_database/*.c)) \
+		$(CDK2_DIR)/include/cdk2/hii_database.h \
+		$(CDK2_DIR)/tests/fixtures/hii_platform_simple_font_package.bin | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -fshort-wchar \
+		$(CDK2_NATIVE_INCLUDES) \
+		-DHII_PLATFORM_SIMPLE_FONT_FIXTURE='"$(CDK2_DIR)/tests/fixtures/hii_platform_simple_font_package.bin"' \
+		-o "$@" "$(CDK2_DIR)/tests/hii_platform_font_test.c" \
 		$(filter-out $(CDK2_DIR)/src/modules/hii_database/entry.c \
 		$(CDK2_DIR)/src/modules/hii_database/depex.c,$(wildcard $(CDK2_DIR)/src/modules/hii_database/*.c))
 

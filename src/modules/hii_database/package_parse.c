@@ -710,6 +710,9 @@ EFI_STATUS cdk2_hii_ingest_package_list(struct cdk2_hii_database *database,
 				return EFI_INVALID_PARAMETER;
 			glyph = (const void *)(font + 1);
 			for (index = 0; index < font->narrow_count; index++) {
+				/* UEFI reserves character zero as the simple-font default glyph. */
+				if (glyph[index].unicode == 0U)
+					continue;
 				for (row = 0; row < NARROW_HEIGHT; row++)
 					for (column = 0; column < 8U; column++)
 						pixels[row * 8U + column] =
