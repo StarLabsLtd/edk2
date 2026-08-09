@@ -25,6 +25,7 @@ static const EFI_GUID tpm12_guid = {
 struct guid_hob_graphics { EFI_HOB_GUID_TYPE header; EFI_PEI_GRAPHICS_INFO_HOB data; };
 struct guid_hob_board { EFI_HOB_GUID_TYPE header; ACPI_BOARD_INFO data; };
 struct fixture {
+	EFI_HOB_HANDOFF_INFO_TABLE phit;
 	struct guid_hob_graphics graphics;
 	struct guid_hob_board board;
 	EFI_HOB_GENERIC_HEADER end;
@@ -104,6 +105,10 @@ static uint64_t CDK2_MS_ABI mock_locate(const EFI_GUID *guid, void *registration
 static void make_fixture(struct fixture *fixture)
 {
 	memset(fixture, 0, sizeof(*fixture));
+	fixture->phit.header.hob_type = EFI_HOB_TYPE_HANDOFF;
+	fixture->phit.header.hob_length = sizeof(fixture->phit);
+	fixture->phit.version = EFI_HOB_HANDOFF_TABLE_VERSION;
+	fixture->phit.efi_end_of_hob_list = (uintptr_t)&fixture->end;
 	fixture->graphics.header.header.hob_type = EFI_HOB_TYPE_GUID_EXTENSION;
 	fixture->graphics.header.header.hob_length = sizeof(fixture->graphics);
 	fixture->graphics.header.name = graphics_guid;
@@ -178,9 +183,17 @@ int main(void)
 	failures += expect(cdk2_bl_support_apply(&fixture, sizeof(fixture), &admitted,
 		&ops) == EFI_COMPROMISED_DATA, "zero graphics geometry rejected before mutation");
 	make_fixture(&fixture);
+	fixture.graphics.data.frame_buffer_size--;
+	failures += expect(cdk2_bl_support_apply(&fixture, sizeof(fixture), &admitted,
+		&ops) == EFI_COMPROMISED_DATA, "undersized stride-height framebuffer rejected");
+	make_fixture(&fixture);
 	fixture.graphics.data.graphics_mode.pixel_format = (EFI_GRAPHICS_PIXEL_FORMAT)-1;
 	failures += expect(cdk2_bl_support_apply(&fixture, sizeof(fixture), &admitted,
 		&ops) == EFI_COMPROMISED_DATA, "negative graphics pixel format rejected");
+	make_fixture(&fixture);
+	fixture.graphics.data.graphics_mode.pixels_per_scan_line = UINT32_MAX;
+	failures += expect(cdk2_bl_support_apply(&fixture, sizeof(fixture), &admitted,
+		&ops) == EFI_COMPROMISED_DATA, "stride-height framebuffer bound cannot overflow");
 	make_fixture(&fixture);
 	fixture.board.header.name = graphics_guid;
 	values64[33] = 17;
@@ -244,6 +257,16 @@ int main(void)
 		calls = 0;
 		failures += expect(cdk2_bl_support_entry((void *)1, &system) == EFI_SUCCESS &&
 			calls == 7, "real entry locates configuration service and consumes HOBs");
+		make_fixture(&fixture);
+		fixture.graphics.header.header.hob_type = EFI_HOB_TYPE_END_OF_HOB_LIST;
+		fixture.graphics.header.header.hob_length = sizeof(EFI_HOB_GENERIC_HEADER);
+		failures += expect(cdk2_bl_support_entry((void *)1, &system) ==
+			EFI_COMPROMISED_DATA, "early terminator before PHIT end marker rejected");
+		make_fixture(&fixture);
+		fixture.phit.efi_end_of_hob_list = (uintptr_t)&fixture.board;
+		failures += expect(cdk2_bl_support_entry((void *)1, &system) ==
+			EFI_COMPROMISED_DATA, "mismatched PHIT end marker rejected");
+		make_fixture(&fixture);
 		boot.locate_protocol = NULL;
 		failures += expect(cdk2_bl_support_entry((void *)1, &system) ==
 			EFI_UNSUPPORTED, "missing configuration dependency is reported");

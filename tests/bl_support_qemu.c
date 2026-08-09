@@ -76,10 +76,20 @@ static int find_hobs(void *list, const EFI_PEI_GRAPHICS_INFO_HOB **graphics,
 	const ACPI_BOARD_INFO **board)
 {
 	UINT8 *bytes = list;
+	EFI_HOB_HANDOFF_INFO_TABLE *phit = list;
+	EFI_HOB_HANDOFF_INFO_TABLE *original;
+	EFI_HOB_GENERIC_HEADER *anchored_end;
+	UINTN end_address;
 	UINTN walked = 0;
 
 	*graphics = NULL; *board = NULL;
 	if (list == NULL || ((UINTN)list & 7U) != 0)
+		return 0;
+	if (phit->header.hob_type != EFI_HOB_TYPE_HANDOFF ||
+	    phit->header.hob_length < sizeof(*phit))
+		return 0;
+	end_address = (UINTN)phit->efi_end_of_hob_list;
+	if (end_address < sizeof(*phit) || (end_address & 7U) != 0)
 		return 0;
 	while (walked + sizeof(EFI_HOB_GENERIC_HEADER) <= MAX_HOB_LIST_SIZE) {
 		EFI_HOB_GENERIC_HEADER *header = (void *)(bytes + walked);
@@ -88,9 +98,17 @@ static int find_hobs(void *list, const EFI_PEI_GRAPHICS_INFO_HOB **graphics,
 		    (header->hob_length & 7U) != 0 ||
 		    header->hob_length > MAX_HOB_LIST_SIZE - walked)
 			return 0;
-		if (header->hob_type == EFI_HOB_TYPE_END_OF_HOB_LIST)
-			return header->hob_length == sizeof(*header) &&
+		if (header->hob_type == EFI_HOB_TYPE_END_OF_HOB_LIST) {
+			if (header->hob_length != sizeof(*header) || end_address < walked)
+				return 0;
+			anchored_end = (void *)end_address;
+			original = (void *)(end_address - walked);
+			return anchored_end->hob_type == EFI_HOB_TYPE_END_OF_HOB_LIST &&
+				anchored_end->hob_length == sizeof(*anchored_end) &&
+				original->header.hob_type == EFI_HOB_TYPE_HANDOFF &&
+				original->efi_end_of_hob_list == phit->efi_end_of_hob_list &&
 				*graphics != NULL && *board != NULL;
+		}
 		if (header->hob_type == EFI_HOB_TYPE_GUID_EXTENSION &&
 		    header->hob_length >= sizeof(*guid)) {
 			guid = (void *)header;

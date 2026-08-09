@@ -115,6 +115,7 @@ EFI_STATUS cdk2_bl_support_apply(const void *hob_list, size_t hob_size,
 	size_t graphics_size = 0, board_size = 0, old_ptr_size = 0;
 	uint32_t physical_horizontal = 0, physical_vertical = 0;
 	uint32_t setup_horizontal = 0, setup_vertical = 0;
+	uint64_t minimum_framebuffer;
 	uint32_t old32[4]; uint64_t old64[2]; EFI_GUID old_guid;
 	unsigned int committed = 0;
 	unsigned int board_index;
@@ -141,6 +142,11 @@ EFI_STATUS cdk2_bl_support_apply(const void *hob_list, size_t hob_size,
 		    graphics->graphics_mode.pixel_format >= pixel_format_max ||
 		    graphics->graphics_mode.pixels_per_scan_line <
 		    graphics->graphics_mode.horizontal_resolution)
+			return EFI_COMPROMISED_DATA;
+		/* GOP direct framebuffer pixel formats are defined as 32 bits per pixel. */
+		minimum_framebuffer = (uint64_t)graphics->graphics_mode.pixels_per_scan_line *
+			graphics->graphics_mode.vertical_resolution * 4U;
+		if (minimum_framebuffer > graphics->frame_buffer_size)
 			return EFI_COMPROMISED_DATA;
 		physical_horizontal = graphics->graphics_mode.horizontal_resolution;
 		physical_vertical = graphics->graphics_mode.vertical_resolution;

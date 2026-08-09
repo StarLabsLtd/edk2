@@ -77,10 +77,20 @@ static EFI_STATUS set_ptr(void *context, uint32_t token, const void *value, size
 static EFI_STATUS hob_extent(const void *list, size_t *size)
 {
 	const uint8_t *bytes = list;
+	const EFI_HOB_HANDOFF_INFO_TABLE *phit = list;
+	const EFI_HOB_HANDOFF_INFO_TABLE *original;
+	const EFI_HOB_GENERIC_HEADER *anchored_end;
+	uintptr_t end_address;
 	size_t walked = 0;
 
 	if (list == NULL || size == NULL || ((uintptr_t)list & 7U) != 0)
 		return EFI_INVALID_PARAMETER;
+	if (phit->header.hob_type != EFI_HOB_TYPE_HANDOFF ||
+	    phit->header.hob_length < sizeof(*phit))
+		return EFI_COMPROMISED_DATA;
+	end_address = (uintptr_t)phit->efi_end_of_hob_list;
+	if (end_address < sizeof(*phit) || (end_address & 7U) != 0)
+		return EFI_COMPROMISED_DATA;
 	while (walked + sizeof(EFI_HOB_GENERIC_HEADER) <= MAX_HOB_LIST_SIZE) {
 		const EFI_HOB_GENERIC_HEADER *header = (const void *)(bytes + walked);
 
@@ -89,7 +99,14 @@ static EFI_STATUS hob_extent(const void *list, size_t *size)
 		    header->hob_length > MAX_HOB_LIST_SIZE - walked)
 			return EFI_COMPROMISED_DATA;
 		if (header->hob_type == EFI_HOB_TYPE_END_OF_HOB_LIST) {
-			if (header->hob_length != sizeof(*header))
+			if (header->hob_length != sizeof(*header) || end_address < walked)
+				return EFI_COMPROMISED_DATA;
+			anchored_end = (const void *)end_address;
+			original = (const void *)(end_address - walked);
+			if (anchored_end->hob_type != EFI_HOB_TYPE_END_OF_HOB_LIST ||
+			    anchored_end->hob_length != sizeof(*anchored_end) ||
+			    original->header.hob_type != EFI_HOB_TYPE_HANDOFF ||
+			    original->efi_end_of_hob_list != phit->efi_end_of_hob_list)
 				return EFI_COMPROMISED_DATA;
 			*size = walked + sizeof(*header);
 			return EFI_SUCCESS;

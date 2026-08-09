@@ -7,8 +7,10 @@ repo=$2
 build=$3
 tmp=$(mktemp -d)
 header=$repo/include/guid/graphics_info_hob.h
+hob_header=$repo/include/pi/hob.h
 touch -r "$header" "$tmp/header.timestamp"
-trap 'touch -r "$tmp/header.timestamp" "$header"; rm -rf "$tmp"' EXIT HUP INT TERM
+touch -r "$hob_header" "$tmp/hob-header.timestamp"
+trap 'touch -r "$tmp/header.timestamp" "$header"; touch -r "$tmp/hob-header.timestamp" "$hob_header"; rm -rf "$tmp"' EXIT HUP INT TERM
 
 touch "$header"
 if MAKEFLAGS= MAKEOVERRIDES= "$make_cmd" -q -C "$repo" \
@@ -16,6 +18,14 @@ if MAKEFLAGS= MAKEOVERRIDES= "$make_cmd" -q -C "$repo" \
 	exit 1
 fi
 touch -r "$tmp/header.timestamp" "$header"
+
+touch "$hob_header"
+if MAKEFLAGS= MAKEOVERRIDES= "$make_cmd" -q -C "$repo" \
+	CDK2_CONFIG_READY= CDK2_BUILD_DIR="$build" \
+	native-bl-support-test native-bl-support-package native-bl-support-oracle; then
+	exit 1
+fi
+touch -r "$tmp/hob-header.timestamp" "$hob_header"
 
 sed 's/^CONFIG_CDK2_NATIVE_BL_SUPPORT=y$/# CONFIG_CDK2_NATIVE_BL_SUPPORT is not set/' \
 	"$repo/defconfig" >"$tmp/defconfig"
