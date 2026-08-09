@@ -28,8 +28,11 @@ static EFI_STATUS CDK2_MS_ABI start(struct cdk2_driver_binding_protocol *protoco
 	void *path = NULL;
 	size_t path_size = 0;
 	int call_status;
-	if (controller == NULL || instance->discover == NULL ||
-	    instance->release_discovery == NULL)
+	if (controller == NULL)
+		return EFI_INVALID_PARAMETER;
+	if (instance->start_global != NULL)
+		return instance->start_global(instance->context, controller, remaining);
+	if (instance->discover == NULL || instance->release_discovery == NULL)
 		return EFI_INVALID_PARAMETER;
 	memset(&topology, 0, sizeof(topology));
 	if (instance->discover(instance->context, controller, remaining, &topology,

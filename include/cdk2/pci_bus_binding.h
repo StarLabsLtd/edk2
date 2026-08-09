@@ -103,6 +103,7 @@ struct cdk2_pci_bus_driver {
 	struct cdk2_pci_bus_binding binding;
 	void *context;
 	int (*probe)(void *context, void *controller, void *remaining);
+	EFI_STATUS (*start_global)(void *context, void *controller, void *remaining);
 	int (*discover)(void *context, void *controller, void *remaining,
 		struct cdk2_pci_topology *topology, void **path, size_t *path_size);
 	void (*release_discovery)(void *context, void *path);

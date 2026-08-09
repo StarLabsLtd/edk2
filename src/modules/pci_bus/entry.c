@@ -13,6 +13,7 @@ typedef EFI_STATUS CDK2_MS_ABI close_fn(void *, const EFI_GUID *, void *, void *
 typedef EFI_STATUS CDK2_MS_ABI install_fn(void **, const EFI_GUID *, void *, ...);
 typedef EFI_STATUS CDK2_MS_ABI uninstall_fn(void *, const EFI_GUID *, void *, ...);
 typedef EFI_STATUS CDK2_MS_ABI image_unload_fn(void *);
+typedef EFI_STATUS CDK2_MS_ABI locate_fn(const EFI_GUID *, void *, void **);
 struct root_io_protocol;
 typedef EFI_STATUS CDK2_MS_ABI root_access_fn(struct root_io_protocol *, UINTN,
 	UINT64, UINTN, void *);
@@ -49,7 +50,8 @@ struct boot_services_view {
 	UINT8 before_pool[64]; pool_fn *allocate_pool; free_fn *free_pool;
 	UINT8 before_handle[72]; handle_fn *handle_protocol;
 	UINT8 before_open[120]; open_fn *open_protocol; close_fn *close_protocol;
-	UINT8 before_install[32]; install_fn *install_multiple;
+	UINT8 before_locate[24]; locate_fn *locate_protocol;
+	install_fn *install_multiple;
 	uninstall_fn *uninstall_multiple;
 };
 typedef char pool_offset_check[offsetof(struct boot_services_view,
@@ -60,6 +62,8 @@ typedef char open_offset_check[offsetof(struct boot_services_view,
 	open_protocol) == 280 ? 1 : -1];
 typedef char install_offset_check[offsetof(struct boot_services_view,
 	install_multiple) == 328 ? 1 : -1];
+typedef char locate_offset_check[offsetof(struct boot_services_view,
+	locate_protocol) == 320 ? 1 : -1];
 
 struct system_table_view {
 	UINT8 header[24]; CHAR16 *vendor; UINT32 revision, pad;
@@ -87,6 +91,29 @@ static const EFI_GUID component_name2_guid = { 0x6a7a5cff, 0xe8d9, 0x4f70,
 	{ 0xba, 0xda, 0x75, 0xab, 0x30, 0x25, 0xce, 0x14 } };
 static const EFI_GUID loaded_image_guid = { 0x5b1b31a1, 0x9562, 0x11d2,
 	{ 0x8e, 0x3f, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b } };
+static const EFI_GUID host_resource_guid = { 0xcf8034be, 0x6768, 0x4d8b,
+	{ 0xb7, 0x39, 0x7c, 0xce, 0x68, 0x3a, 0x9f, 0xbe } };
+
+typedef EFI_STATUS CDK2_MS_ABI host_notify_fn(void *, UINTN);
+typedef EFI_STATUS CDK2_MS_ABI host_next_fn(void *, void **);
+typedef EFI_STATUS CDK2_MS_ABI host_attributes_fn(void *, void *, UINT64 *);
+typedef EFI_STATUS CDK2_MS_ABI host_start_bus_fn(void *, void *, void **);
+typedef EFI_STATUS CDK2_MS_ABI host_set_bus_fn(void *, void *, void *);
+typedef EFI_STATUS CDK2_MS_ABI host_submit_fn(void *, void *, void *);
+typedef EFI_STATUS CDK2_MS_ABI host_proposed_fn(void *, void *, void **);
+struct host_resource_protocol {
+	host_notify_fn *notify_phase; host_next_fn *get_next_root;
+	host_attributes_fn *get_attributes; host_start_bus_fn *start_bus_enumeration;
+	host_set_bus_fn *set_bus_numbers; host_submit_fn *submit_resources;
+	host_proposed_fn *get_proposed_resources; void *preprocess_controller;
+};
+
+#pragma pack(push, 1)
+struct address_descriptor {
+	UINT8 descriptor; UINT16 length; UINT8 resource_type, general, specific;
+	UINT64 granularity, minimum, maximum, translation, address_length;
+};
+#pragma pack(pop)
 
 struct entry_context {
 	struct cdk2_pci_bus_driver driver;
@@ -97,9 +124,11 @@ struct entry_context {
 	struct {
 		void *controller;
 		struct root_io_protocol *root;
+		UINT8 first_bus, last_bus;
 		UINT8 committed;
 	} roots[CDK2_PCI_MAX_ROOTS];
 	UINTN building_root;
+	UINT8 global_started;
 };
 static struct entry_context context;
 
@@ -117,7 +146,16 @@ static int cfg_read(void *opaque, uint8_t bus, uint8_t device, uint8_t function,
 	struct entry_context *entry = opaque;
 	UINT64 address = ((UINT64)bus << 24) | ((UINT64)device << 16) |
 		((UINT64)function << 8) | offset;
-	struct root_io_protocol *root = entry->roots[entry->building_root].root;
+	struct root_io_protocol *root = NULL;
+	for (UINTN index = 0; index < CDK2_PCI_MAX_ROOTS; index++)
+		if (entry->roots[index].root != NULL &&
+		    bus >= entry->roots[index].first_bus &&
+		    bus <= entry->roots[index].last_bus) {
+			root = entry->roots[index].root;
+			break;
+		}
+	if (root == NULL)
+		return -1;
 	return EFI_ERROR(root->pci.read(root, width,
 		address, 1, value)) ? -1 : 0;
 }
@@ -127,7 +165,16 @@ static int cfg_write(void *opaque, uint8_t bus, uint8_t device, uint8_t function
 	struct entry_context *entry = opaque;
 	UINT64 address = ((UINT64)bus << 24) | ((UINT64)device << 16) |
 		((UINT64)function << 8) | offset;
-	struct root_io_protocol *root = entry->roots[entry->building_root].root;
+	struct root_io_protocol *root = NULL;
+	for (UINTN index = 0; index < CDK2_PCI_MAX_ROOTS; index++)
+		if (entry->roots[index].root != NULL &&
+		    bus >= entry->roots[index].first_bus &&
+		    bus <= entry->roots[index].last_bus) {
+			root = entry->roots[index].root;
+			break;
+		}
+	if (root == NULL)
+		return -1;
 	return EFI_ERROR(root->pci.write(root, width,
 		address, 1, &value)) ? -1 : 0;
 }
@@ -135,7 +182,7 @@ static int cfg_write(void *opaque, uint8_t bus, uint8_t device, uint8_t function
 static int probe(void *opaque, void *controller, void *remaining)
 {
 	struct entry_context *entry = opaque; void *interface = NULL; EFI_STATUS status;
-	(void)remaining;
+	(void)controller; (void)remaining;
 	status = entry->boot->open_protocol(controller, &root_io_guid, &interface,
 		entry->image, controller, 0x10U);
 	if (!EFI_ERROR(status))
@@ -198,8 +245,11 @@ static int discover(void *opaque, void *controller, void *remaining,
 			goto fail;
 		offset += descriptor_size;
 	}
-	if (!found_bus || first_bus > last_bus ||
-	    cdk2_pci_enumerate(&cfg, first_bus, last_bus, topology) != 0)
+	if (!found_bus || first_bus > last_bus)
+		goto fail;
+	entry->roots[entry->building_root].first_bus = first_bus;
+	entry->roots[entry->building_root].last_bus = last_bus;
+	if (cdk2_pci_enumerate(&cfg, first_bus, last_bus, topology) != 0)
 		goto fail;
 	*path = allocate(entry, length);
 	if (*path == NULL)
@@ -248,6 +298,239 @@ static void finish_stop(void *opaque, void *controller, int success)
 				memset(&entry->roots[index], 0, sizeof(entry->roots[index]));
 			return;
 		}
+}
+
+struct global_root {
+	void *handle, *path;
+	size_t path_size;
+	struct cdk2_pci_topology *topology;
+};
+
+static void make_submission(const struct cdk2_pci_topology *topology,
+	UINT8 output[4 * sizeof(struct address_descriptor) + 2])
+{
+	struct address_descriptor *descriptor = (void *)output;
+	UINTN count = 0;
+	memset(output, 0, 4 * sizeof(*descriptor) + 2U);
+	for (UINTN index = 0; index < 4U; index++) {
+		if (topology->requests[index].length == 0U)
+			continue;
+		descriptor[count].descriptor = 0x8a;
+		descriptor[count].length = sizeof(descriptor[count]) - 3U;
+		descriptor[count].resource_type = index == 0U ? 1U : 0U;
+		descriptor[count].granularity = index == 2U ? 64U :
+			(index == 0U ? 0U : 32U);
+		descriptor[count].specific = index == 3U ? 6U : 0U;
+		descriptor[count].maximum = topology->requests[index].alignment;
+		descriptor[count].address_length = topology->requests[index].length;
+		count++;
+	}
+	output[count * sizeof(*descriptor)] = 0x79;
+}
+
+static int proposed_policy(const void *configuration,
+	struct cdk2_pci_allocation_policy *policy)
+{
+	const UINT8 *bytes = configuration; UINTN offset = 0;
+	memset(policy, 0, sizeof(*policy));
+	while (offset < 5U * sizeof(struct address_descriptor) && bytes[offset] != 0x79U) {
+		const struct address_descriptor *descriptor =
+			(const struct address_descriptor *)(bytes + offset);
+		struct cdk2_pci_aperture *aperture;
+		if (descriptor->descriptor != 0x8aU ||
+		    descriptor->length != sizeof(*descriptor) - 3U ||
+		    descriptor->translation != 0U ||
+		    descriptor->address_length == 0U || descriptor->minimum >
+		    UINT64_MAX - (descriptor->address_length - 1U))
+			return -1;
+		if (descriptor->resource_type == 1U)
+			aperture = &policy->io;
+		else if (descriptor->resource_type == 0U &&
+			 descriptor->granularity == 32U &&
+			 (descriptor->specific & 6U) == 0U)
+			aperture = &policy->mem32;
+		else if (descriptor->resource_type == 0U &&
+			 descriptor->granularity == 64U &&
+			 (descriptor->specific & 6U) == 0U)
+			aperture = &policy->mem64;
+		else if (descriptor->resource_type == 0U &&
+			 (descriptor->specific & 6U) == 6U)
+			aperture = &policy->prefetch;
+		else
+			return -1;
+		aperture->base = descriptor->minimum;
+		aperture->limit = descriptor->minimum + descriptor->address_length - 1U;
+		aperture->cursor = aperture->base;
+		offset += sizeof(*descriptor);
+	}
+	return bytes[offset] == 0x79U ? 0 : -1;
+}
+
+static EFI_STATUS global_start(void *opaque, void *controller, void *remaining)
+{
+	struct entry_context *entry = opaque;
+	struct host_resource_protocol *host;
+	struct global_root roots[CDK2_PCI_MAX_ROOTS] = { { 0 } };
+	struct cdk2_pci_allocation_policy policies[CDK2_PCI_MAX_ROOTS];
+	UINTN count = 0, published = 0; EFI_STATUS status; int resources = 0;
+	(void)controller;
+	(void)remaining;
+	if (entry->global_started)
+		return EFI_ALREADY_STARTED;
+	status = entry->boot->locate_protocol(&host_resource_guid, NULL,
+		(void **)&host);
+	if (EFI_ERROR(status) || host == NULL || host->notify_phase == NULL ||
+	    host->get_next_root == NULL || host->start_bus_enumeration == NULL ||
+	    host->set_bus_numbers == NULL || host->submit_resources == NULL ||
+	    host->get_proposed_resources == NULL)
+		return EFI_UNSUPPORTED;
+	status = host->notify_phase(host, 0U);
+	if (EFI_ERROR(status))
+		return status;
+	while (count < CDK2_PCI_MAX_ROOTS) {
+		void *bus_configuration = NULL;
+		status = host->get_next_root(host, &roots[count].handle);
+		if (status == EFI_NOT_FOUND)
+			break;
+		if (EFI_ERROR(status) || roots[count].handle == NULL)
+			goto rollback;
+		status = host->start_bus_enumeration(host, roots[count].handle,
+			&bus_configuration);
+		if (EFI_ERROR(status) || bus_configuration == NULL)
+			goto rollback;
+		status = host->set_bus_numbers(host, roots[count].handle,
+			bus_configuration);
+		(void)entry->boot->free_pool(bus_configuration);
+		if (EFI_ERROR(status))
+			goto rollback;
+		roots[count].topology = allocate(entry, sizeof(*roots[count].topology));
+		if (roots[count].topology == NULL || discover(entry, roots[count].handle,
+			NULL, roots[count].topology, &roots[count].path,
+			&roots[count].path_size) != 0) {
+			status = EFI_DEVICE_ERROR;
+			goto rollback;
+		}
+		count++;
+	}
+	if (count == 0U) {
+		status = EFI_NOT_FOUND;
+		goto rollback;
+	}
+	status = host->notify_phase(host, 1U);
+	if (EFI_ERROR(status))
+		goto rollback;
+	status = host->notify_phase(host, 2U);
+	if (EFI_ERROR(status))
+		goto rollback;
+	status = host->notify_phase(host, 3U);
+	if (EFI_ERROR(status))
+		goto rollback;
+	for (UINTN root = 0; root < count; root++) {
+		UINT8 descriptors[4 * sizeof(struct address_descriptor) + 2];
+		make_submission(roots[root].topology, descriptors);
+		status = host->submit_resources(host, roots[root].handle, descriptors);
+		if (EFI_ERROR(status))
+			goto rollback;
+	}
+	status = host->notify_phase(host, 4U);
+	if (EFI_ERROR(status))
+		goto rollback;
+	resources = 1;
+	for (UINTN root = 0; root < count; root++) {
+		void *proposed = NULL;
+		status = host->get_proposed_resources(host, roots[root].handle, &proposed);
+		if (EFI_ERROR(status) || proposed == NULL ||
+		    proposed_policy(proposed, &policies[root]) != 0) {
+			if (proposed != NULL)
+				(void)entry->boot->free_pool(proposed);
+			status = EFI_DEVICE_ERROR;
+			goto rollback;
+		}
+		(void)entry->boot->free_pool(proposed);
+	}
+	{
+		struct cdk2_pci_topology *combined = allocate(entry, sizeof(*combined));
+		struct cdk2_pci_root_allocation allocations[CDK2_PCI_MAX_ROOTS];
+		struct cdk2_pci_cfg cfg = { .context = entry, .crs_retries = 100,
+			.read = cfg_read, .write = cfg_write };
+		UINTN offsets[CDK2_PCI_MAX_ROOTS];
+		if (combined == NULL) {
+			status = EFI_OUT_OF_RESOURCES;
+			goto rollback;
+		}
+		memset(combined, 0, sizeof(*combined));
+		for (UINTN root = 0; root < count; root++) {
+			offsets[root] = combined->count;
+			if (roots[root].topology->count > CDK2_PCI_MAX_FUNCTIONS -
+			    combined->count) {
+				release(entry, combined); status = EFI_OUT_OF_RESOURCES;
+				goto rollback;
+			}
+			for (UINTN function = 0; function < roots[root].topology->count;
+			     function++) {
+				struct cdk2_pci_function copy =
+					roots[root].topology->functions[function];
+				if (copy.parent_index != CDK2_PCI_ROOT_PARENT)
+					copy.parent_index += offsets[root];
+				combined->functions[combined->count++] = copy;
+			}
+			allocations[root] = (struct cdk2_pci_root_allocation) {
+				.segment = 0,
+				.first_bus = entry->roots[root].first_bus,
+				.last_bus = entry->roots[root].last_bus,
+				.policy = policies[root] };
+		}
+		if (cdk2_pci_allocate_root_resources(&cfg, combined, allocations,
+			count) != 0) {
+			release(entry, combined); status = EFI_DEVICE_ERROR; goto rollback;
+		}
+		for (UINTN root = 0; root < count; root++)
+			for (UINTN function = 0; function < roots[root].topology->count;
+			     function++) {
+				struct cdk2_pci_function copy =
+					combined->functions[offsets[root] + function];
+				if (copy.parent_index != CDK2_PCI_ROOT_PARENT)
+					copy.parent_index -= offsets[root];
+				roots[root].topology->functions[function] = copy;
+			}
+		release(entry, combined);
+	}
+	status = host->notify_phase(host, 5U);
+	if (EFI_ERROR(status))
+		goto rollback;
+	status = host->notify_phase(host, 7U);
+	if (EFI_ERROR(status))
+		goto rollback;
+	for (published = 0; published < count; published++) {
+		entry->building_root = published;
+		if (cdk2_pci_bus_start(&entry->driver.binding, roots[published].handle,
+			roots[published].path, roots[published].path_size,
+			roots[published].topology) != 0) {
+			status = EFI_DEVICE_ERROR; goto rollback;
+		}
+		finish_discovery(entry, roots[published].handle, 1);
+	}
+	entry->global_started = 1;
+	for (UINTN root = 0; root < count; root++) {
+		release(entry, roots[root].path); release(entry, roots[root].topology);
+	}
+	return EFI_SUCCESS;
+rollback:
+	while (published != 0U) {
+		published--;
+		(void)cdk2_pci_bus_stop(&entry->driver.binding,
+			roots[published].handle, NULL, 0);
+	}
+	if (resources)
+		(void)host->notify_phase(host, 6U);
+	for (UINTN root = 0; root < count; root++) {
+		finish_discovery(entry, roots[root].handle, 0);
+		if (roots[root].path != NULL)
+			release(entry, roots[root].path);
+		if (roots[root].topology != NULL)
+			release(entry, roots[root].topology);
+	}
+	return status;
 }
 
 static int install_child(void *opaque, void **handle,
@@ -457,10 +740,12 @@ EFI_STATUS CDK2_MS_ABI cdk2_pci_bus_entry(void *image, void *system_table)
 	if (context.boot->allocate_pool == NULL || context.boot->free_pool == NULL ||
 	    context.boot->handle_protocol == NULL || context.boot->open_protocol == NULL ||
 	    context.boot->close_protocol == NULL || context.boot->install_multiple == NULL ||
-	    context.boot->uninstall_multiple == NULL)
+	    context.boot->uninstall_multiple == NULL ||
+	    context.boot->locate_protocol == NULL)
 		return EFI_UNSUPPORTED;
 	context.driver = (struct cdk2_pci_bus_driver) {
-		.context = &context, .probe = probe, .discover = discover,
+		.context = &context, .probe = probe, .start_global = global_start,
+		.discover = discover,
 		.release_discovery = release_discovery, .publish = publish,
 		.finish_discovery = finish_discovery, .finish_stop = finish_stop,
 		.unpublish = unpublish,
