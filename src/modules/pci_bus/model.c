@@ -419,8 +419,9 @@ static int scan_bus(const struct cdk2_pci_cfg *cfg, uint8_t bus, uint8_t last,
 	struct cdk2_pci_topology *topology, uint8_t visited[32], uint8_t *next_bus,
 	int ari_bus, uint16_t parent_index)
 {
-	uint32_t id, header;
-	uint8_t device, function, limit;
+	uint32_t id;
+	uint8_t device, function;
+	(void)ari_bus;
 
 	if ((visited[bus / 8U] & (1U << (bus & 7U))) != 0U)
 		return 0;
@@ -428,13 +429,12 @@ static int scan_bus(const struct cdk2_pci_cfg *cfg, uint8_t bus, uint8_t last,
 	for (device = 0; device < 32U; device++) {
 		if (read_id(cfg, bus, device, 0, &id) != 0)
 			return -1;
-		if ((id & 0xffffU) == 0xffffU && !ari_bus)
-			continue;
-		if ((id & 0xffffU) != 0xffffU &&
-		    read_cfg(cfg, bus, device, 0, PCI_HEADER, 4, &header) != 0)
-			return -1;
-		limit = ari_bus ? 8U : (((header >> 16) & 0x80U) ? 8U : 1U);
-		for (function = 0; function < limit; function++) {
+		/*
+		 * Do not trust function zero's multifunction bit.  Firmware-assigned
+		 * topology and real chipsets can expose sibling functions while that
+		 * bit is clear, or expose a sibling while function zero is hidden.
+		 */
+		for (function = 0; function < 8U; function++) {
 			struct cdk2_pci_function *fn;
 			uint16_t current_index;
 			if (read_id(cfg, bus, device, function, &id) != 0)

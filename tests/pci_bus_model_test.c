@@ -326,6 +326,34 @@ static int overflow_and_cardbus_test(void)
 	return 0;
 }
 
+static int sibling_function_test(void)
+{
+	struct fixture f = { 0 };
+	struct cdk2_pci_cfg cfg = { .context = &f, .read = rd, .write = wr };
+	struct cdk2_pci_topology topology;
+	struct device *device;
+
+	device = add(&f, 0, 0x1f, 0, 0x8086, 0x7000, 0);
+	device->masks[6] = 0;
+	device = add(&f, 0, 0x1f, 2, 0x8086, 0x2922, 0);
+	device->data[0x0b] = 1;
+	device->data[0x0a] = 6;
+	device->masks[6] = 0;
+	device = add(&f, 0, 0x1e, 3, 0x1234, 0x5678, 0);
+	device->masks[6] = 0;
+	CHECK(cdk2_pci_enumerate(&cfg, 0, 0, &topology) == 0);
+	CHECK(topology.count == 3);
+	CHECK(topology.functions[0].device == 0x1e &&
+		topology.functions[0].function == 3);
+	CHECK(topology.functions[1].device == 0x1f &&
+		topology.functions[1].function == 0);
+	CHECK(topology.functions[2].device == 0x1f &&
+		topology.functions[2].function == 2 &&
+		topology.functions[2].class_code == 1 &&
+		topology.functions[2].subclass == 6);
+	return 0;
+}
+
 static int allocator_test(void)
 {
 	struct fixture f = { 0 };
@@ -1006,7 +1034,7 @@ static int corruption_test(void)
 
 int main(void)
 {
-	if (topology_test() || temporary_bridge_and_crs_test() ||
+	if (topology_test() || sibling_function_test() || temporary_bridge_and_crs_test() ||
 	    overflow_and_cardbus_test() || allocator_test() || hot_add_allocator_test() ||
 	    host_and_rom_test() ||
 	    hotplug_rollback_test() || cardbus_socket_test() || corruption_test())

@@ -124,7 +124,8 @@ static EFI_STATUS CDK2_MS_ABI config_read(void *root, UINTN width,
 		active->extended_config_reads++;
 	else
 		reg = address & 0xffU;
-	if (active->enable_hotplug && ((address >> 16) & 0x1fU) != 0U &&
+	if (active->enable_hotplug && ((address >> 8) & 7U) == 0U &&
+	    ((address >> 16) & 0x1fU) != 0U &&
 	    ((address >> 16) & 0x1fU) <= active->visible_devices)
 		*(uint32_t *)buffer = reg == 0U ?
 			(0x56780000U | (uint32_t)((address >> 16) & 0x1fU)) : 0U;
