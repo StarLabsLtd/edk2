@@ -1485,7 +1485,7 @@ $(CDK2_NATIVE_ESRT_ENTRY_OBJ): $(CDK2_DIR)/src/modules/esrt/entry.c $(CDK2_DIR)/
 	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) -mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args -fshort-wchar $(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
 
 $(CDK2_NATIVE_ESRT_PE): $(CDK2_NATIVE_ESRT_OBJ) $(CDK2_NATIVE_ESRT_ENTRY_OBJ) $(CDK2_DIR)/src/modules/esrt/esrt.ld $(CDK2_NATIVE_PERELOCCHECK)
-	@$(LD) -mi386pep --subsystem 11 --entry cdk2_esrt_entry --image-base 0 --section-alignment 0x1000 --file-alignment 0x1000 --build-id=none --no-insert-timestamp -s --nxcompat -T "$(CDK2_DIR)/src/modules/esrt/esrt.ld" -o "$@" $(CDK2_NATIVE_ESRT_OBJ) $(CDK2_NATIVE_ESRT_ENTRY_OBJ)
+	@$(CDK2_NATIVE_LD) -mi386pep --subsystem 11 --entry cdk2_esrt_entry --image-base 0 --section-alignment 0x1000 --file-alignment 0x1000 --build-id=none --no-insert-timestamp -s --nxcompat -T "$(CDK2_DIR)/src/modules/esrt/esrt.ld" -o "$@" $(CDK2_NATIVE_ESRT_OBJ) $(CDK2_NATIVE_ESRT_ENTRY_OBJ)
 	@"$(CDK2_NATIVE_PERELOCCHECK)" --subsystem 11 "$@"
 
 $(CDK2_NATIVE_ESRT_DEPEX_GEN): $(CDK2_DIR)/src/modules/esrt/depex.c | $(CDK2_NATIVE_BUILD_DIR)
