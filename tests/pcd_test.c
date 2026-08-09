@@ -180,6 +180,33 @@ struct hii_fixture {
 	uint16_t name[2];
 };
 
+struct pointer_fixture {
+	struct cdk2_pcd_database_header header;
+	uint32_t local[3];
+	uint32_t scalar[2];
+	uint32_t string_head;
+	uint8_t string[16];
+	uint16_t sizes[2];
+};
+
+static void make_pointer(struct pointer_fixture *fixture)
+{
+	memset(fixture, 0, sizeof(*fixture));
+	fixture->header.signature = signature;
+	fixture->header.build_version = CDK2_PCD_SERVICE_VERSION;
+	fixture->header.length = fixture->header.length_all_skus = sizeof(*fixture);
+	fixture->header.local_tokens_offset = offsetof(struct pointer_fixture, local);
+	fixture->header.ex_map_offset = fixture->header.guid_offset =
+		fixture->header.sku_offset = fixture->header.name_offset = sizeof(*fixture);
+	fixture->header.string_offset = offsetof(struct pointer_fixture, string);
+	fixture->header.size_offset = offsetof(struct pointer_fixture, sizes);
+	fixture->header.local_token_count = 3;
+	fixture->local[0] = 0x04000000U | offsetof(struct pointer_fixture, scalar[0]);
+	fixture->local[1] = 0x04000000U | offsetof(struct pointer_fixture, scalar[1]);
+	fixture->local[2] = 0x10000000U | offsetof(struct pointer_fixture, string_head);
+	fixture->sizes[0] = fixture->sizes[1] = sizeof(fixture->string);
+}
+
 static void make_hii(struct hii_fixture *fixture)
 {
 	memset(fixture, 0, sizeof(*fixture));
@@ -236,6 +263,7 @@ int main(void)
 	struct fixture pei;
 	struct delta_fixture delta_fixture;
 	struct hii_fixture hii;
+	struct pointer_fixture pointer;
 	struct cdk2_pcd_context context;
 	struct cdk2_pcd_boot_services boot_services;
 	struct system_view system;
@@ -260,6 +288,20 @@ int main(void)
 		size == 8 && *(uint64_t *)value == fixture.wide, "native token lookup");
 	failures += expect(cdk2_pcd_get(&context, &space, 77, &value, &size) == EFI_SUCCESS &&
 		*(uint32_t *)value == fixture.value, "dynamic-ex mapping");
+	make_pointer(&pointer);
+	failures += expect(cdk2_pcd_init(&context, &pointer, sizeof(pointer)) == EFI_SUCCESS &&
+		cdk2_pcd_get(&context, NULL, 3, &value, &size) == EFI_SUCCESS && size == 16,
+		"compact size table indexes only preceding pointer tokens");
+	size = 16;
+	failures += expect(cdk2_pcd_set(&context, NULL, 3, &space, &size) == EFI_SUCCESS &&
+		memcmp(pointer.string, &space, sizeof(space)) == 0,
+		"late pointer token accepts its generated maximum size");
+	size = 8;
+	failures += expect(cdk2_pcd_set(&context, NULL, 3, &space, &size) == EFI_SUCCESS &&
+		pointer.sizes[1] == 8, "pointer mutation updates compact current size");
+	size = 17;
+	failures += expect(cdk2_pcd_set(&context, NULL, 3, &space, &size) ==
+		EFI_INVALID_PARAMETER && size == 16, "oversized pointer reports generated maximum");
 	/* Dynamic data may occupy the generated database's zero-filled tail. */
 	make_fixture(&bad);
 	bad.header.length = bad.header.length_all_skus = offsetof(struct fixture, value);

@@ -10,7 +10,7 @@
 #define PCD_TYPE_VPD 0x40000000U
 #define PCD_TYPE_HII 0x80000000U
 #define PCD_DATUM_MASK 0x0f000000U
-#define PCD_OFFSET_MASK 0x00efffffU
+#define PCD_OFFSET_MASK 0x20efffffU
 #define PCD_BOOLEAN 0x00100000U
 #define PCD_NOT_FOUND ((1ULL << 63) | 14ULL)
 #define PCD_INVALID_PARAMETER ((1ULL << 63) | 2ULL)
@@ -46,6 +46,24 @@ static struct cdk2_pcd_ex_map *ex_table(struct cdk2_pcd_context *context)
 static EFI_GUID *guid_table(struct cdk2_pcd_context *context)
 {
 	return (EFI_GUID *)(context->database + context->header->guid_offset);
+}
+
+static uint64_t pointer_sizes(struct cdk2_pcd_context *context, uint16_t local,
+	uint16_t **maximum, uint16_t **current)
+{
+	size_t i, index = 0;
+	uint16_t *sizes;
+
+	for (i = 0; i + 1 < local; i++)
+		if ((local_table(context)[i] & PCD_DATUM_MASK) == 0)
+			index += 2;
+	if (!bounds(context->header->size_offset, index + 2, sizeof(*sizes),
+		context->header->length))
+		return PCD_INVALID_PARAMETER;
+	sizes = (uint16_t *)(context->database + context->header->size_offset);
+	*maximum = &sizes[index];
+	*current = &sizes[index + 1];
+	return EFI_SUCCESS;
 }
 
 struct variable_head {
@@ -195,16 +213,15 @@ static uint64_t locate(struct cdk2_pcd_context *context, uint16_t local,
 
 	if ((entry & PCD_TYPE_MASK) == PCD_TYPE_STRING) {
 		uint32_t string_index = *(uint32_t *)(context->database + offset);
-		uint16_t *sizes = (uint16_t *)(context->database + context->header->size_offset);
-		size_t size_index = (size_t)(local - 1) * 2;
+		uint16_t *maximum, *current;
+		uint64_t status = pointer_sizes(context, local, &maximum, &current);
 
-		if (!bounds(context->header->size_offset, size_index + 2,
-			    sizeof(uint16_t), context->header->length) ||
-		    !bounds(context->header->string_offset, string_index + sizes[size_index + 1],
+		if (status != EFI_SUCCESS || *current > *maximum ||
+		    !bounds(context->header->string_offset, string_index + *maximum,
 			    1, context->header->length))
 			return PCD_INVALID_PARAMETER;
 		*value = context->database + context->header->string_offset + string_index;
-		*size = sizes[size_index + 1];
+		*size = *current;
 		return EFI_SUCCESS;
 	}
 	if ((entry & PCD_TYPE_MASK) != PCD_TYPE_DATA) {
@@ -251,7 +268,18 @@ uint64_t cdk2_pcd_set(struct cdk2_pcd_context *context, const EFI_GUID *space,
 	entry = local_table(context)[local - 1];
 	if ((entry & PCD_TYPE_MASK) == PCD_TYPE_VPD)
 		return PCD_INVALID_PARAMETER;
-	if (*size > current || (*size != current && current <= 8)) {
+	if ((entry & PCD_TYPE_MASK) == PCD_TYPE_STRING) {
+		uint16_t *maximum, *stored;
+
+		status = pointer_sizes(context, local, &maximum, &stored);
+		if (status != EFI_SUCCESS)
+			return status;
+		if (*size > *maximum || *size == (size_t)-1) {
+			*size = *maximum;
+			return PCD_INVALID_PARAMETER;
+		}
+		current = *maximum;
+	} else if (*size > current || *size != current) {
 		*size = current;
 		return PCD_BUFFER_TOO_SMALL;
 	}
@@ -287,6 +315,12 @@ uint64_t cdk2_pcd_set(struct cdk2_pcd_context *context, const EFI_GUID *space,
 			variable_size, context->variable);
 	}
 	memcpy(destination, value, *size);
+	if ((entry & PCD_TYPE_MASK) == PCD_TYPE_STRING) {
+		uint16_t *maximum, *stored;
+
+		(void)pointer_sizes(context, local, &maximum, &stored);
+		*stored = (uint16_t)*size;
+	}
 	return EFI_SUCCESS;
 }
 
