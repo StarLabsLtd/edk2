@@ -39,6 +39,7 @@ CDK2_NATIVE_ATA_MODULES := model binding ahci ide pci_adapter backend ata_protoc
 CDK2_NATIVE_ATA_OBJS := $(addprefix $(CDK2_NATIVE_BUILD_DIR)/ata-atapi-,$(addsuffix .o,$(CDK2_NATIVE_ATA_MODULES)))
 CDK2_NATIVE_ATA_PE ?= $(CDK2_NATIVE_BUILD_DIR)/AtaAtapiPassThruDxe.efi
 CDK2_NATIVE_ATA_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/AtaAtapiPassThruDxe.ffs
+CDK2_NATIVE_ATA_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-ata-atapi.fv
 CDK2_NATIVE_ATA_QEMU_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/ata-atapi-qemu.o
 CDK2_NATIVE_ATA_QEMU_PE ?= $(CDK2_NATIVE_BUILD_DIR)/ata-atapi-qemu.efi
 CDK2_NATIVE_SATA_ENTRY_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-sata-entry-test
@@ -1902,6 +1903,25 @@ native-sata-controller-fv: $(CDK2_NATIVE_SATA_FV)
 else
 native-sata-controller-fv:
 	@printf '%s\n' 'native SATA controller: disabled by Kconfig'
+endif
+
+ifeq ($(CONFIG_CDK2_NATIVE_ATA_ATAPI_PASS_THRU),y)
+CDK2_NATIVE_PRE_ATA_ATAPI_FV ?= $(CDK2_NATIVE_FINAL_FV)
+CDK2_NATIVE_FINAL_FV := $(CDK2_NATIVE_ATA_FV)
+
+$(CDK2_NATIVE_ATA_FV): $(CDK2_NATIVE_PRE_ATA_ATAPI_FV) \
+		$(CDK2_NATIVE_ATA_FFS) $(CDK2_NATIVE_FVREPLACE)
+	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_PRE_ATA_ATAPI_FV)" 0x31d598 \
+		"$(CDK2_NATIVE_ATA_FFS)" "$@"
+
+.PHONY: native-ata-atapi-fv
+native-ata-atapi-fv: $(CDK2_NATIVE_ATA_FV)
+	@"$(CDK2_NATIVE_FVINFO)" "$<" | grep -q \
+		'^5e523cb4-d397-4986-87bd-a6dd8b22f455[[:space:]]0x0031d598[[:space:]]0x0000e056[[:space:]]0x07[[:space:]]AtaAtapiPassThruDxe$$'
+	@printf '%s\n' "native ATA/ATAPI Pass Thru FV: $<"
+else
+native-ata-atapi-fv:
+	@printf '%s\n' 'native ATA/ATAPI Pass Thru: disabled by Kconfig'
 endif
 
 ifeq ($(CONFIG_CDK2_NATIVE_ENGLISH),y)

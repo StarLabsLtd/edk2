@@ -267,6 +267,14 @@ config CDK2_NATIVE_SATA_CONTROLLER
 	  Publish IDE Controller Init mode negotiation for admitted PCI IDE and
 	  AHCI controllers after native PCI enumeration.
 
+config CDK2_NATIVE_ATA_ATAPI_PASS_THRU
+	bool "Build native ATA/ATAPI pass-through services"
+	default y
+	depends on CDK2_NATIVE_SATA_CONTROLLER
+	help
+	  Publish ATA Pass Thru and Extended SCSI Pass Thru protocols for
+	  discovered IDE and AHCI devices.
+
 config CDK2_NATIVE_STATUS_CODE_HANDLER
 	bool "Build the native release status-code handler"
 	default y

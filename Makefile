@@ -45,6 +45,7 @@ CDK2_CONFIG_TARGETS := build check manifest modules native-stage \
 	native-pci-host-bridge-package \
 	native-pci-bus-package native-pci-bus-fv \
 	native-sata-controller-package native-sata-controller-oracle native-sata-controller-fv \
+	native-ata-atapi-fv \
 	native-coreboot-test native-fv-test native-fvpack-test native-pe-test \
 	native-fvinfo native-fvinfo-test native-null-memory-test-fv \
 	native-null-memory-test-test native-module-test native-elfcheck-test \
