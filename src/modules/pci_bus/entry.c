@@ -105,6 +105,8 @@ static const EFI_GUID decompress_guid = { 0xd8117cfe, 0x94a6, 0x11d4,
 	{ 0x9a, 0x3a, 0x00, 0x90, 0x27, 0x3f, 0xc1, 0x4d } };
 static const EFI_GUID hotplug_init_guid = { 0xaa0e8bc1, 0xdabc, 0x46b0,
 	{ 0xa8, 0x44, 0x37, 0xb8, 0x16, 0x9b, 0x2b, 0xea } };
+static const EFI_GUID hotplug_request_guid = { 0x19cb87ab, 0x2cb9, 0x4665,
+	{ 0x83, 0x60, 0xdd, 0xcf, 0x60, 0x54, 0xf7, 0x9d } };
 
 typedef EFI_STATUS CDK2_MS_ABI host_notify_fn(void *, UINTN);
 typedef EFI_STATUS CDK2_MS_ABI host_next_fn(void *, void **);
@@ -134,6 +136,10 @@ struct hotplug_init_protocol {
 	hpc_list_fn *get_root_hpc_list; hpc_initialize_fn *initialize_root_hpc;
 	hpc_padding_fn *get_resource_padding;
 };
+struct hotplug_request_protocol;
+typedef EFI_STATUS CDK2_MS_ABI hotplug_notify_fn(
+	struct hotplug_request_protocol *, UINTN, void *, void *, UINT8 *, void **);
+struct hotplug_request_protocol { hotplug_notify_fn *notify; };
 
 #pragma pack(push, 1)
 struct address_descriptor {
@@ -153,9 +159,14 @@ struct entry_context {
 		struct root_io_protocol *root;
 		UINT8 first_bus, last_bus;
 		UINT8 committed;
+		void *path;
+		size_t path_size;
+		struct cdk2_pci_topology *topology;
+		struct cdk2_pci_allocation_policy policy;
 	} roots[CDK2_PCI_MAX_ROOTS];
 	UINTN building_root;
 	UINT8 global_started;
+	struct hotplug_request_protocol hotplug_request;
 };
 static struct entry_context context;
 
@@ -325,8 +336,13 @@ static void finish_stop(void *opaque, void *controller, int success)
 	for (UINTN index = 0; index < CDK2_PCI_MAX_ROOTS; index++)
 		if (entry->roots[index].controller == controller) {
 			if (!EFI_ERROR(entry->boot->close_protocol(controller,
-				&root_io_guid, entry->image, controller)))
+				&root_io_guid, entry->image, controller))) {
+				if (entry->roots[index].path != NULL)
+					release(entry, entry->roots[index].path);
+				if (entry->roots[index].topology != NULL)
+					release(entry, entry->roots[index].topology);
 				memset(&entry->roots[index], 0, sizeof(entry->roots[index]));
+			}
 			return;
 		}
 }
@@ -601,6 +617,202 @@ static const struct cdk2_pci_rom_ops rom_ops = {
 static void release_function(void *opaque, struct cdk2_pci_function *function)
 { cdk2_pci_release_option_rom(&rom_ops, function); (void)opaque; }
 
+struct add_publish_context {
+	struct entry_context *entry;
+	UINTN root;
+	void **handles;
+	size_t handle_count;
+};
+
+static int retained_bdf(const struct cdk2_pci_topology *retained,
+	const struct cdk2_pci_function *function)
+{
+	for (UINTN index = 0; index < retained->count; index++)
+		if (retained->functions[index].bus == function->bus &&
+		    retained->functions[index].device == function->device &&
+		    retained->functions[index].function == function->function)
+			return 1;
+	return 0;
+}
+static int function_same_bdf(const struct cdk2_pci_function *left,
+	const struct cdk2_pci_function *right)
+{ return left->bus == right->bus && left->device == right->device &&
+	left->function == right->function; }
+
+static int publish_hot_add(void *opaque, const struct cdk2_pci_topology *topology)
+{
+	struct add_publish_context *publish = opaque;
+	struct entry_context *entry = publish->entry;
+	struct cdk2_pci_topology *mutable = (struct cdk2_pci_topology *)topology;
+	struct cdk2_pci_cfg cfg = { .context = entry, .read_memory = rom_read };
+	entry->building_root = publish->root;
+	for (UINTN index = 0; index < mutable->count; index++) {
+		struct cdk2_pci_function *function = &mutable->functions[index];
+		int has_rom = 0;
+		if (retained_bdf(entry->roots[publish->root].topology, function))
+			continue;
+		for (UINTN bar = 0; bar < function->bar_count; bar++)
+			if (function->bars[bar].kind == CDK2_PCI_BAR_ROM &&
+			    function->bars[bar].base != 0U && function->bars[bar].size != 0U)
+				has_rom = 1;
+		if (has_rom && cdk2_pci_prepare_option_rom(&cfg, &rom_ops, function) != 0)
+			goto rollback_rom;
+	}
+	entry->driver.binding.services.release_function = NULL;
+	publish->handle_count = CDK2_PCI_MAX_FUNCTIONS;
+	if (cdk2_pci_bus_start_new(&entry->driver.binding,
+		entry->roots[publish->root].controller,
+		entry->roots[publish->root].path, entry->roots[publish->root].path_size,
+		entry->roots[publish->root].topology, mutable, publish->handles,
+		&publish->handle_count) != 0)
+		goto rollback_rom;
+	entry->driver.binding.services.release_function = release_function;
+	return 0;
+rollback_rom:
+	entry->driver.binding.services.release_function = release_function;
+	for (UINTN index = 0; index < mutable->count; index++)
+		if (!retained_bdf(entry->roots[publish->root].topology,
+			&mutable->functions[index]))
+			cdk2_pci_release_option_rom(&rom_ops, &mutable->functions[index]);
+	return -1;
+}
+
+static EFI_STATUS hotplug_add(struct entry_context *entry, UINTN root,
+	UINT8 *number, void **handles)
+{
+	struct cdk2_pci_topology *discovered;
+	struct cdk2_pci_cfg cfg = { .context = entry, .crs_retries = 100,
+		.read = cfg_read, .write = cfg_write };
+	struct add_publish_context publish = { entry, root, handles, 0 };
+	if (handles == NULL)
+		return EFI_INVALID_PARAMETER;
+	discovered = allocate(entry, sizeof(*discovered));
+	if (discovered == NULL)
+		return EFI_OUT_OF_RESOURCES;
+	memset(discovered, 0, sizeof(*discovered)); entry->building_root = root;
+	if (cdk2_pci_enumerate(&cfg, entry->roots[root].first_bus,
+		entry->roots[root].last_bus, discovered) != 0 ||
+	    cdk2_pci_hot_add_transaction(&cfg, entry->roots[root].topology,
+		discovered, &entry->roots[root].policy, publish_hot_add,
+		&publish) != 0 || publish.handle_count > UINT8_MAX) {
+		release(entry, discovered);
+		return EFI_DEVICE_ERROR;
+	}
+	release(entry, entry->roots[root].topology);
+	entry->roots[root].topology = discovered;
+	*number = (UINT8)publish.handle_count;
+	return EFI_SUCCESS;
+}
+
+static EFI_STATUS hotplug_remove(struct entry_context *entry, UINTN root,
+	void *controller, UINT8 *number, void **handles)
+{
+	UINT8 requested = *number;
+	void *selected[CDK2_PCI_MAX_FUNCTIONS]; size_t count = 0;
+	struct cdk2_pci_topology *topology = entry->roots[root].topology;
+	UINT16 controller_index = CDK2_PCI_ROOT_PARENT;
+	UINT8 removed[CDK2_PCI_MAX_FUNCTIONS] = { 0 };
+	UINT16 remap[CDK2_PCI_MAX_FUNCTIONS];
+	for (UINTN child = 0; child < entry->driver.binding.child_count; child++)
+		if (entry->driver.binding.children[child]->handle == controller)
+			for (UINTN index = 0; index < topology->count; index++)
+				if (function_same_bdf(&entry->driver.binding.children[child]->function,
+					&topology->functions[index]))
+					controller_index = index;
+	if (*number != 0U && handles == NULL)
+		return EFI_INVALID_PARAMETER;
+	if (*number != 0U) {
+		for (UINTN index = 0; index < *number; index++) {
+			int allowed = controller == entry->roots[root].controller;
+			for (UINTN child = 0; child < entry->driver.binding.child_count; child++)
+				if (entry->driver.binding.children[child]->handle == handles[index]) {
+					UINT16 candidate = CDK2_PCI_ROOT_PARENT;
+					for (UINTN function = 0; function < topology->count; function++)
+						if (function_same_bdf(&entry->driver.binding.children[child]->function,
+							&topology->functions[function]))
+							candidate = function;
+					while (!allowed && candidate != CDK2_PCI_ROOT_PARENT) {
+						if (candidate == controller_index) allowed = 1;
+						candidate = topology->functions[candidate].parent_index;
+					}
+				}
+			if (!allowed)
+				return EFI_INVALID_PARAMETER;
+			selected[count++] = handles[index];
+		}
+	} else {
+		for (UINTN index = entry->driver.binding.child_count; index != 0U; index--)
+			if (entry->driver.binding.children[index - 1U]->parent ==
+			    entry->roots[root].controller) {
+				UINT16 candidate = CDK2_PCI_ROOT_PARENT; int allowed =
+					controller == entry->roots[root].controller;
+				for (UINTN function = 0; function < topology->count; function++)
+					if (function_same_bdf(&entry->driver.binding.children[index - 1U]->function,
+						&topology->functions[function]))
+						candidate = function;
+				while (!allowed && candidate != CDK2_PCI_ROOT_PARENT) {
+					if (candidate == controller_index) allowed = 1;
+					candidate = topology->functions[candidate].parent_index;
+				}
+				if (allowed)
+					selected[count++] =
+						entry->driver.binding.children[index - 1U]->handle;
+			}
+	}
+	for (UINTN chosen = 0; chosen < count; chosen++)
+		for (UINTN child = 0; child < entry->driver.binding.child_count; child++)
+			if (entry->driver.binding.children[child]->handle == selected[chosen])
+				for (UINTN function = 0; function < topology->count; function++)
+					if (function_same_bdf(&entry->driver.binding.children[child]->function,
+						&topology->functions[function]))
+						removed[function] = 1;
+	if (cdk2_pci_bus_stop(&entry->driver.binding,
+		entry->roots[root].controller, selected, count) != 0)
+		return EFI_DEVICE_ERROR;
+	{
+		UINTN output = 0;
+		for (UINTN index = 0; index < topology->count; index++) {
+			if (removed[index]) { remap[index] = CDK2_PCI_ROOT_PARENT; continue; }
+			remap[index] = output;
+			topology->functions[output++] = topology->functions[index];
+		}
+		topology->count = output;
+		for (UINTN index = 0; index < topology->count; index++)
+			if (topology->functions[index].parent_index != CDK2_PCI_ROOT_PARENT)
+				topology->functions[index].parent_index =
+					remap[topology->functions[index].parent_index];
+	}
+	*number = 0;
+	if (requested == 0U && controller == entry->roots[root].controller)
+		finish_stop(entry, controller, 1);
+	return EFI_SUCCESS;
+}
+
+static EFI_STATUS CDK2_MS_ABI hotplug_notify(
+	struct hotplug_request_protocol *protocol, UINTN operation, void *controller,
+	void *remaining, UINT8 *number, void **handles)
+{
+	struct entry_context *entry = &context; UINTN root;
+	(void)protocol;
+	if (controller == NULL || number == NULL || operation > 1U ||
+	    (operation == 1U && remaining != NULL))
+		return EFI_INVALID_PARAMETER;
+	for (root = 0; root < CDK2_PCI_MAX_ROOTS; root++) {
+		if (entry->roots[root].controller == controller)
+			break;
+		for (UINTN child = 0; child < entry->driver.binding.child_count; child++)
+			if (entry->driver.binding.children[child]->handle == controller &&
+			    entry->driver.binding.children[child]->parent ==
+			    entry->roots[root].controller)
+				goto found;
+	}
+found:
+	if (root == CDK2_PCI_MAX_ROOTS || entry->roots[root].topology == NULL)
+		return EFI_NOT_FOUND;
+	return operation == 0U ? hotplug_add(entry, root, number, handles) :
+		hotplug_remove(entry, root, controller, number, handles);
+}
+
 static EFI_STATUS global_start(void *opaque, void *controller, void *remaining)
 {
 	struct entry_context *entry = opaque;
@@ -771,7 +983,10 @@ static EFI_STATUS global_start(void *opaque, void *controller, void *remaining)
 	entry->driver.binding.services.release_function = release_function;
 	entry->global_started = 1;
 	for (UINTN root = 0; root < count; root++) {
-		release(entry, roots[root].path); release(entry, roots[root].topology);
+		entry->roots[root].path = roots[root].path;
+		entry->roots[root].path_size = roots[root].path_size;
+		entry->roots[root].topology = roots[root].topology;
+		entry->roots[root].policy = policies[root];
 	}
 	return EFI_SUCCESS;
 rollback:
@@ -966,7 +1181,8 @@ static int publish(void *opaque, struct cdk2_pci_bus_driver *driver)
 	EFI_STATUS status = entry->boot->install_multiple(&handle,
 		&driver_binding_guid, &driver->protocol,
 		&component_name_guid, &driver->binding.component_name.protocol,
-		&component_name2_guid, &driver->binding.component_name2.protocol, NULL);
+		&component_name2_guid, &driver->binding.component_name2.protocol,
+		&hotplug_request_guid, &entry->hotplug_request, NULL);
 	if (!EFI_ERROR(status))
 		driver->protocol.driver_binding_handle = handle;
 	return EFI_ERROR(status) ? -1 : 0;
@@ -978,7 +1194,8 @@ static int unpublish(void *opaque, struct cdk2_pci_bus_driver *driver)
 		driver->protocol.driver_binding_handle,
 		&driver_binding_guid, &driver->protocol,
 		&component_name_guid, &driver->binding.component_name.protocol,
-		&component_name2_guid, &driver->binding.component_name2.protocol, NULL)) ? -1 : 0;
+		&component_name2_guid, &driver->binding.component_name2.protocol,
+		&hotplug_request_guid, &entry->hotplug_request, NULL)) ? -1 : 0;
 }
 
 EFI_STATUS CDK2_MS_ABI cdk2_pci_bus_unload(void *image)
@@ -987,6 +1204,9 @@ EFI_STATUS CDK2_MS_ABI cdk2_pci_bus_unload(void *image)
 		return EFI_INVALID_PARAMETER;
 	if (cdk2_pci_bus_driver_unload(&context.driver) != 0)
 		return EFI_DEVICE_ERROR;
+	for (UINTN root = 0; root < CDK2_PCI_MAX_ROOTS; root++)
+		if (context.roots[root].controller != NULL)
+			finish_stop(&context, context.roots[root].controller, 1);
 	if (context.loaded != NULL)
 		context.loaded->unload = context.original_unload;
 	memset(&context, 0, sizeof(context));
@@ -1002,6 +1222,7 @@ EFI_STATUS CDK2_MS_ABI cdk2_pci_bus_entry(void *image, void *system_table)
 		return EFI_ALREADY_STARTED;
 	memset(&context, 0, sizeof(context));
 	context.boot = system->boot; context.image = image;
+	context.hotplug_request.notify = hotplug_notify;
 	if (context.boot->allocate_pool == NULL || context.boot->free_pool == NULL ||
 	    context.boot->handle_protocol == NULL || context.boot->open_protocol == NULL ||
 	    context.boot->close_protocol == NULL || context.boot->install_multiple == NULL ||

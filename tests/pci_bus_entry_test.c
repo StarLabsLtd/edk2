@@ -12,6 +12,8 @@
 	__FILE__, __LINE__, #x); return 1; } } while (0)
 
 typedef EFI_STATUS CDK2_MS_ABI unload_fn(void *);
+typedef EFI_STATUS CDK2_MS_ABI request_notify_fn(void *, UINTN, void *, void *,
+	UINT8 *, void **);
 struct loaded_image {
 	uint32_t revision; void *parent, *system, *device, *path, *reserved;
 	uint32_t option_size; void *options, *base; uint64_t size;
@@ -40,6 +42,7 @@ struct fixture {
 	unsigned int fail_hpc_padding;
 	UINTN phases[16];
 	struct cdk2_driver_binding_protocol *driver;
+	struct { void *notify; } *hotplug_request;
 	uint8_t path[4], resources[48];
 	struct {
 		void *parent, *poll_mem, *poll_io;
@@ -73,9 +76,19 @@ static EFI_STATUS CDK2_MS_ABI close_protocol(void *handle, const EFI_GUID *guid,
 { (void)handle; (void)guid; (void)agent; (void)controller; active->closes++; return 0; }
 static EFI_STATUS CDK2_MS_ABI install(void **handle, const EFI_GUID *guid,
 	void *interface, ...)
-{ (void)guid; (void)interface; active->installs++; *handle = active;
+{ __builtin_ms_va_list arguments; const EFI_GUID *next;
+	active->installs++; *handle = active;
 	if (active->installs == 1)
 		active->driver = interface;
+	if (guid->data1 == 0x19cb87abU)
+		active->hotplug_request = interface;
+	__builtin_ms_va_start(arguments, interface);
+	while ((next = __builtin_va_arg(arguments, const EFI_GUID *)) != NULL) {
+		void *next_interface = __builtin_va_arg(arguments, void *);
+		if (next->data1 == 0x19cb87abU)
+			active->hotplug_request = next_interface;
+	}
+	__builtin_ms_va_end(arguments);
 	return active->install_status; }
 static EFI_STATUS CDK2_MS_ABI uninstall(void *handle, const EFI_GUID *guid,
 	void *interface, ...)
@@ -219,6 +232,13 @@ int main(void)
 		fixture.phases[6] == 7);
 	CHECK(fixture.driver->start(fixture.driver, (void *)2, NULL) ==
 		EFI_ALREADY_STARTED);
+	{
+		UINT8 children = 99; void *new_children[4];
+		request_notify_fn *notify_request = fixture.hotplug_request->notify;
+		CHECK(notify_request(fixture.hotplug_request, 0U, (void *)1, NULL,
+			&children, new_children) == EFI_SUCCESS);
+		CHECK(children == 0);
+	}
 	CHECK(fixture.driver->stop(fixture.driver, (void *)1, 0, NULL) == EFI_SUCCESS);
 	CHECK(fixture.closes == 2);
 	CHECK(fixture.driver->stop(fixture.driver, (void *)2, 0, NULL) == EFI_SUCCESS);
@@ -230,6 +250,14 @@ int main(void)
 	CHECK(fixture.driver->start(fixture.driver, (void *)1, NULL) == EFI_SUCCESS);
 	CHECK(fixture.hpc_lists == 1 && fixture.hpc_inits == 1 &&
 		fixture.hpc_paddings == 1);
+	CHECK(fixture.hotplug_request != NULL);
+	{
+		UINT8 children = 0;
+		request_notify_fn *notify_request = fixture.hotplug_request->notify;
+		CHECK(notify_request(fixture.hotplug_request, 1U, (void *)1, NULL,
+			&children, NULL) == EFI_SUCCESS);
+		CHECK(children == 0 && fixture.closes == 2);
+	}
 	CHECK(fixture.loaded.unload(&fixture) == EFI_SUCCESS);
 	initialize(&fixture); fixture.enable_hotplug = 1; fixture.root_limit = 1;
 	fixture.fail_hpc_padding = 1;
