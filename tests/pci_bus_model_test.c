@@ -16,6 +16,7 @@ struct fixture {
 	size_t count;
 	unsigned int writes;
 	unsigned int fail_write;
+	unsigned int crs_reads;
 };
 
 static void put16(uint8_t *p, uint16_t v) { p[0] = v; p[1] = v >> 8; }
@@ -45,9 +46,15 @@ static int rd(void *context, uint8_t b, uint8_t d, uint8_t n,
 	uint16_t off, uint8_t width, uint32_t *value)
 {
 	struct device *dev = find(context, b, d, n);
+	struct fixture *fixture = context;
 	unsigned int bar;
 	if (dev == NULL) {
 		*value = 0xffffffffU;
+		return 0;
+	}
+	if (off == 0U && width == 4U && fixture->crs_reads != 0U) {
+		fixture->crs_reads--;
+		*value = 0xffff0001U;
 		return 0;
 	}
 	if (off + width > sizeof(dev->data))
@@ -104,7 +111,9 @@ static void check(int condition, int line, const char *expression)
 
 static int topology_test(void)
 {
-	struct fixture f = { 0 }; struct cdk2_pci_cfg cfg = { &f, rd, wr };
+	struct fixture f = { 0 };
+	struct cdk2_pci_cfg cfg = { .context = &f, .crs_retries = 2,
+		.read = rd, .write = wr };
 	struct cdk2_pci_topology topology, before; struct device *p;
 	p = add(&f, 0, 1, 0, 0x1234, 1, 0x80); p->data[0x0b] = 2;
 	put16(p->data + 4, 7); put32(p->data + 0x10, 0x80000008);
@@ -113,6 +122,9 @@ static int topology_test(void)
 	p->masks[6] = 0; put16(p->data + 6, 0x10); p->data[0x34] = 0x40;
 	put16(p->data + 0x40, 0x10); put32(p->data + 0x100, 0x1201000e);
 	put32(p->data + 0x120, 0x14010010); put32(p->data + 0x140, 0x00010015);
+	put32(p->data + 0x64, 0x20); put16(p->data + 0x68, 0x20);
+	put32(p->data + 0x12c, 0x00040002); put32(p->data + 0x134, 0x00020008);
+	put16(p->data + 0x13a, 0x9876); put32(p->data + 0x144, 0x00000120);
 	p = add(&f, 0, 2, 0, 0x1234, 2, 1); p->data[0x0b] = 6; p->data[0x0a] = 4;
 	put32(p->data + 0x18, 0x00020200); p->masks[6] = 0;
 	p = add(&f, 2, 0, 0, 0xabcd, 4, 0); p->masks[6] = 0;
@@ -124,7 +136,19 @@ static int topology_test(void)
 	CHECK(topology.functions[1].ari_cap == 0x100);
 	CHECK(topology.functions[1].sriov_cap == 0x120);
 	CHECK(topology.functions[1].resizable_bar_cap == 0x140);
+	CHECK(topology.functions[1].ari_forwarding == 1);
+	CHECK(topology.functions[1].initial_vfs == 2);
+	CHECK(topology.functions[1].total_vfs == 4);
+	CHECK(topology.functions[1].vf_offset == 8);
+	CHECK(topology.functions[1].vf_stride == 2);
+	CHECK(topology.functions[1].vf_device_id == 0x9876);
+	CHECK(topology.functions[1].vf_count == 4);
+	CHECK(topology.functions[1].vf_rids[0] == 0x0013);
+	CHECK(topology.functions[1].vf_rids[3] == 0x0019);
+	CHECK(topology.functions[1].selected_rebar_size == 4);
 	CHECK(topology.functions[3].bus == 2);
+	CHECK(topology.requests[3].length == 0x1000);
+	CHECK(topology.requests[3].alignment == 0xfff);
 	CHECK(get(f.devices[0].data + 4, 2) == 7);
 	CHECK(get(f.devices[0].data + 0x10, 4) == 0x80000008);
 	before = topology; f.fail_write = f.writes + 2;
@@ -135,9 +159,64 @@ static int topology_test(void)
 	return 0;
 }
 
+static int overflow_and_cardbus_test(void)
+{
+	struct fixture f = { 0 };
+	struct cdk2_pci_cfg cfg = { .context = &f, .read = rd, .write = wr };
+	struct cdk2_pci_topology topology, before;
+	struct device *p;
+	p = add(&f, 0, 0, 0, 1, 1, 2); p->masks[0] = 0xfffff000;
+	put32(p->data + 0x1c, 0x10000000); put32(p->data + 0x20, 0x100fffff);
+	put32(p->data + 0x2c, 0x1000); put32(p->data + 0x30, 0x1fff);
+	CHECK(cdk2_pci_enumerate(&cfg, 0, 0, &topology) == 0);
+	CHECK(topology.functions[0].memory_base == 0x10000000);
+	CHECK(topology.functions[0].memory_limit == 0x100fffff);
+	CHECK(topology.functions[0].io_base == 0x1000);
+	CHECK(topology.functions[0].io_limit == 0x1fff);
+	memset(&f, 0, sizeof(f));
+	p = add(&f, 0, 0, 0, 1, 1, 0); put32(p->data + 0x10, 4);
+	p->masks[0] = 0; p->masks[1] = 0x80000000; p->masks[6] = 0;
+	p = add(&f, 0, 1, 0, 1, 2, 0); put32(p->data + 0x10, 4);
+	p->masks[0] = 0; p->masks[1] = 0x80000000; p->masks[6] = 0;
+	memset(&topology, 0x5a, sizeof(topology)); before = topology;
+	CHECK(cdk2_pci_enumerate(&cfg, 0, 0, &topology) != 0);
+	CHECK(memcmp(&before, &topology, sizeof(before)) == 0);
+	CHECK(get(f.devices[0].data + 0x10, 4) == 4);
+	CHECK(get(f.devices[0].data + 0x14, 4) == 0);
+	return 0;
+}
+
+static int temporary_bridge_and_crs_test(void)
+{
+	struct fixture f = { 0 };
+	struct cdk2_pci_cfg cfg = { .context = &f, .crs_retries = 2,
+		.read = rd, .write = wr };
+	struct cdk2_pci_topology topology = { 0 };
+	struct device *bridge, *child;
+	bridge = add(&f, 0, 3, 0, 0x1111, 1, 1);
+	bridge->data[0x0b] = 6; bridge->data[0x0a] = 4; bridge->masks[6] = 0;
+	put32(bridge->data + 0x1c, 0x0000f101);
+	put32(bridge->data + 0x20, 0x8ff08000);
+	put32(bridge->data + 0x24, 0x9ff19001);
+	put32(bridge->data + 0x28, 1); put32(bridge->data + 0x2c, 1);
+	child = add(&f, 1, 0, 0, 0x2222, 2, 0); child->masks[6] = 0;
+	f.crs_reads = 2;
+	CHECK(cdk2_pci_enumerate(&cfg, 0, 4, &topology) == 0);
+	CHECK(topology.count == 2);
+	CHECK(topology.functions[0].secondary_bus == 1);
+	CHECK(topology.functions[1].bus == 1);
+	CHECK(get(bridge->data + 0x18, 4) == 0);
+	CHECK(topology.functions[0].memory_base == 0x80000000ULL);
+	CHECK(topology.functions[0].memory_limit == 0x8fffffffULL);
+	CHECK(topology.functions[0].prefetch_base == 0x0000000190000000ULL);
+	CHECK(topology.functions[0].prefetch_limit == 0x000000019fffffffULL);
+	return 0;
+}
+
 static int corruption_test(void)
 {
-	struct fixture f = { 0 }; struct cdk2_pci_cfg cfg = { &f, rd, wr };
+	struct fixture f = { 0 };
+	struct cdk2_pci_cfg cfg = { .context = &f, .read = rd, .write = wr };
 	struct cdk2_pci_topology topology = { 0 }; struct device *p;
 	p = add(&f, 0, 0, 0, 1, 2, 0); p->masks[6] = 0;
 	put16(p->data + 6, 0x10); p->data[0x34] = 0x40;
@@ -149,7 +228,8 @@ static int corruption_test(void)
 
 int main(void)
 {
-	if (topology_test() || corruption_test())
+	if (topology_test() || temporary_bridge_and_crs_test() ||
+	    overflow_and_cardbus_test() || corruption_test())
 		return 1;
 	puts("pci bus model tests: PASS");
 	return 0;
