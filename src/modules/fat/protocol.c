@@ -269,7 +269,10 @@ enum async_kind { ASYNC_OPEN, ASYNC_READ, ASYNC_WRITE, ASYNC_FLUSH };
 #define ASYNC_CACHE_BYTES 512U
 struct async_cache_entry { UINT64 offset; UINTN size; UINT8 data[ASYNC_CACHE_BYTES]; };
 #define ASYNC_WRITE_SLOTS 192U
-struct async_write_entry { UINT64 offset; UINTN size; UINT8 data[ASYNC_CACHE_BYTES]; };
+struct async_write_entry { UINT64 offset; UINTN size; UINT8 data[ASYNC_CACHE_BYTES];
+	UINT8 original[ASYNC_CACHE_BYTES]; };
+enum async_phase { ASYNC_PREPARE, ASYNC_COMMIT, ASYNC_COMMIT_FLUSH,
+	ASYNC_ROLLBACK, ASYNC_ROLLBACK_FLUSH };
 struct async_task { struct fat_handle *handle; struct cdk2_fat_file_io_token *token;
 	enum async_kind kind; struct cdk2_fat_file_protocol **result; CHAR16 *name;
 	UINT64 mode, attributes; struct async_task *next; void *cookie;
@@ -280,7 +283,8 @@ struct async_task { struct fat_handle *handle; struct cdk2_fat_file_io_token *to
 	struct async_cache_entry cache[ASYNC_CACHE_SLOTS]; UINTN cache_count;
 	struct async_write_entry writes[ASYNC_WRITE_SLOTS]; UINTN write_count, write_index;
 	struct cdk2_fat_change *changes; size_t change_count;
-	UINT64 wanted_offset; UINTN wanted_size; BOOLEAN committing; };
+	UINT64 wanted_offset; UINTN wanted_size; enum async_phase phase;
+	EFI_STATUS first_error; UINT32 old_first, old_size; UINT64 old_position; };
 static void drain_tasks(struct fat_handle *h)
 {
 	while (h->tasks != NULL) {
@@ -323,8 +327,11 @@ static uint64_t async_cached_read(void *opaque, uint64_t offset, size_t size,
 	struct async_task *task = opaque;
 	UINTN item;
 	for (item = 0U; item < task->cache_count; item++)
-		if (task->cache[item].offset == offset && task->cache[item].size == size) {
-			__builtin_memcpy(buffer, task->cache[item].data, size);
+		if (offset >= task->cache[item].offset &&
+		    offset - task->cache[item].offset <= task->cache[item].size &&
+		    size <= task->cache[item].size - (UINTN)(offset - task->cache[item].offset)) {
+			__builtin_memcpy(buffer, task->cache[item].data +
+				(UINTN)(offset - task->cache[item].offset), size);
 			return EFI_SUCCESS;
 		}
 	if (size > ASYNC_CACHE_BYTES || task->cache_count == ASYNC_CACHE_SLOTS)
@@ -337,17 +344,35 @@ static uint64_t async_cached_write(void *opaque, uint64_t offset, size_t size,
 	const void *buffer)
 {
 	struct async_task *task = opaque;
-	UINTN item;
-	if (size > ASYNC_CACHE_BYTES) return EFI_OUT_OF_RESOURCES;
-	for (item = 0U; item < task->write_count; item++)
-		if (task->writes[item].offset == offset && task->writes[item].size == size) {
-			__builtin_memcpy(task->writes[item].data, buffer, size);
-			return EFI_SUCCESS;
+	const UINT8 *input = buffer;
+	while (size != 0U) {
+		UINTN item, part = size > ASYNC_CACHE_BYTES ? ASYNC_CACHE_BYTES : size;
+		for (item = 0U; item < task->write_count; item++)
+			if (task->writes[item].offset == offset && task->writes[item].size == part)
+				break;
+		if (item == task->write_count) {
+			UINTN cached;
+			if (item == ASYNC_WRITE_SLOTS) return EFI_OUT_OF_RESOURCES;
+			for (cached = 0U; cached < task->cache_count; cached++)
+				if (offset >= task->cache[cached].offset && part <=
+				    task->cache[cached].size &&
+				    offset - task->cache[cached].offset <= task->cache[cached].size &&
+				    part <= task->cache[cached].size -
+				    (UINTN)(offset - task->cache[cached].offset))
+					break;
+			if (cached == task->cache_count) {
+				task->wanted_offset = offset; task->wanted_size = part;
+				return EFI_NOT_READY;
+			}
+			task->writes[item].offset = offset; task->writes[item].size = part;
+			__builtin_memcpy(task->writes[item].original,
+				task->cache[cached].data +
+				(UINTN)(offset - task->cache[cached].offset), part);
+			task->write_count++;
 		}
-	if (task->write_count == ASYNC_WRITE_SLOTS) return EFI_OUT_OF_RESOURCES;
-	task->writes[task->write_count].offset = offset;
-	task->writes[task->write_count].size = size;
-	__builtin_memcpy(task->writes[task->write_count++].data, buffer, size);
+		__builtin_memcpy(task->writes[item].data, input, part);
+		offset += part; input += part; size -= part;
+	}
 	return EFI_SUCCESS;
 }
 static uint64_t async_cached_flush(void *opaque) { (void)opaque; return EFI_SUCCESS; }
@@ -377,65 +402,131 @@ static void finish_disk_open(struct async_task *task, EFI_STATUS status)
 	binding->ops->release(binding->context, task);
 	start_next_task(handle);
 }
-static EFI_STATUS submit_open_read(struct async_task *task);
-static EFI_STATUS submit_open_write(struct async_task *task)
+static EFI_STATUS submit_prepare_read(struct async_task *task);
+static EFI_STATUS submit_transaction_write(struct async_task *task, BOOLEAN original)
 {
 	struct cdk2_disk_io2 *disk2 = task->handle->owner->mount->disk2;
 	struct async_write_entry *entry = &task->writes[task->write_index];
 	task->disk_token.transaction_status = EFI_NOT_READY;
 	return disk2->write_disk_ex(disk2, task->handle->owner->mount->media_id,
-		entry->offset, &task->disk_token, entry->size, entry->data);
+		entry->offset, &task->disk_token, entry->size,
+		original ? entry->original : entry->data);
 }
-static EFI_STATUS resume_disk_open(struct async_task *task)
+static EFI_STATUS submit_transaction_flush(struct async_task *task)
+{
+	task->disk_token.transaction_status = EFI_NOT_READY;
+	return task->handle->owner->mount->disk2->flush_disk_ex(
+		task->handle->owner->mount->disk2, &task->disk_token);
+}
+static EFI_STATUS resume_prepare(struct async_task *task)
 {
 	EFI_STATUS status;
-	task->async_parent = task->handle->file;
-	task->async_parent.volume = &task->async_volume;
-	status = cdk2_fat_open(&task->async_parent, task->name, &task->async_result);
-	if (status == EFI_NOT_READY)
-		return submit_open_read(task);
-	if (status == EFI_NOT_FOUND && (task->mode & FAT_FILE_MODE_CREATE) != 0U) {
+	if (task->kind == ASYNC_OPEN) {
+		task->async_parent = task->handle->file;
+		task->async_parent.volume = &task->async_volume;
+		status = cdk2_fat_open(&task->async_parent, task->name, &task->async_result);
+		if (status == EFI_NOT_FOUND && (task->mode & FAT_FILE_MODE_CREATE) != 0U) {
+			task->change_count = task->async_volume.cluster_count;
+			status = cdk2_fat_create(&task->async_parent, task->name,
+				(UINT8)task->attributes, &task->async_result, task->changes,
+				&task->change_count);
+		}
+		if (!EFI_ERROR(status) && (task->mode & 2U) != 0U &&
+		    (task->async_volume.read_only || task->async_volume.write_protected))
+			status = CDK2_FAT_WRITE_PROTECTED;
+		if (!EFI_ERROR(status) && (task->mode & 2U) != 0U &&
+		    !task->async_result.is_directory &&
+		    (task->async_result.entry.attributes & 1U) != 0U)
+			status = FAT_ACCESS_DENIED;
+	} else {
+		size_t size = task->token->buffer_size;
+		UINT64 end = task->old_position + size;
+		task->async_result = task->handle->file;
+		task->async_result.volume = &task->async_volume;
 		task->change_count = task->async_volume.cluster_count;
-		status = cdk2_fat_create(&task->async_parent, task->name,
-			(UINT8)task->attributes, &task->async_result, task->changes,
-			&task->change_count);
-		if (status == EFI_NOT_READY) return submit_open_read(task);
+		status = end > task->old_size ? cdk2_fat_file_resize(&task->async_result,
+			(UINT32)end, task->changes, &task->change_count) : EFI_SUCCESS;
+		if (!EFI_ERROR(status)) {
+			size = task->token->buffer_size;
+			status = cdk2_fat_write_file(&task->async_volume,
+				task->async_result.entry.first_cluster,
+				task->async_result.entry.size, task->old_position, &size,
+				task->token->buffer);
+		}
 	}
-	if (!EFI_ERROR(status) && (task->mode & 2U) != 0U &&
-	    (task->async_volume.read_only || task->async_volume.write_protected))
-		status = CDK2_FAT_WRITE_PROTECTED;
-	if (!EFI_ERROR(status) && (task->mode & 2U) != 0U &&
-	    !task->async_result.is_directory &&
-	    (task->async_result.entry.attributes & 1U) != 0U)
-		status = FAT_ACCESS_DENIED;
-	if (!EFI_ERROR(status) && task->write_count != 0U) {
-		task->committing = TRUE; task->write_index = 0U;
-		return submit_open_write(task);
+	if (status == EFI_NOT_READY) return submit_prepare_read(task);
+	if (EFI_ERROR(status)) return status;
+	if (task->kind == ASYNC_OPEN && task->write_count == 0U) {
+		finish_disk_open(task, EFI_SUCCESS);
+		return EFI_SUCCESS;
 	}
-	finish_disk_open(task, status);
-	return EFI_SUCCESS;
+	task->phase = ASYNC_COMMIT; task->write_index = 0U;
+	if (task->write_count != 0U) return submit_transaction_write(task, FALSE);
+	task->phase = ASYNC_COMMIT_FLUSH;
+	return submit_transaction_flush(task);
 }
 static void CDK2_MS_ABI disk_open_complete(void *event, void *opaque)
 {
 	struct async_task *task = opaque;
 	EFI_STATUS status = task->disk_token.transaction_status;
 	(void)event;
-	if (EFI_ERROR(status)) { finish_disk_open(task, status); return; }
-	if (task->committing) {
-		if (++task->write_index == task->write_count) {
-			finish_disk_open(task, EFI_SUCCESS); return;
+	if (task->phase == ASYNC_PREPARE) {
+		if (!EFI_ERROR(status)) {
+			task->cache[task->cache_count].offset = task->wanted_offset;
+			task->cache[task->cache_count].size = task->wanted_size;
+			task->cache_count++;
+			status = resume_prepare(task);
 		}
-		status = submit_open_write(task);
-		if (EFI_ERROR(status)) finish_disk_open(task, status);
+		if (!EFI_ERROR(status)) return;
+		task->first_error = status;
+		if (task->kind == ASYNC_WRITE) finish_disk_rw(task, status);
+		else finish_disk_open(task, status);
 		return;
 	}
-	task->cache[task->cache_count].offset = task->wanted_offset;
-	task->cache[task->cache_count].size = task->wanted_size;
-	task->cache_count++;
-	status = resume_disk_open(task);
-	if (EFI_ERROR(status)) finish_disk_open(task, status);
+	if (task->phase == ASYNC_COMMIT) {
+		if (EFI_ERROR(status)) {
+			task->first_error = status; task->write_index++;
+			task->phase = ASYNC_ROLLBACK;
+		} else if (++task->write_index < task->write_count) {
+			status = submit_transaction_write(task, FALSE);
+			if (!EFI_ERROR(status)) return;
+			task->first_error = status; task->phase = ASYNC_ROLLBACK;
+		} else {
+			task->phase = ASYNC_COMMIT_FLUSH;
+			status = submit_transaction_flush(task);
+			if (!EFI_ERROR(status)) return;
+			task->first_error = status; task->phase = ASYNC_ROLLBACK;
+		}
+	}
+	if (task->phase == ASYNC_COMMIT_FLUSH) {
+		if (!EFI_ERROR(status)) {
+			if (task->kind == ASYNC_WRITE) {
+				task->handle->file.entry = task->async_result.entry;
+				task->handle->file.position = task->old_position +
+					task->token->buffer_size;
+				task->transferred = task->token->buffer_size;
+				finish_disk_rw(task, EFI_SUCCESS);
+			} else finish_disk_open(task, EFI_SUCCESS);
+			return;
+		}
+		task->first_error = status; task->write_index = task->write_count;
+		task->phase = ASYNC_ROLLBACK;
+	}
+	while (task->phase == ASYNC_ROLLBACK) {
+		if (task->write_index == 0U) {
+			task->phase = ASYNC_ROLLBACK_FLUSH;
+			status = submit_transaction_flush(task);
+			if (!EFI_ERROR(status)) return;
+			break;
+		}
+		task->write_index--;
+		status = submit_transaction_write(task, TRUE);
+		if (!EFI_ERROR(status)) return;
+	}
+	if (task->kind == ASYNC_WRITE) finish_disk_rw(task, task->first_error);
+	else finish_disk_open(task, task->first_error);
 }
-static EFI_STATUS submit_open_read(struct async_task *task)
+static EFI_STATUS submit_prepare_read(struct async_task *task)
 {
 	struct cdk2_disk_io2 *disk2 = task->handle->owner->mount->disk2;
 	task->disk_token.transaction_status = EFI_NOT_READY;
@@ -509,6 +600,7 @@ static void finish_disk_rw(struct async_task *task, EFI_STATUS status)
 	unlink_task(task);
 	(void)complete(task->handle, task->token, status);
 	(void)binding->ops->close_event(binding->context, task->disk_token.event);
+	if (task->changes != NULL) binding->ops->release(binding->context, task->changes);
 	binding->ops->release(binding->context, task);
 	start_next_task(handle);
 }
@@ -571,8 +663,8 @@ static EFI_STATUS submit_disk_rw(struct async_task *task)
 static EFI_STATUS start_disk_task(struct async_task *task)
 {
 	task->started = TRUE;
-	if (task->kind == ASYNC_OPEN)
-		return resume_disk_open(task);
+	if (task->kind == ASYNC_OPEN || task->kind == ASYNC_WRITE)
+		return resume_prepare(task);
 	if (task->kind == ASYNC_FLUSH)
 		return task->handle->owner->mount->disk2->flush_disk_ex(
 			task->handle->owner->mount->disk2, &task->disk_token);
@@ -584,7 +676,10 @@ static EFI_STATUS queue_disk_open(struct fat_handle *h, struct async_task *task)
 	EFI_STATUS status;
 	if (binding->ops->create_event == NULL || binding->ops->close_event == NULL ||
 	    h->owner->mount->disk2 == NULL ||
-	    h->owner->mount->disk2->read_disk_ex == NULL) {
+	    h->owner->mount->disk2->read_disk_ex == NULL ||
+	    ((task->mode & FAT_FILE_MODE_CREATE) != 0U &&
+	    (h->owner->mount->disk2->write_disk_ex == NULL ||
+	    h->owner->mount->disk2->flush_disk_ex == NULL))) {
 		binding->ops->release(binding->context, task);
 		return EFI_UNSUPPORTED;
 	}
@@ -599,6 +694,7 @@ static EFI_STATUS queue_disk_open(struct fat_handle *h, struct async_task *task)
 	task->async_volume.write = async_cached_write;
 	task->async_volume.flush = async_cached_flush;
 	task->async_volume.context = task;
+	task->phase = ASYNC_PREPARE;
 	if ((task->mode & FAT_FILE_MODE_CREATE) != 0U) {
 		status = binding->ops->allocate(binding->context,
 			task->async_volume.cluster_count * sizeof(*task->changes),
@@ -630,15 +726,46 @@ static EFI_STATUS queue_disk_rw(struct fat_handle *h, struct async_task *task,
 	task->file_position = position;
 	if (binding->ops->create_event == NULL || binding->ops->close_event == NULL ||
 	    h->owner->mount->disk2 == NULL || (write ?
-	    h->owner->mount->disk2->write_disk_ex == NULL :
+	    (h->owner->mount->disk2->write_disk_ex == NULL ||
+	    h->owner->mount->disk2->read_disk_ex == NULL ||
+	    h->owner->mount->disk2->flush_disk_ex == NULL) :
 	    h->owner->mount->disk2->read_disk_ex == NULL))
 		goto unsupported;
-	if (h->file.is_directory || position > h->file.entry.size ||
-	    task->token->buffer_size > h->file.entry.size - position)
+	if (!write && (h->file.is_directory || position > h->file.entry.size ||
+	    task->token->buffer_size > h->file.entry.size - position))
 		goto unsupported;
 	if (task->token->buffer_size != 0U && task->token->buffer == NULL) {
 		binding->ops->release(binding->context, task);
 		return EFI_INVALID_PARAMETER;
+	}
+	if (write) {
+		if ((h->mode & 2U) == 0U) { binding->ops->release(binding->context, task);
+			return FAT_ACCESS_DENIED; }
+		if (h->file.is_directory || position > UINT32_MAX ||
+		    task->token->buffer_size > UINT32_MAX - position)
+			goto unsupported;
+		status = binding->ops->create_event(binding->context, disk_open_complete,
+			task, &task->disk_token.event);
+		if (EFI_ERROR(status)) { binding->ops->release(binding->context, task); return status; }
+		task->async_volume = h->owner->mount->volume;
+		task->async_volume.read = async_cached_read;
+		task->async_volume.write = async_cached_write;
+		task->async_volume.flush = async_cached_flush;
+		task->async_volume.context = task;
+		task->old_first = h->file.entry.first_cluster;
+		task->old_size = h->file.entry.size; task->old_position = position;
+		task->phase = ASYNC_PREPARE;
+		status = binding->ops->allocate(binding->context,
+			task->async_volume.cluster_count * sizeof(*task->changes),
+			(void **)&task->changes);
+		if (EFI_ERROR(status)) {
+			(void)binding->ops->close_event(binding->context, task->disk_token.event);
+			binding->ops->release(binding->context, task); return status;
+		}
+		task->token->status = EFI_NOT_READY; append_task(h, task);
+		status = h->tasks == task ? start_disk_task(task) : EFI_SUCCESS;
+		if (EFI_ERROR(status)) finish_disk_rw(task, status);
+		return status;
 	}
 	cluster_size = (UINT64)volume->bytes_per_sector * volume->sectors_per_cluster;
 	if (cluster_size == 0U || h->file.entry.first_cluster < 2U)

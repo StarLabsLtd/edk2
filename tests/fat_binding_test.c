@@ -26,7 +26,7 @@ static void (CDK2_MS_ABI *event_notify[32])(void *, void *); static void *event_
 static unsigned event_count;
 static struct cdk2_disk_io2_token *disk_token;
 static UINT64 disk2_offset; static UINTN disk2_size; static void *disk2_buffer;
-static unsigned disk2_calls;
+static unsigned disk2_calls, disk2_operation, disk2_writes;
 static INTN CDK2_MS_ABI collate(struct cdk2_unicode_collation *self,
 	CHAR16 *left, CHAR16 *right)
 { (void)self; while (*left == *right && *left != 0U) { left++; right++; } return *left - *right; }
@@ -62,16 +62,28 @@ static uint64_t CDK2_MS_ABI disk_read(struct cdk2_disk_io *disk, uint32_t media,
 static uint64_t CDK2_MS_ABI disk_flush(struct cdk2_disk_io2 *disk,
 	struct cdk2_disk_io2_token *token)
 { unsigned id = (unsigned)(UINTN)token->event - 4U; (void)disk; disk_token = token;
-	disk_notify = event_notify[id]; disk_context = event_context[id]; return EFI_SUCCESS; }
+	disk_notify = event_notify[id]; disk_context = event_context[id];
+	disk2_operation = 2U; return EFI_SUCCESS; }
 static uint64_t CDK2_MS_ABI disk_read_ex(struct cdk2_disk_io2 *disk, uint32_t media,
 	uint64_t offset, struct cdk2_disk_io2_token *token, size_t size, void *buffer)
 { unsigned id = (unsigned)(UINTN)token->event - 4U;
 	(void)disk; (void)media; disk_token = token; disk2_offset = offset;
 	disk_notify = event_notify[id]; disk_context = event_context[id];
-	disk2_size = size; disk2_buffer = buffer; disk2_calls++; return EFI_SUCCESS; }
+	disk2_size = size; disk2_buffer = buffer; disk2_calls++;
+	disk2_operation = 0U; return EFI_SUCCESS; }
 static uint64_t CDK2_MS_ABI disk_write_ex(struct cdk2_disk_io2 *disk, uint32_t media,
 	uint64_t offset, struct cdk2_disk_io2_token *token, size_t size, void *buffer)
-{ return disk_read_ex(disk, media, offset, token, size, buffer); }
+{ uint64_t status = disk_read_ex(disk, media, offset, token, size, buffer);
+	disk2_operation = 1U; disk2_writes++; return status; }
+static void complete_disk(EFI_STATUS status, int apply_failed_write)
+{
+	if (disk2_operation == 0U)
+		memcpy(disk2_buffer, active->image[1] + disk2_offset, disk2_size);
+	else if (disk2_operation == 1U && (!EFI_ERROR(status) || apply_failed_write))
+		memcpy(active->image[1] + disk2_offset, disk2_buffer, disk2_size);
+	disk_token->transaction_status = status;
+	disk_notify(disk_token->event, disk_context);
+}
 static EFI_STATUS open_protocol(void *context, void *controller,
 	const EFI_GUID *guid, void **interface)
 {
@@ -251,6 +263,60 @@ int main(void)
 		disk_notify(disk_token->event, disk_context);
 		failures += expect(token.status == EFI_DEVICE_ERROR && token.buffer_size == 0U,
 			"failed first DiskIo2 extent reported bytes or lost its status");
+		(void)file->close(file); (void)root->close(root);
+	}
+	{
+		struct cdk2_fat_file_protocol *root, *file;
+		UINT8 input[700]; UINT64 position = 0U;
+		struct cdk2_fat_file_io_token token = { (void *)9, EFI_NOT_READY,
+			sizeof(input), input };
+		unsigned guard = 0U;
+		memset(input, 'E', sizeof(input));
+		(void)binding.mounts->simple_fs->protocol.open_volume(
+			&binding.mounts->simple_fs->protocol, &root);
+		(void)root->open(root, &file, L"ASYNC.TXT", 3U, 0U);
+		{
+			EFI_STATUS write_status = file->write_ex(file, &token);
+			failures += expect(write_status == EFI_SUCCESS,
+			"extending WriteEx was not accepted asynchronously");
+			if (write_status != EFI_SUCCESS) token.status = write_status;
+		}
+		while (token.status == EFI_NOT_READY && guard++ < 512U)
+			complete_disk(EFI_SUCCESS, 0);
+		failures += expect(token.status == EFI_SUCCESS &&
+			token.buffer_size == sizeof(input) &&
+			file->get_position(file, &position) == EFI_SUCCESS &&
+			position == sizeof(input),
+			"WriteEx did not commit allocation, data, metadata, and flush");
+		(void)file->close(file); (void)root->close(root);
+	}
+	{
+		struct cdk2_fat_file_protocol *root, *file;
+		UINT8 input[900], before[sizeof(f.image[1])];
+		struct cdk2_fat_file_io_token token = { (void *)9, EFI_NOT_READY,
+			sizeof(input), input };
+		unsigned guard = 0U, first_write; int rollback_failure = 0;
+		memcpy(before, f.image[1], sizeof(before)); memset(input, 'R', sizeof(input));
+		(void)binding.mounts->simple_fs->protocol.open_volume(
+			&binding.mounts->simple_fs->protocol, &root);
+		(void)root->open(root, &file, L"ASYNC.TXT", 3U, 0U);
+		first_write = disk2_writes;
+		(void)file->write_ex(file, &token);
+		while (token.status == EFI_NOT_READY && guard++ < 1024U) {
+			if (disk2_operation == 1U && disk2_writes == first_write + 2U)
+				complete_disk(EFI_DEVICE_ERROR, 1);
+			else if (disk2_operation == 1U &&
+			    disk2_writes == first_write + 3U) {
+				rollback_failure = 1;
+				complete_disk(CDK2_FAT_WRITE_PROTECTED, 1);
+			}
+			else
+				complete_disk(EFI_SUCCESS, 0);
+		}
+		failures += expect(token.status == EFI_DEVICE_ERROR &&
+			token.buffer_size == 0U && rollback_failure &&
+			memcmp(before, f.image[1], sizeof(before)) == 0,
+			"rollback failure replaced the first error or stopped reverse recovery");
 		(void)file->close(file); (void)root->close(root);
 	}
 	failures += expect(cdk2_fat_binding_start(&binding, (void *)1) ==
