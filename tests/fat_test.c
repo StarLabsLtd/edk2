@@ -116,6 +116,7 @@ int main(void)
 	struct cdk2_fat_file root, file;
 	struct cdk2_fat_file_info info;
 	uint8_t records[96] = { 0 }, output[32];
+	uint8_t built_records[672], short_name[11];
 	uint16_t long_name[13] = {
 		'L', 'o', 'n', 'g', ' ', 'N', 'a', 'm', 'e', '.', 't', 'x', 't'
 	};
@@ -246,6 +247,23 @@ int main(void)
 		cdk2_fat_file_set_position(&root, 1U) == EFI_UNSUPPORTED &&
 		cdk2_fat_file_set_position(&root, 0U) == EFI_SUCCESS,
 		"directory iteration or position reset semantics failed");
+	failures += expect(cdk2_fat_generate_short_name(&volume, 2U,
+		(const uint16_t[]){ 'L', 'o', 'n', 'g', ' ', 'f', 'i', 'l', 'e', '.',
+			't', 'x', 't', 0 }, short_name) == EFI_SUCCESS &&
+		memcmp(short_name, "LONGFI~1TXT", 11U) == 0,
+		"deterministic short-name generation failed");
+	size = 0U;
+	failures += expect(cdk2_fat_build_directory_records(
+		(const uint16_t[]){ 'L', 'o', 'n', 'g', ' ', 'f', 'i', 'l', 'e', '.',
+			't', 'x', 't', 0 }, short_name, 0x20U, 5U, 5U, NULL, &size) ==
+		EFI_BUFFER_TOO_SMALL && size == 2U, "LFN record sizing is wrong");
+	failures += expect(cdk2_fat_build_directory_records(
+		(const uint16_t[]){ 'L', 'o', 'n', 'g', ' ', 'f', 'i', 'l', 'e', '.',
+			't', 'x', 't', 0 }, short_name, 0x20U, 5U, 5U, built_records,
+		&size) == EFI_SUCCESS && cdk2_fat_parse_directory_entry(built_records,
+		size, &entry, &consumed) == EFI_SUCCESS && entry.name[0] == 'L' &&
+		entry.first_cluster == 5U && entry.size == 5U,
+		"generated LFN records did not round-trip");
 	volume = (struct cdk2_fat_volume) {
 		.read = mutation_read, .context = &mutation, .media_size = 512U,
 		.fat_offset = 64U, .data_offset = 128U, .cluster_count = 6U,

@@ -85,5 +85,10 @@ void cdk2_fat_set_write_ops(struct cdk2_fat_volume *volume,
 uint64_t cdk2_fat_resize_chain(struct cdk2_fat_volume *volume,
 	uint32_t *first_cluster, uint32_t old_size, uint32_t new_size,
 	struct cdk2_fat_change *changes, size_t *change_count);
+uint64_t cdk2_fat_generate_short_name(const struct cdk2_fat_volume *volume,
+	uint32_t directory_cluster, const uint16_t *name, uint8_t short_name[11]);
+uint64_t cdk2_fat_build_directory_records(const uint16_t *name,
+	const uint8_t short_name[11], uint8_t attributes, uint32_t first_cluster,
+	uint32_t file_size, uint8_t *records, size_t *record_count);
 
 #endif

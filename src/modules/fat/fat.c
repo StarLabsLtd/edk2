@@ -795,3 +795,141 @@ uint64_t cdk2_fat_file_set_position(struct cdk2_fat_file *file,
 		file->entry.size : position;
 	return EFI_SUCCESS;
 }
+
+static int valid_short_character(uint16_t character)
+{
+	if (character < 0x21U || character > 0x7eU)
+		return 0;
+	return character != '"' && character != '*' && character != '+' &&
+		character != ',' && character != '/' && character != ':' &&
+		character != ';' && character != '<' && character != '=' &&
+		character != '>' && character != '?' && character != '[' &&
+		character != '\\' && character != ']' && character != '|';
+}
+
+static int short_name_exists(const struct cdk2_fat_volume *volume,
+	uint32_t directory_cluster, const uint8_t name[11])
+{
+	uint8_t record[32];
+	uint64_t index = 0U, status;
+
+	for (;;) {
+		status = directory_record(volume, directory_cluster, index++, record);
+		if (status != EFI_SUCCESS || record[0] == 0x00U)
+			return 0;
+		if (record[0] != 0xe5U && record[11U] != 0x0fU &&
+		    __builtin_memcmp(record, name, 11U) == 0)
+			return 1;
+	}
+}
+
+uint64_t cdk2_fat_generate_short_name(const struct cdk2_fat_volume *volume,
+	uint32_t directory_cluster, const uint16_t *name, uint8_t short_name[11])
+{
+	uint8_t stem[8], extension[3];
+	size_t stem_length = 0U, extension_length = 0U, index, dot = (size_t)-1;
+	unsigned int suffix;
+
+	if (volume == NULL || name == NULL || short_name == NULL || name[0] == 0U)
+		return EFI_INVALID_PARAMETER;
+	for (index = 0U; name[index] != 0U; index++) {
+		if (index >= 255U || name[index] == '/' || name[index] == '\\')
+			return EFI_INVALID_PARAMETER;
+		if (name[index] == '.')
+			dot = index;
+	}
+	for (index = 0U; name[index] != 0U; index++) {
+		if (index == dot)
+			continue;
+		if (!valid_short_character(name[index]) || name[index] == '.')
+			continue;
+		if (dot != (size_t)-1 && index > dot) {
+			if (extension_length < sizeof(extension))
+				extension[extension_length++] = (uint8_t)fold(name[index]);
+		} else if (stem_length < sizeof(stem)) {
+			stem[stem_length++] = (uint8_t)fold(name[index]);
+		}
+	}
+	if (stem_length == 0U)
+		return EFI_INVALID_PARAMETER;
+	for (suffix = 1U; suffix <= 999999U; suffix++) {
+		unsigned int value = suffix, digits = 1U;
+		size_t prefix;
+		while (value >= 10U) {
+			value /= 10U;
+			digits++;
+		}
+		prefix = 8U - digits - 1U;
+		if (prefix > stem_length)
+			prefix = stem_length;
+		__builtin_memset(short_name, ' ', 11U);
+		__builtin_memcpy(short_name, stem, prefix);
+		short_name[prefix] = '~'; value = suffix;
+		for (index = 0U; index < digits; index++) {
+			short_name[prefix + digits - index] = (uint8_t)('0' + value % 10U);
+			value /= 10U;
+		}
+		__builtin_memcpy(short_name + 8U, extension, extension_length);
+		if (!short_name_exists(volume, directory_cluster, short_name))
+			return EFI_SUCCESS;
+	}
+	return EFI_VOLUME_FULL;
+}
+
+uint64_t cdk2_fat_build_directory_records(const uint16_t *name,
+	const uint8_t short_name[11], uint8_t attributes, uint32_t first_cluster,
+	uint32_t file_size, uint8_t *records, size_t *record_count)
+{
+	static const uint8_t positions[13] = {
+		1U, 3U, 5U, 7U, 9U, 14U, 16U, 18U, 20U, 22U, 24U, 28U, 30U
+	};
+	size_t length = 0U, needed, ordinal, part, source;
+	uint16_t character;
+	uint8_t *record, checksum;
+
+	if (name == NULL || short_name == NULL || record_count == NULL ||
+	    (attributes & 0xc0U) != 0U)
+		return EFI_INVALID_PARAMETER;
+	while (name[length] != 0U) {
+		if (length == 255U || name[length] == '/' || name[length] == '\\')
+			return EFI_INVALID_PARAMETER;
+		length++;
+	}
+	if (length == 0U)
+		return EFI_INVALID_PARAMETER;
+	needed = (length + 12U) / 13U + 1U;
+	if (records == NULL || *record_count < needed) {
+		*record_count = needed;
+		return EFI_BUFFER_TOO_SMALL;
+	}
+	checksum = short_checksum(short_name);
+	for (ordinal = needed - 1U; ordinal != 0U; ordinal--) {
+		record = records + (needed - 1U - ordinal) * 32U;
+		__builtin_memset(record, 0xff, 32U);
+		record[0] = (uint8_t)ordinal;
+		if (ordinal == needed - 1U)
+			record[0] |= 0x40U;
+		record[11U] = 0x0fU; record[12U] = 0U; record[13U] = checksum;
+		record[26U] = record[27U] = 0U;
+		for (part = 0U; part < 13U; part++) {
+			source = (ordinal - 1U) * 13U + part;
+			character = source < length ? name[source] : source == length ? 0U :
+				0xffffU;
+			record[positions[part]] = (uint8_t)character;
+			record[positions[part] + 1U] = (uint8_t)(character >> 8);
+		}
+	}
+	record = records + (needed - 1U) * 32U;
+	__builtin_memset(record, 0, 32U);
+	__builtin_memcpy(record, short_name, 11U); record[11U] = attributes;
+	record[20U] = (uint8_t)(first_cluster >> 16);
+	record[21U] = (uint8_t)(first_cluster >> 24);
+	record[26U] = (uint8_t)first_cluster;
+	record[27U] = (uint8_t)(first_cluster >> 8);
+	record[28U] = (uint8_t)file_size;
+	record[29U] = (uint8_t)(file_size >> 8);
+	record[30U] = (uint8_t)(file_size >> 16);
+	record[31U] = (uint8_t)(file_size >> 24);
+	*record_count = needed;
+	return EFI_SUCCESS;
+}
