@@ -240,6 +240,59 @@ rollback:
 	return -1;
 }
 
+static int topology_has_bdf(const struct cdk2_pci_topology *topology,
+	const struct cdk2_pci_function *function)
+{
+	for (size_t i = 0; topology != NULL && i < topology->count; i++)
+		if (topology->functions[i].bus == function->bus &&
+		    topology->functions[i].device == function->device &&
+		    topology->functions[i].function == function->function)
+			return 1;
+	return 0;
+}
+
+int cdk2_pci_bus_start_new(struct cdk2_pci_bus_binding *binding, void *parent,
+	const void *parent_path, size_t parent_path_size,
+	const struct cdk2_pci_topology *retained,
+	const struct cdk2_pci_topology *discovered, void **handles,
+	size_t *handle_count)
+{
+	size_t original_count, output_count = 0;
+	if (binding == NULL || parent == NULL || retained == NULL ||
+	    discovered == NULL || handle_count == NULL ||
+	    (handles == NULL && discovered->count != retained->count) ||
+	    binding->services.allocate == NULL || binding->services.free == NULL ||
+	    binding->services.install == NULL || binding->services.uninstall == NULL ||
+	    binding->services.open_parent_by_child == NULL ||
+	    binding->services.close_parent_by_child == NULL ||
+	    binding->services.initialize_io == NULL)
+		return -1;
+	original_count = binding->child_count;
+	for (size_t i = 0; i < discovered->count; i++) {
+		struct cdk2_pci_bus_child *child;
+		if (topology_has_bdf(retained, &discovered->functions[i]))
+			continue;
+		if (binding->child_count == CDK2_PCI_MAX_FUNCTIONS ||
+		    create_child(binding, parent, parent_path, parent_path_size,
+			discovered, i, &child) != 0)
+			goto rollback;
+		binding->children[binding->child_count++] = child;
+		handles[output_count++] = child->handle;
+	}
+	*handle_count = output_count;
+	return 0;
+rollback:
+	while (binding->child_count != original_count) {
+		struct cdk2_pci_bus_child *child =
+			binding->children[binding->child_count - 1U];
+		if (destroy_child(binding, child) != 0)
+			return -1;
+		binding->child_count--;
+	}
+	*handle_count = 0;
+	return -1;
+}
+
 int cdk2_pci_bus_stop(struct cdk2_pci_bus_binding *binding, void *parent,
 	void *const *child_handles, size_t requested_count)
 {

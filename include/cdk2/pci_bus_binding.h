@@ -118,6 +118,11 @@ struct cdk2_pci_bus_driver {
 int cdk2_pci_bus_start(struct cdk2_pci_bus_binding *binding, void *parent,
 	const void *parent_path, size_t parent_path_size,
 	const struct cdk2_pci_topology *topology);
+int cdk2_pci_bus_start_new(struct cdk2_pci_bus_binding *binding, void *parent,
+	const void *parent_path, size_t parent_path_size,
+	const struct cdk2_pci_topology *retained,
+	const struct cdk2_pci_topology *discovered, void **handles,
+	size_t *handle_count);
 int cdk2_pci_bus_stop(struct cdk2_pci_bus_binding *binding, void *parent,
 	void *const *child_handles, size_t child_count);
 int cdk2_pci_bus_remove_bdf(struct cdk2_pci_bus_binding *binding, void *parent,

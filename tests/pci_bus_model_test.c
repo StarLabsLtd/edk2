@@ -725,6 +725,20 @@ static int binding_lifecycle_test(void)
 	CHECK(binding.child_count == 1);
 	CHECK(cdk2_pci_bus_remove_bdf(&binding, parent, 0, 1, 3) == 0);
 	CHECK(binding.child_count == 0 && fixture.closes == 2);
+	{
+		struct cdk2_pci_topology retained = topology;
+		void *new_handles[2]; size_t new_count = 2;
+		retained.count = 1;
+		fixture = (struct binding_fixture) { 0 };
+		binding.services.context = &fixture;
+		CHECK(cdk2_pci_bus_start_new(&binding, parent, parent_path,
+			sizeof(parent_path), &retained, &topology, new_handles,
+			&new_count) == 0);
+		CHECK(new_count == 1 && binding.child_count == 1);
+		CHECK(binding.children[0]->function.function == 3 &&
+			binding.children[0]->device_path_size == 16);
+		CHECK(cdk2_pci_bus_stop(&binding, parent, new_handles, new_count) == 0);
+	}
 	fixture = (struct binding_fixture) { .fail_install = 2 };
 	binding.services.context = &fixture;
 	CHECK(cdk2_pci_bus_start(&binding, parent, parent_path, sizeof(parent_path),
