@@ -415,12 +415,12 @@ native-tpm2-acpi-table-fv:
 	@printf '%s\n' 'native TPM2 ACPI table: disabled by Kconfig'
 endif
 
-$(CDK2_NATIVE_BUILD_DIR)/device-path-driver.o: $(CDK2_DIR)/src/modules/device_path/driver.c $(CDK2_DIR)/include/cdk2/device_path.h | $(CDK2_NATIVE_BUILD_DIR)
+$(CDK2_NATIVE_BUILD_DIR)/device-path-driver.o: $(CDK2_DIR)/src/modules/device_path/driver.c $(CDK2_DIR)/include/cdk2/device_path.h $(CDK2_DIR)/include/uefi.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
 		-mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args \
 		$(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
 
-$(CDK2_NATIVE_BUILD_DIR)/device-path-%.o: $(CDK2_DIR)/src/modules/device_path/%.c $(CDK2_DIR)/include/cdk2/device_path.h | $(CDK2_NATIVE_BUILD_DIR)
+$(CDK2_NATIVE_BUILD_DIR)/device-path-%.o: $(CDK2_DIR)/src/modules/device_path/%.c $(CDK2_DIR)/include/cdk2/device_path.h $(CDK2_DIR)/include/uefi.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
 		-mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args \
 		$(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
@@ -670,8 +670,13 @@ native-device-path-test: $(CDK2_NATIVE_DEVICE_PATH_TEST) \
 	@"$(CDK2_NATIVE_DEVICE_PATH_TEST)"
 	@"$(CDK2_NATIVE_DEVICE_PATH_DRIVER_TEST)"
 
+ifeq ($(CONFIG_CDK2_NATIVE_DEVICE_PATH),y)
 native-device-path-fv: $(CDK2_NATIVE_DEVICE_PATH_FV)
 	@printf '%s\n' "native device-path FV: $(CDK2_NATIVE_DEVICE_PATH_FV)"
+else
+native-device-path-fv:
+	@printf '%s\n' 'native device-path FV: disabled by Kconfig'
+endif
 
 native-pch-smi-dispatch-fv: $(CDK2_NATIVE_PCH_SMI_DISPATCH_FV)
 	@printf '%s\n' "native PCH SMI dispatch FV: $(CDK2_NATIVE_PCH_SMI_DISPATCH_FV)"

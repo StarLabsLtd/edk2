@@ -109,6 +109,7 @@ EFI_STATUS cdk2_device_path_append(const struct cdk2_device_path *first,
 		return cdk2_device_path_duplicate(first, allocator, result);
 	if (!allocator_valid(allocator) || result == NULL)
 		return EFI_INVALID_PARAMETER;
+	*result = NULL;
 	status = path_size(first, &first_size);
 	if (EFI_ERROR(status))
 		return status;
@@ -118,7 +119,8 @@ EFI_STATUS cdk2_device_path_append(const struct cdk2_device_path *first,
 	if (first_size > MAX_UINTN - second_size + CDK2_DEVICE_PATH_HEADER_SIZE)
 		return EFI_OUT_OF_RESOURCES;
 	total = first_size + second_size - CDK2_DEVICE_PATH_HEADER_SIZE;
-	*result = NULL;
+	if (total > CDK2_DEVICE_PATH_MAX_SIZE)
+		return EFI_OUT_OF_RESOURCES;
 	status = allocator->allocate(allocator->context, total, (void **)result);
 	if (EFI_ERROR(status))
 		return status;
@@ -194,6 +196,8 @@ EFI_STATUS cdk2_device_path_append_instance(const struct cdk2_device_path *path,
 	if (path_length > MAX_UINTN - instance_length)
 		return EFI_OUT_OF_RESOURCES;
 	total = path_length + instance_length;
+	if (total > CDK2_DEVICE_PATH_MAX_SIZE)
+		return EFI_OUT_OF_RESOURCES;
 	status = allocator->allocate(allocator->context, total, (void **)result);
 	if (EFI_ERROR(status))
 		return status;

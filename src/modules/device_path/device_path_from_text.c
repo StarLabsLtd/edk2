@@ -452,21 +452,61 @@ static BOOLEAN ipv4(struct slice s, UINT8 *out)
 
 static BOOLEAN ipv6(struct slice s, UINT8 *out)
 {
-	UINTN i, start = 0, part = 0;
+	UINT16 words[8] = {0};
+	UINTN i = 0, start = 0, part = 0, gap = MAX_UINTN, tail;
 	UINT64 value;
-	for (i = 0; i <= s.n; i++)
-		if (i == s.n || s.p[i] == ':') {
-			if (part == 8 || i - start != 4 ||
-			    !hex_number((struct slice){s.p + start, 4}, MAX_UINT16, &value))
-				return FALSE;
-			if (out) {
-				out[part * 2] = (UINT8)(value >> 8);
-				out[part * 2 + 1] = (UINT8)value;
-			}
-			part++;
-			start = i + 1;
+	if (s.n == 0)
+		return FALSE;
+	while (i <= s.n) {
+		if (i < s.n && s.p[i] != ':') {
+			i++;
+			continue;
 		}
-	return part == 8;
+		if (i == start) {
+			if (gap != MAX_UINTN || i == s.n || i + 1 >= s.n || s.p[i + 1] != ':')
+				return FALSE;
+			gap = part;
+			i += 2;
+			start = i;
+			continue;
+		}
+		if (part == 8 || i - start > 4 ||
+		    !hex_number((struct slice){s.p + start, i - start}, MAX_UINT16, &value))
+			return FALSE;
+		words[part++] = (UINT16)value;
+		if (i == s.n)
+			break;
+		if (i + 1 < s.n && s.p[i + 1] == ':') {
+			if (gap != MAX_UINTN)
+				return FALSE;
+			gap = part;
+			i += 2;
+			start = i;
+			if (i == s.n)
+				break;
+			continue;
+		}
+		i++;
+		start = i;
+	}
+	if (gap == MAX_UINTN) {
+		if (part != 8)
+			return FALSE;
+	} else {
+		if (part >= 8)
+			return FALSE;
+		tail = part - gap;
+		for (i = 0; i < tail; i++)
+			words[7 - i] = words[part - 1 - i];
+		for (i = gap; i < 8 - tail; i++)
+			words[i] = 0;
+	}
+	if (out != NULL)
+		for (i = 0; i < 8; i++) {
+			out[i * 2] = (UINT8)(words[i] >> 8);
+			out[i * 2 + 1] = (UINT8)words[i];
+		}
+	return TRUE;
 }
 
 static BOOLEAN protocol(struct slice s, UINT16 *value)
@@ -1363,7 +1403,7 @@ static EFI_STATUS parse_node(struct slice text, UINT8 *out, UINTN *size)
 static EFI_STATUS parse_path(const CHAR16 *text, UINT8 *out, UINTN *total)
 {
 	UINTN at = 0, start = 0, depth = 0, used = 0, node_size;
-	BOOLEAN quoted = FALSE;
+	BOOLEAN quoted = FALSE, uri = FALSE;
 	EFI_STATUS status;
 	if (text == NULL || text[0] == 0)
 		return EFI_INVALID_PARAMETER;
@@ -1371,14 +1411,21 @@ static EFI_STATUS parse_path(const CHAR16 *text, UINT8 *out, UINTN *total)
 		CHAR16 c = text[at];
 		if (c == '"')
 			quoted = !quoted;
-		else if (c == '(' && !quoted)
-			depth++;
-		else if (c == ')' && !quoted) {
+		else if (c == '(' && !quoted) {
+			if (depth == 0 && at - start == 3 && text[start] == 'U' &&
+			    text[start + 1] == 'r' && text[start + 2] == 'i')
+				uri = TRUE;
+			if (!uri || depth == 0)
+				depth++;
+		} else if (c == ')' && !quoted) {
 			if (depth == 0)
 				return EFI_INVALID_PARAMETER;
-			depth--;
+			if (!uri || text[at + 1] == '/' || text[at + 1] == ',' ||
+			    text[at + 1] == 0)
+				depth--;
 		}
-		if ((c == '/' || c == ',' || c == 0) && depth == 0 && !quoted) {
+		if ((c == '/' || (c == ',' && at != start && text[at - 1] == ')') ||
+		    c == 0) && depth == 0 && !quoted) {
 			if (at == start)
 				return EFI_INVALID_PARAMETER;
 			status = parse_node((struct slice){text + start, at - start},
@@ -1393,6 +1440,7 @@ static EFI_STATUS parse_path(const CHAR16 *text, UINT8 *out, UINTN *total)
 			if (c == ',')
 				used += 4;
 			start = at + 1;
+			uri = FALSE;
 			if (c == 0)
 				break;
 		}

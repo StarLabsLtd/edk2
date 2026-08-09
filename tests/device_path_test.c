@@ -113,9 +113,9 @@ static int parser_tests(const struct cdk2_device_path_allocator *allocator)
 		"Ata(0x1234)", "IPv4(192.0.2.1)",
 		"IPv6(0001:0002:0003:0004:0005:0006:0007:0008)",
 	};
-	CHAR16 text[256];
+	CHAR16 text[256], rendered[64];
 	struct cdk2_device_path *path;
-	UINTN before;
+	UINTN before, required;
 	UINTN index;
 	int failures = 0;
 	for (index = 0; index < ARRAY_SIZE(paths); index++)
@@ -133,12 +133,35 @@ static int parser_tests(const struct cdk2_device_path_allocator *allocator)
 		cdk2_device_path_node_length(path) == 6, "node parser/two-pass allocation");
 	if (path != NULL)
 		allocator->free(allocator->context, path);
+	text16(text, "AcpiEx(PNP0A03,@@@0000,0x0,,,)");
+	path = NULL;
+	failures += expect(cdk2_device_path_from_text(text, allocator, &path) ==
+		EFI_SUCCESS && cdk2_device_path_node_length(path) == 19,
+		"present-empty ACPI string fixture did not parse");
+	if (path != NULL) {
+		((UINT8 *)path)[4] = 0x34;
+		((UINT8 *)path)[5] = 0x12;
+		((UINT8 *)path)[6] = 0x03;
+		((UINT8 *)path)[7] = 0x0a;
+		failures += expect(cdk2_device_path_node_to_text(path, 19, TRUE, FALSE,
+			rendered, ARRAY_SIZE(rendered), &required) == EFI_SUCCESS &&
+			text_equal(rendered, "AcpiEx(0xa031234,0x0,0x0)"),
+			"present-empty ACPI UID string suppressed numeric fallback");
+		allocator->free(allocator->context, path);
+	}
 	for (index = 0; index < ARRAY_SIZE(malformed); index++) {
 		text16(text, malformed[index]); path = (void *)(UINTN)1; before = allocations;
 		failures += expect(cdk2_device_path_from_text(text, allocator, &path) ==
 			EFI_INVALID_PARAMETER && path == NULL && allocations == before,
 			"malformed parser input accepted or allocated");
 	}
+	text16(text, "HD(3,7,0,0x5000,0x6000)");
+	path = NULL;
+	failures += expect(cdk2_device_path_from_text(text, allocator, &path) ==
+		EFI_SUCCESS && ((UINT8 *)path)[40] == 0 && ((UINT8 *)path)[41] == 7,
+		"numeric HD type corrupted MBRType/SignatureType");
+	if (path != NULL)
+		allocator->free(allocator->context, path);
 	text16(text, "Pci(0,0)"); fail_allocation = TRUE; path = (void *)(UINTN)1;
 	failures += expect(cdk2_device_path_from_text(text, allocator, &path) ==
 		EFI_OUT_OF_RESOURCES && path == NULL, "parser allocation failure escaped");
@@ -219,6 +242,7 @@ static int messaging_parser_tests(const struct cdk2_device_path_allocator *alloc
 		"Vlan(4094)", "FibreEx(0x0102030405060708,0x1112131415161718)",
 		"SasEx(0x0102030405060708,0x1112131415161718,0x2,SATA,External,Expanded,0x4)",
 		"NVMe(0x1234,01-02-03-04-05-06-07-08)", "Uri(urn:host/a,b)",
+		"Uri(urn:host/(unbalanced)",
 		"UFS(0x1,0x2)", "SD(0x3)", "Bluetooth(010203040506)",
 		"Wi-Fi(network)", "eMMC(0x4)", "BluetoothLE(010203040506,0x1)",
 		"Dns(8.8.8.8,1.1.1.1)",
@@ -226,7 +250,7 @@ static int messaging_parser_tests(const struct cdk2_device_path_allocator *alloc
 	};
 	static const char *const malformed[] = {
 		"Ata(Bad,Master,0)", "MAC(0102,0)", "IPv4(300.0.0.1)",
-		"IPv6(1::2)", "Uart(0,9,Q,3)", "UsbClass(0,0,0,0,256)",
+		"IPv6(1::2::3)", "Uart(0,9,Q,3)", "UsbClass(0,0,0,0,256)",
 		"UsbWwid(0,0,0,serial)", "iSCSI(x,0,0x01,None,None,None,TCP)",
 		"SasEx(0x00,0x00,0,NoTopology,0,0,0)",
 		"NVMe(0,00-00)", "Bluetooth(00)", "Dns(8.8.8.8,0000:0000:0000:0000:0000:0000:0000:0000)",
@@ -246,6 +270,14 @@ static int messaging_parser_tests(const struct cdk2_device_path_allocator *alloc
 	failures += expect(cdk2_device_path_from_text(text, allocator, &path) == EFI_SUCCESS &&
 		cdk2_device_path_node_length(path) == 8 && ((UINT8 *)path)[7] == 0,
 		"URI parser omitted CHAR8 terminator");
+	if (path != NULL)
+		allocator->free(allocator->context, path);
+	text16(text, "IPv6(1::2)");
+	path = NULL;
+	failures += expect(cdk2_device_path_from_text(text, allocator, &path) == EFI_SUCCESS &&
+		((UINT8 *)path)[20] == 0 && ((UINT8 *)path)[21] == 1 &&
+		((UINT8 *)path)[34] == 0 && ((UINT8 *)path)[35] == 2,
+		"compressed IPv6 address was not expanded correctly");
 	if (path != NULL)
 		allocator->free(allocator->context, path);
 	text16(text, "UsbWwid(1,2,3,\"serial\")");
@@ -286,6 +318,7 @@ static int media_bbs_parser_tests(const struct cdk2_device_path_allocator *alloc
 		"HD(3,7,0,0x5000,0x6000)", "CDROM(0x1,0x200,0x300)",
 		"VenMedia(11223344-5566-7788-0102-030405060708,aa05)",
 		"\\EFI\\BOOT\\BOOTX64.EFI",
+		"\\EFI\\BOOT\\name,with,commas.efi",
 		"\\EFI\\Linux\\kernel(backup).efi",
 		"kernel(backup).efi",
 		"Media(11223344-5566-7788-0102-030405060708)",
@@ -511,9 +544,14 @@ static int formatter_tests(void)
 	failures += expect(cdk2_device_path_node_to_text((void *)node, 17, FALSE, FALSE,
 		output, 160, &required) == EFI_COMPROMISED_DATA,
 		"unterminated ACPI tail accepted");
-	set_node((void *)node, 2, 2, 16);
-	failures += expect_text(node, 16, TRUE, FALSE,
-		"PciRoot(0x0)", "absent ACPI tails");
+	memset(node, 0, sizeof(node)); set_node((void *)node, 2, 2, 19);
+	put32(node + 4, 0x0a0341d0);
+	failures += expect_text(node, 19, TRUE, FALSE,
+		"PciRoot(0x0)", "present-empty ACPI root UID fallback");
+	put32(node + 4, 0x0a031234);
+	failures += expect_text(node, 19, TRUE, FALSE,
+		"AcpiEx(0xa031234,0x0,0x0)",
+		"empty ACPI strings did not fall back to numeric IDs");
 
 	memset(path, 0, sizeof(path)); set_node((void *)path, 1, 1, 6);
 	path[4] = 2; path[5] = 3; set_node((void *)(path + 6), 1, 2, 5); path[10] = 4;
@@ -521,6 +559,11 @@ static int formatter_tests(void)
 	failures += expect(cdk2_device_path_to_text((void *)path, 15, FALSE, FALSE,
 		output, 160, &required) == EFI_SUCCESS &&
 		text_equal(output, "Pci(0x3,0x2)/PcCard(0x4)"), "whole path text");
+	set_node((void *)path, CDK2_DEVICE_PATH_END_TYPE,
+		CDK2_DEVICE_PATH_END_ENTIRE, 4);
+	failures += expect(cdk2_device_path_to_text((void *)path, 4, FALSE, FALSE,
+		output, 160, &required) == EFI_SUCCESS && required == 1 && output[0] == 0,
+		"end-only path did not render as allocated empty text");
 	return failures;
 }
 
@@ -794,10 +837,23 @@ int main(void)
 		if (unterminated == NULL) {
 			failures += expect(FALSE, "boundary fixture allocation failed");
 		} else {
+			struct cdk2_device_path *oversized_node = NULL;
 			for (UINTN i = 0; i < 16; i++) {
 				set_node((void *)(unterminated + used), 1, 0x7e, MAX_UINT16);
 				used += MAX_UINT16;
 			}
+			set_node((void *)(unterminated + used), CDK2_DEVICE_PATH_END_TYPE,
+				CDK2_DEVICE_PATH_END_ENTIRE, 4);
+			failures += expect(cdk2_device_path_create_node(3, 0x7e, MAX_UINT16,
+				&allocator, &oversized_node) == EFI_SUCCESS,
+				"append-cap node fixture allocation failed");
+			result = (void *)(UINTN)1;
+			failures += expect(cdk2_device_path_append_node((const void *)unterminated,
+				oversized_node, &allocator, &result) == EFI_OUT_OF_RESOURCES &&
+				result == NULL,
+				"append exceeded the global device-path size cap");
+			if (oversized_node != NULL)
+				release(NULL, oversized_node);
 			set_node((void *)(unterminated + used), 1, 0x7e, 13);
 			used += 13;
 			cursor = (const void *)unterminated;

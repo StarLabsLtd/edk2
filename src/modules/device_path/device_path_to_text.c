@@ -187,6 +187,14 @@ static void put_eisa(struct writer *writer, UINT32 id)
 	put_hex(writer, id >> 16, 4, TRUE);
 }
 
+static void put_eisa_or_numeric(struct writer *writer, UINT32 id)
+{
+	if ((id & 0xffffU) == 0x41d0U)
+		put_eisa(writer, id);
+	else
+		put_0x(writer, id);
+}
+
 static EFI_STATUS render_vendor(struct writer *writer, const UINT8 *node,
 	UINT16 length, BOOLEAN shortcuts)
 {
@@ -307,19 +315,21 @@ static EFI_STATUS render_acpi_ex(struct writer *writer, const UINT8 *node,
 	hid = read32(node + 4);
 	uid = read32(node + 8);
 	cid = read32(node + 12);
-	if (display_only && ((hid >> 16) == 0x0a03 ||
-	    ((cid >> 16) == 0x0a03 && (hid >> 16) != 0x0a08))) {
+	if (display_only && (((hid & 0xffffU) == 0x41d0U && (hid >> 16) == 0x0a03) ||
+	    ((cid & 0xffffU) == 0x41d0U && (cid >> 16) == 0x0a03 &&
+	     !((hid & 0xffffU) == 0x41d0U && (hid >> 16) == 0x0a08)))) {
 		puts8(writer, "PciRoot(");
-		if (uid_string != NULL)
+		if (uid_string != NULL && *uid_string != 0)
 			put_ascii(writer, uid_string);
 		else
 			put_0x(writer, uid);
 		put(writer, ')');
 		return EFI_SUCCESS;
 	}
-	if (display_only && ((hid >> 16) == 0x0a08 || (cid >> 16) == 0x0a08)) {
+	if (display_only && (((hid & 0xffffU) == 0x41d0U && (hid >> 16) == 0x0a08) ||
+	    ((cid & 0xffffU) == 0x41d0U && (cid >> 16) == 0x0a08))) {
 		puts8(writer, "PcieRoot(");
-		if (uid_string != NULL)
+		if (uid_string != NULL && *uid_string != 0)
 			put_ascii(writer, uid_string);
 		else
 			put_0x(writer, uid);
@@ -342,17 +352,17 @@ static EFI_STATUS render_acpi_ex(struct writer *writer, const UINT8 *node,
 	}
 	puts8(writer, "AcpiEx(");
 	if (display_only) {
-		if (hid_string != NULL)
+		if (hid_string != NULL && *hid_string != 0)
 			put_ascii(writer, hid_string);
 		else
-			put_eisa(writer, hid);
+			put_eisa_or_numeric(writer, hid);
 		put(writer, ',');
-		if (cid_string != NULL)
+		if (cid_string != NULL && *cid_string != 0)
 			put_ascii(writer, cid_string);
 		else
-			put_eisa(writer, cid);
+			put_eisa_or_numeric(writer, cid);
 		put(writer, ',');
-		if (uid_string != NULL)
+		if (uid_string != NULL && *uid_string != 0)
 			put_ascii(writer, uid_string);
 		else
 			put_0x(writer, uid);

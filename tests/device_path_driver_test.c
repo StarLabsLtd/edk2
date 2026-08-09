@@ -149,6 +149,13 @@ int main(void)
 	path = utilities->append_path(NULL, NULL);
 	failures += expect(path != NULL && utilities->get_size(path) == 4,
 		"NULL append did not create an end path");
+	if (path != NULL) {
+		CHAR16 *empty = to_text->path_to_text(path, FALSE, FALSE);
+		failures += expect(empty != NULL && empty[0] == 0,
+			"end-only path did not produce allocated empty text");
+		if (empty != NULL)
+			(void)free_pool(empty);
+	}
 	(void)free_pool(path);
 
 	ops.context = &fault;
@@ -170,6 +177,6 @@ int main(void)
 		fault.rolled_back == 0, "first publication failure attempted rollback");
 	failures += expect(cdk2_device_path_entry(NULL, NULL) == EFI_INVALID_PARAMETER,
 		"invalid entry context accepted");
-	failures += expect(frees == 3, "protocol wrapper allocation leaked");
+	failures += expect(frees == 4, "protocol wrapper allocation leaked");
 	return failures == 0 ? 0 : 1;
 }
