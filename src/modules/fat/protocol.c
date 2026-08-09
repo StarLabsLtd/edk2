@@ -137,8 +137,10 @@ static EFI_STATUS CDK2_MS_ABI file_open(struct cdk2_fat_file_protocol *protocol,
 		return status;
 	status = parent->owner->binding->ops->allocate(parent->owner->binding->context,
 						       sizeof(*child), (void **)&child);
-	if (!EFI_ERROR(status))
+	if (!EFI_ERROR(status)) {
+		__builtin_memset(child, 0, sizeof(*child));
 		status = cdk2_fat_open(&parent->file, name, &child->file);
+	}
 	if (!EFI_ERROR(status) && (mode & 2U) != 0U &&
 	    (parent->file.volume->read_only || parent->file.volume->write_protected))
 		status = CDK2_FAT_WRITE_PROTECTED;
@@ -663,6 +665,7 @@ static void finish_disk_open(struct async_task *task, EFI_STATUS status)
 			status = binding->ops->allocate(binding->context, sizeof(*child),
 							(void **)&child);
 		if (!EFI_ERROR(status)) {
+			__builtin_memset(child, 0, sizeof(*child));
 			child->owner = handle->owner;
 			child->protocol = handle->protocol;
 			child->mode = task->mode;
@@ -1256,8 +1259,10 @@ static EFI_STATUS CDK2_MS_ABI open_volume(struct cdk2_fat_simple_fs_protocol *p,
 	if (EFI_ERROR(status))
 		return status;
 	status = v->binding->ops->allocate(v->binding->context, sizeof(*h), (void **)&h);
-	if (!EFI_ERROR(status))
+	if (!EFI_ERROR(status)) {
+		__builtin_memset(h, 0, sizeof(*h));
 		status = cdk2_fat_open_root(&v->mount->volume, &h->file);
+	}
 	if (EFI_ERROR(status)) {
 		if (h != NULL)
 			v->binding->ops->release(v->binding->context, h);

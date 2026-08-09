@@ -212,7 +212,9 @@ static EFI_STATUS allocate(void *context, UINTN size, void **buffer)
 {
 	struct fixture *f = context;
 	f->allocations++;
-	*buffer = calloc(1U, size);
+	*buffer = malloc(size);
+	if (*buffer != NULL)
+		memset(*buffer, 0xaf, size);
 	return *buffer == NULL ? EFI_OUT_OF_RESOURCES : EFI_SUCCESS;
 }
 static void release(void *context, void *buffer)
