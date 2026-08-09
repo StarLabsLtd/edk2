@@ -14,10 +14,12 @@ static EFI_STATUS ready_close_status;
 static unsigned int installs, uninstalls, sets, closes, policies, publications;
 static unsigned int handle_mode, alloc_calls, fail_alloc_call;
 static unsigned int descriptor_mode, policy_missing, notifications;
+static unsigned int reverse_fmp_order;
 static unsigned int timers;
 static unsigned int probe_names, probe_name_frees;
 static void *probe_name[8];
 static UINTN last_store_bytes;
+static struct cdk2_esrt_entry last_store[2];
 static UINT32 last_alloc_type;
 static struct cdk2_fmp_protocol fmp_protocols[2];
 typedef void CDK2_MS_ABI ready_callback_fn(void *, void *);
@@ -98,6 +100,8 @@ static EFI_STATUS CDK2_MS_ABI mock_set(CHAR16 *name, EFI_GUID *guid, UINT32 attr
 	}
 	assert(attrs == 2);
 	last_store_bytes = bytes;
+	if (bytes <= sizeof(last_store) && data != NULL)
+		memcpy(last_store, data, bytes);
 	if (bytes == 0)
 		return empty_set_status;
 	return EFI_SUCCESS;
@@ -197,13 +201,16 @@ static EFI_STATUS CDK2_MS_ABI mock_fmp_info(struct cdk2_fmp_protocol *self,
 	UINTN *bytes, struct cdk2_fmp_descriptor *descriptors, UINT32 *version,
 	UINT8 *count, UINTN *descriptor_size, UINT32 *package, CHAR16 **package_name)
 {
-	UINTN size = offsetof(struct cdk2_fmp_descriptor, lowest_supported_version);
-	UINTN descriptors_count = descriptor_mode ? 65 : 1, index;
+	UINTN size = descriptor_mode == 3 ? sizeof(struct cdk2_fmp_descriptor) :
+		offsetof(struct cdk2_fmp_descriptor, lowest_supported_version);
+	UINTN descriptors_count =
+		(descriptor_mode == 1 || descriptor_mode == 2) ? 65 : 1, index;
 
 	if (!descriptors) {
 		assert(version != NULL && count != NULL && descriptor_size != NULL &&
 		package != NULL && package_name != NULL);
-		*version = 1; *count = descriptors_count; *descriptor_size = size; *package = 0;
+		*version = descriptor_mode == 3 ? 3 : 1;
+		*count = descriptors_count; *descriptor_size = size; *package = 0;
 		*package_name = malloc(sizeof(CHAR16));
 		assert(*package_name != NULL && probe_names < ARRAY_SIZE(probe_name));
 		probe_name[probe_names++] = *package_name;
@@ -218,10 +225,22 @@ static EFI_STATUS CDK2_MS_ABI mock_fmp_info(struct cdk2_fmp_protocol *self,
 		d->image_type_id.data1 = descriptor_mode ? 0x11 :
 			(self == &fmp_protocols[0] ? 0x11 : 0x22);
 		d->version = self == &fmp_protocols[0] ? 3 : 4;
+		if (descriptor_mode == 3) {
+			d->image_type_id.data1 = 0x33;
+			d->version = self == &fmp_protocols[0] ? 8 : 10;
+			d->lowest_supported_version = self == &fmp_protocols[0] ? 5 : 7;
+			d->last_attempt_version = d->version;
+			d->last_attempt_status = self == &fmp_protocols[0] ? 8 : 10;
+			if (self == &fmp_protocols[1]) {
+				d->attributes_supported = CDK2_ESRT_IMAGE_RESET_REQUIRED;
+				d->attributes_setting = CDK2_ESRT_IMAGE_RESET_REQUIRED;
+			}
+		}
 		if (descriptor_mode == 2)
 			d->attributes_supported = CDK2_ESRT_IMAGE_IN_USE;
 	}
-	*version = 1; *count = descriptors_count; *descriptor_size = size; *package = 0;
+	*version = descriptor_mode == 3 ? 3 : 1;
+	*count = descriptors_count; *descriptor_size = size; *package = 0;
 	*package_name = NULL; *bytes = descriptors_count * size;
 	return EFI_SUCCESS;
 }
@@ -230,7 +249,7 @@ static EFI_STATUS CDK2_MS_ABI mock_handle(void *handle, EFI_GUID *guid, void **i
 {
 	(void)guid;
 	assert(handle == (void *)1 || handle == (void *)2);
-	*interface = &fmp_protocols[(UINTN)handle - 1];
+	*interface = &fmp_protocols[((UINTN)handle - 1) ^ reverse_fmp_order];
 	return EFI_SUCCESS;
 }
 
@@ -312,7 +331,12 @@ int main(void)
 	policy_missing = 1; notify_status = EFI_DEVICE_ERROR;
 	assert(cdk2_esrt_entry(NULL, &system) == EFI_DEVICE_ERROR && policy_event == NULL);
 	policy_missing = 1; policy_close_status = EFI_DEVICE_ERROR;
-	assert(cdk2_esrt_entry(NULL, &system) == EFI_SUCCESS && policy_event == (void *)10);
+	{
+		unsigned int before = timers;
+		assert(cdk2_esrt_entry(NULL, &system) == EFI_SUCCESS &&
+			policy_event == (void *)10);
+		assert(timers == before + 1);
+	}
 	policy_close_status = EFI_SUCCESS; notify_status = EFI_SUCCESS;
 	policy_callback((void *)10, NULL);
 	assert(policy_event == NULL && instance.management_installed);
@@ -357,6 +381,24 @@ int main(void)
 		last_store_bytes == sizeof(struct cdk2_esrt_entry));
 	descriptor_mode = 2; last_store_bytes = ~(UINTN)0;
 	assert(management.sync_fmp() == EFI_SUCCESS && last_store_bytes == 0);
+	/* api_sync must not discard restrictive metadata on a higher-version duplicate. */
+	handle_mode = 3; descriptor_mode = 3; last_store_bytes = 0;
+	assert(management.sync_fmp() == EFI_SUCCESS &&
+		last_store_bytes == sizeof(struct cdk2_esrt_entry) &&
+		last_store[0].firmware_version == 8 &&
+		last_store[0].lowest_supported_version == 7 &&
+		last_store[0].capsule_flags == 0x00050000U &&
+		last_store[0].last_attempt_version == 8 &&
+		last_store[0].last_attempt_status == 8);
+	reverse_fmp_order = 1; last_store_bytes = 0;
+	assert(management.sync_fmp() == EFI_SUCCESS &&
+		last_store_bytes == sizeof(struct cdk2_esrt_entry) &&
+		last_store[0].firmware_version == 8 &&
+		last_store[0].lowest_supported_version == 7 &&
+		last_store[0].capsule_flags == 0x00050000U &&
+		last_store[0].last_attempt_version == 8 &&
+		last_store[0].last_attempt_status == 8);
+	reverse_fmp_order = 0;
 	descriptor_mode = 0;
 	handle_mode = 0;
 	/* Every stage is fail-closed: sync, lock, then publication. */

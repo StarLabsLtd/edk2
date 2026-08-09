@@ -388,8 +388,34 @@ static EFI_STATUS CDK2_MS_ABI api_sync(void)
 					    &d->image_type_id))
 						break;
 				if (existing < total) {
-					if (images[existing].version <= d->version)
+					struct cdk2_esrt_fmp_image *current = &images[existing];
+					UINT32 lowest = version >= 2 ?
+						d->lowest_supported_version : 0;
+					UINT32 aggregate_version = version > current->descriptor_version ?
+						version : current->descriptor_version;
+					BOOLEAN reset =
+						(d->attributes_supported & CDK2_ESRT_IMAGE_RESET_REQUIRED) &&
+						(d->attributes_setting & CDK2_ESRT_IMAGE_RESET_REQUIRED);
+
+					/* Preserve the most restrictive metadata across every instance. */
+					if (lowest > current->lowest_supported_version)
+						current->lowest_supported_version = lowest;
+					if (reset) {
+						current->attributes_supported |=
+							CDK2_ESRT_IMAGE_RESET_REQUIRED;
+						current->attributes_setting |=
+							CDK2_ESRT_IMAGE_RESET_REQUIRED;
+					}
+					current->descriptor_version = aggregate_version;
+					if (current->version <= d->version)
 						continue;
+					current->version = d->version;
+					current->last_attempt_version = version >= 3 ?
+						d->last_attempt_version : 0;
+					current->last_attempt_status = version >= 3 ?
+						d->last_attempt_status : 0;
+					current->descriptor_version = aggregate_version;
+					continue;
 				} else {
 					existing = total;
 				}
@@ -504,8 +530,11 @@ EFI_STATUS CDK2_MS_ABI cdk2_esrt_entry(void *image, struct cdk2_system_table_vie
 				((close_event_fn *)st->boot->close_event)(policy_event) :
 				EFI_UNSUPPORTED;
 
-			if (EFI_ERROR(close_status))
+			if (EFI_ERROR(close_status)) {
+				/* No notification exists: the live timer is the retry trigger. */
+				schedule_policy_retry(policy_event);
 				return EFI_SUCCESS;
+			}
 			policy_event = NULL;
 			return status;
 		}
