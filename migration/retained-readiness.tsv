@@ -1,7 +1,6 @@
 # Retained-module hardware-readiness classification.
 # Keep this file in exact lockstep with entries marked retain in retained-fv.tsv.
 # class	module
-subsystem-sized	FatPkg/EnhancedFatDxe/Fat
 hardware-gated	MdeModulePkg/Bus/Ata/AtaAtapiPassThru/AtaAtapiPassThru
 hardware-gated	MdeModulePkg/Bus/Ata/AtaBusDxe/AtaBusDxe
 hardware-gated	MdeModulePkg/Bus/Isa/Ps2MouseDxe/Ps2MouseDxe
