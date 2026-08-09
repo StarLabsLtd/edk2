@@ -215,6 +215,8 @@ EFI_STATUS cdk2_partition_parse_gpt(const struct cdk2_partition_media *media,
 		partition->disk_signature = 0;
 		partition->boot_entry = 0;
 		partition->mbr_type = 0;
+		__builtin_memset(partition->mbr_record, 0,
+			sizeof(partition->mbr_record));
 		found++;
 	}
 	*partition_count = found;
@@ -223,7 +225,7 @@ EFI_STATUS cdk2_partition_parse_gpt(const struct cdk2_partition_media *media,
 
 static EFI_STATUS add_mbr_partition(struct cdk2_partition *partitions,
 	UINTN capacity, UINTN *count, UINT64 start, UINT32 blocks, UINT8 type,
-	UINT32 signature, UINT32 index, UINT64 last_block)
+	UINT32 signature, UINT32 index, UINT64 last_block, const UINT8 *record)
 {
 	struct cdk2_partition *partition;
 	UINTN character;
@@ -250,6 +252,7 @@ static EFI_STATUS add_mbr_partition(struct cdk2_partition *partitions,
 	partition->disk_signature = signature;
 	partition->boot_entry = 0;
 	partition->mbr_type = type;
+	copy(partition->mbr_record, record, sizeof(partition->mbr_record));
 	(*count)++;
 	return EFI_SUCCESS;
 }
@@ -327,6 +330,7 @@ static EFI_STATUS add_boot_entry(const struct cdk2_partition_media *media,
 	partition->disk_signature = 0;
 	partition->boot_entry = boot_entry;
 	partition->mbr_type = entry[4];
+	copy(partition->mbr_record, entry, sizeof(partition->mbr_record));
 	(*count)++;
 	return EFI_SUCCESS;
 }
@@ -567,6 +571,8 @@ EFI_STATUS cdk2_partition_parse_udf(const struct cdk2_partition_media *media,
 			partition->disk_signature = 0;
 			partition->boot_entry = 0;
 			partition->mbr_type = 0;
+			__builtin_memset(partition->mbr_record, 0,
+				sizeof(partition->mbr_record));
 		}
 	}
 	if (!terminated || !logical_volume || count == 0)
@@ -641,7 +647,7 @@ EFI_STATUS cdk2_partition_parse_mbr(const struct cdk2_partition_media *media,
 		}
 		status = add_mbr_partition(partitions, partition_capacity, &count,
 			start, blocks, type, signature, (UINT32)index + 1U,
-			media->last_block);
+			media->last_block, entry);
 		if (EFI_ERROR(status))
 			return status;
 	}
@@ -668,7 +674,7 @@ EFI_STATUS cdk2_partition_parse_mbr(const struct cdk2_partition_media *media,
 			return EFI_COMPROMISED_DATA;
 		status = add_mbr_partition(partitions, partition_capacity, &count,
 			ebr + read32(logical + 8), read32(logical + 12), logical[4],
-			signature, logical_index++, media->last_block);
+			signature, logical_index++, media->last_block, logical);
 		if (EFI_ERROR(status))
 			return status;
 		if (link[4] == 0 && read32(link + 8) == 0 && read32(link + 12) == 0) {

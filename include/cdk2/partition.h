@@ -27,6 +27,7 @@ struct cdk2_partition {
 	UINT32 disk_signature;
 	UINT32 boot_entry;
 	UINT8 mbr_type;
+	UINT8 mbr_record[16];
 };
 
 typedef EFI_STATUS cdk2_partition_read_fn(void *context, UINT64 lba,
@@ -58,13 +59,38 @@ struct cdk2_block_io2 {
 	cdk2_block2_flush_fn *flush_blocks;
 };
 
+struct cdk2_mbr_partition_record {
+	UINT8 boot_indicator, start_head, start_sector, start_track;
+	UINT8 os_indicator, end_head, end_sector, end_track;
+	UINT8 starting_lba[4], size_in_lba[4];
+} __packed;
+
+struct cdk2_gpt_partition_entry {
+	EFI_GUID partition_type_guid;
+	EFI_GUID unique_partition_guid;
+	UINT64 starting_lba;
+	UINT64 ending_lba;
+	UINT64 attributes;
+	CHAR16 partition_name[CDK2_GPT_NAME_CHARS];
+} __packed;
+
 struct cdk2_partition_info {
 	UINT32 revision;
 	UINT32 type;
 	UINT8 system;
 	UINT8 reserved[7];
-	struct cdk2_partition partition;
-};
+	union {
+		struct cdk2_mbr_partition_record mbr;
+		struct cdk2_gpt_partition_entry gpt;
+	} info;
+} __packed;
+
+typedef char cdk2_mbr_partition_record_size[
+	(sizeof(struct cdk2_mbr_partition_record) == 16U) ? 1 : -1];
+typedef char cdk2_gpt_partition_entry_size[
+	(sizeof(struct cdk2_gpt_partition_entry) == 128U) ? 1 : -1];
+typedef char cdk2_partition_info_size[
+	(sizeof(struct cdk2_partition_info) == 144U) ? 1 : -1];
 
 struct cdk2_partition_child;
 struct cdk2_partition_child_services {

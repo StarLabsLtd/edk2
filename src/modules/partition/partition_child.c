@@ -9,6 +9,7 @@ struct cdk2_partition_child {
 	struct cdk2_disk_io2 disk2;
 	struct cdk2_block_media media;
 	struct cdk2_partition_info info;
+	struct cdk2_partition partition;
 	const struct cdk2_partition_child_services *services;
 	struct cdk2_block_io *parent_block;
 	struct cdk2_block_io2 *parent_block2;
@@ -74,7 +75,7 @@ static EFI_STATUS block_range(struct cdk2_partition_child *child, UINT32 media_i
 	if (size != 0 && (lba > child->media.last_block ||
 	    size / child->media.block_size - 1U > child->media.last_block - lba))
 		return EFI_INVALID_PARAMETER;
-	*parent_lba = child->info.partition.start_lba + lba;
+	*parent_lba = child->partition.start_lba + lba;
 	return EFI_SUCCESS;
 }
 
@@ -340,12 +341,24 @@ EFI_STATUS cdk2_partition_child_create(
 	child->media.last_block = blocks - 1U;
 	child->byte_offset = partition->start_lba * parent_block->media->block_size;
 	child->byte_size = blocks * parent_block->media->block_size;
-	child->info.revision = 1U;
+	child->partition = *partition;
+	child->info.revision = 0x1000U;
 	child->info.type = partition->scheme == CDK2_PARTITION_MBR ? 1U :
 		(partition->scheme == CDK2_PARTITION_GPT ? 2U : 0U);
 	child->info.system = partition->mbr_type == 0xefU ||
 		guid_equal(&partition->type_guid, &efi_system_partition_guid);
-	child->info.partition = *partition;
+	if (partition->scheme == CDK2_PARTITION_MBR) {
+		__builtin_memcpy(&child->info.info.mbr, partition->mbr_record,
+			sizeof(child->info.info.mbr));
+	} else if (partition->scheme == CDK2_PARTITION_GPT) {
+		child->info.info.gpt.partition_type_guid = partition->type_guid;
+		child->info.info.gpt.unique_partition_guid = partition->unique_guid;
+		child->info.info.gpt.starting_lba = partition->start_lba;
+		child->info.info.gpt.ending_lba = partition->end_lba;
+		child->info.info.gpt.attributes = partition->attributes;
+		__builtin_memcpy(child->info.info.gpt.partition_name,
+			partition->name, sizeof(child->info.info.gpt.partition_name));
+	}
 	child->block = (struct cdk2_block_io){ parent_block->revision, &child->media,
 		child_reset, child_read, child_write, child_flush };
 	child->block2 = (struct cdk2_block_io2){ &child->media, child_reset2,

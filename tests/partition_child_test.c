@@ -188,6 +188,8 @@ int main(void)
 		.index = 1U,
 		.disk_signature = 0x12345678U,
 		.mbr_type = 0xefU,
+		.mbr_record = { 0x80U, 1U, 2U, 3U, 0xefU, 4U, 5U, 6U,
+			10U, 0U, 0U, 0U, 10U, 0U, 0U, 0U },
 	};
 	struct cdk2_partition_child *child;
 	struct cdk2_block_io *block;
@@ -202,8 +204,13 @@ int main(void)
 	reset_state();
 	EXPECT(cdk2_partition_child_create(&services, (void *)2, &parent_block, NULL,
 		&parent_disk, NULL, (void *)3, &partition, &child) == EFI_SUCCESS);
-	EXPECT(installs == 1U && opens == 1U && installed_info->type == 1U &&
-		installed_info->system == TRUE);
+	EXPECT(installs == 1U && opens == 1U &&
+		installed_info->revision == 0x1000U && installed_info->type == 1U &&
+		installed_info->system == TRUE &&
+		installed_info->info.mbr.boot_indicator == 0x80U &&
+		installed_info->info.mbr.os_indicator == 0xefU &&
+		installed_info->info.mbr.starting_lba[0] == 10U &&
+		installed_info->info.mbr.size_in_lba[0] == 10U);
 	block = cdk2_partition_child_block(child);
 	block2 = cdk2_partition_child_block2(child);
 	disk = cdk2_partition_child_disk(child);
