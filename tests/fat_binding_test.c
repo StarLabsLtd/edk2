@@ -4,6 +4,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
+#include <unistd.h>
 
 #define FAT_ACCESS_DENIED EFIERR(15)
 #define FAT_ALREADY_STARTED EFIERR(20)
@@ -27,6 +29,13 @@ static unsigned event_count;
 static struct cdk2_disk_io2_token *disk_token;
 static UINT64 disk2_offset; static UINTN disk2_size; static void *disk2_buffer;
 static unsigned disk2_calls, disk2_operation, disk2_writes;
+static struct cdk2_fat_file_protocol *close_on_signal;
+static EFI_STATUS reentrant_close_status;
+struct test_time { UINT16 year; UINT8 month, day, hour, minute, second, pad1;
+	UINT32 nanosecond; INT16 timezone; UINT8 daylight, pad2; };
+struct test_file_info { UINT64 size, file_size, physical_size; struct test_time create,
+	access, modify; UINT64 attribute; CHAR16 file_name[2]; };
+struct test_label_info { CHAR16 label[2]; };
 static INTN CDK2_MS_ABI collate(struct cdk2_unicode_collation *self,
 	CHAR16 *left, CHAR16 *right)
 { (void)self; while (*left == *right && *left != 0U) { left++; right++; } return *left - *right; }
@@ -110,7 +119,10 @@ static EFI_STATUS allocate(void *context, UINTN size, void **buffer)
 static void release(void *context, void *buffer)
 { struct fixture *f = context; f->releases++; free(buffer); }
 static EFI_STATUS signal(void *context, void *event)
-{ struct fixture *f = context; if (event == NULL) return EFI_INVALID_PARAMETER; f->signals++; return EFI_SUCCESS; }
+{ struct fixture *f = context; if (event == NULL) return EFI_INVALID_PARAMETER; f->signals++;
+	if (close_on_signal != NULL) { struct cdk2_fat_file_protocol *file = close_on_signal;
+		close_on_signal = NULL; reentrant_close_status = file->close(file); }
+	return EFI_SUCCESS; }
 static EFI_STATUS queue(void *context, void (*function)(void *), void *opaque, void **cookie)
 { (void)context; queued_function = function; queued_context = opaque; *cookie = opaque; return EFI_SUCCESS; }
 static void drain(void *context, void *cookie)
@@ -189,6 +201,73 @@ int main(void)
 			queued_function == NULL,
 			"OpenEx metadata continuation used the synchronous work queue");
 		(void)file->close(file); (void)root->close(root);
+	}
+	{
+		struct cdk2_fat_file_protocol *root, *file;
+		UINT8 one_buffer[100], two_buffer[100];
+		struct cdk2_fat_file_io_token one = { (void *)9, EFI_NOT_READY,
+			sizeof(one_buffer), one_buffer };
+		struct cdk2_fat_file_io_token two = { (void *)8, EFI_NOT_READY,
+			sizeof(two_buffer), two_buffer };
+		(void)binding.mounts->simple_fs->protocol.open_volume(
+			&binding.mounts->simple_fs->protocol, &root);
+		(void)root->open(root, &file, L"ASYNC.TXT", 1U, 0U);
+		(void)file->read_ex(file, &one); (void)file->read_ex(file, &two);
+		disk_token->transaction_status = EFI_DEVICE_ERROR;
+		disk_notify(disk_token->event, disk_context);
+		failures += expect(one.status == EFI_DEVICE_ERROR && two.status == EFI_NOT_READY &&
+			disk2_offset == 16896U,
+			"queued read used speculative position after prior failure");
+		complete_disk(EFI_SUCCESS, 0);
+		(void)file->close(file); (void)root->close(root);
+	}
+	{
+		struct cdk2_fat_file_protocol *root;
+		struct cdk2_fat_file_io_token token = { (void *)9, EFI_NOT_READY, 0U, NULL };
+		(void)binding.mounts->simple_fs->protocol.open_volume(
+			&binding.mounts->simple_fs->protocol, &root);
+		close_on_signal = root; reentrant_close_status = EFI_NOT_READY;
+		(void)root->flush_ex(root, &token);
+		disk_token->transaction_status = EFI_SUCCESS;
+		disk_notify(disk_token->event, disk_context);
+		failures += expect(token.status == EFI_SUCCESS &&
+			reentrant_close_status == EFI_SUCCESS,
+			"completion signal could not safely close its own handle");
+	}
+	{
+		struct cdk2_fat_file_protocol *root;
+		struct test_file_info info = { 0 };
+		struct test_label_info label = { { L'X', L'Y' } };
+		long page_size = sysconf(_SC_PAGESIZE);
+		UINT8 *guard = page_size > 0 ? mmap(NULL, (size_t)page_size * 2U,
+			PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0) : MAP_FAILED;
+		UINT8 before[sizeof(f.image[1])];
+		(void)binding.mounts->simple_fs->protocol.open_volume(
+			&binding.mounts->simple_fs->protocol, &root);
+		memcpy(before, f.image[1], sizeof(before));
+		info.size = sizeof(info); info.create = (struct test_time) {
+			.year = 2026U, .month = 13U, .day = 1U, .timezone = 0x07ff };
+		info.modify = info.create; info.file_name[0] = L'X'; info.file_name[1] = 0U;
+		failures += expect(root->set_info(root, (EFI_GUID *)&cdk2_fat_file_info_guid,
+			sizeof(info), &info) == EFI_INVALID_PARAMETER,
+			"SetInfo accepted invalid calendar metadata");
+		info.create.month = 1U; info.modify.month = 1U; info.attribute = 1ULL << 40;
+		failures += expect(root->set_info(root, (EFI_GUID *)&cdk2_fat_file_info_guid,
+			sizeof(info), &info) == EFI_INVALID_PARAMETER &&
+			root->set_info(root, (EFI_GUID *)&cdk2_fat_volume_label_info_guid,
+				sizeof(label), &label) == EFI_INVALID_PARAMETER &&
+			memcmp(before, f.image[1], sizeof(before)) == 0,
+			"SetInfo accepted invalid attributes or unterminated label");
+		if (guard != MAP_FAILED) {
+			CHAR16 *last = (CHAR16 *)(guard + page_size - sizeof(CHAR16));
+			*last = L'Z'; (void)mprotect(guard + page_size, (size_t)page_size, PROT_NONE);
+			failures += expect(root->set_info(root,
+				(EFI_GUID *)&cdk2_fat_volume_label_info_guid,
+				sizeof(*last), last) == EFI_INVALID_PARAMETER,
+				"SetInfo scanned an unterminated label into a guard page");
+			(void)munmap(guard, (size_t)page_size * 2U);
+		}
+		(void)root->close(root);
 	}
 	{
 		struct cdk2_fat_file_protocol *root, *file;
@@ -288,6 +367,53 @@ int main(void)
 			file->get_position(file, &position) == EFI_SUCCESS &&
 			position == sizeof(input),
 			"WriteEx did not commit allocation, data, metadata, and flush");
+		(void)file->close(file); (void)root->close(root);
+	}
+	{
+		struct cdk2_fat_file_protocol *root, *file;
+		UINT8 first[700], second[700]; UINT64 position = 0U;
+		struct cdk2_fat_file_io_token one = { (void *)9, EFI_NOT_READY,
+			sizeof(first), first };
+		struct cdk2_fat_file_io_token two = { (void *)8, EFI_NOT_READY,
+			sizeof(second), second };
+		unsigned guard = 0U;
+		format(&f, 1U);
+		memset(first, '1', sizeof(first)); memset(second, '2', sizeof(second));
+		(void)binding.mounts->simple_fs->protocol.open_volume(
+			&binding.mounts->simple_fs->protocol, &root);
+		(void)root->open(root, &file, L"ASYNC.TXT", 3U, 0U);
+		(void)file->write_ex(file, &one); (void)file->write_ex(file, &two);
+		while ((one.status == EFI_NOT_READY || two.status == EFI_NOT_READY) &&
+		       guard++ < 2048U) complete_disk(EFI_SUCCESS, 0);
+		(void)file->get_position(file, &position);
+		failures += expect(one.status == EFI_SUCCESS && two.status == EFI_SUCCESS &&
+			position == 1400U,
+			"queued extending writes did not snapshot state at queue head");
+		(void)file->close(file); (void)root->close(root);
+	}
+	{
+		struct cdk2_fat_file_protocol *root, *file;
+		UINT8 first[100], second[100]; UINT64 position = 0U;
+		struct cdk2_fat_file_io_token one = { (void *)9, EFI_NOT_READY,
+			sizeof(first), first };
+		struct cdk2_fat_file_io_token two = { (void *)8, EFI_NOT_READY,
+			sizeof(second), second };
+		unsigned guard = 0U; int failed = 0;
+		format(&f, 1U);
+		(void)binding.mounts->simple_fs->protocol.open_volume(
+			&binding.mounts->simple_fs->protocol, &root);
+		(void)root->open(root, &file, L"ASYNC.TXT", 3U, 0U);
+		(void)file->write_ex(file, &one); (void)file->write_ex(file, &two);
+		while ((one.status == EFI_NOT_READY || two.status == EFI_NOT_READY) &&
+		       guard++ < 2048U) {
+			if (!failed && disk2_operation == 1U) {
+				failed = 1; complete_disk(EFI_DEVICE_ERROR, 0);
+			} else complete_disk(EFI_SUCCESS, 0);
+		}
+		(void)file->get_position(file, &position);
+		failures += expect(one.status == EFI_DEVICE_ERROR && two.status == EFI_SUCCESS &&
+			position == 100U,
+			"queued write retained speculative position after prior failure");
 		(void)file->close(file); (void)root->close(root);
 	}
 	{
