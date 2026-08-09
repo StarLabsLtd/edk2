@@ -13,7 +13,12 @@ struct cdk2_fat_binding_ops {
 	EFI_STATUS (*unpublish)(void *, void *, const EFI_GUID *, void *);
 	EFI_STATUS (*allocate)(void *, UINTN, void **);
 	void (*release)(void *, void *);
+	EFI_STATUS (*signal)(void *, void *);
 };
+struct cdk2_fat_io_token { void *event; EFI_STATUS transaction_status; };
+struct cdk2_fat_binding;
+EFI_STATUS cdk2_fat_complete_io(const struct cdk2_fat_binding *binding,
+	struct cdk2_fat_io_token *token, EFI_STATUS status);
 
 struct cdk2_fat_mount {
 	struct cdk2_fat_mount *next;

@@ -15,6 +15,21 @@ const EFI_GUID cdk2_fat_disk_io_guid = { 0xce345171U, 0xba0bU, 0x11d2U,
 const EFI_GUID cdk2_fat_simple_fs_guid = { 0x964e5b22U, 0x6459U, 0x11d2U,
 	{ 0x8eU, 0x39U, 0x00U, 0xa0U, 0xc9U, 0x69U, 0x72U, 0x3bU } };
 
+EFI_STATUS cdk2_fat_complete_io(const struct cdk2_fat_binding *binding,
+	struct cdk2_fat_io_token *token, EFI_STATUS status)
+{
+	EFI_STATUS signal_status;
+	if (token == NULL)
+		return status;
+	token->transaction_status = status;
+	if (token->event == NULL)
+		return status;
+	if (binding == NULL || binding->ops == NULL || binding->ops->signal == NULL)
+		return EFI_INVALID_PARAMETER;
+	signal_status = binding->ops->signal(binding->context, token->event);
+	return EFI_ERROR(signal_status) ? signal_status : EFI_SUCCESS;
+}
+
 static uint64_t read_disk(void *context, uint64_t offset, size_t size,
 	void *buffer)
 {

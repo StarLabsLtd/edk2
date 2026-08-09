@@ -15,6 +15,7 @@ struct fixture {
 	uint8_t image[2][4096U * 512U];
 	unsigned opens, closes, publishes, unpublishes, allocations, releases;
 	unsigned fail_open, fail_publish, fail_unpublish, fail_close;
+	unsigned signals;
 };
 static struct fixture *active;
 
@@ -59,19 +60,25 @@ static EFI_STATUS allocate(void *context, UINTN size, void **buffer)
 { struct fixture *f = context; f->allocations++; *buffer = calloc(1U, size); return *buffer == NULL ? EFI_OUT_OF_RESOURCES : EFI_SUCCESS; }
 static void release(void *context, void *buffer)
 { struct fixture *f = context; f->releases++; free(buffer); }
+static EFI_STATUS signal(void *context, void *event)
+{ struct fixture *f = context; if (event == NULL) return EFI_INVALID_PARAMETER; f->signals++; return EFI_SUCCESS; }
 static int expect(int ok, const char *message)
 { if (!ok) fprintf(stderr, "FAT binding test: %s\n", message); return !ok; }
 
 int main(void)
 {
 	static const struct cdk2_fat_binding_ops ops = {
-		open_protocol, close_protocol, publish, unpublish, allocate, release
+		open_protocol, close_protocol, publish, unpublish, allocate, release, signal
 	};
 	struct fixture f = { 0 };
 	struct cdk2_fat_binding binding = { &ops, &f, NULL };
 	struct cdk2_fat_mount *first;
 	int failures = 0; unsigned id;
+	struct cdk2_fat_io_token token = { (void *)3, EFI_SUCCESS };
 	active = &f;
+	failures += expect(cdk2_fat_complete_io(&binding, &token, EFI_DEVICE_ERROR) ==
+		EFI_SUCCESS && token.transaction_status == EFI_DEVICE_ERROR &&
+		f.signals == 1U, "revision-2 completion did not publish status before signal");
 	for (id = 0U; id < 2U; id++) {
 		format(&f, id); f.media[id] = (struct cdk2_block_media) {
 			.media_id = id + 1U, .media_present = 1U, .block_size = 512U,
