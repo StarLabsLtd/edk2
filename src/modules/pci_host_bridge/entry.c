@@ -10,18 +10,46 @@ typedef uint64_t CDK2_MS_ABI allocate_fn(uint32_t, size_t, void **);
 typedef uint64_t CDK2_MS_ABI free_fn(void *);
 typedef uint64_t CDK2_MS_ABI locate_fn(const EFI_GUID *, void *, void **);
 typedef uint64_t CDK2_MS_ABI uninstall_fn(void *, const EFI_GUID *, void *, ...);
+typedef uint64_t CDK2_MS_ABI pages_fn(uint32_t, uint32_t, size_t, uint64_t *);
+typedef uint64_t CDK2_MS_ABI free_pages_fn(uint64_t, size_t);
 typedef uint64_t CDK2_MS_ABI gcd_allocate_fn(uint32_t, uint32_t, size_t,
 	uint64_t, uint64_t *, void *, void *);
 typedef uint64_t CDK2_MS_ABI gcd_free_fn(uint64_t, uint64_t);
 
 struct boot_services_view {
-	uint8_t before_allocate[64];
+	uint8_t before_allocate_pages[40];
+	pages_fn *allocate_pages;
+	free_pages_fn *free_pages;
+	uint8_t before_allocate[8];
 	allocate_fn *allocate_pool;
 	free_fn *free_pool;
-	uint8_t before_locate[240];
+	uint8_t before_stall[168];
+	cdk2_pci_stall_fn *stall;
+	uint8_t before_locate[64];
 	locate_fn *locate_protocol;
 	install_fn *install_multiple_protocols;
 	uninstall_fn *uninstall_multiple_protocols;
+};
+typedef char allocate_pages_offset_check[
+	offsetof(struct boot_services_view, allocate_pages) == 40 ? 1 : -1];
+typedef char stall_offset_check[
+	offsetof(struct boot_services_view, stall) == 248 ? 1 : -1];
+typedef char locate_offset_check[
+	offsetof(struct boot_services_view, locate_protocol) == 320 ? 1 : -1];
+typedef char uninstall_offset_check[
+	offsetof(struct boot_services_view, uninstall_multiple_protocols) == 336 ? 1 : -1];
+
+struct cpu_io_view {
+	struct { cdk2_pci_io_fn *read, *write; } mem, io;
+};
+
+struct iommu_view {
+	uint64_t revision;
+	void *set_attribute;
+	cdk2_pci_iommu_map_fn *map;
+	cdk2_pci_iommu_unmap_fn *unmap;
+	cdk2_pci_iommu_allocate_fn *allocate;
+	cdk2_pci_iommu_free_fn *free;
 };
 
 struct system_table_view {
@@ -84,6 +112,20 @@ static void *host_handle;
 static struct boot_services_view *boot_services;
 static struct gcd_context gcd;
 static uint64_t pci_express_base;
+static struct cdk2_pci_root_io root_io[CDK2_PCI_HOST_MAX_ROOTS];
+static void *root_handles[CDK2_PCI_HOST_MAX_ROOTS];
+
+#pragma pack(push, 1)
+struct root_device_path {
+	uint8_t acpi_type, acpi_subtype;
+	uint16_t acpi_length;
+	uint32_t hid, uid;
+	uint8_t end_type, end_subtype;
+	uint16_t end_length;
+};
+#pragma pack(pop)
+static struct root_device_path root_paths[CDK2_PCI_HOST_MAX_ROOTS];
+typedef char root_device_path_size_check[sizeof(struct root_device_path) == 16 ? 1 : -1];
 
 static const EFI_GUID hob_list_guid = {
 	0x7739f24c, 0x93d7, 0x11d4, { 0x9a, 0x3a, 0x00, 0x90, 0x27, 0x3f, 0xc1, 0x4d }
@@ -102,6 +144,18 @@ static const EFI_GUID pcd_protocol_guid = {
 };
 static const EFI_GUID pcd_info_protocol_guid = {
 	0x5be40f57, 0xfa68, 0x4610, { 0xbb, 0xbf, 0xe9, 0xc5, 0xfc, 0xda, 0xd3, 0x65 }
+};
+static const EFI_GUID cpu_io_protocol_guid = {
+	0xad61f191, 0xae5f, 0x4c0e, { 0xb9, 0xfa, 0xe8, 0x69, 0xd2, 0x88, 0xc6, 0x4f }
+};
+static const EFI_GUID iommu_protocol_guid = {
+	0x4e939de9, 0xd948, 0x4b0f, { 0x88, 0xed, 0xe6, 0xe1, 0xce, 0x51, 0x7c, 0x1e }
+};
+static const EFI_GUID root_io_protocol_guid = {
+	0x2f707ebb, 0x4a1a, 0x11d4, { 0x9a, 0x38, 0x00, 0x90, 0x27, 0x3f, 0xc1, 0x4d }
+};
+static const EFI_GUID device_path_protocol_guid = {
+	0x09576e91, 0x6d3f, 0x11d2, { 0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b }
 };
 
 static int is_pci_express_base_name(const char *name)
@@ -157,7 +211,8 @@ static uint64_t discover_pci_express_base(struct boot_services_view *boot,
 			}
 			*base = pcd->get64(token);
 			(void)boot->free_pool(description.pcd_name);
-			return *base == 0 ? EFI_UNSUPPORTED : EFI_SUCCESS;
+			return *base == 0 || (*base & 0xfffffffU) != 0 ||
+				*base > UINT64_MAX - 0xfffffffU ? EFI_UNSUPPORTED : EFI_SUCCESS;
 		}
 		if (description.pcd_name != NULL)
 			(void)boot->free_pool(description.pcd_name);
@@ -228,13 +283,38 @@ static int same_guid(const EFI_GUID *left, const EFI_GUID *right)
 
 static uint64_t CDK2_MS_ABI notify(void *self, size_t phase)
 {
+	static const uint8_t aperture_index[CDK2_PCI_RESOURCE_TYPES] = {
+		1, 2, 4, 3, 5
+	};
+	size_t root, type;
+	uint64_t status;
+
 	(void)self;
-	return cdk2_pci_host_notify(&host, (enum cdk2_pci_host_phase)phase);
+	status = cdk2_pci_host_notify(&host, (enum cdk2_pci_host_phase)phase);
+	if (status != EFI_SUCCESS)
+		return status;
+	if (phase == CDK2_PCI_FREE_RESOURCES)
+		for (root = 0; root < host.count; root++)
+			for (type = 0; type < CDK2_PCI_RESOURCE_TYPES; type++)
+				(void)cdk2_pci_root_io_set_resource(&root_io[root],
+					aperture_index[type], 0, 0, 0);
+	if (phase == CDK2_PCI_ALLOCATE_RESOURCES)
+		for (root = 0; root < host.count; root++)
+			for (type = 0; type < CDK2_PCI_RESOURCE_TYPES; type++) {
+				struct cdk2_pci_resource_request *request =
+					&host.request[root][type];
+
+				if (request->allocated)
+					(void)cdk2_pci_root_io_set_resource(&root_io[root],
+						aperture_index[type], request->base,
+						request->length, 1);
+			}
+	return EFI_SUCCESS;
 }
 
 static uint64_t CDK2_MS_ABI next_root(void *self, void **handle)
 {
-	uintptr_t index;
+	size_t index;
 	(void)self;
 
 	if (handle == NULL)
@@ -242,35 +322,44 @@ static uint64_t CDK2_MS_ABI next_root(void *self, void **handle)
 	if (*handle == NULL)
 		index = 0;
 	else {
-		index = (uintptr_t)*handle;
-		if (index == 0 || index > host.count)
+		for (index = 0; index < host.count; index++)
+			if (root_handles[index] == *handle)
+				break;
+		if (index == host.count)
 			return EFI_INVALID_PARAMETER;
+		index++;
 	}
 	if (index >= host.count)
 		return EFI_NOT_FOUND;
-	*handle = (void *)(index + 1U);
+	*handle = root_handles[index];
 	return EFI_SUCCESS;
 }
 
+static uint64_t root_index(void *handle, size_t *index);
+
 static uint64_t CDK2_MS_ABI attributes(void *self, void *handle, uint64_t *value)
 {
-	uintptr_t index = (uintptr_t)handle;
+	size_t index;
 	(void)self;
 
-	if (value == NULL || index == 0 || index > host.count)
+	if (value == NULL || root_index(handle, &index) != EFI_SUCCESS)
 		return EFI_INVALID_PARAMETER;
-	*value = host.root[index - 1U].allocation_attributes;
+	*value = host.root[index].allocation_attributes;
 	return EFI_SUCCESS;
 }
 
 static uint64_t root_index(void *handle, size_t *index)
 {
-	uintptr_t value = (uintptr_t)handle;
+	size_t candidate;
 
-	if (index == NULL || value == 0 || value > host.count)
+	if (index == NULL || handle == NULL)
 		return EFI_INVALID_PARAMETER;
-	*index = value - 1U;
-	return EFI_SUCCESS;
+	for (candidate = 0; candidate < host.count; candidate++)
+		if (root_handles[candidate] == handle) {
+			*index = candidate;
+			return EFI_SUCCESS;
+		}
+	return EFI_INVALID_PARAMETER;
 }
 
 static uint64_t allocate_descriptors(size_t count, void **configuration)
@@ -347,7 +436,8 @@ static uint64_t CDK2_MS_ABI set_bus(void *self, void *handle, void *configuratio
 		return EFI_INVALID_PARAMETER;
 	host.root[index].aperture[0].base = resource->minimum;
 	host.root[index].aperture[0].limit = limit;
-	return EFI_SUCCESS;
+	return cdk2_pci_root_io_set_resource(&root_io[index], 0,
+		resource->minimum, resource->address_length, 1);
 }
 
 static size_t resource_type(const struct acpi_resource *resource)
@@ -474,6 +564,94 @@ static struct resource_protocol protocol = {
 	notify, next_root, attributes, start_bus, set_bus, submit, proposed, preprocess
 };
 
+static void initialize_root_path(size_t index)
+{
+	root_paths[index].acpi_type = 2;
+	root_paths[index].acpi_subtype = 1;
+	root_paths[index].acpi_length = 12;
+	root_paths[index].hid = host.root[index].hid;
+	root_paths[index].uid = host.root[index].uid;
+	root_paths[index].end_type = 0x7f;
+	root_paths[index].end_subtype = 0xff;
+	root_paths[index].end_length = 4;
+}
+
+static void rollback_publication(struct boot_services_view *boot, size_t count)
+{
+	while (count != 0) {
+		count--;
+		(void)boot->uninstall_multiple_protocols(root_handles[count],
+			&device_path_protocol_guid, &root_paths[count],
+			&root_io_protocol_guid, &root_io[count], NULL);
+		root_handles[count] = NULL;
+	}
+	if (host_handle != NULL) {
+		(void)boot->uninstall_multiple_protocols(host_handle,
+			&resource_protocol_guid, &protocol, NULL);
+		host_handle = NULL;
+	}
+}
+
+static uint64_t publish_protocols(struct boot_services_view *boot)
+{
+	struct cdk2_pci_root_io_services services;
+	struct cpu_io_view *cpu = NULL;
+	struct iommu_view *iommu = NULL;
+	size_t index;
+	uint64_t status;
+
+	if (boot->locate_protocol == NULL || boot->uninstall_multiple_protocols == NULL ||
+	    boot->allocate_pages == NULL || boot->free_pages == NULL || boot->stall == NULL)
+		return EFI_UNSUPPORTED;
+	status = boot->locate_protocol(&cpu_io_protocol_guid, NULL, (void **)&cpu);
+	if (status != EFI_SUCCESS || cpu == NULL || cpu->mem.read == NULL ||
+	    cpu->mem.write == NULL || cpu->io.read == NULL || cpu->io.write == NULL)
+		return EFI_UNSUPPORTED;
+	(void)boot->locate_protocol(&iommu_protocol_guid, NULL, (void **)&iommu);
+	memset(&services, 0, sizeof(services));
+	services.cpu = cpu;
+	services.mem_read = cpu->mem.read;
+	services.mem_write = cpu->mem.write;
+	services.io_read = cpu->io.read;
+	services.io_write = cpu->io.write;
+	services.stall = boot->stall;
+	services.allocate_pages = boot->allocate_pages;
+	services.free_pages = boot->free_pages;
+	services.allocate_pool = boot->allocate_pool;
+	services.free_pool = boot->free_pool;
+	if (iommu != NULL) {
+		services.iommu = iommu;
+		services.iommu_map = iommu->map;
+		services.iommu_unmap = iommu->unmap;
+		services.iommu_allocate = iommu->allocate;
+		services.iommu_free = iommu->free;
+	}
+	memset(root_handles, 0, sizeof(root_handles));
+	host_handle = NULL;
+	status = boot->install_multiple_protocols(&host_handle,
+		&resource_protocol_guid, &protocol, NULL);
+	if (status != EFI_SUCCESS)
+		return status;
+	for (index = 0; index < host.count; index++) {
+		status = cdk2_pci_root_io_init(&root_io[index], &host.root[index],
+			pci_express_base, &services, host_handle, host.resource_assigned);
+		if (status != EFI_SUCCESS)
+			goto fail;
+		initialize_root_path(index);
+		status = boot->install_multiple_protocols(&root_handles[index],
+			&device_path_protocol_guid, &root_paths[index],
+			&root_io_protocol_guid, &root_io[index], NULL);
+		if (status != EFI_SUCCESS)
+			goto fail;
+	}
+	return EFI_SUCCESS;
+fail:
+	if (index < host.count)
+		root_handles[index] = NULL;
+	rollback_publication(boot, index);
+	return status;
+}
+
 uint64_t CDK2_MS_ABI cdk2_pci_host_bridge_entry(void *image, void *system)
 {
 	struct system_table_view *table = system;
@@ -518,8 +696,7 @@ uint64_t CDK2_MS_ABI cdk2_pci_host_bridge_entry(void *image, void *system)
 			if (status != EFI_SUCCESS)
 				return status;
 			boot_services = table->boot;
-			return table->boot->install_multiple_protocols(&host_handle,
-				&resource_protocol_guid, &protocol, NULL);
+			return publish_protocols(table->boot);
 		}
 		hob = (struct hob_header *)((uint8_t *)hob + hob->length);
 	}

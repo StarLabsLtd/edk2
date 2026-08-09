@@ -27,13 +27,17 @@ three exact Host Bridge Resource Allocation protocol methods. The standalone
 package preserves GUID, `0x1108e` envelope, UI/version strings, file type, and
 the admitted DEPEX byte-for-byte.
 
-This is not ready to replace the retained driver. The ACPI resource-descriptor
-methods (`StartBusEnumeration`, `SetBusNumbers`, `SubmitResources`, and
-`GetProposedResources`) still return `EFI_UNSUPPORTED`; GCD allocation,
-translation-aware 64-bit fallback, conflict reporting, IOMMU integration, and
-per-root `EFI_PCI_ROOT_BRIDGE_IO_PROTOCOL` publication remain. No FV replacement
-target is provided until those semantics and hardware-backed CPU I/O paths are
-complete.
+The subsequent inventory-neutral slices implement the ACPI resource methods,
+GCD allocation and rollback, and a real handle for every root. Each root handle
+publishes an ACPI HID DevicePath and `EFI_PCI_ROOT_BRIDGE_IO_PROTOCOL` together.
+Memory and I/O operations are CPU I/O2-backed; PCI configuration follows the
+admitted range below. DMA delegates to the optional IOMMU protocol and otherwise
+uses identity mappings or stable-compatible below-4-GiB bounce mappings with
+directional copies. Root publication is atomic: failure removes previously
+installed roots in reverse order and then removes the host protocol. The
+stable202302 host-bridge DXE is not a Driver Binding driver and has no Stop or
+Unload lifecycle; therefore no unsupported teardown protocol is advertised.
+No FV replacement or inventory wiring is provided by this lane.
 
 ## Admitted PCI configuration range
 

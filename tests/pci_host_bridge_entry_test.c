@@ -12,16 +12,49 @@ uint64_t CDK2_MS_ABI cdk2_pci_host_bridge_entry(void *, void *);
 static void *installed;
 static unsigned int allocations, frees, installs;
 static int provide_pcd;
+static unsigned int uninstalls;
+static unsigned int fail_install_on;
+static void *published_path;
 
 static uint64_t CDK2_MS_ABI install(void **handle, const EFI_GUID *guid,
 	void *interface, ...)
 {
-	(void)guid;
-	*handle = (void *)0x55;
-	installed = interface;
+	if (fail_install_on != 0 && installs + 1U == fail_install_on) {
+		installs++;
+		return EFI_OUT_OF_RESOURCES;
+	}
+	*handle = (void *)(uintptr_t)(0x55 + installs);
+	if (guid->data1 == 0xcf8034be)
+		installed = interface;
+	if (guid->data1 == 0x09576e91) {
+		published_path = interface;
+	}
 	installs++;
 	return EFI_SUCCESS;
 }
+
+static uint64_t CDK2_MS_ABI uninstall(void *handle, const EFI_GUID *guid,
+	void *interface, ...)
+{
+	(void)handle; (void)guid; (void)interface;
+	uninstalls++;
+	return EFI_SUCCESS;
+}
+
+static uint64_t CDK2_MS_ABI pages(uint32_t type, uint32_t memory, size_t count,
+	uint64_t *address)
+{ (void)type; (void)memory; (void)count; (void)address; return EFI_SUCCESS; }
+static uint64_t CDK2_MS_ABI free_page(uint64_t address, size_t count)
+{ (void)address; (void)count; return EFI_SUCCESS; }
+static uint64_t CDK2_MS_ABI delay(size_t microseconds)
+{ (void)microseconds; return EFI_SUCCESS; }
+static uint64_t CDK2_MS_ABI cpu_access(void *self, size_t width,
+	uint64_t address, size_t count, void *buffer)
+{ (void)self; (void)width; (void)address; (void)count; (void)buffer; return EFI_SUCCESS; }
+struct cpu_view { struct { void *read, *write; } mem, io; };
+static struct cpu_view cpu = {
+	{ cpu_access, cpu_access }, { cpu_access, cpu_access }
+};
 
 static uint64_t CDK2_MS_ABI allocate(uint32_t type, size_t size, void **buffer)
 {
@@ -58,7 +91,9 @@ static uint64_t CDK2_MS_ABI gcd_free(uint64_t base, uint64_t length)
 }
 
 struct boot_view {
-	uint8_t pad[64]; void *allocate, *release; uint8_t before_locate[240];
+	uint8_t pad[40]; void *pages, *free_pages; uint8_t before_pool[8];
+	void *allocate, *release; uint8_t before_stall[168]; void *stall;
+	uint8_t before_locate[64];
 	void *locate, *install, *uninstall;
 };
 struct config_view { EFI_GUID guid; void *table; };
@@ -139,6 +174,12 @@ static uint64_t CDK2_MS_ABI locate(const EFI_GUID *guid, void *registration,
 	void **interface)
 {
 	(void)registration;
+	if (guid->data1 == 0xad61f191) {
+		*interface = &cpu;
+		return EFI_SUCCESS;
+	}
+	if (guid->data1 == 0x4e939de9)
+		return EFI_NOT_FOUND;
 	if (!provide_pcd)
 		return EFI_NOT_FOUND;
 	if (guid->data1 == 0x11b34006)
@@ -194,10 +235,14 @@ int main(void)
 	hob.end.type = 0xffff;
 	hob.end.length = sizeof(hob.end);
 	memset(&boot, 0, sizeof(boot));
+	boot.pages = pages;
+	boot.free_pages = free_page;
 	boot.allocate = allocate;
 	boot.release = release;
+	boot.stall = delay;
 	boot.locate = locate;
 	boot.install = install;
+	boot.uninstall = uninstall;
 	memset(&dxe, 0, sizeof(dxe));
 	dxe.allocate_memory = gcd_allocate;
 	dxe.free_memory = gcd_free;
@@ -212,7 +257,9 @@ int main(void)
 	system.count = 2;
 	system.tables = config;
 	failures += expect(cdk2_pci_host_bridge_entry((void *)0x44, &system) == EFI_SUCCESS &&
-		installed != NULL, "valid root-bridge hob was not published");
+		installed != NULL && published_path != NULL &&
+		*(uint8_t *)published_path == 2,
+		"host, root I/O, and ACPI device path were not atomically published");
 	protocol = installed;
 	failures += expect(protocol->next(protocol, &root) == EFI_SUCCESS && root != NULL &&
 		protocol->attributes(protocol, root, &attributes) == EFI_SUCCESS &&
@@ -221,11 +268,11 @@ int main(void)
 	failures += expect(protocol->notify(protocol, CDK2_PCI_BEGIN_BUS_ALLOCATION) ==
 		EFI_SUCCESS && protocol->notify(protocol, CDK2_PCI_BEGIN_ENUMERATION) ==
 		EFI_NOT_READY, "published phase ABI did not enforce restart semantics");
-	failures += expect(protocol->start_bus(protocol, (void *)1, &configuration) ==
+	failures += expect(protocol->start_bus(protocol, root, &configuration) ==
 		EFI_SUCCESS && ((struct resource_view *)configuration)->type == 2 &&
 		((struct end_view *)((struct resource_view *)configuration + 1))->descriptor ==
 		0x79, "bus-enumeration descriptor was not produced");
-	failures += expect(protocol->set_bus(protocol, (void *)1, configuration) ==
+	failures += expect(protocol->set_bus(protocol, root, configuration) ==
 		EFI_SUCCESS, "valid bus range was not accepted");
 	(void)release(configuration);
 	{
@@ -239,11 +286,11 @@ int main(void)
 		request.resource.maximum = 0xfff;
 		request.resource.address_length = 0x100;
 		request.end.descriptor = 0x79;
-		failures += expect(protocol->submit(protocol, (void *)1, &request) ==
+		failures += expect(protocol->submit(protocol, root, &request) ==
 			EFI_SUCCESS && protocol->notify(protocol,
 			CDK2_PCI_ALLOCATE_RESOURCES) == EFI_SUCCESS && allocations == 1,
 			"descriptor submission did not reserve through GCD");
-		failures += expect(protocol->proposed(protocol, (void *)1,
+		failures += expect(protocol->proposed(protocol, root,
 			&configuration) == EFI_SUCCESS &&
 			((struct resource_view *)configuration)[1].type == 0 &&
 			((struct resource_view *)configuration)[1].translation == 0,
@@ -266,10 +313,21 @@ int main(void)
 		unsigned int before = installs;
 	failures += expect(cdk2_pci_host_bridge_entry((void *)0x44, &system) ==
 		EFI_UNSUPPORTED && installs == before,
-		"extended config without ECAM PCD was partially published");
+		"extended config without platform base was partially published");
 	}
 	provide_pcd = 1;
 	failures += expect(cdk2_pci_host_bridge_entry((void *)0x44, &system) ==
-		EFI_SUCCESS, "generated segment-zero ECAM PCD was not consumed");
+		EFI_SUCCESS, "generated segment-zero configuration base was not consumed");
+	hob.payload.bridge.no_extended_config = 1;
+	provide_pcd = 0;
+	{
+		unsigned int before_uninstalls = uninstalls;
+
+		fail_install_on = installs + 2U;
+		failures += expect(cdk2_pci_host_bridge_entry((void *)0x44, &system) ==
+			EFI_OUT_OF_RESOURCES && uninstalls == before_uninstalls + 1U,
+			"root publication failure did not roll back host publication");
+		fail_install_on = 0;
+	}
 	return failures == 0 ? 0 : 1;
 }
