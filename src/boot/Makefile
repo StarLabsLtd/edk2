@@ -32,6 +32,9 @@ CDK2_NATIVE_SATA_OBJS := $(CDK2_NATIVE_BUILD_DIR)/sata-model.o \
 	$(CDK2_NATIVE_BUILD_DIR)/sata-entry.o
 CDK2_NATIVE_SATA_PE ?= $(CDK2_NATIVE_BUILD_DIR)/SataController.efi
 CDK2_NATIVE_SATA_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/SataController.ffs
+CDK2_NATIVE_SATA_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-sata-controller.fv
+CDK2_NATIVE_SATA_QEMU_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/sata-qemu.o
+CDK2_NATIVE_SATA_QEMU_PE ?= $(CDK2_NATIVE_BUILD_DIR)/sata-qemu.efi
 CDK2_NATIVE_PCD_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-pcd-test
 CDK2_NATIVE_PCI_HOST_BRIDGE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-pci-host-bridge-test
 CDK2_NATIVE_PCI_HOST_BRIDGE_ENTRY_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-pci-host-bridge-entry-test
@@ -359,6 +362,7 @@ CDK2_NATIVE_HOST_TOOLS := \
 	$(CDK2_NATIVE_SATA_ENTRY_TEST) \
 	$(CDK2_NATIVE_SATA_PACKAGE_TEST) \
 	$(CDK2_NATIVE_SATA_FFS) \
+	$(CDK2_NATIVE_SATA_QEMU_PE) \
 	$(CDK2_NATIVE_PCD_TEST) \
 	$(CDK2_NATIVE_PCI_HOST_BRIDGE_TEST) \
 	$(CDK2_NATIVE_PCI_HOST_BRIDGE_ENTRY_TEST) \
@@ -1845,6 +1849,25 @@ native-pci-bus-fv:
 	@printf '%s\n' 'native PCI Bus: disabled by Kconfig'
 endif
 
+ifeq ($(CONFIG_CDK2_NATIVE_SATA_CONTROLLER),y)
+CDK2_NATIVE_PRE_SATA_FV := $(CDK2_NATIVE_FINAL_FV)
+CDK2_NATIVE_FINAL_FV := $(CDK2_NATIVE_SATA_FV)
+
+$(CDK2_NATIVE_SATA_FV): $(CDK2_NATIVE_PRE_SATA_FV) $(CDK2_NATIVE_SATA_FFS) \
+		$(CDK2_NATIVE_FVREPLACE)
+	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_PRE_SATA_FV)" 0x30e500 \
+		"$(CDK2_NATIVE_SATA_FFS)" "$@"
+
+.PHONY: native-sata-controller-fv
+native-sata-controller-fv: $(CDK2_NATIVE_SATA_FV)
+	@"$(CDK2_NATIVE_FVINFO)" "$<" | grep -q \
+		'^820c59bb-274c-43b2-83ea-dac673035a59[[:space:]]0x0030e500[[:space:]]0x0000604e[[:space:]]0x07[[:space:]]SataController$$'
+	@printf '%s\n' "native SATA controller FV: $<"
+else
+native-sata-controller-fv:
+	@printf '%s\n' 'native SATA controller: disabled by Kconfig'
+endif
+
 ifeq ($(CONFIG_CDK2_NATIVE_ENGLISH),y)
 $(CDK2_NATIVE_ENGLISH_OBJ): $(CDK2_DIR)/src/modules/english/english.c $(CDK2_DIR)/include/cdk2/english.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
@@ -2173,6 +2196,25 @@ $(CDK2_NATIVE_SATA_FFS): $(CDK2_NATIVE_SATA_PE) $(CDK2_NATIVE_FFSBUILD)
 
 .PHONY: native-sata-controller-package
 native-sata-controller-package: $(CDK2_NATIVE_SATA_FFS)
+	@"$(CDK2_NATIVE_SATA_PACKAGE_TEST)" "$<"
+
+.PHONY: native-sata-controller-oracle
+native-sata-controller-oracle: $(CDK2_NATIVE_SATA_QEMU_PE)
+	@printf '%s\n' "native SATA controller oracle: $<"
+
+$(CDK2_NATIVE_SATA_QEMU_OBJ): $(CDK2_DIR)/tests/sata_qemu.c \
+		$(CDK2_DIR)/include/cdk2/sata_controller.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
+		-mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args \
+		$(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+
+$(CDK2_NATIVE_SATA_QEMU_PE): $(CDK2_NATIVE_SATA_QEMU_OBJ) \
+		$(CDK2_DIR)/tests/sata_qemu.ld $(CDK2_NATIVE_PERELOCCHECK)
+	@$(CDK2_NATIVE_LD) -mi386pep --subsystem 10 --entry sata_qemu_entry --image-base 0 \
+		--section-alignment 0x1000 --file-alignment 0x1000 --build-id=none \
+		--no-insert-timestamp -s --nxcompat -T "$(CDK2_DIR)/tests/sata_qemu.ld" \
+		-o "$@" "$<"
+	@"$(CDK2_NATIVE_PERELOCCHECK)" --subsystem 10 "$@"
 
 $(CDK2_NATIVE_PCD_TEST): $(CDK2_DIR)/tests/pcd_test.c $(CDK2_DIR)/src/modules/pcd/pcd.c $(CDK2_DIR)/src/modules/pcd/entry.c $(CDK2_DIR)/include/cdk2/pcd.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" $(CDK2_DIR)/tests/pcd_test.c $(CDK2_DIR)/src/modules/pcd/pcd.c $(CDK2_DIR)/src/modules/pcd/entry.c

@@ -259,6 +259,14 @@ config CDK2_NATIVE_PCI_BUS
 	  Enumerate PCI roots and publish per-function Device Path, PCI I/O and
 	  option-ROM Load File protocols using the native host bridge services.
 
+config CDK2_NATIVE_SATA_CONTROLLER
+	bool "Build native SATA controller initialization"
+	default y
+	depends on CDK2_NATIVE_PCI_BUS
+	help
+	  Publish IDE Controller Init mode negotiation for admitted PCI IDE and
+	  AHCI controllers after native PCI enumeration.
+
 config CDK2_NATIVE_STATUS_CODE_HANDLER
 	bool "Build the native release status-code handler"
 	default y
