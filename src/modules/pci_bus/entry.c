@@ -14,6 +14,7 @@ typedef EFI_STATUS CDK2_MS_ABI install_fn(void **, const EFI_GUID *, void *, ...
 typedef EFI_STATUS CDK2_MS_ABI uninstall_fn(void *, const EFI_GUID *, void *, ...);
 typedef EFI_STATUS CDK2_MS_ABI image_unload_fn(void *);
 typedef EFI_STATUS CDK2_MS_ABI image_start_fn(void *, UINTN *, CHAR16 * *);
+typedef EFI_STATUS CDK2_MS_ABI connect_fn(void *, void *, void *, BOOLEAN);
 typedef EFI_STATUS CDK2_MS_ABI locate_fn(const EFI_GUID *, void *, void **);
 typedef EFI_STATUS CDK2_MS_ABI load_image_fn(BOOLEAN, void *, void *, void *,
 	UINTN, void **);
@@ -54,7 +55,8 @@ struct boot_services_view {
 	UINT8 before_handle[72]; handle_fn * handle_protocol;
 	UINT8 before_load[40]; load_image_fn * load_image;
 	image_start_fn *start_image; UINT8 before_unload[8]; image_unload_fn * unload_image;
-	UINT8 before_open[48]; open_fn * open_protocol; close_fn * close_protocol;
+	UINT8 before_connect[32]; connect_fn * connect_controller;
+	void *disconnect_controller; open_fn * open_protocol; close_fn * close_protocol;
 	UINT8 before_locate[24]; locate_fn * locate_protocol;
 	install_fn *install_multiple;
 	uninstall_fn *uninstall_multiple;
@@ -69,6 +71,8 @@ typedef char load_offset_check[offsetof(struct boot_services_view,
 	load_image) == 200 ? 1 : -1];
 typedef char unload_offset_check[offsetof(struct boot_services_view,
 	unload_image) == 224 ? 1 : -1];
+typedef char connect_offset_check[offsetof(struct boot_services_view,
+	connect_controller) == 264 ? 1 : -1];
 typedef char install_offset_check[offsetof(struct boot_services_view,
 	install_multiple) == 328 ? 1 : -1];
 typedef char locate_offset_check[offsetof(struct boot_services_view,
@@ -202,9 +206,8 @@ static int cfg_read(void *opaque, uint8_t bus, uint8_t device, uint8_t function,
 	UINTN root_width = width == 1U ? 0U : (width == 2U ? 1U : 2U);
 	if (width != 1U && width != 2U && width != 4U)
 		return -1;
-	if (EFI_ERROR(root->pci.read(root, root_width, address, 1, value))) {
+	if (EFI_ERROR(root->pci.read(root, root_width, address, 1, value)))
 		return -1;
-	}
 	return 0;
 }
 static int cfg_write(void *opaque, uint8_t bus, uint8_t device, uint8_t function,
@@ -1255,6 +1258,11 @@ static EFI_STATUS global_start(void *opaque, void *controller, void *remaining)
 		}
 		finish_discovery(entry, roots[published].handle, 1);
 	}
+	/* Stable PciBus recursively connects every newly produced child. */
+	if (entry->boot->connect_controller != NULL)
+		for (UINTN child = 0; child < entry->driver.binding.child_count; child++)
+			(void)entry->boot->connect_controller(
+				entry->driver.binding.children[child]->handle, NULL, NULL, 1U);
 	entry->driver.binding.services.release_function = release_function;
 	entry->global_started = 1;
 	for (UINTN root = 0; root < count; root++) {

@@ -32,7 +32,8 @@ struct fake_boot {
 	uint8_t before_handle[72]; void *handle_protocol;
 	uint8_t before_load[40]; void *load_image;
 	void *start_image; uint8_t before_unload[8]; void *unload_image;
-	uint8_t before_open[48]; void *open_protocol, *close_protocol;
+	uint8_t before_connect[32]; void *connect_controller, *disconnect_controller;
+	void *open_protocol, *close_protocol;
 	uint8_t before_locate[24]; void *locate_protocol;
 	void *install_multiple, *uninstall_multiple;
 };
@@ -42,7 +43,8 @@ struct fake_system {
 };
 struct fixture {
 	struct fake_boot boot; struct fake_system system; struct loaded_image loaded;
-	unsigned int installs, uninstalls, opens, closes; EFI_STATUS install_status;
+	unsigned int installs, uninstalls, opens, closes, connects;
+	EFI_STATUS install_status, connect_status;
 	unsigned int next_root, submits, proposed, phase_count;
 	unsigned int root_limit;
 	unsigned int fail_proposed;
@@ -76,19 +78,23 @@ static EFI_STATUS CDK2_MS_ABI pool(uint32_t type, UINTN size, void **buffer)
 { (void)type; *buffer = calloc(1, size); return *buffer == NULL ? 9 : 0; }
 static EFI_STATUS CDK2_MS_ABI release(void *buffer)
 { free(buffer); return 0; }
-static EFI_STATUS CDK2_MS_ABI handle(void *object, const EFI_GUID * guid, void **interface)
+static EFI_STATUS CDK2_MS_ABI handle(void *object, const EFI_GUID *guid, void **interface)
 { (void)guid; *interface = object == active ? (void *)&active->loaded : active->path;
 	return 0; }
-static EFI_STATUS CDK2_MS_ABI open_protocol(void *handle, const EFI_GUID * guid,
+static EFI_STATUS CDK2_MS_ABI open_protocol(void *handle, const EFI_GUID *guid,
 	void **interface, void *agent, void *controller, uint32_t attributes)
 { (void)handle; (void)guid; (void)agent; (void)controller; (void)attributes;
 	active->opens++; *interface = &active->root; return 0; }
-static EFI_STATUS CDK2_MS_ABI close_protocol(void *handle, const EFI_GUID * guid,
+static EFI_STATUS CDK2_MS_ABI close_protocol(void *handle, const EFI_GUID *guid,
 	void *agent, void *controller)
 { (void)handle; (void)guid; (void)agent; (void)controller; active->closes++; return 0; }
-static EFI_STATUS CDK2_MS_ABI install(void **handle, const EFI_GUID * guid,
+static EFI_STATUS CDK2_MS_ABI connect_controller(void *handle, void *drivers,
+	void *remaining, BOOLEAN recursive)
+{ (void)handle; (void)drivers; (void)remaining; CHECK(recursive == 1U);
+	active->connects++; return active->connect_status; }
+static EFI_STATUS CDK2_MS_ABI install(void **handle, const EFI_GUID *guid,
 	void *interface, ...)
-{ __builtin_ms_va_list arguments; const EFI_GUID * next;
+{ __builtin_ms_va_list arguments; const EFI_GUID *next;
 	active->installs++;
 	*handle = (void *)(UINTN)(0x1000U + active->installs);
 	if (active->fail_install_number == active->installs)
@@ -107,7 +113,7 @@ static EFI_STATUS CDK2_MS_ABI install(void **handle, const EFI_GUID * guid,
 	}
 	__builtin_ms_va_end(arguments);
 	return active->install_status; }
-static EFI_STATUS CDK2_MS_ABI uninstall(void *handle, const EFI_GUID * guid,
+static EFI_STATUS CDK2_MS_ABI uninstall(void *handle, const EFI_GUID *guid,
 	void *interface, ...)
 { (void)handle; (void)guid; (void)interface; active->uninstalls++;
 	return active->fail_uninstall_number == active->uninstalls ?
@@ -137,7 +143,7 @@ static EFI_STATUS CDK2_MS_ABI configuration(void *root, void **resources)
 static EFI_STATUS CDK2_MS_ABI notify(void *host, UINTN phase)
 { (void)host; active->phases[active->phase_count++] = phase; return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI host_attributes(void *host, void *root,
-	UINT64 * attributes)
+	UINT64 *attributes)
 { (void)host; (void)root; *attributes = 1U; return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI next_root(void *host, void **root)
 { uintptr_t current = (uintptr_t)*root; (void)host;
@@ -179,7 +185,7 @@ static EFI_STATUS CDK2_MS_ABI get_proposed(void *host, void *root, void **resour
 		active->proposed++;
 	return EFI_SUCCESS;
 }
-static EFI_STATUS CDK2_MS_ABI locate(const EFI_GUID * guid, void *registration,
+static EFI_STATUS CDK2_MS_ABI locate(const EFI_GUID *guid, void *registration,
 	void **interface)
 { (void)registration; if (guid->data1 == 0xaa0e8bc1U) {
 		if (!active->enable_hotplug)
@@ -188,7 +194,7 @@ static EFI_STATUS CDK2_MS_ABI locate(const EFI_GUID * guid, void *registration,
 	}
 	*interface = &active->host; return EFI_SUCCESS; }
 struct test_hpc_location { void *hpc_path, *hpb_path; };
-static EFI_STATUS CDK2_MS_ABI hpc_list(void *protocol, UINTN * count,
+static EFI_STATUS CDK2_MS_ABI hpc_list(void *protocol, UINTN *count,
 	struct test_hpc_location **locations)
 { (void)protocol; *locations = calloc(1, sizeof(**locations));
 	if (*locations == NULL)
@@ -203,7 +209,7 @@ static EFI_STATUS CDK2_MS_ABI hpc_initialize(void *protocol, void *path,
 		return EFI_DEVICE_ERROR;
 	*state = 3; active->hpc_inits++; return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI hpc_padding(void *protocol, void *path,
-	uint64_t address, uint16_t *state, void **padding, UINTN * attributes)
+	uint64_t address, uint16_t *state, void **padding, UINTN *attributes)
 { uint8_t *bytes = calloc(1, 48); (void)protocol; (void)path; (void)address; (void)state;
 	if (active->fail_hpc_padding)
 		return EFI_DEVICE_ERROR;
@@ -222,6 +228,7 @@ static void initialize(struct fixture *fixture)
 	fixture->boot.handle_protocol = handle;
 	fixture->boot.open_protocol = open_protocol;
 	fixture->boot.close_protocol = close_protocol;
+	fixture->boot.connect_controller = connect_controller;
 	fixture->boot.locate_protocol = locate;
 	fixture->boot.install_multiple = install;
 	fixture->boot.uninstall_multiple = uninstall;
@@ -259,6 +266,7 @@ int main(void)
 	CHECK(offsetof(struct fake_boot, load_image) == 200);
 	CHECK(offsetof(struct fake_boot, start_image) == 208);
 	CHECK(offsetof(struct fake_boot, unload_image) == 224);
+	CHECK(offsetof(struct fake_boot, connect_controller) == 264);
 	CHECK(offsetof(struct fake_boot, locate_protocol) == 320);
 	CHECK(offsetof(struct fake_boot, install_multiple) == 328);
 	CHECK(offsetof(struct fake_boot, uninstall_multiple) == 336);
@@ -290,8 +298,10 @@ int main(void)
 	CHECK(fixture.loaded.unload(&fixture) == EFI_SUCCESS);
 	CHECK(fixture.uninstalls == 1 && fixture.loaded.unload == old_unload);
 	initialize(&fixture); fixture.enable_hotplug = 1; fixture.root_limit = 1;
+	fixture.connect_status = EFI_DEVICE_ERROR;
 	CHECK(cdk2_pci_bus_entry(&fixture, &fixture.system) == EFI_SUCCESS);
 	CHECK(fixture.driver->start(fixture.driver, (void *)1, NULL) == EFI_SUCCESS);
+	CHECK(fixture.connects == fixture.visible_devices);
 	CHECK(fixture.hpc_lists == 1 && fixture.hpc_inits == 1 &&
 		fixture.hpc_paddings == 1);
 	CHECK(fixture.hotplug_request != NULL);
