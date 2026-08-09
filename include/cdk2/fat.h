@@ -6,6 +6,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+struct cdk2_unicode_collation;
+
 #define CDK2_FAT12 12U
 #define CDK2_FAT16 16U
 #define CDK2_FAT32 32U
@@ -30,6 +32,7 @@ struct cdk2_fat_volume {
 	uint16_t fsinfo_sector;
 	uint8_t sectors_per_cluster, fat_count, fat_type;
 	uint8_t read_only, write_protected, media_changed;
+	struct cdk2_unicode_collation *collation;
 };
 
 struct cdk2_fat_change {

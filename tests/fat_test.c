@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 
 #include <cdk2/fat.h>
+#include <cdk2/english.h>
 #include <uefi.h>
 #include <stdio.h>
 #include <string.h>
@@ -14,6 +15,18 @@ struct mutation_medium {
 	uint8_t bytes[3072];
 	unsigned int writes, fail_write, flushes;
 	uint64_t flush_status;
+};
+
+static CHAR16 latin_upper(CHAR16 value)
+{ return value == 0xe4U ? 0xc4U : (value >= 'a' && value <= 'z' ? value - 0x20U : value); }
+static INTN CDK2_MS_ABI latin_collate(struct cdk2_unicode_collation *self,
+	CHAR16 *left, CHAR16 *right)
+{ (void)self; while (latin_upper(*left) == latin_upper(*right) && *left != 0U) {
+	left++; right++; } return latin_upper(*left) - latin_upper(*right); }
+static VOID CDK2_MS_ABI latin_str_upr(struct cdk2_unicode_collation *self, CHAR16 *text)
+{ (void)self; while (*text != 0U) { *text = latin_upper(*text); text++; } }
+static struct cdk2_unicode_collation latin_collation = {
+	.stri_coll = latin_collate, .str_upr = latin_str_upr
 };
 
 static void write16(uint8_t *data, uint16_t value)
@@ -153,6 +166,7 @@ int main(void)
 		.bytes_per_sector = 4U, .sectors_per_cluster = 1U,
 		.fat_type = CDK2_FAT16
 	};
+	volume.collation = &latin_collation;
 	write16(chain.fat + 4U, 3U); write16(chain.fat + 6U, 0xffffU);
 	memcpy(chain.data, "ABCDEFGH", 8U); size = 6U;
 	failures += expect(cdk2_fat_read_file(&volume, 2U, 8U, 1U, &size, output) ==
@@ -210,6 +224,7 @@ int main(void)
 		.root_cluster = 2U, .bytes_per_sector = 32U, .sectors_per_cluster = 1U,
 		.fat_type = CDK2_FAT32
 	};
+	volume.collation = &latin_collation;
 	write32(chain.fat + 8U, 0x0fffffffU);
 	write32(chain.fat + 16U, 0x0fffffffU);
 	write32(chain.fat + 20U, 0x0fffffffU);
@@ -226,6 +241,14 @@ int main(void)
 	failures += expect(file.parent_directory_cluster == 4U &&
 		file.record_index == 0U && file.record_count == 1U,
 		"opened file did not retain its exact parent directory record range");
+	chain.data[64U] = 0xc4U;
+	failures += expect(cdk2_fat_open(&root, (const uint16_t[]){
+		'D', 'I', 'R', '/', 0xe4U, 'E', 'S', 'T', '.', 'T', 'X', 'T', 0
+	}, &file) == EFI_SUCCESS, "Unicode Collation was not used for non-ASCII lookup");
+	chain.data[64U] = 'N';
+	(void)cdk2_fat_open(&root, (const uint16_t[]){
+		'D', 'I', 'R', '/', 'N', 'E', 'S', 'T', '.', 'T', 'X', 'T', 0
+	}, &file);
 	size = 0U;
 	failures += expect(cdk2_fat_file_get_info(&file, &size, NULL) ==
 		EFI_BUFFER_TOO_SMALL && size == offsetof(struct cdk2_fat_file_info, name) +

@@ -12,6 +12,7 @@ typedef EFI_STATUS CDK2_MS_ABI set_timer_fn(void *, UINT32, UINT64);
 typedef EFI_STATUS CDK2_MS_ABI close_event_fn(void *);
 typedef EFI_STATUS CDK2_MS_ABI open_fn(void *, const EFI_GUID *, void **, void *, void *, UINT32);
 typedef EFI_STATUS CDK2_MS_ABI close_fn(void *, const EFI_GUID *, void *, void *);
+typedef EFI_STATUS CDK2_MS_ABI locate_protocol_fn(const EFI_GUID *, void *, void **);
 typedef EFI_STATUS CDK2_MS_ABI install_fn(void **, ...);
 typedef EFI_STATUS CDK2_MS_ABI uninstall_fn(void *, ...);
 struct boot_view { UINT8 hdr[24]; void *raise_tpl, *restore_tpl, *allocate_pages,
@@ -24,8 +25,9 @@ struct boot_view { UINT8 hdr[24]; void *raise_tpl, *restore_tpl, *allocate_pages
 	*start_image, *exit, *unload_image, *exit_boot_services,
 	*get_next_monotonic_count, *stall, *set_watchdog_timer, *connect_controller,
 	*disconnect_controller; open_fn *open_protocol; close_fn *close_protocol;
-	void *open_protocol_information, *protocols_per_handle, *locate_handle_buffer,
-	*locate_protocol; install_fn *install_multiple; uninstall_fn *uninstall_multiple; };
+	void *open_protocol_information, *protocols_per_handle, *locate_handle_buffer;
+	locate_protocol_fn *locate_protocol; install_fn *install_multiple;
+	uninstall_fn *uninstall_multiple; };
 struct system_view { UINT8 before_boot[96]; struct boot_view *boot; };
 struct driver_view;
 typedef EFI_STATUS CDK2_MS_ABI driver_supported_fn(struct driver_view *, void *, void *);
@@ -48,6 +50,10 @@ static const EFI_GUID component_guid = { 0x107a772cU, 0xd5e1U, 0x11d4U,
 	{ 0x9aU, 0x46U, 0x00U, 0x90U, 0x27U, 0x3fU, 0xc1U, 0x4dU } };
 static const EFI_GUID component2_guid = { 0x6a7a5cffU, 0xe8d9U, 0x4f70U,
 	{ 0xbaU, 0xdaU, 0x75U, 0xabU, 0x30U, 0x25U, 0xceU, 0x14U } };
+static const EFI_GUID collation2_guid = { 0xa4c751fcU, 0x23aeU, 0x4c3eU,
+	{ 0x92U, 0xe9U, 0x49U, 0x64U, 0xcfU, 0x63U, 0xf3U, 0x49U } };
+static const EFI_GUID collation_guid = { 0x1d85cd7fU, 0xf43dU, 0x11d2U,
+	{ 0x9aU, 0x0cU, 0x00U, 0x90U, 0x27U, 0x3fU, 0xc1U, 0x4dU } };
 static CHAR16 fat_name[] = L"CDK2 FAT File System Driver";
 static struct entry_context *entry_of(struct driver_view *d)
 { return (struct entry_context *)((UINT8 *)d - offsetof(struct entry_context, driver)); }
@@ -105,7 +111,19 @@ static EFI_STATUS CDK2_MS_ABI supported(struct driver_view *d, void *controller,
 	(void)op_close(e, controller, &cdk2_fat_block_io_guid); return status;
 }
 static EFI_STATUS CDK2_MS_ABI start(struct driver_view *d, void *controller, void *remaining)
-{ (void)remaining; return cdk2_fat_binding_start(&entry_of(d)->binding, controller); }
+{
+	struct entry_context *e = entry_of(d);
+	EFI_STATUS status;
+	(void)remaining;
+	if (e->boot->locate_protocol == NULL)
+		return EFI_UNSUPPORTED;
+	status = e->boot->locate_protocol(&collation2_guid, NULL,
+		(void **)&e->binding.collation);
+	if (EFI_ERROR(status))
+		status = e->boot->locate_protocol(&collation_guid, NULL,
+			(void **)&e->binding.collation);
+	return EFI_ERROR(status) ? status : cdk2_fat_binding_start(&e->binding, controller);
+}
 static EFI_STATUS CDK2_MS_ABI stop(struct driver_view *d, void *controller, UINTN children, void **buffer)
 { (void)buffer; if (children != 0U) return EFI_INVALID_PARAMETER;
 	return cdk2_fat_binding_stop(&entry_of(d)->binding, controller); }

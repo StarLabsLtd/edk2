@@ -95,6 +95,8 @@ EFI_STATUS cdk2_fat_binding_start(struct cdk2_fat_binding *binding,
 	struct cdk2_fat_mount *mount = NULL;
 	EFI_STATUS status;
 	if (binding == NULL || binding->ops == NULL || controller == NULL ||
+	    binding->collation == NULL || binding->collation->stri_coll == NULL ||
+	    binding->collation->str_upr == NULL || binding->collation->str_to_fat == NULL ||
 	    binding->ops->open == NULL || binding->ops->close == NULL ||
 	    binding->ops->publish == NULL || binding->ops->allocate == NULL ||
 	    binding->ops->release == NULL)
@@ -119,6 +121,7 @@ EFI_STATUS cdk2_fat_binding_start(struct cdk2_fat_binding *binding,
 	status = cdk2_fat_binding_refresh(mount);
 	if (EFI_ERROR(status))
 		goto close_disk;
+	mount->volume.collation = binding->collation;
 	status = binding->ops->allocate(binding->context, sizeof(*mount->simple_fs),
 		(void **)&mount->simple_fs);
 	if (EFI_ERROR(status))

@@ -19,6 +19,14 @@ struct fixture {
 };
 static struct fixture *active;
 static void (*queued_function)(void *); static void *queued_context;
+static INTN CDK2_MS_ABI collate(struct cdk2_unicode_collation *self,
+	CHAR16 *left, CHAR16 *right)
+{ (void)self; while (*left == *right && *left != 0U) { left++; right++; } return *left - *right; }
+static VOID CDK2_MS_ABI upper(struct cdk2_unicode_collation *self, CHAR16 *text)
+{ (void)self; (void)text; }
+static BOOLEAN CDK2_MS_ABI to_fat(struct cdk2_unicode_collation *self,
+	CHAR16 *text, UINTN size, CHAR8 *fat)
+{ (void)self; (void)text; (void)size; (void)fat; return FALSE; }
 
 static void put16(uint8_t *p, uint16_t v) { p[0] = v; p[1] = (uint8_t)(v >> 8); }
 static void format(struct fixture *f, unsigned id)
@@ -76,7 +84,9 @@ int main(void)
 		open_protocol, close_protocol, publish, unpublish, allocate, release, signal, queue, drain
 	};
 	struct fixture f = { 0 };
-	struct cdk2_fat_binding binding = { &ops, &f, NULL };
+	struct cdk2_unicode_collation collation = { .stri_coll = collate,
+		.str_upr = upper, .str_to_fat = to_fat };
+	struct cdk2_fat_binding binding = { &ops, &f, NULL, &collation };
 	struct cdk2_fat_mount *first;
 	int failures = 0; unsigned id;
 	struct cdk2_fat_io_token token = { (void *)3, EFI_SUCCESS };
@@ -130,6 +140,7 @@ int main(void)
 		"successful Stop leaked a mount or protocol ownership");
 
 	memset(&binding, 0, sizeof(binding)); binding.ops = &ops; binding.context = &f;
+	binding.collation = &collation;
 	f.fail_publish = f.publishes + 1U;
 	failures += expect(cdk2_fat_binding_start(&binding, (void *)1) ==
 		EFI_DEVICE_ERROR && binding.mounts == NULL && f.allocations == f.releases,

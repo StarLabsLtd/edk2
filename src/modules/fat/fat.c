@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: BSD-2-Clause-Patent */
 
 #include <cdk2/fat.h>
+#include <cdk2/english.h>
 #include <uefi.h>
 
 #define FAT_VOLUME_CORRUPTED EFIERR(10)
@@ -689,19 +690,40 @@ static uint64_t next_directory_entry(const struct cdk2_fat_volume *volume,
 	}
 }
 
-static uint16_t fold(uint16_t character)
+static uint16_t fold(const struct cdk2_fat_volume *volume, uint16_t character)
 {
+	CHAR16 text[2] = { character, 0U };
+	if (volume != NULL && volume->collation != NULL &&
+	    volume->collation->str_upr != NULL) {
+		volume->collation->str_upr(volume->collation, text);
+		return text[0];
+	}
 	return character >= 'a' && character <= 'z' ?
 		(uint16_t)(character - ('a' - 'A')) : character;
 }
 
-static int name_equal(const uint16_t *left, const uint16_t *right, size_t length)
+static int name_equal(const struct cdk2_fat_volume *volume, const uint16_t *left,
+	const uint16_t *right, size_t length)
 {
 	size_t index;
+	CHAR16 left_name[256], right_name[256];
+	if (length >= 256U || left[length] != 0U)
+		return 0;
+	if (volume != NULL && volume->collation != NULL &&
+	    volume->collation->stri_coll != NULL) {
+		for (index = 0U; index < length; index++) {
+			left_name[index] = left[index];
+			right_name[index] = right[index];
+		}
+		left_name[length] = 0U;
+		right_name[length] = 0U;
+		return volume->collation->stri_coll(volume->collation, left_name,
+			right_name) == 0;
+	}
 	for (index = 0U; index < length; index++)
-		if (left[index] == 0U || fold(left[index]) != fold(right[index]))
+		if (left[index] == 0U || fold(volume, left[index]) != fold(volume, right[index]))
 			return 0;
-	return left[length] == 0U;
+	return 1;
 }
 
 uint64_t cdk2_fat_open_root(const struct cdk2_fat_volume *volume,
@@ -768,7 +790,7 @@ uint64_t cdk2_fat_open(struct cdk2_fat_file *directory, const uint16_t *path,
 				&found);
 			if (status != EFI_SUCCESS)
 				return status;
-		} while (!name_equal(found.name, path, length));
+		} while (!name_equal(directory->volume, found.name, path, length));
 		path += length;
 		while (*path == '/' || *path == '\\')
 			path++;
@@ -968,6 +990,18 @@ static int valid_short_character(uint16_t character)
 		character != '\\' && character != ']' && character != '|';
 }
 
+static uint8_t short_character(const struct cdk2_fat_volume *volume,
+	uint16_t character)
+{
+	CHAR16 text[2] = { character, 0U };
+	CHAR8 fat[1] = { 0 };
+	if (volume->collation != NULL && volume->collation->str_to_fat != NULL) {
+		(void)volume->collation->str_to_fat(volume->collation, text, 1U, fat);
+		return (uint8_t)fat[0];
+	}
+	return valid_short_character(character) ? (uint8_t)fold(volume, character) : '_';
+}
+
 static int short_name_exists(const struct cdk2_fat_volume *volume,
 	uint32_t directory_cluster, const uint8_t name[11])
 {
@@ -1002,13 +1036,14 @@ uint64_t cdk2_fat_generate_short_name(const struct cdk2_fat_volume *volume,
 	for (index = 0U; name[index] != 0U; index++) {
 		if (index == dot)
 			continue;
-		if (!valid_short_character(name[index]) || name[index] == '.')
+		if (name[index] == '.' ||
+		    (name[index] < 0x80U && !valid_short_character(name[index])))
 			continue;
 		if (dot != (size_t)-1 && index > dot) {
 			if (extension_length < sizeof(extension))
-				extension[extension_length++] = (uint8_t)fold(name[index]);
+				extension[extension_length++] = short_character(volume, name[index]);
 		} else if (stem_length < sizeof(stem)) {
-			stem[stem_length++] = (uint8_t)fold(name[index]);
+			stem[stem_length++] = short_character(volume, name[index]);
 		}
 	}
 	if (stem_length == 0U)
@@ -1564,7 +1599,8 @@ uint64_t cdk2_fat_set_volume_label(struct cdk2_fat_volume *volume,
 		if (status != EFI_SUCCESS || old[0] == 0U) break;
 		if (old[0] != 0xe5U && old[11] == 0x08U) {
 			__builtin_memset(record, ' ', 11U);
-			for (count = 0U; count < length; count++) record[count] = (uint8_t)fold(label[count]);
+			for (count = 0U; count < length; count++)
+				record[count] = (uint8_t)fold(volume, label[count]);
 			record[11] = 0x08U;
 			status = write_records(volume, root, index, record, 1U);
 			if (status != EFI_SUCCESS) (void)write_records(volume, root, index, old, 1U);
@@ -1573,7 +1609,8 @@ uint64_t cdk2_fat_set_volume_label(struct cdk2_fat_volume *volume,
 		index++;
 	}
 	__builtin_memset(record, ' ', 11U);
-	for (count = 0U; count < length; count++) record[count] = (uint8_t)fold(label[count]);
+	for (count = 0U; count < length; count++)
+		record[count] = (uint8_t)fold(volume, label[count]);
 	record[11] = 0x08U; count = 1U;
 	return cdk2_fat_place_directory_records(volume, root, record, 1U, &placed,
 		rollback, &count);
@@ -1681,7 +1718,7 @@ uint64_t cdk2_fat_file_set_info(struct cdk2_fat_file *file,
 	changed = *change_count;
 	status = cdk2_fat_update_metadata(file, attributes, creation_date,
 		creation_time, write_date, write_time);
-	if (status == EFI_SUCCESS && !name_equal(file->entry.name, new_name,
+	if (status == EFI_SUCCESS && !name_equal(file->volume, file->entry.name, new_name,
 		name_size(new_name) / sizeof(*new_name) - 1U))
 		status = cdk2_fat_file_rename(file, new_name);
 	if (status == EFI_SUCCESS) return EFI_SUCCESS;

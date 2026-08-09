@@ -5,6 +5,7 @@
 
 #include <cdk2/disk_io.h>
 #include <cdk2/fat.h>
+#include <cdk2/english.h>
 
 struct cdk2_fat_binding_ops {
 	EFI_STATUS (*open)(void *, void *, const EFI_GUID *, void **);
@@ -39,6 +40,7 @@ struct cdk2_fat_binding {
 	const struct cdk2_fat_binding_ops *ops;
 	void *context;
 	struct cdk2_fat_mount *mounts;
+	struct cdk2_unicode_collation *collation;
 };
 
 extern const EFI_GUID cdk2_fat_block_io_guid;
