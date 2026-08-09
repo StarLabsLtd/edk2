@@ -1199,8 +1199,21 @@ failed:
 	return status;
 }
 
+static const CHAR16 *keyword_data_type(const struct cdk2_hii_keyword *entry)
+{
+	switch (entry->opcode) {
+	case 0x05U: case 0x07U: return entry->width == 1U ? L"Numeric:1" :
+		entry->width == 2U ? L"Numeric:2" :
+		entry->width == 4U ? L"Numeric:4" : L"Numeric:8";
+	case 0x06U: return L"Boolean";
+	case 0x08U: case 0x1cU: return L"String";
+	case 0x1aU: return L"Date";
+	case 0x1bU: return L"Time";
+	default: return L"Buffer";
+	}
+}
 static EFI_STATUS append_keyword(CHAR16 *output, UINTN *offset,
-	const struct cdk2_hii_keyword *entry)
+	const struct cdk2_hii_keyword *entry, UINT8 info)
 {
 	static const CHAR16 namespace_token[] = L"NAMESPACE=";
 	static const CHAR16 keyword_token[] = L"&KEYWORD=";
@@ -1250,6 +1263,30 @@ static EFI_STATUS append_keyword(CHAR16 *output, UINTN *offset,
 				length * sizeof(CHAR16));
 		*offset += length;
 	}
+	if ((info & 1U) != 0U) {
+		const CHAR16 *type = keyword_data_type(entry);
+		static const CHAR16 prefix[] = L"&DATATYPE=";
+		length = text_length(prefix);
+		if (output != NULL)
+			__builtin_memcpy(output + *offset, prefix, length * sizeof(CHAR16));
+		*offset += length;
+		length = text_length(type);
+		if (output != NULL)
+			__builtin_memcpy(output + *offset, type, length * sizeof(CHAR16));
+		*offset += length;
+	}
+	if ((info & 2U) != 0U) {
+		static const CHAR16 prefix[] = L"&DISPLAYNAME=";
+		length = text_length(prefix);
+		if (output != NULL)
+			__builtin_memcpy(output + *offset, prefix, length * sizeof(CHAR16));
+		*offset += length;
+		length = text_length(entry->keyword);
+		if (output != NULL)
+			__builtin_memcpy(output + *offset, entry->keyword,
+				length * sizeof(CHAR16));
+		*offset += length;
+	}
 	return EFI_SUCCESS;
 }
 static EFI_STATUS keyword_filter(const struct cdk2_hii_keyword *entry,
@@ -1290,6 +1327,7 @@ static EFI_STATUS CDK2_MS_ABI keyword_get(const void *self,
 	const CHAR16 *cursor, *next, *keyword_start, *selector;
 	struct cdk2_hii_keyword *entry;
 	struct cdk2_hii_keyword *entries[CDK2_HII_MAX_KEYWORDS];
+	UINT8 infos[CDK2_HII_MAX_KEYWORDS] = { 0 };
 	CHAR16 *output;
 	UINTN index, offset = 0U, matches = 0U, selector_length;
 	EFI_STATUS status;
@@ -1314,7 +1352,7 @@ static EFI_STATUS CDK2_MS_ABI keyword_get(const void *self,
 					offset++;
 				entries[matches - 1U] = &context.database.keywords[index];
 				status = append_keyword(NULL, &offset,
-					&context.database.keywords[index]);
+					&context.database.keywords[index], 0U);
 				if (EFI_ERROR(status)) {
 					*progress_error = 0x80000000U;
 					return status;
@@ -1324,6 +1362,7 @@ static EFI_STATUS CDK2_MS_ABI keyword_get(const void *self,
 	} else {
 		cursor = request;
 		while (*cursor != 0U) {
+			UINT8 info = 0U;
 			*progress = (CHAR16 *)cursor;
 			selector = NULL;
 			selector_length = 0U;
@@ -1359,6 +1398,31 @@ static EFI_STATUS CDK2_MS_ABI keyword_get(const void *self,
 				*progress_error = 0x80000000U;
 				return status;
 			}
+			if (*next == L'&' && token(next + 1U, L"KEYWORDINFO=")) {
+				CHAR16 requested_info[64];
+				const CHAR16 *after;
+				status = field(next + 1U, L"KEYWORDINFO=", requested_info,
+					ARRAY_SIZE(requested_info), &after);
+				if (EFI_ERROR(status)) {
+					*progress_error = 0x00000002U;
+					return EFI_INVALID_PARAMETER;
+				}
+				if (keyword_text_equal(requested_info, L"All"))
+					info = 3U;
+				else {
+					if (keyword_prefix(requested_info, L"DataType"))
+						info |= 1U;
+					if (keyword_text_equal(requested_info, L"DisplayName") ||
+					    keyword_text_equal(requested_info,
+						L"DataTypeDisplayName"))
+						info |= 2U;
+					if (info == 0U) {
+						*progress_error = 0x00000002U;
+						return EFI_INVALID_PARAMETER;
+					}
+				}
+				next = after;
+			}
 			while (*next == L'&' && !token(next + 1U, L"KEYWORD=") &&
 			       !token(next + 1U, L"GUID=")) {
 				const CHAR16 *after;
@@ -1378,7 +1442,8 @@ static EFI_STATUS CDK2_MS_ABI keyword_get(const void *self,
 			if (matches++ != 0U)
 				offset++;
 			entries[matches - 1U] = entry;
-			status = append_keyword(NULL, &offset, entry);
+			infos[matches - 1U] = info;
+			status = append_keyword(NULL, &offset, entry, info);
 			if (EFI_ERROR(status)) {
 				*progress_error = 0x80000000U;
 				return status;
@@ -1398,7 +1463,7 @@ static EFI_STATUS CDK2_MS_ABI keyword_get(const void *self,
 	for (index = 0; index < matches; index++) {
 		if (index != 0U)
 			output[offset++] = L'&';
-		status = append_keyword(output, &offset, entries[index]);
+		status = append_keyword(output, &offset, entries[index], infos[index]);
 		if (EFI_ERROR(status)) {
 			release(&context, output);
 			*progress_error = 0x80000000U;

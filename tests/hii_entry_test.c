@@ -186,9 +186,11 @@ int main(void)
 	free(results);
 	failures += expect(keyword->get_data(keyword, L"x-UEFI-test",
 		L"GUID=00000000000000000000000000000000&NAME=0056&"
-		L"PATH=010204007FFF0400&KEYWORD=Routed", &progress, &progress_error,
-		&results) == EFI_SUCCESS,
-		"PATH-qualified keyword owner was not selected");
+		L"PATH=010204007FFF0400&KEYWORD=Routed&KEYWORDINFO=All", &progress,
+		&progress_error, &results) == EFI_SUCCESS &&
+		u16_contains(results, L"&DATATYPE=Numeric:1") &&
+		u16_contains(results, L"&DISPLAYNAME=Routed"),
+		"PATH-qualified keyword owner or KeywordInfo was not returned");
 	free(results);
 	install_status = EFI_DEVICE_ERROR;
 	failures += expect(cdk2_hii_database_entry((void *)1, &system) == EFI_DEVICE_ERROR,
