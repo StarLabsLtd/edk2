@@ -29,11 +29,12 @@ struct cdk2_fat_mount {
 	struct cdk2_fat_volume volume;
 	struct cdk2_block_io *block;
 	struct cdk2_disk_io *disk;
+	struct cdk2_disk_io2 *disk2;
 	void *controller;
 	struct cdk2_fat_protocol_volume *simple_fs;
 	UINT32 media_id;
 	UINTN open_handles;
-	BOOLEAN published, block_open, disk_open;
+	BOOLEAN published, block_open, disk_open, disk2_open;
 };
 
 struct cdk2_fat_binding {
@@ -45,6 +46,7 @@ struct cdk2_fat_binding {
 
 extern const EFI_GUID cdk2_fat_block_io_guid;
 extern const EFI_GUID cdk2_fat_disk_io_guid;
+extern const EFI_GUID cdk2_fat_disk_io2_guid;
 extern const EFI_GUID cdk2_fat_simple_fs_guid;
 
 EFI_STATUS cdk2_fat_binding_start(struct cdk2_fat_binding *binding,

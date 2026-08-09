@@ -315,6 +315,7 @@ static EFI_STATUS CDK2_MS_ABI file_open_ex(struct cdk2_fat_file_protocol *p,
 {
 	struct fat_handle *h; struct async_task *task; EFI_STATUS status;
 	if (p == NULL || t == NULL) return EFI_INVALID_PARAMETER;
+	if (p->revision < FAT_FILE_REVISION2) return EFI_UNSUPPORTED;
 	if (t->event == NULL) return complete(handle_of(p), t, file_open(p, r, n, m, a));
 	h = handle_of(p); status = h->owner->binding->ops->allocate(h->owner->binding->context,
 		sizeof(*task), (void **)&task); if (EFI_ERROR(status)) return status;
@@ -324,6 +325,7 @@ static EFI_STATUS CDK2_MS_ABI file_open_ex(struct cdk2_fat_file_protocol *p,
 }
 static EFI_STATUS CDK2_MS_ABI file_read_ex(struct cdk2_fat_file_protocol *p, struct cdk2_fat_file_io_token *t)
 { struct fat_handle *h; struct async_task *task; EFI_STATUS s; if (p == NULL || t == NULL) return EFI_INVALID_PARAMETER;
+	if (p->revision < FAT_FILE_REVISION2) return EFI_UNSUPPORTED;
 	if (t->event == NULL) { s = file_read(p, &t->buffer_size, t->buffer); return complete(handle_of(p), t, s); }
 	h = handle_of(p); s = h->owner->binding->ops->allocate(h->owner->binding->context, sizeof(*task), (void **)&task);
 	if (EFI_ERROR(s)) return s;
@@ -331,6 +333,7 @@ static EFI_STATUS CDK2_MS_ABI file_read_ex(struct cdk2_fat_file_protocol *p, str
 	return queue_async(h, task); }
 static EFI_STATUS CDK2_MS_ABI file_write_ex(struct cdk2_fat_file_protocol *p, struct cdk2_fat_file_io_token *t)
 { struct fat_handle *h; struct async_task *task; EFI_STATUS s; if (p == NULL || t == NULL) return EFI_INVALID_PARAMETER;
+	if (p->revision < FAT_FILE_REVISION2) return EFI_UNSUPPORTED;
 	if (t->event == NULL) { s = file_write(p, &t->buffer_size, t->buffer); return complete(handle_of(p), t, s); }
 	h = handle_of(p); s = h->owner->binding->ops->allocate(h->owner->binding->context, sizeof(*task), (void **)&task);
 	if (EFI_ERROR(s)) return s;
@@ -338,6 +341,7 @@ static EFI_STATUS CDK2_MS_ABI file_write_ex(struct cdk2_fat_file_protocol *p, st
 	return queue_async(h, task); }
 static EFI_STATUS CDK2_MS_ABI file_flush_ex(struct cdk2_fat_file_protocol *p, struct cdk2_fat_file_io_token *t)
 { struct fat_handle *h; struct async_task *task; EFI_STATUS s; if (p == NULL || t == NULL) return EFI_INVALID_PARAMETER;
+	if (p->revision < FAT_FILE_REVISION2) return EFI_UNSUPPORTED;
 	if (t->event == NULL) return complete(handle_of(p), t, file_flush(p));
 	h = handle_of(p);
 	s = h->owner->binding->ops->allocate(h->owner->binding->context, sizeof(*task), (void **)&task);
@@ -361,6 +365,8 @@ static EFI_STATUS CDK2_MS_ABI open_volume(struct cdk2_fat_simple_fs_protocol *p,
 	if (EFI_ERROR(status)) { if (h != NULL) v->binding->ops->release(v->binding->context, h);
 		cdk2_fat_binding_close_handle(v->mount); return status; }
 	h->owner = v; h->protocol = file_template; h->mode = 3U;
+	if (v->mount->disk2 == NULL)
+		h->protocol.revision = 0x00010000ULL;
 	*result = &h->protocol; return EFI_SUCCESS;
 }
 void cdk2_fat_protocol_init(struct cdk2_fat_protocol_volume *v,

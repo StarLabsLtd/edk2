@@ -12,10 +12,12 @@ struct fixture {
 	struct cdk2_block_media media[2];
 	struct cdk2_block_io block[2];
 	struct cdk2_disk_io disk[2];
+	struct cdk2_disk_io2 disk2[2];
 	uint8_t image[2][4096U * 512U];
 	unsigned opens, closes, publishes, unpublishes, allocations, releases;
 	unsigned fail_open, fail_publish, fail_unpublish, fail_close;
 	unsigned signals;
+	unsigned have_disk2;
 };
 static struct fixture *active;
 static void (*queued_function)(void *); static void *queued_context;
@@ -52,8 +54,11 @@ static EFI_STATUS open_protocol(void *context, void *controller,
 {
 	struct fixture *f = context; unsigned id = controller == (void *)2;
 	f->opens++; if (f->opens == f->fail_open) return EFI_DEVICE_ERROR;
+	if (guid->data1 == cdk2_fat_disk_io2_guid.data1 && !f->have_disk2)
+		return EFI_UNSUPPORTED;
 	*interface = guid->data1 == cdk2_fat_block_io_guid.data1 ?
-		(void *)&f->block[id] : (void *)&f->disk[id];
+		(void *)&f->block[id] : (guid->data1 == cdk2_fat_disk_io2_guid.data1 ?
+		(void *)&f->disk2[id] : (void *)&f->disk[id]);
 	return EFI_SUCCESS;
 }
 static EFI_STATUS close_protocol(void *context, void *controller,
@@ -91,6 +96,7 @@ int main(void)
 	int failures = 0; unsigned id;
 	struct cdk2_fat_io_token token = { (void *)3, EFI_SUCCESS };
 	active = &f;
+	f.have_disk2 = 1U;
 	failures += expect(cdk2_fat_complete_io(&binding, &token, EFI_DEVICE_ERROR) ==
 		EFI_SUCCESS && token.transaction_status == EFI_DEVICE_ERROR &&
 		f.signals == 1U, "revision-2 completion did not publish status before signal");
@@ -155,5 +161,19 @@ int main(void)
 	f.fail_close = 0U;
 	failures += expect(cdk2_fat_binding_stop(&binding, (void *)1) == EFI_SUCCESS &&
 		binding.mounts == NULL, "Stop rollback state was not retryable");
+	f.have_disk2 = 0U;
+	failures += expect(cdk2_fat_binding_start(&binding, (void *)1) == EFI_SUCCESS,
+		"DiskIo-only parent was rejected");
+	{
+		struct cdk2_fat_file_protocol *root;
+		struct cdk2_fat_file_io_token token = { (void *)1, EFI_NOT_READY, 0U, NULL };
+		failures += expect(binding.mounts->simple_fs->protocol.open_volume(
+			&binding.mounts->simple_fs->protocol, &root) == EFI_SUCCESS &&
+			root->revision == 0x00010000ULL && root->flush_ex(root, &token) ==
+			EFI_UNSUPPORTED, "DiskIo-only parent incorrectly advertised revision 2");
+		(void)root->close(root);
+	}
+	failures += expect(cdk2_fat_binding_stop(&binding, (void *)1) == EFI_SUCCESS,
+		"DiskIo-only parent did not stop cleanly");
 	return failures == 0 ? 0 : 1;
 }
