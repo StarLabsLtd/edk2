@@ -76,7 +76,7 @@ CDK2_CONFIG_TARGETS := build check manifest modules native-stage \
 	native-bl-support-oracle native-pci-host-bridge-fv \
 	native-pci-host-bridge-oracle \
 	native-pci-host-bridge-in-fv-oracle \
-	native-fat-test \
+	native-fat-test native-fat-package \
 	manifest-check print
 
 CDK2_RECURSIVE_ARGS := \
@@ -131,7 +131,7 @@ CDK2_RECURSIVE_ARGS := \
 	native-device-path-test native-device-path-fv \
 	native-partition-test native-partition-fv \
 	native-bl-support-test native-bl-support-package native-bl-support-fv \
-	native-bl-support-oracle native-fat-test \
+	native-bl-support-oracle native-fat-test native-fat-package \
 	native-elfcheck-test manifest-check print lint \
 	lint-stable lint-extended test-lint \
 	jenkins what-jenkins-does retained-fv-check coreboot-stage clean FORCE

@@ -119,6 +119,9 @@ CDK2_NATIVE_ENGLISH_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/EnglishDxe.ffs
 CDK2_NATIVE_ENGLISH_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-english.fv
 CDK2_NATIVE_DISK_IO_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-disk-io-test
 CDK2_NATIVE_FAT_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-fat-test
+CDK2_NATIVE_FAT_OBJS := $(addprefix $(CDK2_NATIVE_BUILD_DIR)/fat-,fat.o binding.o protocol.o entry.o)
+CDK2_NATIVE_FAT_PE ?= $(CDK2_NATIVE_BUILD_DIR)/Fat.efi
+CDK2_NATIVE_FAT_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/Fat.ffs
 CDK2_NATIVE_DISK_IO_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/disk-io.o
 CDK2_NATIVE_DISK_IO_PE ?= $(CDK2_NATIVE_BUILD_DIR)/DiskIoDxe.efi
 CDK2_NATIVE_DISK_IO_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/DiskIoDxe.ffs
@@ -770,10 +773,31 @@ native-status-code-handler-test: $(CDK2_NATIVE_STATUS_CODE_HANDLER_TEST)
 native-disk-io-test: $(CDK2_NATIVE_DISK_IO_TEST)
 	@"$<"
 
-native-fat-test: $(CDK2_NATIVE_FAT_TEST) $(CDK2_NATIVE_BUILD_DIR)/cdk2-fat-binding-test $(CDK2_NATIVE_BUILD_DIR)/cdk2-fat-protocol-abi-test
+native-fat-test: $(CDK2_NATIVE_FAT_TEST) $(CDK2_NATIVE_BUILD_DIR)/cdk2-fat-binding-test $(CDK2_NATIVE_BUILD_DIR)/cdk2-fat-protocol-abi-test $(CDK2_NATIVE_BUILD_DIR)/cdk2-fat-entry-test
 	@"$<"
 	@"$(CDK2_NATIVE_BUILD_DIR)/cdk2-fat-binding-test"
 	@"$(CDK2_NATIVE_BUILD_DIR)/cdk2-fat-protocol-abi-test"
+	@"$(CDK2_NATIVE_BUILD_DIR)/cdk2-fat-entry-test"
+
+native-fat-package: $(CDK2_NATIVE_FAT_FFS)
+	@test "$$(stat -c %s "$<")" = 57398
+	@printf '%s\n' "native Fat FFS: $<"
+
+$(CDK2_NATIVE_BUILD_DIR)/fat-%.o: $(CDK2_DIR)/src/modules/fat/%.c $(CDK2_DIR)/include/cdk2/fat_binding.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
+		-mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args \
+		$(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+
+$(CDK2_NATIVE_FAT_PE): $(CDK2_NATIVE_FAT_OBJS) $(CDK2_NATIVE_BUILD_DIR)/mem.o $(CDK2_DIR)/src/modules/fat/fat.ld $(CDK2_NATIVE_PERELOCCHECK)
+	@$(CDK2_NATIVE_LD) -mi386pep --subsystem 11 --entry cdk2_fat_entry --image-base 0 \
+		--section-alignment 0x1000 --file-alignment 0x1000 --build-id=none \
+		--no-insert-timestamp -s --nxcompat -T "$(CDK2_DIR)/src/modules/fat/fat.ld" \
+		-o "$@" $(CDK2_NATIVE_FAT_OBJS) $(CDK2_NATIVE_BUILD_DIR)/mem.o
+	@"$(CDK2_NATIVE_PERELOCCHECK)" --subsystem 11 "$@"
+
+$(CDK2_NATIVE_FAT_FFS): $(CDK2_NATIVE_FAT_PE) $(CDK2_NATIVE_FFSBUILD)
+	@"$(CDK2_NATIVE_FFSBUILD)" 961578fe-b6b7-44c3-af35-6bc705cd2b1f Fat 1.0 \
+		0xe036 "$<" "$@" -
 
 native-disk-io-fv: $(CDK2_NATIVE_DISK_IO_FV)
 	@printf '%s\n' "native DiskIo FV: $(CDK2_NATIVE_DISK_IO_FV)"
@@ -1805,6 +1829,10 @@ $(CDK2_NATIVE_BUILD_DIR)/cdk2-fat-protocol-abi-test: $(CDK2_DIR)/tests/fat_proto
 		-o "$@" "$(CDK2_DIR)/tests/fat_protocol_abi_test.c" \
 		"$(CDK2_DIR)/src/modules/fat/protocol.c" \
 		"$(CDK2_DIR)/src/modules/fat/binding.c" "$(CDK2_DIR)/src/modules/fat/fat.c"
+
+$(CDK2_NATIVE_BUILD_DIR)/cdk2-fat-entry-test: $(CDK2_DIR)/tests/fat_entry_test.c $(CDK2_DIR)/src/modules/fat/entry.c $(CDK2_DIR)/src/modules/fat/binding.c $(CDK2_DIR)/src/modules/fat/protocol.c $(CDK2_DIR)/src/modules/fat/fat.c | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) \
+		-o "$@" $^
 
 $(CDK2_NATIVE_SERIAL_IO_TEST): $(CDK2_DIR)/tests/serial_io_test.c $(CDK2_DIR)/src/modules/serial_io/serial_io.c $(CDK2_DIR)/include/cdk2/serial_io.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$<"

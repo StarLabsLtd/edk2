@@ -37,6 +37,20 @@ static uint64_t read_disk(void *context, uint64_t offset, size_t size,
 	return mount->disk->read_disk(mount->disk, mount->media_id, offset, size,
 		buffer);
 }
+static uint64_t write_disk(void *context, uint64_t offset, size_t size,
+	const void *buffer)
+{
+	struct cdk2_fat_mount *mount = context;
+	if (mount->disk->write_disk == NULL) return EFI_UNSUPPORTED;
+	return mount->disk->write_disk(mount->disk, mount->media_id, offset, size,
+		(void *)buffer);
+}
+static uint64_t flush_disk(void *context)
+{
+	struct cdk2_fat_mount *mount = context;
+	return mount->block->flush_blocks == NULL ? EFI_SUCCESS :
+		mount->block->flush_blocks(mount->block);
+}
 
 static struct cdk2_fat_mount *find_mount(struct cdk2_fat_binding *binding,
 	void *controller)
@@ -70,6 +84,7 @@ EFI_STATUS cdk2_fat_binding_refresh(struct cdk2_fat_mount *mount)
 	if (!EFI_ERROR(status)) {
 		mount->volume.read_only = mount->block->media->read_only;
 		mount->volume.write_protected = mount->block->media->read_only;
+		cdk2_fat_set_write_ops(&mount->volume, write_disk, flush_disk);
 	}
 	return status;
 }
