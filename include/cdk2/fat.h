@@ -128,5 +128,9 @@ uint64_t cdk2_fat_update_metadata(struct cdk2_fat_file *file,
 	uint16_t write_date, uint16_t write_time);
 uint64_t cdk2_fat_file_rename(struct cdk2_fat_file *file,
 	const uint16_t *new_name);
+uint64_t cdk2_fat_file_set_info(struct cdk2_fat_file *file,
+	const uint16_t *new_name, uint32_t new_size, uint8_t attributes,
+	uint16_t creation_date, uint16_t creation_time, uint16_t write_date,
+	uint16_t write_time, struct cdk2_fat_change *changes, size_t *change_count);
 
 #endif

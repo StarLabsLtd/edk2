@@ -1315,6 +1315,11 @@ uint64_t cdk2_fat_rename_entry(struct cdk2_fat_volume *volume,
 	status = snapshot_records(volume, directory_cluster, old_index, old_count, old);
 	if (status != EFI_SUCCESS)
 		return status;
+	/* Rename preserves timestamps and case/reserved fields from the old short entry. */
+	__builtin_memcpy(records + (count - 1U) * 32U + 12U,
+		old + (old_count - 1U) * 32U + 12U, 8U);
+	__builtin_memcpy(records + (count - 1U) * 32U + 22U,
+		old + (old_count - 1U) * 32U + 22U, 4U);
 	status = cdk2_fat_place_directory_records(volume, directory_cluster, records,
 		count, new_index, placed_old, &rollback_count);
 	if (status != EFI_SUCCESS)
@@ -1481,4 +1486,42 @@ uint64_t cdk2_fat_file_rename(struct cdk2_fat_file *file,
 		(length + 1U) * sizeof(*new_name));
 	file->record_index = index; file->record_count = count;
 	return EFI_SUCCESS;
+}
+
+uint64_t cdk2_fat_file_set_info(struct cdk2_fat_file *file,
+	const uint16_t *new_name, uint32_t new_size, uint8_t attributes,
+	uint16_t creation_date, uint16_t creation_time, uint16_t write_date,
+	uint16_t write_time, struct cdk2_fat_change *changes, size_t *change_count)
+{
+	uint8_t old_records[32U * 21U];
+	struct cdk2_fat_directory_entry old_entry;
+	uint64_t status;
+	uint32_t old_first;
+	size_t changed, capacity;
+	if (file == NULL || file->volume == NULL || new_name == NULL ||
+	    changes == NULL || change_count == NULL || file->record_count == 0U ||
+	    file->record_count > 21U)
+		return EFI_INVALID_PARAMETER;
+	status = snapshot_records((struct cdk2_fat_volume *)file->volume,
+		file->parent_directory_cluster, file->record_index, file->record_count,
+		old_records);
+	if (status != EFI_SUCCESS) return status;
+	old_entry = file->entry; old_first = file->entry.first_cluster;
+	capacity = *change_count;
+	status = cdk2_fat_file_resize(file, new_size, changes, change_count);
+	if (status != EFI_SUCCESS) return status;
+	changed = *change_count;
+	status = cdk2_fat_update_metadata(file, attributes, creation_date,
+		creation_time, write_date, write_time);
+	if (status == EFI_SUCCESS && !name_equal(file->entry.name, new_name,
+		name_size(new_name) / sizeof(*new_name) - 1U))
+		status = cdk2_fat_file_rename(file, new_name);
+	if (status == EFI_SUCCESS) return EFI_SUCCESS;
+	rollback_changes((struct cdk2_fat_volume *)file->volume, changes, changed);
+	(void)write_records((struct cdk2_fat_volume *)file->volume,
+		file->parent_directory_cluster, file->record_index, old_records,
+		file->record_count);
+	file->entry = old_entry; file->entry.first_cluster = old_first;
+	*change_count = capacity;
+	return status;
 }
