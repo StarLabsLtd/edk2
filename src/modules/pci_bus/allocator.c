@@ -12,6 +12,13 @@
 #define PCI_SRIOV_VF_ENABLE 0x01U
 #define JOURNAL_MAX 192U
 
+struct allocation_item {
+	struct cdk2_pci_function *function;
+	struct cdk2_pci_bar *bar;
+	uint64_t length;
+	uint8_t vf;
+};
+
 struct journal_entry {
 	uint8_t bus, device, function, width;
 	uint16_t offset;
@@ -196,7 +203,7 @@ static int stage_sriov(const struct cdk2_pci_cfg *cfg,
 
 static int stage_bridge(const struct cdk2_pci_cfg *cfg,
 	struct cdk2_pci_function *bridge, const struct cdk2_pci_topology *topology,
-	struct journal *journal)
+	struct cdk2_pci_allocation_policy *policy, struct journal *journal)
 {
 	uint64_t io_min = UINT64_MAX, io_max = 0, mem_min = UINT64_MAX, mem_max = 0;
 	uint64_t pref_min = UINT64_MAX, pref_max = 0;
@@ -223,6 +230,24 @@ static int stage_bridge(const struct cdk2_pci_cfg *cfg,
 				if (end > mem_max)
 					mem_max = end;
 			}
+		}
+	}
+	if (bridge->hotplug_bridge) {
+		uint64_t base;
+		if (policy->hotplug_padding[0] != 0U &&
+		    allocate(&policy->io, policy->hotplug_padding[0], 0xfffU, &base) == 0) {
+			if (base < io_min)
+				io_min = base;
+			if (base + policy->hotplug_padding[0] - 1U > io_max)
+				io_max = base + policy->hotplug_padding[0] - 1U;
+		}
+		if (policy->hotplug_padding[1] != 0U &&
+		    allocate(&policy->mem32, policy->hotplug_padding[1], 0xfffffU,
+			&base) == 0) {
+			if (base < mem_min)
+				mem_min = base;
+			if (base + policy->hotplug_padding[1] - 1U > mem_max)
+				mem_max = base + policy->hotplug_padding[1] - 1U;
 		}
 	}
 	if (stage_write(cfg, bridge, PCI_BRIDGE_IO, 4,
@@ -256,6 +281,30 @@ static int stage_bridge(const struct cdk2_pci_cfg *cfg,
 	return 0;
 }
 
+static int stage_cardbus(const struct cdk2_pci_cfg *cfg,
+	struct cdk2_pci_function *bridge, struct cdk2_pci_allocation_policy *policy,
+	struct journal *journal)
+{
+	uint64_t base;
+	if (policy->hotplug_padding[1] != 0U) {
+		if (allocate(&policy->mem32, policy->hotplug_padding[1], 0xfffU,
+			&base) != 0 || base > UINT32_MAX ||
+		    stage_write(cfg, bridge, 0x1cU, 4, (uint32_t)base, journal) != 0 ||
+		    stage_write(cfg, bridge, 0x20U, 4,
+			(uint32_t)(base + policy->hotplug_padding[1] - 1U), journal) != 0)
+			return -1;
+	}
+	if (policy->hotplug_padding[0] != 0U) {
+		if (allocate(&policy->io, policy->hotplug_padding[0], 3U, &base) != 0 ||
+		    base > UINT32_MAX ||
+		    stage_write(cfg, bridge, 0x2cU, 4, (uint32_t)base, journal) != 0 ||
+		    stage_write(cfg, bridge, 0x30U, 4,
+			(uint32_t)(base + policy->hotplug_padding[0] - 1U), journal) != 0)
+			return -1;
+	}
+	return 0;
+}
+
 int cdk2_pci_allocate_resources(const struct cdk2_pci_cfg *cfg,
 	struct cdk2_pci_topology *topology,
 	const struct cdk2_pci_allocation_policy *input_policy)
@@ -263,43 +312,65 @@ int cdk2_pci_allocate_resources(const struct cdk2_pci_cfg *cfg,
 	struct cdk2_pci_topology staged;
 	struct cdk2_pci_allocation_policy policy;
 	struct journal journal = { 0 };
+	struct allocation_item items[JOURNAL_MAX];
+	uint32_t commands[CDK2_PCI_MAX_FUNCTIONS];
+	size_t item_count = 0;
 	if (cfg == NULL || cfg->read == NULL || cfg->write == NULL ||
 	    topology == NULL || input_policy == NULL)
 		return -1;
 	staged = *topology;
 	policy = *input_policy;
-	for (unsigned int i = 0; i < 4U; i++) {
-		struct cdk2_pci_aperture *aperture = i == 0U ? &policy.io :
-			(i == 1U ? &policy.mem32 : (i == 2U ? &policy.mem64 :
-			&policy.prefetch));
-		uint64_t ignored;
-		if (policy.hotplug_padding[i] != 0U &&
-		    allocate(aperture, policy.hotplug_padding[i], 0xfffU, &ignored) != 0)
-			return -1;
-	}
 	for (size_t i = 0; i < staged.count; i++) {
 		struct cdk2_pci_function *fn = &staged.functions[i];
-		uint32_t command;
-		if (cfg_read(cfg, fn, PCI_COMMAND, 2, &command) != 0 ||
-		    stage_write(cfg, fn, PCI_COMMAND, 2, command & ~3U, &journal) != 0 ||
+		if (cfg_read(cfg, fn, PCI_COMMAND, 2, &commands[i]) != 0 ||
+		    stage_write(cfg, fn, PCI_COMMAND, 2, commands[i] & ~3U, &journal) != 0 ||
 		    stage_controls(cfg, fn, &policy, &journal) != 0)
 			return -1;
-		for (uint8_t bar = 0; bar < fn->bar_count; bar++)
-			if (stage_bar(cfg, fn, &fn->bars[bar], &policy, &journal) != 0)
+		for (uint8_t bar = 0; bar < fn->bar_count; bar++) {
+			if (item_count == JOURNAL_MAX)
 				return -1;
+			items[item_count++] = (struct allocation_item) {
+				fn, &fn->bars[bar], fn->bars[bar].size, 0 };
+		}
 		if (policy.enable_sriov)
-			for (uint8_t bar = 0; bar < fn->vf_bar_count; bar++)
-				if (stage_vf_bar(cfg, fn, &fn->vf_bars[bar], &policy,
-					&journal) != 0)
+			for (uint8_t bar = 0; bar < fn->vf_bar_count; bar++) {
+				if (item_count == JOURNAL_MAX || fn->total_vfs == 0U ||
+				    fn->vf_bars[bar].size > UINT64_MAX / fn->total_vfs)
 					return -1;
-		if (stage_sriov(cfg, fn, &policy, &journal) != 0 ||
-		    stage_write(cfg, fn, PCI_COMMAND, 2, command, &journal) != 0)
+				items[item_count++] = (struct allocation_item) {
+					fn, &fn->vf_bars[bar],
+					fn->vf_bars[bar].size * fn->total_vfs, 1 };
+			}
+	}
+	for (size_t i = 1; i < item_count; i++) {
+		struct allocation_item item = items[i];
+		size_t j = i;
+		while (j != 0U && items[j - 1U].length < item.length) {
+			items[j] = items[j - 1U];
+			j--;
+		}
+		items[j] = item;
+	}
+	for (size_t i = 0; i < item_count; i++) {
+		int status = items[i].vf ?
+			stage_vf_bar(cfg, items[i].function, items[i].bar, &policy,
+				&journal) :
+			stage_bar(cfg, items[i].function, items[i].bar, &policy, &journal);
+		if (status != 0)
 			return -1;
 	}
+	for (size_t i = 0; i < staged.count; i++)
+		if (stage_sriov(cfg, &staged.functions[i], &policy, &journal) != 0 ||
+		    stage_write(cfg, &staged.functions[i], PCI_COMMAND, 2, commands[i],
+			&journal) != 0)
+			return -1;
 	for (size_t i = staged.count; i != 0U; i--) {
 		struct cdk2_pci_function *fn = &staged.functions[i - 1U];
 		if ((fn->header_type & 0x7fU) == 1U &&
-		    stage_bridge(cfg, fn, &staged, &journal) != 0)
+		    stage_bridge(cfg, fn, &staged, &policy, &journal) != 0)
+			return -1;
+		if ((fn->header_type & 0x7fU) == 2U &&
+		    stage_cardbus(cfg, fn, &policy, &journal) != 0)
 			return -1;
 	}
 	if (commit(cfg, &journal) != 0)

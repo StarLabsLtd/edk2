@@ -17,6 +17,7 @@ struct fixture {
 	unsigned int writes;
 	unsigned int fail_write;
 	unsigned int crs_reads;
+	uint8_t rom[1024];
 };
 
 static void put16(uint8_t *p, uint16_t v) { p[0] = v; p[1] = v >> 8; }
@@ -86,6 +87,16 @@ static int wr(void *context, uint8_t b, uint8_t d, uint8_t n,
 		put16(dev->data + off, value);
 	else
 		put32(dev->data + off, value);
+	return 0;
+}
+
+static int read_memory(void *context, uint64_t address, void *buffer, size_t size)
+{
+	struct fixture *fixture = context;
+	if (address < 0x100000U || address - 0x100000U > sizeof(fixture->rom) ||
+	    size > sizeof(fixture->rom) - (address - 0x100000U))
+		return -1;
+	memcpy(buffer, fixture->rom + address - 0x100000U, size);
 	return 0;
 }
 
@@ -199,12 +210,14 @@ static int allocator_test(void)
 		.hotplug_padding = { 0x1000, 0x100000, 0, 0 },
 		.maximum_rebar_size = 4, .enable_sriov = 1,
 	};
-	struct cdk2_pci_function *bridge, *child;
+	struct cdk2_pci_function *bridge, *child, *cardbus;
 	add(&f, 0, 0, 0, 1, 1, 1);
 	add(&f, 1, 0, 0, 2, 2, 0);
-	topology.count = 2;
+	add(&f, 0, 2, 0, 3, 3, 2);
+	topology.count = 3;
 	bridge = &topology.functions[0];
 	bridge->bus = 0; bridge->header_type = 1;
+	bridge->hotplug_bridge = 1;
 	bridge->secondary_bus = 1; bridge->subordinate_bus = 1;
 	child = &topology.functions[1];
 	child->bus = 1; child->bar_count = 3;
@@ -225,15 +238,21 @@ static int allocator_test(void)
 	child->vf_bar_count = 1;
 	child->vf_bars[0] = (struct cdk2_pci_bar) {
 		.kind = CDK2_PCI_BAR_MEM32, .index = 0, .size = 0x1000 };
+	cardbus = &topology.functions[2];
+	cardbus->bus = 0; cardbus->device = 2; cardbus->header_type = 2;
 	CHECK(cdk2_pci_allocate_resources(&cfg, &topology, &policy) == 0);
-	CHECK(child->bars[0].base == 0x81000000);
-	CHECK(child->bars[1].base == 0x2000);
+	CHECK(child->bars[0].base == 0x80000000);
+	CHECK(child->bars[1].base == 0x1000);
 	CHECK((get(f.devices[1].data + 0x148, 4) & 0x1f00) == 0x400);
 	CHECK((get(f.devices[1].data + 0x150, 4) & 0x1f00) == 0x300);
-	CHECK(child->vf_bars[0].base == 0x82800000);
-	CHECK(get(f.devices[1].data + 0x224, 4) == 0x82800000);
+	CHECK(child->vf_bars[0].base == 0x81800000);
+	CHECK(get(f.devices[1].data + 0x224, 4) == 0x81800000);
 	CHECK((get(f.devices[1].data + 0x208, 2) & 1U) != 0U);
-	CHECK((get(f.devices[0].data + 0x20, 4) & 0xfff0U) == 0x8100);
+	CHECK((get(f.devices[0].data + 0x20, 4) & 0xfff0U) == 0x8000);
+	CHECK(get(f.devices[2].data + 0x20, 4) >=
+		get(f.devices[2].data + 0x1c, 4));
+	CHECK(get(f.devices[2].data + 0x30, 4) >=
+		get(f.devices[2].data + 0x2c, 4));
 	memset(f.devices[0].data + 0x1c, 0, 0x20);
 	memset(f.devices[1].data + 0x10, 0, 0x150);
 	topology.functions[1].bars[0].base = 0;
@@ -243,6 +262,42 @@ static int allocator_test(void)
 	CHECK(memcmp(&before, &topology, sizeof(before)) == 0);
 	CHECK(get(f.devices[1].data + 0x10, 4) == 0);
 	CHECK(get(f.devices[1].data + 0x14, 4) == 0);
+	return 0;
+}
+
+static int host_and_rom_test(void)
+{
+	struct fixture f = { 0 };
+	struct cdk2_pci_cfg cfg = { .context = &f, .read = rd, .write = wr,
+		.read_memory = read_memory };
+	struct cdk2_pci_topology topology = { 0 };
+	struct cdk2_pci_host_model host = { 0 };
+	struct cdk2_pci_allocation_policy policy = {
+		.mem32 = { 0x80000000, 0x8fffffff, 0x80000000 } };
+	struct cdk2_pci_function function = { 0 }, before;
+	add(&f, 0, 0, 0, 1, 1, 0);
+	topology.count = 1;
+	CHECK(cdk2_pci_host_set(&host) != 0);
+	CHECK(cdk2_pci_host_begin(&host, &cfg, &topology) == 0);
+	CHECK(cdk2_pci_host_end(&host) != 0);
+	CHECK(cdk2_pci_host_submit(&host, &policy) == 0);
+	CHECK(cdk2_pci_host_allocate(&host) == 0);
+	CHECK(host.allocation_status == 0);
+	CHECK(cdk2_pci_host_set(&host) == 0);
+	CHECK(cdk2_pci_host_end(&host) == 0);
+	function.bar_count = 1;
+	function.bars[0] = (struct cdk2_pci_bar) {
+		.kind = CDK2_PCI_BAR_ROM, .base = 0x100000, .size = sizeof(f.rom) };
+	f.rom[0] = 0x55; f.rom[1] = 0xaa; put16(f.rom + 0x18, 0x20);
+	memcpy(f.rom + 0x20, "PCIR", 4); put16(f.rom + 0x30, 1);
+	f.rom[0x34] = 3; f.rom[0x35] = 0x80;
+	CHECK(cdk2_pci_discover_option_rom(&cfg, &function) == 0);
+	CHECK(function.option_rom_images == 1);
+	CHECK(function.option_rom_efi_images == 1);
+	CHECK(function.option_rom_load_file == 1);
+	before = function; f.rom[0x20] = 0;
+	CHECK(cdk2_pci_discover_option_rom(&cfg, &function) != 0);
+	CHECK(memcmp(&before, &function, sizeof(before)) == 0);
 	return 0;
 }
 
@@ -295,7 +350,8 @@ static int corruption_test(void)
 int main(void)
 {
 	if (topology_test() || temporary_bridge_and_crs_test() ||
-	    overflow_and_cardbus_test() || allocator_test() || corruption_test())
+	    overflow_and_cardbus_test() || allocator_test() || host_and_rom_test() ||
+	    corruption_test())
 		return 1;
 	puts("pci bus model tests: PASS");
 	return 0;
