@@ -846,6 +846,68 @@ static const UINT8 *keyword_storage(const struct cdk2_hii_keyword *entry,
 	}
 	return NULL;
 }
+static const UINT8 *keyword_question(const struct cdk2_hii_keyword *entry,
+	UINTN *question_size, const UINT8 **form_end)
+{
+	const struct cdk2_hii_list *list = entry->package_handle;
+	const UINT8 *bytes, *package, *opcode;
+	UINT32 package_length;
+	UINTN package_offset, offset;
+	UINT8 length;
+
+	if (list == NULL || !list->active)
+		return NULL;
+	bytes = list->data;
+	package_offset = sizeof(struct cdk2_hii_package_list_header);
+	while (package_offset + 4U <= list->size) {
+		package = bytes + package_offset;
+		package_length = keyword_read32(package) & 0x00ffffffU;
+		if (package_length < 4U || package_length > list->size - package_offset)
+			return NULL;
+		if (package[3] == 0x02U) {
+			offset = 4U;
+			while (offset + 2U <= package_length) {
+				opcode = package + offset;
+				length = opcode[1] & 0x7fU;
+				if (length < 2U || length > package_length - offset)
+					return NULL;
+				if (opcode[0] == entry->opcode && length >= 13U &&
+				    keyword_read16(opcode + 2U) == entry->prompt_id &&
+				    keyword_read16(opcode + 8U) == entry->varstore_id &&
+				    keyword_read16(opcode + 10U) == entry->varstore_info) {
+					*question_size = length;
+					*form_end = package + package_length;
+					return opcode;
+				}
+				offset += length;
+			}
+		}
+		package_offset += package_length;
+	}
+	return NULL;
+}
+static const CHAR16 *keyword_display_string(const struct cdk2_hii_keyword *entry,
+	UINT16 string_id)
+{
+	UINTN index;
+	for (index = 0U; index < CDK2_HII_MAX_STRINGS; index++)
+		if (context.database.strings[index].active &&
+		    context.database.strings[index].package_handle == entry->package_handle &&
+		    context.database.strings[index].id == string_id &&
+		    !(context.database.strings[index].language[0] == 'x' &&
+		      context.database.strings[index].language[1] == '-' &&
+		      (context.database.strings[index].language[2] == 'U' ||
+		       context.database.strings[index].language[2] == 'u') &&
+		      (context.database.strings[index].language[3] == 'E' ||
+		       context.database.strings[index].language[3] == 'e') &&
+		      (context.database.strings[index].language[4] == 'F' ||
+		       context.database.strings[index].language[4] == 'f') &&
+		      (context.database.strings[index].language[5] == 'I' ||
+		       context.database.strings[index].language[5] == 'i') &&
+		      context.database.strings[index].language[6] == '-'))
+			return context.database.strings[index].text;
+	return string_id == entry->prompt_id ? entry->keyword : NULL;
+}
 static EFI_STATUS keyword_device_path(void *driver, const UINT8 **path,
 	UINTN *size)
 {
@@ -1212,6 +1274,92 @@ static const CHAR16 *keyword_data_type(const struct cdk2_hii_keyword *entry)
 	default: return L"Buffer";
 	}
 }
+static void keyword_append_text(CHAR16 *output, UINTN *offset, const CHAR16 *text)
+{
+	UINTN length = text_length(text);
+	if (output != NULL)
+		__builtin_memcpy(output + *offset, text, length * sizeof(CHAR16));
+	*offset += length;
+}
+static void keyword_append_number(CHAR16 *output, UINTN *offset,
+	const UINT8 *value, UINTN width)
+{
+	while (width != 0U) {
+		width--;
+		if (output != NULL) {
+			output[(*offset)] = keyword_hex(value[width] >> 4);
+			output[(*offset) + 1U] = keyword_hex(value[width] & 15U);
+		}
+		*offset += 2U;
+	}
+}
+static EFI_STATUS append_keyword_attributes(CHAR16 *output, UINTN *offset,
+	const struct cdk2_hii_keyword *entry, UINT8 info)
+{
+	const UINT8 *question, *form_end, *cursor;
+	UINTN question_size, width, depth;
+	UINT8 length, type;
+
+	if ((info & 12U) == 0U)
+		return EFI_SUCCESS;
+	question = keyword_question(entry, &question_size, &form_end);
+	if (question == NULL)
+		return EFI_NOT_FOUND;
+	width = entry->width;
+	if ((info & 4U) != 0U &&
+	    (entry->opcode == 0x05U || entry->opcode == 0x07U)) {
+		if (question_size < 14U + width * 3U)
+			return EFI_INVALID_PARAMETER;
+		keyword_append_text(output, offset, L"&MAX=");
+		keyword_append_number(output, offset, question + 14U + width, width);
+		keyword_append_text(output, offset, L"&MIN=");
+		keyword_append_number(output, offset, question + 14U, width);
+		keyword_append_text(output, offset, L"&STEP=");
+		keyword_append_number(output, offset, question + 14U + width * 2U, width);
+	}
+	if ((((info & 8U) == 0U) &&
+	     ((info & 4U) == 0U || entry->opcode != 0x05U)) ||
+	    (question[1] & 0x80U) == 0U)
+		return EFI_SUCCESS;
+	depth = 1U;
+	for (cursor = question + question_size; cursor + 2U <= form_end && depth != 0U;
+	     cursor += length) {
+		length = cursor[1] & 0x7fU;
+		if (length < 2U || length > (UINTN)(form_end - cursor))
+			return EFI_INVALID_PARAMETER;
+		if (cursor[0] == 0x29U) {
+			depth--;
+			continue;
+		}
+		if ((info & 4U) != 0U && entry->opcode == 0x05U && depth == 1U &&
+		    cursor[0] == 0x09U && length >= 7U) {
+			const CHAR16 *option;
+			type = cursor[5U];
+			option = keyword_display_string(entry,
+				keyword_read16(cursor + 2U));
+			if (type <= 3U && length >= 6U + (1U << type) && option != NULL) {
+				keyword_append_text(output, offset, L"&OPTIONVALUE=");
+				keyword_append_number(output, offset, cursor + 6U, 1U << type);
+				keyword_append_text(output, offset, L"&OPTIONSTRING=");
+				keyword_append_text(output, offset, option);
+			}
+		}
+		if (cursor[0] == 0x5bU && depth == 1U && length >= 5U) {
+			UINT16 id = keyword_read16(cursor + 2U);
+			type = cursor[4];
+			if (type <= 3U && length >= 5U + (1U << type) &&
+			    (id == 0U || id == 1U || id == 2U)) {
+				keyword_append_text(output, offset, id == 0U ?
+					L"&STANDARDDEFAULT=" : id == 1U ?
+					L"&MFGDEFAULT=" : L"&SAFEDEFAULT=");
+				keyword_append_number(output, offset, cursor + 5U, 1U << type);
+			}
+		}
+		if ((cursor[1] & 0x80U) != 0U)
+			depth++;
+	}
+	return depth == 0U ? EFI_SUCCESS : EFI_INVALID_PARAMETER;
+}
 static EFI_STATUS append_keyword(CHAR16 *output, UINTN *offset,
 	const struct cdk2_hii_keyword *entry, UINT8 info)
 {
@@ -1277,17 +1425,18 @@ static EFI_STATUS append_keyword(CHAR16 *output, UINTN *offset,
 	}
 	if ((info & 2U) != 0U) {
 		static const CHAR16 prefix[] = L"&DISPLAYNAME=";
+		const CHAR16 *display = keyword_display_string(entry, entry->prompt_id);
 		length = text_length(prefix);
 		if (output != NULL)
 			__builtin_memcpy(output + *offset, prefix, length * sizeof(CHAR16));
 		*offset += length;
-		length = text_length(entry->keyword);
+		length = text_length(display);
 		if (output != NULL)
-			__builtin_memcpy(output + *offset, entry->keyword,
+			__builtin_memcpy(output + *offset, display,
 				length * sizeof(CHAR16));
 		*offset += length;
 	}
-	return EFI_SUCCESS;
+	return append_keyword_attributes(output, offset, entry, info);
 }
 static EFI_STATUS keyword_filter(const struct cdk2_hii_keyword *entry,
 	const CHAR16 *filter, const CHAR16 **next)
@@ -1318,6 +1467,32 @@ static EFI_STATUS keyword_filter(const struct cdk2_hii_keyword *entry,
 	}
 	*next = filter + length;
 	return matches ? EFI_SUCCESS : EFI_NOT_FOUND;
+}
+static EFI_STATUS keyword_info_flags(const CHAR16 *request, UINT8 *info)
+{
+	const CHAR16 *cursor = request;
+	*info = 0U;
+	if (keyword_text_equal(request, L"All")) {
+		*info = 15U;
+		return EFI_SUCCESS;
+	}
+	if (keyword_prefix(cursor, L"DataType")) {
+		*info |= 1U;
+		cursor += 8U;
+	}
+	if (keyword_prefix(cursor, L"ValueAttribute")) {
+		*info |= 4U;
+		cursor += 14U;
+	}
+	if (keyword_prefix(cursor, L"Default")) {
+		*info |= 8U;
+		cursor += 7U;
+	}
+	if (keyword_prefix(cursor, L"DisplayName")) {
+		*info |= 2U;
+		cursor += 11U;
+	}
+	return *info != 0U && *cursor == 0U ? EFI_SUCCESS : EFI_INVALID_PARAMETER;
 }
 static EFI_STATUS CDK2_MS_ABI keyword_get(const void *self,
 	const CHAR16 *requested_namespace, const CHAR16 *request, CHAR16 **progress,
@@ -1407,19 +1582,9 @@ static EFI_STATUS CDK2_MS_ABI keyword_get(const void *self,
 					*progress_error = 0x00000002U;
 					return EFI_INVALID_PARAMETER;
 				}
-				if (keyword_text_equal(requested_info, L"All"))
-					info = 3U;
-				else {
-					if (keyword_prefix(requested_info, L"DataType"))
-						info |= 1U;
-					if (keyword_text_equal(requested_info, L"DisplayName") ||
-					    keyword_text_equal(requested_info,
-						L"DataTypeDisplayName"))
-						info |= 2U;
-					if (info == 0U) {
-						*progress_error = 0x00000002U;
-						return EFI_INVALID_PARAMETER;
-					}
+				if (keyword_info_flags(requested_info, &info) != EFI_SUCCESS) {
+					*progress_error = 0x00000002U;
+					return EFI_INVALID_PARAMETER;
 				}
 				next = after;
 			}

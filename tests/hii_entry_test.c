@@ -93,7 +93,7 @@ int main(void)
 	struct cdk2_efi_hii_config_routing_protocol *config;
 	struct cdk2_efi_config_keyword_protocol *keyword;
 	CHAR16 *progress, *results;
-	UINT8 routed_list[52] = { 0 };
+	UINT8 routed_list[84] = { 0 };
 	void *routed_handle;
 	UINT32 progress_error;
 	int failures = 0;
@@ -164,16 +164,29 @@ int main(void)
 		"multi-keyword validation modified storage before a later failure");
 	free(results);
 	write32(routed_list + 16U, sizeof(routed_list));
-	write32(routed_list + 20U, (0x02U << 24) | 28U);
+	write32(routed_list + 20U, (0x02U << 24) | 60U);
 	routed_list[24] = 0x24U; routed_list[25] = 24U;
 	write16(routed_list + 42U, 1U); write16(routed_list + 44U, 8U);
 	routed_list[46] = 'V';
-	write32(routed_list + 48U, (CDK2_HII_PACKAGE_END << 24) | 4U);
+	routed_list[48] = 0x05U; routed_list[49] = 0x80U | 17U;
+	write16(routed_list + 50U, 1U); write16(routed_list + 54U, 3U);
+	write16(routed_list + 56U, 1U); write16(routed_list + 58U, 2U);
+	routed_list[62] = 1U; routed_list[63] = 10U; routed_list[64] = 1U;
+	routed_list[65] = 0x09U; routed_list[66] = 7U;
+	write16(routed_list + 67U, 2U); routed_list[70] = 0U; routed_list[71] = 1U;
+	routed_list[72] = 0x5bU; routed_list[73] = 6U;
+	routed_list[77] = 5U;
+	routed_list[78] = 0x29U; routed_list[79] = 2U;
+	write32(routed_list + 80U, (CDK2_HII_PACKAGE_END << 24) | 4U);
 	failures += expect(cdk2_hii_new_package_list(&context.database, routed_list,
 		(void *)9, &routed_handle) == EFI_SUCCESS &&
 		cdk2_hii_register_package_keyword(&context.database, routed_handle,
-			L"x-UEFI-test", L"Routed", 1U, 1U, 2U, 1U, 0x07U, 0U,
+			L"x-UEFI-test", L"Routed", 1U, 1U, 2U, 1U, 0x05U, 0U,
 			FALSE) == EFI_SUCCESS &&
+		cdk2_hii_set_string(&context.database, routed_handle, 1U, "en-US",
+			L"Routing mode", NULL) == EFI_SUCCESS &&
+		cdk2_hii_set_string(&context.database, routed_handle, 2U, "en-US",
+			L"Enabled", NULL) == EFI_SUCCESS &&
 		keyword->get_data(keyword, L"x-UEFI-test", L"KEYWORD=Routed&Numeric:1",
 			&progress, &progress_error, &results) == EFI_SUCCESS &&
 		u16_contains(results, L"&PATH=010204007FFF0400&KEYWORD=Routed") &&
@@ -189,7 +202,10 @@ int main(void)
 		L"PATH=010204007FFF0400&KEYWORD=Routed&KEYWORDINFO=All", &progress,
 		&progress_error, &results) == EFI_SUCCESS &&
 		u16_contains(results, L"&DATATYPE=Numeric:1") &&
-		u16_contains(results, L"&DISPLAYNAME=Routed"),
+		u16_contains(results, L"&MAX=0A&MIN=01&STEP=01") &&
+		u16_contains(results, L"&OPTIONVALUE=01&OPTIONSTRING=Enabled") &&
+		u16_contains(results, L"&STANDARDDEFAULT=05") &&
+		u16_contains(results, L"&DISPLAYNAME=Routing mode"),
 		"PATH-qualified keyword owner or KeywordInfo was not returned");
 	free(results);
 	install_status = EFI_DEVICE_ERROR;
