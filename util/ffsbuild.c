@@ -225,10 +225,23 @@ int main(int argc, char **argv)
 
 	offset = FFS_HEADER_SIZE;
 	if (raw != NULL) {
+		size_t next, required;
+		size_t ui_size = align4(4U + (strlen(argv[2]) + 1U) * 2U);
+		size_t version_size = align4(6U + (strlen(argv[3]) + 1U) * 2U);
+
 		if (raw_size > 0xffffffU - 4U)
 			fail("RAW section is too large");
 		if (raw_size + 4U > output_size - offset)
 			fail("RAW section does not fit requested FFS size");
+		next = align4(offset + raw_size + 4U);
+		required = align4(next + depex_size);
+		if (required > output_size || pe_size > output_size - required ||
+		    output_size - required - pe_size < 4U)
+			fail("RAW section leaves no room for following sections");
+		required = align4(required + 4U + pe_size);
+		if (ui_size > output_size - required ||
+		    version_size > output_size - required - ui_size)
+			fail("RAW section leaves no room for following sections");
 		put24(output + offset, raw_size + 4U);
 		output[offset + 3] = SECTION_RAW;
 		memcpy(output + offset + 4U, raw, raw_size);

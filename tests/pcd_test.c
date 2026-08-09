@@ -13,13 +13,17 @@ static const EFI_GUID signature = {
 static const EFI_GUID space = {
 	0x12345678, 0xabcd, 0xef01, { 1, 2, 3, 4, 5, 6, 7, 8 }
 };
+static const EFI_GUID module_space = {
+	0xa1aff049, 0xfdeb, 0x442a, { 0xb3, 0x20, 0x13, 0xab, 0x4c, 0xb7, 0x2b, 0xbc }
+};
 static unsigned int callbacks;
 static unsigned int installs, uninstalls;
 static uint64_t second_install_status;
 static struct cdk2_pcd_protocol *published_native;
+static struct cdk2_get_pcd_info_protocol *published_info;
 static struct fixture *raw_fixture;
 static size_t raw_fixture_size;
-static uint8_t variable_data[16];
+static uint8_t variable_data[8192];
 static unsigned int variable_writes, variable_locks;
 static uint64_t allocation_status;
 static unsigned int allocations, frees;
@@ -30,8 +34,10 @@ static uint64_t CDK2_MS_ABI mock_get_variable(const uint16_t *name,
 	(void)name;
 	(void)guid;
 	(void)attributes;
-	if (*size < sizeof(variable_data))
+	if (*size < sizeof(variable_data)) {
+		*size = sizeof(variable_data);
 		return EFI_BUFFER_TOO_SMALL;
+	}
 	memcpy(data, variable_data, sizeof(variable_data));
 	*size = sizeof(variable_data);
 	return EFI_SUCCESS;
@@ -70,6 +76,13 @@ struct system_view {
 	uint32_t revision, pad;
 	void *console[6], *runtime;
 	struct cdk2_pcd_boot_services *boot;
+};
+struct runtime_view {
+	uint8_t header[24];
+	void *time_services[6];
+	cdk2_pcd_get_variable_fn *get_variable;
+	void *get_next_variable_name;
+	cdk2_pcd_set_variable_fn *set_variable;
 };
 
 static uint64_t CDK2_MS_ABI mock_read_section(void *self, const EFI_GUID *file,
@@ -128,6 +141,8 @@ static uint64_t CDK2_MS_ABI mock_install(void **handle, const EFI_GUID *guid,
 	installs++;
 	if (installs == 1)
 		published_native = interface;
+	if (installs == 2)
+		published_info = interface;
 	return installs == 2 ? second_install_status : EFI_SUCCESS;
 }
 
@@ -189,6 +204,26 @@ struct pointer_fixture {
 	uint16_t sizes[2];
 };
 
+struct ex_fixture {
+	struct cdk2_pcd_database_header header;
+	uint64_t sku;
+	uint32_t local[3];
+	struct cdk2_pcd_ex_map map[3];
+	EFI_GUID guid[2];
+	uint32_t value[3];
+};
+
+struct hii_pointer_fixture {
+	struct cdk2_pcd_database_header header;
+	uint32_t local;
+	EFI_GUID guid;
+	struct { uint32_t string_index, default_offset; uint16_t guid_index,
+		variable_offset; uint32_t attributes; uint16_t property, reserved; } head;
+	uint8_t defaults[16];
+	uint16_t name[2];
+	uint16_t sizes[2];
+};
+
 static void make_pointer(struct pointer_fixture *fixture)
 {
 	memset(fixture, 0, sizeof(*fixture));
@@ -197,7 +232,8 @@ static void make_pointer(struct pointer_fixture *fixture)
 	fixture->header.length = fixture->header.length_all_skus = sizeof(*fixture);
 	fixture->header.local_tokens_offset = offsetof(struct pointer_fixture, local);
 	fixture->header.ex_map_offset = fixture->header.guid_offset =
-		fixture->header.sku_offset = fixture->header.name_offset = sizeof(*fixture);
+		fixture->header.name_offset = sizeof(*fixture);
+	fixture->header.sku_offset = fixture->header.local_tokens_offset;
 	fixture->header.string_offset = offsetof(struct pointer_fixture, string);
 	fixture->header.size_offset = offsetof(struct pointer_fixture, sizes);
 	fixture->header.local_token_count = 3;
@@ -217,8 +253,8 @@ static void make_hii(struct hii_fixture *fixture)
 	fixture->header.ex_map_offset = offsetof(struct hii_fixture, guid);
 	fixture->header.guid_offset = offsetof(struct hii_fixture, guid);
 	fixture->header.string_offset = offsetof(struct hii_fixture, name);
-	fixture->header.size_offset = fixture->header.sku_offset =
-		fixture->header.name_offset = sizeof(*fixture);
+	fixture->header.size_offset = fixture->header.name_offset = sizeof(*fixture);
+	fixture->header.sku_offset = fixture->header.local_tokens_offset;
 	fixture->header.local_token_count = fixture->header.guid_count = 1;
 	fixture->local = 0x84000000U | offsetof(struct hii_fixture, head);
 	fixture->guid = space;
@@ -227,6 +263,52 @@ static void make_hii(struct hii_fixture *fixture)
 	fixture->head.attributes = 7;
 	fixture->head.property = 1;
 	fixture->name[0] = 'X';
+}
+
+static void make_hii_pointer(struct hii_pointer_fixture *fixture)
+{
+	memset(fixture, 0, sizeof(*fixture));
+	fixture->header.signature = signature;
+	fixture->header.build_version = CDK2_PCD_SERVICE_VERSION;
+	fixture->header.length = fixture->header.length_all_skus = sizeof(*fixture);
+	fixture->header.local_tokens_offset = offsetof(struct hii_pointer_fixture, local);
+	fixture->header.ex_map_offset = fixture->header.guid_offset =
+		offsetof(struct hii_pointer_fixture, guid);
+	fixture->header.string_offset = offsetof(struct hii_pointer_fixture, name);
+	fixture->header.size_offset = offsetof(struct hii_pointer_fixture, sizes);
+	fixture->header.sku_offset = fixture->header.local_tokens_offset;
+	fixture->header.name_offset = sizeof(*fixture);
+	fixture->header.local_token_count = fixture->header.guid_count = 1;
+	fixture->local = 0x90000000U | offsetof(struct hii_pointer_fixture, head);
+	fixture->head.default_offset = offsetof(struct hii_pointer_fixture, defaults);
+	fixture->head.variable_offset = 32;
+	fixture->head.attributes = 7;
+	fixture->name[0] = 'P';
+	fixture->sizes[0] = fixture->sizes[1] = sizeof(fixture->defaults);
+}
+
+static void make_ex(struct ex_fixture *fixture)
+{
+	memset(fixture, 0, sizeof(*fixture));
+	fixture->header.signature = signature;
+	fixture->header.build_version = CDK2_PCD_SERVICE_VERSION;
+	fixture->header.length = fixture->header.length_all_skus = sizeof(*fixture);
+	fixture->header.sku_offset = offsetof(struct ex_fixture, sku);
+	fixture->header.local_tokens_offset = offsetof(struct ex_fixture, local);
+	fixture->header.ex_map_offset = offsetof(struct ex_fixture, map);
+	fixture->header.guid_offset = offsetof(struct ex_fixture, guid);
+	fixture->header.string_offset = fixture->header.size_offset =
+		fixture->header.name_offset = sizeof(*fixture);
+	fixture->header.local_token_count = fixture->header.ex_token_count = 3;
+	fixture->header.guid_count = 2;
+	fixture->local[0] = 0x04000000U | offsetof(struct ex_fixture, value[0]);
+	fixture->local[1] = 0x04000000U | offsetof(struct ex_fixture, value[1]);
+	fixture->local[2] = 0x04000000U | offsetof(struct ex_fixture, value[2]);
+	fixture->map[0] = (struct cdk2_pcd_ex_map){ 100, 1, 0 };
+	fixture->map[1] = (struct cdk2_pcd_ex_map){ 50, 2, 0 };
+	fixture->map[2] = (struct cdk2_pcd_ex_map){ 10, 3, 0 };
+	fixture->guid[0] = space;
+	fixture->guid[1] = (EFI_GUID){ 0xdeadbeef, 1, 2, { 3 } };
 }
 
 static void make_fixture(struct fixture *fixture)
@@ -263,13 +345,19 @@ int main(void)
 	struct fixture pei;
 	struct delta_fixture delta_fixture;
 	struct hii_fixture hii;
+	struct hii_pointer_fixture hii_pointer;
 	struct pointer_fixture pointer;
+	struct ex_fixture ex;
 	struct cdk2_pcd_context context;
 	struct cdk2_pcd_boot_services boot_services;
 	struct system_view system;
+	struct runtime_view runtime;
 	void *value;
 	size_t size;
 	uint32_t replacement = 42, token = 0;
+	struct cdk2_pcd_info info;
+	const EFI_GUID *next_space;
+	EFI_GUID copied_space;
 	uint8_t vpd[16] = { 0 };
 	int failures = 0;
 
@@ -282,12 +370,24 @@ int main(void)
 	boot_services.free_pool = mock_free;
 	memset(&system, 0, sizeof(system));
 	system.boot = &boot_services;
+	memset(&runtime, 0, sizeof(runtime));
+	runtime.get_variable = mock_get_variable;
+	runtime.set_variable = mock_set_variable;
 	failures += expect(cdk2_pcd_init(&context, &fixture, sizeof(fixture)) == EFI_SUCCESS,
 		"valid version-seven database accepted");
 	failures += expect(cdk2_pcd_get(&context, NULL, 2, &value, &size) == EFI_SUCCESS &&
 		size == 8 && *(uint64_t *)value == fixture.wide, "native token lookup");
 	failures += expect(cdk2_pcd_get(&context, &space, 77, &value, &size) == EFI_SUCCESS &&
 		*(uint32_t *)value == fixture.value, "dynamic-ex mapping");
+	failures += expect(cdk2_pcd_get_info(&context, NULL, 2, &info.pcd_type,
+		&info.pcd_size) == EFI_SUCCESS && info.pcd_type == 3 && info.pcd_size == 8,
+		"GetInfo reports the actual UINT64 datum type");
+	make_ex(&ex);
+	failures += expect(cdk2_pcd_init(&context, &ex, sizeof(ex)) == EFI_SUCCESS,
+		"unordered DynamicEx fixture accepted");
+	token = 0;
+	failures += expect(cdk2_pcd_next_token(&context, &space, &token) == EFI_SUCCESS &&
+		token == 10, "DynamicEx iteration selects lowest succeeding token");
 	make_pointer(&pointer);
 	failures += expect(cdk2_pcd_init(&context, &pointer, sizeof(pointer)) == EFI_SUCCESS &&
 		cdk2_pcd_get(&context, NULL, 3, &value, &size) == EFI_SUCCESS && size == 16,
@@ -324,6 +424,16 @@ int main(void)
 		fixture.value == replacement && callbacks == 1, "callback precedes mutation");
 	failures += expect(cdk2_pcd_unregister(&context, &space, 77, changed) == EFI_SUCCESS,
 		"callback cancellation");
+	copied_space = space;
+	failures += expect(cdk2_pcd_register(&context, &copied_space, 77, changed) ==
+		EFI_SUCCESS, "callback owns an equal token-space GUID value");
+	copied_space.data1++;
+	size = sizeof(replacement);
+	failures += expect(cdk2_pcd_set(&context, &space, 77, &replacement, &size) ==
+		EFI_SUCCESS && callbacks == 2 &&
+		cdk2_pcd_unregister(&context, &space, 77, changed) == EFI_SUCCESS,
+		"callback survives caller GUID lifetime and cancels by value");
+	token = 0;
 	failures += expect(cdk2_pcd_next_token(&context, NULL, &token) == EFI_SUCCESS && token == 1,
 		"native iteration starts at token one");
 	failures += expect(cdk2_pcd_set_sku(&context, 9) == EFI_SUCCESS &&
@@ -342,14 +452,47 @@ int main(void)
 		cdk2_pcd_apply_sku_delta(&context, 7) == EFI_SUCCESS &&
 		(delta_fixture.base.value & 0xff) == 0x5a,
 		"bounded generated SKU delta applied");
+	make_fixture(&delta_fixture.base);
+	delta_fixture.base.header.length_all_skus = sizeof(delta_fixture);
+	delta_fixture.sku = 7;
+	delta_fixture.length = 24;
+	delta_fixture.delta = ((uint32_t)0x6b << 24) |
+		offsetof(struct fixture, value);
+	failures += expect(cdk2_pcd_init(&context, &delta_fixture,
+		sizeof(delta_fixture)) == EFI_SUCCESS, "SKU protocol fixture initialized");
+	installs = uninstalls = 0;
+	second_install_status = EFI_SUCCESS;
+	failures += expect(cdk2_pcd_publish(&context, &boot_services) == EFI_SUCCESS,
+		"SKU protocol fixture published");
+	published_native->set_sku(7);
+	failures += expect((delta_fixture.base.value & 0xff) == 0x6b &&
+		delta_fixture.base.header.system_sku_id == 7,
+		"SetSku protocol applies the selected SKU delta");
 	/* Restore the ordinary fixture for publication ABI checks. */
 	failures += expect(cdk2_pcd_init(&context, &fixture, sizeof(fixture)) == EFI_SUCCESS,
 		"base database restored");
+	installs = uninstalls = 0;
 	second_install_status = EFI_SUCCESS;
 	failures += expect(cdk2_pcd_publish(&context, &boot_services) == EFI_SUCCESS &&
 		installs == 2 && published_native != NULL &&
 		published_native->get32(1) == replacement,
 		"four exact protocol interfaces published and callable");
+	failures += expect(published_info != NULL &&
+		published_info->get_info(2, &info) == EFI_SUCCESS && info.pcd_type == 3,
+		"published GetInfo reports UINT64 rather than the zero enum");
+	make_ex(&ex);
+	failures += expect(cdk2_pcd_init(&context, &ex, sizeof(ex)) == EFI_SUCCESS,
+		"token-space fixture restored");
+	installs = 0;
+	failures += expect(cdk2_pcd_publish(&context, &boot_services) == EFI_SUCCESS,
+		"token-space fixture published");
+	next_space = NULL;
+	failures += expect(published_native->get_next_token_space(&next_space) ==
+		EFI_SUCCESS && next_space != NULL && memcmp(next_space, &space,
+		sizeof(space)) == 0 && published_native->get_next_token_space(&next_space) ==
+		EFI_NOT_FOUND, "token spaces derive only from distinct DynamicEx map GUIDs");
+	failures += expect(cdk2_pcd_init(&context, &fixture, sizeof(fixture)) == EFI_SUCCESS,
+		"base database restored after token-space fixture");
 	installs = uninstalls = 0;
 	second_install_status = EFI_OUT_OF_RESOURCES;
 	failures += expect(cdk2_pcd_publish(&context, &boot_services) ==
@@ -369,19 +512,77 @@ int main(void)
 	allocation_status = EFI_SUCCESS;
 	make_hii(&hii);
 	memset(variable_data, 0, sizeof(variable_data));
+	variable_data[4] = 0x39;
+	raw_fixture = (struct fixture *)&hii;
+	raw_fixture_size = sizeof(hii);
+	system.runtime = &runtime;
+	installs = 0;
+	failures += expect(cdk2_pcd_driver_entry((void *)1, &system) == EFI_SUCCESS &&
+		published_native->get32(1) == 0x39,
+		"driver entry wires production runtime HII variable services before publication");
+	make_fixture(&fixture);
+	fixture.map.external_token = 0x00030006U;
+	fixture.map.local_token = 1;
+	fixture.guid = module_space;
+	fixture.local[0] = 0x08000000U | offsetof(struct fixture, value);
+	fixture.local[1] = 0x44000000U | offsetof(struct fixture, wide);
+	{
+		uint64_t address = (uintptr_t)vpd;
+		uint32_t vpd_offset = 3;
+		memcpy(&fixture.value, &address, sizeof(address));
+		memcpy(&fixture.wide, &vpd_offset, sizeof(vpd_offset));
+	}
+	vpd[3] = 0x7c;
+	raw_fixture = &fixture;
+	raw_fixture_size = sizeof(fixture);
+	installs = 0;
+	failures += expect(cdk2_pcd_driver_entry((void *)1, &system) == EFI_SUCCESS &&
+		published_native->get32(2) == 0x7c,
+		"driver entry wires the generated VPD base before publication");
+	system.runtime = NULL;
+	make_hii(&hii);
+	memset(variable_data, 0, sizeof(variable_data));
 	variable_data[4] = 0x78;
-	failures += expect(cdk2_pcd_init(&context, &hii, sizeof(hii)) == EFI_SUCCESS &&
-		cdk2_pcd_configure_storage(&context, mock_get_variable, mock_set_variable,
-			NULL, 0) == EFI_SUCCESS &&
-		cdk2_pcd_get(&context, NULL, 1, &value, &size) == EFI_SUCCESS &&
-		size == 4 && *(uint32_t *)value == 0x78,
+	variable_data[sizeof(variable_data) - 1] = 0xa5;
+	failures += expect(cdk2_pcd_init(&context, &hii, sizeof(hii)) == EFI_SUCCESS,
+		"HII fixture initialized");
+	context.allocate_pool = mock_allocate;
+	context.free_pool = mock_free;
+	(void)cdk2_pcd_configure_storage(&context, mock_get_variable, mock_set_variable,
+		NULL, 0);
+	{
+		uint64_t hii_status = cdk2_pcd_get(&context, NULL, 1, &value, &size);
+		failures += expect(hii_status == EFI_SUCCESS && size == 4 &&
+			*(uint32_t *)value == 0x78,
 		"HII datum read through runtime variable backend");
+	}
 	size = 4;
 	failures += expect(cdk2_pcd_set(&context, NULL, 1, &replacement, &size) ==
-		EFI_SUCCESS && variable_writes == 1 && variable_data[4] == replacement,
-		"HII write preserves variable envelope");
+		EFI_SUCCESS && variable_writes == 1 && variable_data[4] == replacement &&
+		variable_data[sizeof(variable_data) - 1] == 0xa5,
+		"HII write preserves a variable envelope larger than 4 KiB");
 	failures += expect(cdk2_pcd_lock_read_only(&context, mock_lock_variable) ==
 		EFI_SUCCESS && variable_locks == 1, "read-only HII variable policy locked");
+	make_hii_pointer(&hii_pointer);
+	memset(variable_data, 0, sizeof(variable_data));
+	memcpy(variable_data + hii_pointer.head.variable_offset, &space, sizeof(space));
+	failures += expect(cdk2_pcd_init(&context, &hii_pointer,
+		sizeof(hii_pointer)) == EFI_SUCCESS, "HII pointer fixture initialized");
+	context.allocate_pool = mock_allocate;
+	context.free_pool = mock_free;
+	(void)cdk2_pcd_configure_storage(&context, mock_get_variable,
+		mock_set_variable, NULL, 0);
+	{
+		uint64_t pointer_status = cdk2_pcd_get(&context, NULL, 1, &value, &size);
+		failures += expect(pointer_status == EFI_SUCCESS && size == sizeof(space) &&
+			memcmp(value, &space, sizeof(space)) == 0,
+		"HII pointer uses compact current size and variable storage");
+	}
+	size = sizeof(space);
+	failures += expect(cdk2_pcd_set(&context, NULL, 1, &signature, &size) ==
+		EFI_SUCCESS && memcmp(variable_data + hii_pointer.head.variable_offset,
+		&signature, sizeof(signature)) == 0,
+		"HII pointer accepts its generated maximum size");
 	make_hii(&hii);
 	hii.local = 0x44000000U | offsetof(struct hii_fixture, head);
 	*(uint32_t *)&hii.head = 3;
@@ -402,6 +603,10 @@ int main(void)
 	bad.header.local_tokens_offset = UINT32_MAX;
 	failures += expect(cdk2_pcd_init(&context, &bad, sizeof(bad)) != EFI_SUCCESS,
 		"overflowing table rejected");
+	make_fixture(&bad);
+	bad.header.sku_offset = bad.header.local_tokens_offset + sizeof(uint64_t);
+	failures += expect(cdk2_pcd_init(&context, &bad, sizeof(bad)) != EFI_SUCCESS,
+		"SKU table ordering rejected before unsigned subtraction");
 	make_fixture(&bad);
 	bad.local[0] = 0x04000000U | (sizeof(bad) - 1);
 	failures += expect(cdk2_pcd_init(&context, &bad, sizeof(bad)) != EFI_SUCCESS,

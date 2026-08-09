@@ -44,6 +44,18 @@ struct system_table_view {
 	struct cdk2_pcd_boot_services *boot_services;
 };
 
+struct runtime_services_view {
+	struct table_header header;
+	void *time_services[6];
+	cdk2_pcd_get_variable_fn *get_variable;
+	void *get_next_variable_name;
+	cdk2_pcd_set_variable_fn *set_variable;
+};
+
+static const EFI_GUID module_token_space = {
+	0xa1aff049, 0xfdeb, 0x442a, { 0xb3, 0x20, 0x13, 0xab, 0x4c, 0xb7, 0x2b, 0xbc }
+};
+
 static const EFI_GUID fv2_guid = {
 	0x220e73b6, 0x6bdb, 0x4413, { 0x84, 0x05, 0xb9, 0x74, 0xb1, 0x08, 0x61, 0x9a }
 };
@@ -70,8 +82,13 @@ static void *get_value(const EFI_GUID *space, size_t token, size_t *size)
 
 static void CDK2_MS_ABI abi_set_sku(size_t sku)
 {
-	if (active != NULL)
-		(void)cdk2_pcd_set_sku(active, sku);
+	if (active != NULL) {
+		uint64_t status = sku == 0 ? EFI_NOT_FOUND :
+			cdk2_pcd_apply_sku_delta(active, sku);
+
+		if (status == EFI_NOT_FOUND)
+			(void)cdk2_pcd_set_sku(active, sku);
+	}
 }
 
 static uint64_t get_scalar(const EFI_GUID *space, size_t token, size_t size)
@@ -249,39 +266,52 @@ static uint64_t CDK2_MS_ABI abi_next(const EFI_GUID *space, size_t *token)
 
 static uint64_t CDK2_MS_ABI abi_next_space(const EFI_GUID **space)
 {
-	size_t index;
+	size_t index, prior;
 	EFI_GUID *table;
+	struct cdk2_pcd_ex_map *maps;
+	int after;
 
 	if (active == NULL || space == NULL)
 		return EFI_INVALID_PARAMETER;
 	table = (EFI_GUID *)(active->database + active->header->guid_offset);
-	if (*space == NULL) {
-		if (active->header->guid_count == 0)
-			return EFI_NOT_FOUND;
-		*space = table;
-		return EFI_SUCCESS;
-	}
-	for (index = 0; index + 1 < active->header->guid_count; index++)
-		if (memcmp(*space, &table[index], sizeof(**space)) == 0) {
-			*space = &table[index + 1];
-			return EFI_SUCCESS;
+	maps = (struct cdk2_pcd_ex_map *)(active->database + active->header->ex_map_offset);
+	after = *space == NULL;
+	for (index = 0; index < active->header->ex_token_count; index++) {
+		if (maps[index].guid_index >= active->header->guid_count)
+			return EFI_COMPROMISED_DATA;
+		if (!after) {
+			if (memcmp(*space, &table[maps[index].guid_index], sizeof(**space)) == 0)
+				after = 1;
+			continue;
 		}
+		if (after) {
+			for (prior = 0; prior < index; prior++)
+				if (maps[prior].guid_index < active->header->guid_count &&
+				    memcmp(&table[maps[prior].guid_index],
+					&table[maps[index].guid_index], sizeof(*table)) == 0)
+					break;
+			if (prior == index) {
+				*space = &table[maps[index].guid_index];
+				return EFI_SUCCESS;
+			}
+		}
+	}
 	return EFI_NOT_FOUND;
 }
 
 static uint64_t info_common(const EFI_GUID *space, size_t token,
 	struct cdk2_pcd_info *info)
 {
-	void *value;
 	size_t size;
+	size_t type;
 	uint64_t status;
 
 	if (info == NULL)
 		return EFI_INVALID_PARAMETER;
-	status = cdk2_pcd_get(active, space, token, &value, &size);
+	status = cdk2_pcd_get_info(active, space, token, &type, &size);
 	if (status != EFI_SUCCESS)
 		return status;
-	info->pcd_type = 0;
+	info->pcd_type = type;
 	info->pcd_size = size;
 	info->pcd_name = NULL;
 	return EFI_SUCCESS;
@@ -418,6 +448,29 @@ free_database:
 	status = cdk2_pcd_init(&driver_context, expanded, expanded_size);
 	if (status != EFI_SUCCESS)
 		goto free_expanded;
+	driver_context.allocate_pool = table->boot_services->allocate_pool;
+	driver_context.free_pool = table->boot_services->free_pool;
+	if (table->runtime_services != NULL) {
+		struct runtime_services_view *runtime = table->runtime_services;
+		void *vpd_value;
+		size_t vpd_width;
+		uint8_t *vpd = NULL;
+		size_t vpd_size = 0;
+
+		if (cdk2_pcd_get(&driver_context, &module_token_space, 0x00030006U,
+		    &vpd_value, &vpd_width) == EFI_SUCCESS && vpd_width == 8) {
+			uint64_t address;
+			memcpy(&address, vpd_value, sizeof(address));
+			if (address != 0 && address <= UINTPTR_MAX) {
+				vpd = (uint8_t *)(uintptr_t)address;
+				vpd_size = UINTPTR_MAX - (uintptr_t)vpd + 1U;
+			}
+		}
+		status = cdk2_pcd_configure_storage(&driver_context,
+			runtime->get_variable, runtime->set_variable, vpd, vpd_size);
+		if (status != EFI_SUCCESS)
+			goto free_expanded;
+	}
 	status = cdk2_pcd_publish(&driver_context, table->boot_services);
 	if (status == EFI_SUCCESS)
 		return status;

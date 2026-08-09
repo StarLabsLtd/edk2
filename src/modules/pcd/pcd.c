@@ -48,6 +48,36 @@ static EFI_GUID *guid_table(struct cdk2_pcd_context *context)
 	return (EFI_GUID *)(context->database + context->header->guid_offset);
 }
 
+static size_t datum_type(uint32_t entry)
+{
+	if ((entry & PCD_BOOLEAN) != 0)
+		return 4;
+	if ((entry & PCD_DATUM_MASK) == 0)
+		return 5;
+	return (entry & PCD_DATUM_MASK) == 0x02000000U ? 1 :
+		(entry & PCD_DATUM_MASK) == 0x04000000U ? 2 :
+		(entry & PCD_DATUM_MASK) == 0x08000000U ? 3 : 0;
+}
+
+static uint64_t grow_variable(struct cdk2_pcd_context *context, size_t required)
+{
+	void *buffer;
+	uint64_t status;
+
+	if (required <= context->variable_capacity)
+		return EFI_SUCCESS;
+	if (context->allocate_pool == NULL || context->free_pool == NULL)
+		return PCD_OUT_OF_RESOURCES;
+	status = context->allocate_pool(4U, required, &buffer);
+	if (status != EFI_SUCCESS)
+		return status;
+	if (context->variable != context->variable_inline)
+		(void)context->free_pool(context->variable);
+	context->variable = buffer;
+	context->variable_capacity = required;
+	return EFI_SUCCESS;
+}
+
 static uint64_t pointer_sizes(struct cdk2_pcd_context *context, uint16_t local,
 	uint16_t **maximum, uint16_t **current)
 {
@@ -55,7 +85,8 @@ static uint64_t pointer_sizes(struct cdk2_pcd_context *context, uint16_t local,
 	uint16_t *sizes;
 
 	for (i = 0; i + 1 < local; i++)
-		if ((local_table(context)[i] & PCD_DATUM_MASK) == 0)
+		if ((local_table(context)[i] & PCD_DATUM_MASK) == 0 &&
+		    (local_table(context)[i] & PCD_BOOLEAN) == 0)
 			index += 2;
 	if (!bounds(context->header->size_offset, index + 2, sizeof(*sizes),
 		context->header->length))
@@ -92,7 +123,7 @@ static uint64_t storage_location(struct cdk2_pcd_context *context,
 	if ((entry & PCD_TYPE_HII) != 0) {
 		struct variable_head *head;
 		uint16_t *name;
-		size_t variable_size = sizeof(context->variable);
+		size_t variable_size = context->variable_capacity;
 		uint32_t attributes = 0;
 		uint64_t status;
 
@@ -101,14 +132,23 @@ static uint64_t storage_location(struct cdk2_pcd_context *context,
 		head = (struct variable_head *)(context->database + offset);
 		if (head->guid_index >= context->header->guid_count ||
 		    !bounds(context->header->string_offset, head->string_index, 1,
-			    context->header->length) ||
-		    !bounds(head->variable_offset, 1, width, sizeof(context->variable)))
+			    context->header->length) || width > SIZE_MAX - head->variable_offset)
 			return PCD_INVALID_PARAMETER;
 		name = (uint16_t *)(context->database + context->header->string_offset +
 			head->string_index);
 		status = context->get_variable == NULL ? PCD_NOT_FOUND :
 			context->get_variable(name, &guid_table(context)[head->guid_index],
 				&attributes, &variable_size, context->variable);
+		if (status == EFI_BUFFER_TOO_SMALL) {
+			status = grow_variable(context, variable_size);
+			if (status != EFI_SUCCESS)
+				return status;
+			status = context->get_variable(name,
+				&guid_table(context)[head->guid_index], &attributes,
+				&variable_size, context->variable);
+		}
+		if (status != EFI_SUCCESS && status != PCD_NOT_FOUND)
+			return status;
 		if (status == EFI_SUCCESS && variable_size >= head->variable_offset + width) {
 			*value = context->variable + head->variable_offset;
 			return EFI_SUCCESS;
@@ -142,12 +182,15 @@ uint64_t cdk2_pcd_init(struct cdk2_pcd_context *context, void *database,
 	    !bounds(header->guid_offset, header->guid_count,
 		    sizeof(EFI_GUID), header->length) ||
 	    header->string_offset > header->length || header->size_offset > header->length ||
-	    header->sku_offset > header->length || header->name_offset > header->length)
+	    header->sku_offset > header->local_tokens_offset ||
+	    header->name_offset > header->length)
 		return PCD_INVALID_PARAMETER;
 	memset(context, 0, sizeof(*context));
 	context->database = database;
 	context->capacity = header->length + header->uninitialized_size;
 	context->header = header;
+	context->variable = context->variable_inline;
+	context->variable_capacity = sizeof(context->variable_inline);
 	for (i = 0; i < header->local_token_count; i++) {
 		uint32_t entry = local_table(context)[i];
 		uint32_t offset = entry & PCD_OFFSET_MASK;
@@ -211,16 +254,23 @@ static uint64_t locate(struct cdk2_pcd_context *context, uint16_t local,
 		(entry & PCD_DATUM_MASK) == 0x04000000U ? 4 :
 		(entry & PCD_DATUM_MASK) == 0x02000000U ? 2 : 1;
 
-	if ((entry & PCD_TYPE_MASK) == PCD_TYPE_STRING) {
+	if ((entry & PCD_TYPE_MASK) == PCD_TYPE_STRING ||
+	    (entry & PCD_TYPE_MASK) == (PCD_TYPE_HII | PCD_TYPE_STRING)) {
 		uint32_t string_index = *(uint32_t *)(context->database + offset);
 		uint16_t *maximum, *current;
 		uint64_t status = pointer_sizes(context, local, &maximum, &current);
 
 		if (status != EFI_SUCCESS || *current > *maximum ||
-		    !bounds(context->header->string_offset, string_index + *maximum,
-			    1, context->header->length))
+		    ((entry & PCD_TYPE_HII) == 0 &&
+		     !bounds(context->header->string_offset, string_index + *maximum,
+			     1, context->header->length)))
 			return PCD_INVALID_PARAMETER;
-		*value = context->database + context->header->string_offset + string_index;
+		if ((entry & PCD_TYPE_HII) != 0) {
+			status = storage_location(context, entry, *current, value);
+			if (status != EFI_SUCCESS)
+				return status;
+		} else
+			*value = context->database + context->header->string_offset + string_index;
 		*size = *current;
 		return EFI_SUCCESS;
 	}
@@ -249,6 +299,24 @@ uint64_t cdk2_pcd_get(struct cdk2_pcd_context *context, const EFI_GUID *space,
 	return status == EFI_SUCCESS ? locate(context, local, value, size) : status;
 }
 
+uint64_t cdk2_pcd_get_info(struct cdk2_pcd_context *context,
+	const EFI_GUID *space, uint32_t token, size_t *type, size_t *size)
+{
+	uint16_t local;
+	void *value;
+	uint64_t status;
+
+	if (type == NULL || size == NULL)
+		return PCD_INVALID_PARAMETER;
+	status = resolve(context, space, token, &local);
+	if (status != EFI_SUCCESS)
+		return status;
+	status = locate(context, local, &value, size);
+	if (status == EFI_SUCCESS)
+		*type = datum_type(local_table(context)[local - 1]);
+	return status;
+}
+
 uint64_t cdk2_pcd_set(struct cdk2_pcd_context *context, const EFI_GUID *space,
 	uint32_t token, const void *value, size_t *size)
 {
@@ -268,7 +336,8 @@ uint64_t cdk2_pcd_set(struct cdk2_pcd_context *context, const EFI_GUID *space,
 	entry = local_table(context)[local - 1];
 	if ((entry & PCD_TYPE_MASK) == PCD_TYPE_VPD)
 		return PCD_INVALID_PARAMETER;
-	if ((entry & PCD_TYPE_MASK) == PCD_TYPE_STRING) {
+	if ((entry & PCD_TYPE_MASK) == PCD_TYPE_STRING ||
+	    (entry & PCD_TYPE_MASK) == (PCD_TYPE_HII | PCD_TYPE_STRING)) {
 		uint16_t *maximum, *stored;
 
 		status = pointer_sizes(context, local, &maximum, &stored);
@@ -286,26 +355,41 @@ uint64_t cdk2_pcd_set(struct cdk2_pcd_context *context, const EFI_GUID *space,
 	for (i = 0; i < CDK2_PCD_MAX_CALLBACKS; i++)
 		if (context->callbacks[i].callback != NULL &&
 		    context->callbacks[i].token == token &&
-		    ((space == NULL && context->callbacks[i].space == NULL) ||
-		     same_guid(space, context->callbacks[i].space)))
+		    ((space == NULL && !context->callbacks[i].has_space) ||
+		     (space != NULL && context->callbacks[i].has_space &&
+		      same_guid(space, &context->callbacks[i].space))))
 			context->callbacks[i].callback(space, token, (void *)value, *size);
 	if ((entry & PCD_TYPE_HII) != 0) {
 		struct variable_head *head = (struct variable_head *)(context->database +
 			(entry & PCD_OFFSET_MASK));
 		uint16_t *name = (uint16_t *)(context->database +
 			context->header->string_offset + head->string_index);
-		size_t variable_size = sizeof(context->variable);
+		size_t variable_size = context->variable_capacity;
 		uint32_t attributes = head->attributes;
 
 		if (context->set_variable == NULL)
 			return PCD_UNSUPPORTED;
-		if (context->get_variable == NULL ||
-		    context->get_variable(name, &guid_table(context)[head->guid_index],
-			    &attributes, &variable_size, context->variable) != EFI_SUCCESS) {
-			memset(context->variable, 0, sizeof(context->variable));
+		status = context->get_variable == NULL ? PCD_NOT_FOUND :
+			context->get_variable(name, &guid_table(context)[head->guid_index],
+				&attributes, &variable_size, context->variable);
+		if (status == EFI_BUFFER_TOO_SMALL) {
+			status = grow_variable(context, variable_size);
+			if (status != EFI_SUCCESS)
+				return status;
+			status = context->get_variable(name,
+				&guid_table(context)[head->guid_index], &attributes,
+				&variable_size, context->variable);
+		}
+		if (status != EFI_SUCCESS && status != PCD_NOT_FOUND)
+			return status;
+		if (status == PCD_NOT_FOUND) {
+			status = grow_variable(context, head->variable_offset + *size);
+			if (status != EFI_SUCCESS)
+				return status;
+			memset(context->variable, 0, context->variable_capacity);
 			variable_size = head->variable_offset + *size;
 		}
-		if (!bounds(head->variable_offset, 1, *size, sizeof(context->variable)))
+		if (!bounds(head->variable_offset, 1, *size, context->variable_capacity))
 			return PCD_INVALID_PARAMETER;
 		if (variable_size < head->variable_offset + *size)
 			variable_size = head->variable_offset + *size;
@@ -334,14 +418,21 @@ uint64_t cdk2_pcd_register(struct cdk2_pcd_context *context,
 		return PCD_INVALID_PARAMETER;
 	for (i = 0; i < CDK2_PCD_MAX_CALLBACKS; i++) {
 		if (context->callbacks[i].callback == callback &&
-		    context->callbacks[i].token == token && context->callbacks[i].space == space)
+		    context->callbacks[i].token == token &&
+		    ((space == NULL && !context->callbacks[i].has_space) ||
+		     (space != NULL && context->callbacks[i].has_space &&
+		      same_guid(space, &context->callbacks[i].space))))
 			return PCD_ALREADY_STARTED;
 		if (empty == CDK2_PCD_MAX_CALLBACKS && context->callbacks[i].callback == NULL)
 			empty = i;
 	}
 	if (empty == CDK2_PCD_MAX_CALLBACKS)
 		return PCD_OUT_OF_RESOURCES;
-	context->callbacks[empty] = (struct cdk2_pcd_callback_slot){ space, token, callback };
+	context->callbacks[empty].has_space = space != NULL;
+	if (space != NULL)
+		context->callbacks[empty].space = *space;
+	context->callbacks[empty].token = token;
+	context->callbacks[empty].callback = callback;
 	return EFI_SUCCESS;
 }
 
@@ -352,7 +443,10 @@ uint64_t cdk2_pcd_unregister(struct cdk2_pcd_context *context,
 
 	for (i = 0; context != NULL && i < CDK2_PCD_MAX_CALLBACKS; i++)
 		if (context->callbacks[i].callback == callback &&
-		    context->callbacks[i].token == token && context->callbacks[i].space == space) {
+		    context->callbacks[i].token == token &&
+		    ((space == NULL && !context->callbacks[i].has_space) ||
+		     (space != NULL && context->callbacks[i].has_space &&
+		      same_guid(space, &context->callbacks[i].space)))) {
 			memset(&context->callbacks[i], 0, sizeof(context->callbacks[i]));
 			return EFI_SUCCESS;
 		}
@@ -363,6 +457,7 @@ uint64_t cdk2_pcd_next_token(struct cdk2_pcd_context *context,
 	const EFI_GUID *space, uint32_t *token)
 {
 	size_t i;
+	uint32_t candidate = 0;
 
 	if (context == NULL || token == NULL)
 		return PCD_INVALID_PARAMETER;
@@ -375,12 +470,14 @@ uint64_t cdk2_pcd_next_token(struct cdk2_pcd_context *context,
 	for (i = 0; i < context->header->ex_token_count; i++) {
 		struct cdk2_pcd_ex_map *map = &ex_table(context)[i];
 		if (map->external_token > *token && map->guid_index < context->header->guid_count &&
-		    same_guid(space, &guid_table(context)[map->guid_index])) {
-			*token = map->external_token;
-			return EFI_SUCCESS;
-		}
+		    same_guid(space, &guid_table(context)[map->guid_index]) &&
+		    (candidate == 0 || map->external_token < candidate))
+			candidate = map->external_token;
 	}
-	return PCD_NOT_FOUND;
+	if (candidate == 0)
+		return PCD_NOT_FOUND;
+	*token = candidate;
+	return EFI_SUCCESS;
 }
 
 uint64_t cdk2_pcd_set_sku(struct cdk2_pcd_context *context, uint64_t sku)

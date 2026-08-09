@@ -64,6 +64,22 @@ static int run_raw(const char *tool, const char *pe, const char *output,
 	return !WIFEXITED(status) || WEXITSTATUS(status) != 0;
 }
 
+static int run_raw_tight(const char *tool, const char *pe, const char *output,
+	const char *raw)
+{
+	pid_t child = fork();
+	int status;
+
+	if (child == 0) {
+		execl(tool, tool, "80cf7257-87ab-47f9-a3fe-d50b76d89541",
+		      "PcdDxe", "1.0", "56", pe, output, "--raw", raw, NULL);
+		_exit(127);
+	}
+	if (child < 0 || waitpid(child, &status, 0) != child)
+		return 1;
+	return !WIFEXITED(status) || WEXITSTATUS(status) != 0;
+}
+
 static int run_mm(const char *tool, const char *pe, const char *output,
 	const char *depex, const char *depex_type)
 {
@@ -108,6 +124,7 @@ int main(int argc, char **argv)
 		0xf2, 0xe0, 0xde, 0xc5, 0x12, 0x34, 0x2f, 0x34, 0x08
 	};
 	static const uint8_t raw[] = { 0x3c, 0x19, 0x7d, 0x3c, 7, 0, 0, 0 };
+	static const uint8_t tight_raw[28] = { 0 };
 	uint8_t mm_depex[sizeof(depex)];
 	uint8_t output[130];
 	char pe_path[512], depex_path[512], raw_path[512], output_path[512];
@@ -145,6 +162,9 @@ int main(int argc, char **argv)
 	    fclose(file) != 0 || output[27] != 0x19 ||
 	    memcmp(output + 28, raw, sizeof(raw)) != 0 || output[39] != 0x13 ||
 	    output[47] != 0x10)
+		return 1;
+	if (write_file(raw_path, tight_raw, sizeof(tight_raw)) ||
+	    !run_raw_tight(argv[1], pe_path, output_path, raw_path))
 		return 1;
 	memcpy(mm_depex, depex, sizeof(mm_depex));
 	mm_depex[3] = 0x1c;

@@ -31,7 +31,8 @@ typedef void CDK2_MS_ABI cdk2_pcd_callback(const EFI_GUID *, uint32_t,
 	void *, size_t);
 
 struct cdk2_pcd_callback_slot {
-	const EFI_GUID *space;
+	EFI_GUID space;
+	uint8_t has_space;
 	uint32_t token;
 	cdk2_pcd_callback *callback;
 };
@@ -42,6 +43,8 @@ typedef uint64_t CDK2_MS_ABI cdk2_pcd_set_variable_fn(const uint16_t *,
 	const EFI_GUID *, uint32_t, size_t, const void *);
 typedef uint64_t CDK2_MS_ABI cdk2_pcd_lock_variable_fn(const uint16_t *,
 	const EFI_GUID *);
+typedef uint64_t CDK2_MS_ABI cdk2_pcd_allocate_fn(uint32_t, size_t, void **);
+typedef uint64_t CDK2_MS_ABI cdk2_pcd_free_fn(void *);
 
 struct cdk2_pcd_context {
 	uint8_t *database;
@@ -53,7 +56,11 @@ struct cdk2_pcd_context {
 	cdk2_pcd_lock_variable_fn *lock_variable;
 	uint8_t *vpd;
 	size_t vpd_size;
-	uint8_t variable[4096];
+	uint8_t *variable;
+	size_t variable_capacity;
+	cdk2_pcd_allocate_fn *allocate_pool;
+	cdk2_pcd_free_fn *free_pool;
+	uint8_t variable_inline[4096];
 };
 
 struct cdk2_pcd_info {
@@ -135,8 +142,6 @@ typedef uint64_t CDK2_MS_ABI cdk2_pcd_uninstall_fn(void *,
 	const EFI_GUID *, void *, ...);
 typedef uint64_t CDK2_MS_ABI cdk2_pcd_locate_fn(const EFI_GUID *, void *, void **);
 typedef uint64_t CDK2_MS_ABI cdk2_pcd_handle_fn(void *, const EFI_GUID *, void **);
-typedef uint64_t CDK2_MS_ABI cdk2_pcd_allocate_fn(uint32_t, size_t, void **);
-typedef uint64_t CDK2_MS_ABI cdk2_pcd_free_fn(void *);
 
 struct cdk2_pcd_boot_services {
 	uint8_t before_allocate_pool[64];
@@ -154,6 +159,8 @@ uint64_t cdk2_pcd_init(struct cdk2_pcd_context *context, void *database,
 	size_t capacity);
 uint64_t cdk2_pcd_get(struct cdk2_pcd_context *context, const EFI_GUID *space,
 	uint32_t token, void **value, size_t *size);
+uint64_t cdk2_pcd_get_info(struct cdk2_pcd_context *context,
+	const EFI_GUID *space, uint32_t token, size_t *datum_type, size_t *size);
 uint64_t cdk2_pcd_set(struct cdk2_pcd_context *context, const EFI_GUID *space,
 	uint32_t token, const void *value, size_t *size);
 uint64_t cdk2_pcd_register(struct cdk2_pcd_context *context,
