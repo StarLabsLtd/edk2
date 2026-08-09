@@ -11,6 +11,18 @@ static UINTN config_calls;
 static UINT8 test_path[] = { 1U, 2U, 4U, 0U, 0x7fU, 0xffU, 4U, 0U };
 static UINTN u16_length(const CHAR16 *text)
 { UINTN length = 0U; while (text[length] != 0U) length++; return length; }
+static int u16_contains(const CHAR16 *text, const CHAR16 *needle)
+{
+	UINTN index, candidate;
+	for (index = 0U; text[index] != 0U; index++) {
+		for (candidate = 0U; needle[candidate] != 0U &&
+		     text[index + candidate] == needle[candidate]; candidate++)
+			;
+		if (needle[candidate] == 0U)
+			return 1;
+	}
+	return 0;
+}
 static EFI_STATUS CDK2_MS_ABI access_extract(const void *self, const CHAR16 *request,
 	CHAR16 **progress, CHAR16 **results)
 {
@@ -164,10 +176,19 @@ int main(void)
 			FALSE) == EFI_SUCCESS &&
 		keyword->get_data(keyword, L"x-UEFI-test", L"KEYWORD=Routed&Numeric:1",
 			&progress, &progress_error, &results) == EFI_SUCCESS &&
+		u16_contains(results, L"&PATH=010204007FFF0400&KEYWORD=Routed") &&
 		keyword->set_data(keyword,
-			L"NAMESPACE=x-UEFI-test&KEYWORD=Routed&VALUE=5A", &progress,
+			L"NAMESPACE=x-UEFI-test&"
+			L"GUID=00000000000000000000000000000000&NAME=0056&"
+			L"PATH=010204007FFF0400&KEYWORD=Routed&VALUE=5A", &progress,
 			&progress_error) == EFI_SUCCESS && config_calls >= 4U,
 		"IFR keyword value was not forwarded through ConfigAccess");
+	free(results);
+	failures += expect(keyword->get_data(keyword, L"x-UEFI-test",
+		L"GUID=00000000000000000000000000000000&NAME=0056&"
+		L"PATH=010204007FFF0400&KEYWORD=Routed", &progress, &progress_error,
+		&results) == EFI_SUCCESS,
+		"PATH-qualified keyword owner was not selected");
 	free(results);
 	install_status = EFI_DEVICE_ERROR;
 	failures += expect(cdk2_hii_database_entry((void *)1, &system) == EFI_DEVICE_ERROR,
