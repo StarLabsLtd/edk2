@@ -27,6 +27,7 @@ CDK2_NATIVE_METRONOME_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-metronome-test
 CDK2_NATIVE_SATA_CONTROLLER_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-sata-controller-test
 CDK2_NATIVE_ATA_ATAPI_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-atapi-test
 CDK2_NATIVE_ATA_ATAPI_BINDING_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-atapi-binding-test
+CDK2_NATIVE_ATA_ATAPI_AHCI_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-atapi-ahci-test
 CDK2_NATIVE_SATA_ENTRY_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-sata-entry-test
 CDK2_NATIVE_SATA_PACKAGE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-sata-package-test
 CDK2_NATIVE_SATA_DEPENDENCY_TEST := $(CDK2_DIR)/tests/sata_dependency_test.sh
@@ -363,6 +364,7 @@ CDK2_NATIVE_HOST_TOOLS := \
 	$(CDK2_NATIVE_SATA_CONTROLLER_TEST) \
 	$(CDK2_NATIVE_ATA_ATAPI_TEST) \
 	$(CDK2_NATIVE_ATA_ATAPI_BINDING_TEST) \
+	$(CDK2_NATIVE_ATA_ATAPI_AHCI_TEST) \
 	$(CDK2_NATIVE_SATA_ENTRY_TEST) \
 	$(CDK2_NATIVE_SATA_PACKAGE_TEST) \
 	$(CDK2_NATIVE_SATA_FFS) \
@@ -653,6 +655,7 @@ native-check: $(CDK2_CONFIG_HEADER) $(CDK2_NATIVE_ELF) $(CDK2_NATIVE_OVERRIDE_EL
 	@"$(CDK2_NATIVE_SATA_CONTROLLER_TEST)"
 	@"$(CDK2_NATIVE_ATA_ATAPI_TEST)"
 	@"$(CDK2_NATIVE_ATA_ATAPI_BINDING_TEST)"
+	@"$(CDK2_NATIVE_ATA_ATAPI_AHCI_TEST)"
 	@"$(CDK2_NATIVE_SATA_ENTRY_TEST)"
 	@"$(CDK2_NATIVE_SATA_PACKAGE_TEST)" "$(CDK2_NATIVE_SATA_FFS)"
 	@"$(CDK2_NATIVE_SATA_DEPENDENCY_TEST)" "$(MAKE)" "$(CDK2_DIR)" "$(CDK2_BUILD_DIR)"
@@ -2203,6 +2206,17 @@ $(CDK2_NATIVE_ATA_ATAPI_BINDING_TEST): $(CDK2_DIR)/tests/ata_atapi_binding_test.
 
 .PHONY: native-ata-atapi-binding-test
 native-ata-atapi-binding-test: $(CDK2_NATIVE_ATA_ATAPI_BINDING_TEST)
+	@"$<"
+
+$(CDK2_NATIVE_ATA_ATAPI_AHCI_TEST): $(CDK2_DIR)/tests/ata_atapi_ahci_test.c \
+		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/ahci.c \
+		$(CDK2_DIR)/include/cdk2/ata_atapi_pass_thru.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -fsanitize=address,undefined \
+		$(CDK2_NATIVE_INCLUDES) -o "$@" $(CDK2_DIR)/tests/ata_atapi_ahci_test.c \
+		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/ahci.c
+
+.PHONY: native-ata-atapi-ahci-test
+native-ata-atapi-ahci-test: $(CDK2_NATIVE_ATA_ATAPI_AHCI_TEST)
 	@"$<"
 
 $(CDK2_NATIVE_SATA_ENTRY_TEST): $(CDK2_DIR)/tests/sata_entry_test.c $(CDK2_DIR)/src/modules/sata_controller/entry.c $(CDK2_DIR)/src/modules/sata_controller/model.c $(CDK2_DIR)/include/cdk2/sata_controller.h | $(CDK2_NATIVE_BUILD_DIR)

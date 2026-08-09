@@ -124,4 +124,54 @@ EFI_STATUS cdk2_ata_binding_supported(struct cdk2_ata_binding *binding,
 EFI_STATUS cdk2_ata_binding_start(struct cdk2_ata_binding *binding, void *controller);
 EFI_STATUS cdk2_ata_binding_stop(struct cdk2_ata_binding *binding, void *controller);
 
+#define CDK2_AHCI_MAX_SLOTS 32U
+#define CDK2_AHCI_MAX_PRDT 64U
+#define CDK2_AHCI_PRDT_MAX_BYTES 0x400000U
+enum cdk2_ahci_dma_operation { CDK2_AHCI_BUS_MASTER_READ, CDK2_AHCI_BUS_MASTER_WRITE };
+struct cdk2_ahci_prdt { UINT64 address; UINT32 bytes; UINT8 interrupt; };
+struct cdk2_ahci_command {
+	UINT8 fis[20], atapi[16];
+	struct cdk2_ahci_prdt prdt[CDK2_AHCI_MAX_PRDT];
+	UINT16 prdt_count;
+	UINT8 atapi_command, write;
+};
+struct cdk2_ahci_dma_services {
+	void *context;
+	EFI_STATUS (*allocate)(void *context, size_t size, size_t alignment,
+		void **host, UINT64 *device);
+	EFI_STATUS (*release)(void *context, void *host, size_t size);
+	EFI_STATUS (*map)(void *context, enum cdk2_ahci_dma_operation operation,
+		void *host, size_t *size, UINT64 *device, void **mapping);
+	EFI_STATUS (*unmap)(void *context, void *mapping);
+	EFI_STATUS (*flush)(void *context);
+	UINT32 (*read)(void *context, UINT16 port, UINT16 register_offset);
+	EFI_STATUS (*write)(void *context, UINT16 port, UINT16 register_offset,
+		UINT32 value);
+	UINT64 (*time)(void *context);
+	void (*delay)(void *context, UINTN microseconds);
+};
+struct cdk2_ahci_allocation { void *host; UINT64 device; size_t size; };
+struct cdk2_ahci_engine {
+	struct cdk2_ahci_dma_services services;
+	struct cdk2_ahci_allocation command_list, received_fis;
+	struct cdk2_ahci_allocation command_tables[CDK2_AHCI_MAX_SLOTS];
+	UINT32 capability, ports_implemented, active_slots;
+	UINT8 slots, initialized;
+};
+
+EFI_STATUS cdk2_ahci_engine_init(struct cdk2_ahci_engine *engine,
+	const struct cdk2_ahci_dma_services *services, UINT32 capability,
+	UINT32 ports_implemented);
+void cdk2_ahci_engine_destroy(struct cdk2_ahci_engine *engine);
+EFI_STATUS cdk2_ahci_reset_controller(struct cdk2_ahci_engine *engine,
+	UINT64 timeout);
+EFI_STATUS cdk2_ahci_reset_port(struct cdk2_ahci_engine *engine, UINT16 port,
+	UINT64 timeout);
+EFI_STATUS cdk2_ahci_build_command(const struct cdk2_ata_command_packet *packet,
+	UINT16 multiplier, const UINT8 *atapi, size_t atapi_size,
+	struct cdk2_ahci_command *command);
+EFI_STATUS cdk2_ahci_execute(struct cdk2_ahci_engine *engine, UINT16 port,
+	struct cdk2_ata_command_packet *packet, const UINT8 *atapi, size_t atapi_size,
+	UINT64 timeout);
+
 #endif
