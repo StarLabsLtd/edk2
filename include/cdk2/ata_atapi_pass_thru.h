@@ -62,10 +62,31 @@ struct cdk2_ata_command_packet {
 	UINT32 in_length, out_length;
 	UINT8 protocol, length;
 };
+struct cdk2_ata_pass_thru_protocol;
+typedef EFI_STATUS CDK2_MS_ABI cdk2_ata_pass_thru_fn(
+	struct cdk2_ata_pass_thru_protocol *, UINT16, UINT16,
+	struct cdk2_ata_command_packet *, void *);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_ata_next_port_fn(
+	struct cdk2_ata_pass_thru_protocol *, UINT16 *);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_ata_next_device_fn(
+	struct cdk2_ata_pass_thru_protocol *, UINT16, UINT16 *);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_ata_build_path_fn(
+	struct cdk2_ata_pass_thru_protocol *, UINT16, UINT16, void **);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_ata_get_device_fn(
+	struct cdk2_ata_pass_thru_protocol *, void *, UINT16 *, UINT16 *);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_ata_reset_port_fn(
+	struct cdk2_ata_pass_thru_protocol *, UINT16);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_ata_reset_device_fn(
+	struct cdk2_ata_pass_thru_protocol *, UINT16, UINT16);
 struct cdk2_ata_pass_thru_protocol {
 	struct cdk2_ata_pass_thru_mode *mode;
-	void *pass_thru, *get_next_port, *get_next_device, *build_device_path;
-	void *get_device, *reset_port, *reset_device;
+	cdk2_ata_pass_thru_fn *pass_thru;
+	cdk2_ata_next_port_fn *get_next_port;
+	cdk2_ata_next_device_fn *get_next_device;
+	cdk2_ata_build_path_fn *build_device_path;
+	cdk2_ata_get_device_fn *get_device;
+	cdk2_ata_reset_port_fn *reset_port;
+	cdk2_ata_reset_device_fn *reset_device;
 };
 
 EFI_STATUS cdk2_ata_topology_init(struct cdk2_ata_topology *topology,
@@ -123,6 +144,21 @@ struct cdk2_ata_binding {
 	struct cdk2_ata_controller controllers[CDK2_ATA_MAX_CONTROLLERS];
 	size_t count;
 };
+
+struct cdk2_ata_protocol_services {
+	void *context;
+	EFI_STATUS (*allocate)(void *context, size_t size, void **buffer);
+	void (*release)(void *context, void *buffer);
+};
+struct cdk2_ata_protocol_instance {
+	struct cdk2_ata_pass_thru_protocol protocol;
+	struct cdk2_ata_pass_thru_mode mode;
+	struct cdk2_ata_controller *controller;
+	struct cdk2_ata_protocol_services services;
+};
+EFI_STATUS cdk2_ata_protocol_init(struct cdk2_ata_protocol_instance *instance,
+	struct cdk2_ata_controller *controller,
+	const struct cdk2_ata_protocol_services *services, UINT32 io_align);
 
 EFI_STATUS cdk2_ata_binding_init(struct cdk2_ata_binding *binding,
 	const struct cdk2_ata_binding_services *services);

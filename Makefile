@@ -86,6 +86,7 @@ CDK2_CONFIG_TARGETS := build check manifest modules native-stage \
 	native-ata-atapi-ide-test \
 	native-ata-atapi-pci-test \
 	native-ata-atapi-entry-test \
+	native-ata-protocol-test \
 	manifest-check print
 
 CDK2_RECURSIVE_ARGS := \
