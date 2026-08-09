@@ -502,5 +502,23 @@ int main(void)
 			volume_info.label[0] == 'M' && volume_info.label[2] == 'V',
 			"volume size/free-space/label information is wrong");
 	}
+	memcpy(mutation.bytes + 1536U + 32U, "META    TXT", 11U);
+	mutation.bytes[1536U + 32U + 11U] = 0x20U;
+	file = (struct cdk2_fat_file) { .volume = &volume,
+		.parent_directory_cluster = 2U, .record_index = 1U,
+		.record_count = 1U };
+	mutation.flush_status = EFI_SUCCESS;
+	failures += expect(cdk2_fat_update_metadata(&file, 0x21U, 0x5821U,
+		0x1000U, 0x5822U, 0x2000U) == EFI_SUCCESS &&
+		mutation.bytes[1536U + 32U + 11U] == 0x21U &&
+		file.entry.write_date == 0x5822U,
+		"validated file metadata was not committed");
+	mutation.flush_status = EFI_DEVICE_ERROR;
+	failures += expect(cdk2_fat_update_metadata(&file, 0x22U, 0x5821U,
+		0x1000U, 0x5822U, 0x2000U) == EFI_DEVICE_ERROR &&
+		mutation.bytes[1536U + 32U + 11U] == 0x21U &&
+		file.entry.attributes == 0x21U,
+		"metadata flush failure did not restore disk and handle state");
+	mutation.flush_status = EFI_SUCCESS;
 	return failures == 0 ? 0 : 1;
 }

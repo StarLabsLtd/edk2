@@ -123,5 +123,8 @@ uint64_t cdk2_fat_file_delete(struct cdk2_fat_file *file,
 	struct cdk2_fat_change *changes, size_t *change_count);
 uint64_t cdk2_fat_get_volume_info(const struct cdk2_fat_volume *volume,
 	struct cdk2_fat_volume_info *info);
+uint64_t cdk2_fat_update_metadata(struct cdk2_fat_file *file,
+	uint8_t attributes, uint16_t creation_date, uint16_t creation_time,
+	uint16_t write_date, uint16_t write_time);
 
 #endif

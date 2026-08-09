@@ -1405,3 +1405,51 @@ uint64_t cdk2_fat_get_volume_info(const struct cdk2_fat_volume *volume,
 	}
 	return EFI_SUCCESS;
 }
+
+uint64_t cdk2_fat_update_metadata(struct cdk2_fat_file *file,
+	uint8_t attributes, uint16_t creation_date, uint16_t creation_time,
+	uint16_t write_date, uint16_t write_time)
+{
+	uint8_t record[32], old[32];
+	uint64_t offset, status;
+	if (file == NULL || file->volume == NULL || file->is_root ||
+	    file->record_count == 0U || (attributes & ~0x37U) != 0U ||
+	    ((attributes & 0x10U) != 0U) != file->is_directory ||
+	    !valid_fat_datetime(creation_date, creation_time) ||
+	    !valid_fat_datetime(write_date, write_time))
+		return EFI_INVALID_PARAMETER;
+	if (file->volume->read_only || file->volume->write_protected)
+		return CDK2_FAT_WRITE_PROTECTED;
+	if (file->volume->write == NULL)
+		return EFI_UNSUPPORTED;
+	status = directory_record_offset(file->volume,
+		file->parent_directory_cluster,
+		file->record_index + file->record_count - 1U, &offset);
+	if (status != EFI_SUCCESS) return status;
+	status = file->volume->read(file->volume->context, offset, 32U, record);
+	if (status != EFI_SUCCESS || record[11U] == 0x0fU)
+		return status == EFI_SUCCESS ? FAT_VOLUME_CORRUPTED : status;
+	__builtin_memcpy(old, record, sizeof(old));
+	record[11U] = attributes; record[14U] = (uint8_t)creation_time;
+	record[15U] = (uint8_t)(creation_time >> 8);
+	record[16U] = (uint8_t)creation_date;
+	record[17U] = (uint8_t)(creation_date >> 8);
+	record[22U] = (uint8_t)write_time; record[23U] = (uint8_t)(write_time >> 8);
+	record[24U] = (uint8_t)write_date; record[25U] = (uint8_t)(write_date >> 8);
+	status = ((struct cdk2_fat_volume *)file->volume)->write(
+		file->volume->context, offset, 32U, record);
+	if (status == EFI_SUCCESS && file->volume->flush != NULL)
+		status = file->volume->flush(file->volume->context);
+	if (status != EFI_SUCCESS) {
+		(void)((struct cdk2_fat_volume *)file->volume)->write(
+			file->volume->context, offset, 32U, old);
+		if (file->volume->flush != NULL)
+			(void)file->volume->flush(file->volume->context);
+		return status;
+	}
+	file->entry.attributes = attributes;
+	file->entry.creation_date = creation_date;
+	file->entry.creation_time = creation_time;
+	file->entry.write_date = write_date; file->entry.write_time = write_time;
+	return EFI_SUCCESS;
+}
