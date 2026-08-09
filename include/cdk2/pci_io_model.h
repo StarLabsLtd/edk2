@@ -23,6 +23,7 @@ struct cdk2_pci_io_backend {
 	void *(*allocate_pool)(void *context, size_t size);
 	int (*set_bar_attributes)(void *context, unsigned int bar, uint64_t offset,
 		uint64_t length, uint64_t attributes);
+	uint64_t (*status)(void *context);
 };
 
 struct cdk2_pci_io_model {

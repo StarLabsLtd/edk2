@@ -2,6 +2,8 @@
 #include <cdk2/pci_bus_model.h>
 #include <cdk2/pci_io_model.h>
 #include <cdk2/pci_io_abi.h>
+#include <cdk2/pci_bus_binding.h>
+#include <cdk2/pci_bus_adapter.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -621,6 +623,105 @@ static int multi_root_atomic_test(void)
 	return 0;
 }
 
+struct binding_fixture {
+	unsigned int installs, uninstalls, opens, closes;
+	unsigned int fail_install;
+};
+
+static void *binding_allocate(void *context, size_t size)
+{ (void)context; return calloc(1, size); }
+static void binding_free(void *context, void *buffer)
+{ (void)context; free(buffer); }
+static int binding_install(void *context, void **handle,
+	struct cdk2_pci_bus_child *child, unsigned int protocols)
+{
+	struct binding_fixture *fixture = context;
+	(void)protocols;
+	fixture->installs++;
+	if (fixture->fail_install == fixture->installs)
+		return -1;
+	*handle = child;
+	return 0;
+}
+static int binding_uninstall(void *context, void *handle,
+	struct cdk2_pci_bus_child *child, unsigned int protocols)
+{
+	struct binding_fixture *fixture = context;
+	(void)handle; (void)child; (void)protocols;
+	fixture->uninstalls++;
+	return 0;
+}
+static int binding_open(void *context, void *parent, void *child)
+{ struct binding_fixture *f = context; (void)parent; (void)child; f->opens++; return 0; }
+static int binding_close(void *context, void *parent, void *child)
+{ struct binding_fixture *f = context; (void)parent; (void)child; f->closes++; return 0; }
+static int binding_io(void *context, const struct cdk2_pci_function *function,
+	struct cdk2_pci_io_model *io)
+{
+	(void)context;
+	io->bus = function->bus; io->device = function->device;
+	io->function = function->function;
+	return 0;
+}
+
+static int binding_lifecycle_test(void)
+{
+	struct binding_fixture fixture = { 0 };
+	struct cdk2_pci_bus_binding binding = { .services = {
+		.context = &fixture, .allocate = binding_allocate, .free = binding_free,
+		.install = binding_install, .uninstall = binding_uninstall,
+		.open_parent_by_child = binding_open,
+		.close_parent_by_child = binding_close, .initialize_io = binding_io } };
+	struct cdk2_pci_topology topology = { .count = 2 };
+	uint8_t parent_path[4] = { 0x7f, 0xff, 4, 0 };
+	const char *name; void *parent = &binding, *first;
+	topology.functions[0].device = 1;
+	topology.functions[1].device = 1; topology.functions[1].function = 3;
+	topology.functions[1].option_rom_load_file = 1;
+	CHECK(cdk2_pci_bus_start(&binding, parent, parent_path, sizeof(parent_path),
+		&topology) == 0);
+	CHECK(binding.child_count == 2 && fixture.opens == 2);
+	CHECK((((uint8_t *)binding.children[1]->device_path)[4]) == 3);
+	CHECK((binding.children[1]->installed & CDK2_PCI_CHILD_LOAD_FILE) != 0U);
+	CHECK(cdk2_pci_bus_component_name("eng", &name) == 0);
+	CHECK(cdk2_pci_bus_controller_name(&binding, parent,
+		binding.children[0]->handle, "en", &name) == 0);
+	first = binding.children[0]->handle;
+	CHECK(cdk2_pci_bus_stop(&binding, parent, &first, 1) == 0);
+	CHECK(binding.child_count == 1);
+	CHECK(cdk2_pci_bus_remove_bdf(&binding, parent, 0, 1, 3) == 0);
+	CHECK(binding.child_count == 0 && fixture.closes == 2);
+	fixture = (struct binding_fixture) { .fail_install = 2 };
+	binding.services.context = &fixture;
+	CHECK(cdk2_pci_bus_start(&binding, parent, parent_path, sizeof(parent_path),
+		&topology) != 0);
+	CHECK(binding.child_count == 0);
+	CHECK(fixture.uninstalls == 1 && fixture.closes == 1);
+	return 0;
+}
+
+static EFI_STATUS boot_access(void *context, enum cdk2_pci_io_space space,
+	int write, unsigned int width, uint64_t address, size_t count, void *buffer)
+{
+	(void)context; (void)space; (void)write; (void)width;
+	(void)address; (void)count; (void)buffer;
+	return EFI_UNSUPPORTED;
+}
+
+static int boot_adapter_status_test(void)
+{
+	struct cdk2_pci_io_boot_adapter adapter = { .access = boot_access };
+	struct cdk2_pci_io_model io = { .bar_size = { 0x100 } };
+	struct cdk2_pci_io_instance instance;
+	uint8_t value;
+	cdk2_pci_io_attach_boot_adapter(&io, &adapter);
+	cdk2_pci_io_initialize_protocol(&instance, &io);
+	CHECK(instance.protocol.mem.read(&instance.protocol, 0, 0, 0, 1,
+		&value) == EFI_UNSUPPORTED);
+	CHECK(cdk2_pci_io_adapter_status(&adapter) == EFI_UNSUPPORTED);
+	return 0;
+}
+
 static int temporary_bridge_and_crs_test(void)
 {
 	struct fixture f = { 0 };
@@ -673,7 +774,8 @@ int main(void)
 	    overflow_and_cardbus_test() || allocator_test() || host_and_rom_test() ||
 	    hotplug_rollback_test() || cardbus_socket_test() || corruption_test())
 		return 1;
-	if (pci_io_core_test() || multi_root_atomic_test())
+	if (pci_io_core_test() || multi_root_atomic_test() || binding_lifecycle_test() ||
+	    boot_adapter_status_test())
 		return 1;
 	puts("pci bus model tests: PASS");
 	return 0;

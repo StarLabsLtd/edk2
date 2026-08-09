@@ -8,16 +8,22 @@ static struct cdk2_pci_io_model *model(struct cdk2_efi_pci_io_protocol *protocol
 	return ((struct cdk2_pci_io_instance *)protocol)->model;
 }
 
-static EFI_STATUS status(int result)
+static EFI_STATUS status(struct cdk2_pci_io_model *io, int call_result)
 {
-	return result == 0 ? EFI_SUCCESS : (result == 1 ? EFI_TIMEOUT : EFI_DEVICE_ERROR);
+	if (call_result == 0)
+		return EFI_SUCCESS;
+	if (call_result == 1)
+		return EFI_TIMEOUT;
+	if (io != NULL && io->backend.status != NULL)
+		return io->backend.status(io->backend.context);
+	return EFI_DEVICE_ERROR;
 }
 
 static EFI_STATUS access(struct cdk2_efi_pci_io_protocol *this,
 	enum cdk2_pci_io_space space, int write, UINTN width, UINT8 bar,
 	UINT64 offset, UINTN count, void *buffer)
 {
-	return status(cdk2_pci_io_access(model(this), space, write, bar, offset,
+	return status(model(this), cdk2_pci_io_access(model(this), space, write, bar, offset,
 		width, count, buffer));
 }
 
@@ -50,7 +56,7 @@ static EFI_STATUS CDK2_MS_ABI poll_mem(struct cdk2_efi_pci_io_protocol *this,
 		width, mask, value, delay, &native_result);
 	if (result != NULL && call_status <= 1)
 		*result = native_result;
-	return status(call_status);
+	return status(model(this), call_status);
 }
 
 static EFI_STATUS CDK2_MS_ABI poll_io(struct cdk2_efi_pci_io_protocol *this,
@@ -63,14 +69,14 @@ static EFI_STATUS CDK2_MS_ABI poll_io(struct cdk2_efi_pci_io_protocol *this,
 		width, mask, value, delay, &native_result);
 	if (result != NULL && call_status <= 1)
 		*result = native_result;
-	return status(call_status);
+	return status(model(this), call_status);
 }
 
 static EFI_STATUS CDK2_MS_ABI copy_mem(struct cdk2_efi_pci_io_protocol *this,
 	UINTN width, UINT8 destination_bar, UINT64 destination_offset,
 	UINT8 source_bar, UINT64 source_offset, UINTN count)
 {
-	return status(cdk2_pci_io_copy(model(this), width, destination_bar,
+	return status(model(this), cdk2_pci_io_copy(model(this), width, destination_bar,
 		destination_offset, source_bar, source_offset, count));
 }
 
@@ -88,13 +94,13 @@ static EFI_STATUS CDK2_MS_ABI map_dma(struct cdk2_efi_pci_io_protocol *this,
 	*bytes = native_bytes;
 	if (call_status == 0)
 		*device = native_device;
-	return status(call_status);
+	return status(model(this), call_status);
 }
 
 static EFI_STATUS CDK2_MS_ABI unmap_dma(struct cdk2_efi_pci_io_protocol *this,
 	void *mapping)
 {
-	return status(cdk2_pci_io_unmap(model(this), mapping));
+	return status(model(this), cdk2_pci_io_unmap(model(this), mapping));
 }
 
 static EFI_STATUS CDK2_MS_ABI allocate_buffer(
@@ -111,12 +117,12 @@ static EFI_STATUS CDK2_MS_ABI allocate_buffer(
 static EFI_STATUS CDK2_MS_ABI free_buffer(struct cdk2_efi_pci_io_protocol *this,
 	UINTN pages, void *host)
 {
-	return status(cdk2_pci_io_free_buffer(model(this), pages, host));
+	return status(model(this), cdk2_pci_io_free_buffer(model(this), pages, host));
 }
 
 static EFI_STATUS CDK2_MS_ABI flush(struct cdk2_efi_pci_io_protocol *this)
 {
-	return status(cdk2_pci_io_flush(model(this)));
+	return status(model(this), cdk2_pci_io_flush(model(this)));
 }
 
 static EFI_STATUS CDK2_MS_ABI get_location(struct cdk2_efi_pci_io_protocol *this,
@@ -139,7 +145,7 @@ static EFI_STATUS CDK2_MS_ABI attributes(struct cdk2_efi_pci_io_protocol *this,
 		attributes_value, result == NULL ? NULL : &native_result);
 	if (result != NULL && call_status == 0)
 		*result = native_result;
-	return status(call_status);
+	return status(model(this), call_status);
 }
 
 static EFI_STATUS CDK2_MS_ABI get_bar_attributes(
@@ -181,7 +187,7 @@ static EFI_STATUS CDK2_MS_ABI set_bar_attributes(
 		return EFI_UNSUPPORTED;
 	if (io->backend.set_bar_attributes == NULL)
 		return EFI_UNSUPPORTED;
-	return status(io->backend.set_bar_attributes(io->backend.context, bar,
+	return status(io, io->backend.set_bar_attributes(io->backend.context, bar,
 		*offset, *length, attributes_value));
 }
 
