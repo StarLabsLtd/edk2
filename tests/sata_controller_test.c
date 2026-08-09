@@ -48,6 +48,13 @@ int main(void)
 		mode.pio_mode == 4 && mode.udma_mode == 1,
 		"independent disqualification validity");
 	bad.pio_valid = TRUE;
+	bad.pio_mode = 1;
+	bad.udma_valid = TRUE;
+	bad.udma_mode = 0;
+	failures += check(cdk2_sata_calculate_mode(&identify, &bad, &mode) == EFI_SUCCESS &&
+		!mode.pio_valid && !mode.udma_valid,
+		"valid identify returns an empty collective after full disqualification");
+	bad.pio_valid = TRUE;
 	bad.pio_mode = 4;
 	bad.udma_valid = TRUE;
 	bad.udma_mode = 5;

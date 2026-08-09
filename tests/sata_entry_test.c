@@ -5,17 +5,23 @@
 #include "../src/modules/sata_controller/entry.c"
 
 static unsigned int allocations;
+static UINTN allocated_size;
+static BOOLEAN canary_ok = TRUE;
 static EFI_STATUS CDK2_MS_ABI test_allocate(UINT32 type, UINTN size, void **buffer)
 {
 	(void)type;
-	*buffer = calloc(1, size);
+	*buffer = calloc(1, size + 1U);
 	if (*buffer == NULL)
 		return EFIERR(9);
+	allocated_size = size;
+	*((UINT8 *)*buffer + size) = 0xa5U;
 	allocations++;
 	return EFI_SUCCESS;
 }
 static EFI_STATUS CDK2_MS_ABI test_free(void *buffer)
 {
+	if (*((UINT8 *)buffer + allocated_size) != 0xa5U)
+		canary_ok = FALSE;
 	free(buffer);
 	allocations--;
 	return EFI_SUCCESS;
@@ -56,9 +62,11 @@ int main(void)
 	failures += check(calculate(&context.ide, 0, 0, &result) == EFI_SUCCESS &&
 		result != NULL && result->pio.valid && !result->udma.valid,
 		"first CalculateMode returns allocated partial collective");
+	failures += check(allocated_size == 44U, "collective uses canonical 44-byte ABI");
 	if (result != NULL)
 		test_free(result);
 	failures += check(allocations == 0, "collective ownership balanced");
+	failures += check(canary_ok, "collective initialization stays within allocation");
 	managed = NULL;
 	failures += check(get_controller_name(&component, (void *)1, NULL, "eng",
 		&driver_name) == EFI_UNSUPPORTED, "unmanaged controller rejected");

@@ -38,7 +38,12 @@ typedef EFI_STATUS CDK2_MS_ABI attr_fn(struct pci_io *, UINT32, UINT64, UINT64 *
 struct pci_io { void *poll_mem, *poll_io; struct access mem, io; struct config_access pci;
 	void *copy, *map, *unmap, *alloc, *free, *flush, *location; attr_fn * attributes; };
 struct ata_mode { BOOLEAN valid; UINT8 pad[3]; UINT32 mode; };
-struct collective { struct ata_mode pio, single, multi, udma; void *extended; };
+struct extended_mode { UINT32 protocol, mode; };
+struct collective { struct ata_mode pio, single, multi, udma; UINT32 extended_count;
+	struct extended_mode extended[1]; };
+typedef char collective_size_must_be_44[sizeof(struct collective) == 44U ? 1 : -1];
+typedef char collective_extended_offset_must_be_36[
+	offsetof(struct collective, extended) == 36U ? 1 : -1];
 struct ide_protocol;
 typedef EFI_STATUS CDK2_MS_ABI channel_fn(struct ide_protocol *, UINT8, BOOLEAN *, UINT8 *);
 typedef EFI_STATUS CDK2_MS_ABI phase_fn(struct ide_protocol *, UINT32, UINT8);

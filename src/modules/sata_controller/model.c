@@ -86,7 +86,7 @@ EFI_STATUS cdk2_sata_calculate_mode(const struct cdk2_ata_identify *identify,
 	const struct cdk2_ata_mode *bad, struct cdk2_ata_mode *selected)
 {
 	EFI_STATUS status;
-	if (selected == NULL)
+	if (identify == NULL || selected == NULL)
 		return EFI_INVALID_PARAMETER;
 	status = cdk2_sata_best_pio(identify,
 		bad == NULL || !bad->pio_valid ? NULL : &bad->pio_mode,
@@ -96,7 +96,7 @@ EFI_STATUS cdk2_sata_calculate_mode(const struct cdk2_ata_identify *identify,
 		bad == NULL || !bad->udma_valid ? NULL : &bad->udma_mode,
 		&selected->udma_mode);
 	selected->udma_valid = !EFI_ERROR(status);
-	return selected->pio_valid || selected->udma_valid ? EFI_SUCCESS : EFI_UNSUPPORTED;
+	return EFI_SUCCESS;
 }
 
 static EFI_STATUS index_of(const struct cdk2_sata_controller *controller,
