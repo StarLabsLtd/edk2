@@ -80,6 +80,8 @@ static const EFI_GUID keyboard_event_guid = { 0x14982a4f, 0xb0ed, 0x45b8,
 	{ 0xa8, 0x11, 0x5a, 0x7a, 0x9b, 0xc2, 0x32, 0xdf } };
 static const EFI_GUID config_access_guid = { 0x330d4706, 0xf2a0, 0x4e4f,
 	{ 0xa3, 0x69, 0xb6, 0x6f, 0xa8, 0xd5, 0x43, 0x85 } };
+static const EFI_GUID device_path_guid = { 0x09576e91, 0x6d3f, 0x11d2,
+	{ 0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b } };
 
 typedef EFI_STATUS CDK2_MS_ABI decoder_names_fn(void *, EFI_GUID **, UINT16 *);
 typedef EFI_STATUS CDK2_MS_ABI decoder_decode_fn(void *, void *, UINTN,
@@ -788,6 +790,272 @@ static struct cdk2_hii_keyword *lookup_keyword(const CHAR16 *name_space,
 			return &context.database.keywords[index];
 	return NULL;
 }
+static UINT16 keyword_read16(const UINT8 *data)
+{ return (UINT16)data[0] | ((UINT16)data[1] << 8); }
+static UINT32 keyword_read32(const UINT8 *data)
+{
+	return (UINT32)keyword_read16(data) |
+		((UINT32)keyword_read16(data + 2U) << 16);
+}
+static CHAR16 keyword_hex(UINT8 value)
+{ return value < 10U ? (CHAR16)(L'0' + value) : (CHAR16)(L'A' + value - 10U); }
+static const UINT8 *keyword_storage(const struct cdk2_hii_keyword *entry,
+	UINT8 *storage_type, UINTN *storage_size)
+{
+	const struct cdk2_hii_list *list = entry->package_handle;
+	const UINT8 *bytes, *package, *opcode;
+	UINT32 package_length;
+	UINTN package_offset, offset;
+	UINT8 length;
+
+	if (list == NULL || !list->active)
+		return NULL;
+	bytes = list->data;
+	package_offset = sizeof(struct cdk2_hii_package_list_header);
+	while (package_offset + 4U <= list->size) {
+		package = bytes + package_offset;
+		package_length = keyword_read32(package) & 0x00ffffffU;
+		if (package_length < 4U || package_length > list->size - package_offset)
+			return NULL;
+		if (package[3] == 0x02U) {
+			offset = 4U;
+			while (offset + 2U <= package_length) {
+				opcode = package + offset;
+				length = opcode[1] & 0x7fU;
+				if (length < 2U || length > package_length - offset)
+					return NULL;
+				if (((opcode[0] == 0x24U && length >= 23U &&
+				      keyword_read16(opcode + 18U) == entry->varstore_id) ||
+				     (opcode[0] == 0x25U && length >= 20U &&
+				      keyword_read16(opcode + 2U) == entry->varstore_id) ||
+				     (opcode[0] == 0x26U && length >= 27U &&
+				      keyword_read16(opcode + 2U) == entry->varstore_id))) {
+					*storage_type = opcode[0];
+					*storage_size = length;
+					return opcode;
+				}
+				offset += length;
+			}
+		}
+		package_offset += package_length;
+	}
+	return NULL;
+}
+static EFI_STATUS keyword_device_path(void *driver, const UINT8 **path,
+	UINTN *size)
+{
+	const UINT8 *bytes;
+	UINTN offset = 0U;
+	UINT16 node_size;
+	EFI_STATUS status;
+
+	status = context.boot->handle_protocol(driver, &device_path_guid,
+		(void **)&bytes);
+	if (EFI_ERROR(status))
+		return status;
+	while (offset < 4096U) {
+		node_size = keyword_read16(bytes + offset + 2U);
+		if (node_size < 4U || node_size > 4096U - offset)
+			return EFI_INVALID_PARAMETER;
+		offset += node_size;
+		if (bytes[offset - node_size] == 0x7fU &&
+		    bytes[offset - node_size + 1U] == 0xffU) {
+			*path = bytes;
+			*size = offset;
+			return EFI_SUCCESS;
+		}
+	}
+	return EFI_INVALID_PARAMETER;
+}
+static EFI_STATUS keyword_config_request(struct cdk2_hii_keyword *entry,
+	const CHAR16 *value, CHAR16 **configuration, CHAR16 **path_text)
+{
+	const struct cdk2_hii_list *list = entry->package_handle;
+	const UINT8 *storage, *guid, *path;
+	const CHAR8 *ascii_name = NULL;
+	CHAR16 *output, *cursor, *name_value = NULL;
+	CHAR8 language[CDK2_HII_MAX_LANGUAGE + 1U];
+	UINTN storage_size, path_size, name_length = 0U, needed, index;
+	UINT8 storage_type;
+	EFI_STATUS status;
+
+	if (list == NULL || list->driver_handle == NULL ||
+	    context.boot->handle_protocol == NULL)
+		return EFI_NOT_FOUND;
+	storage = keyword_storage(entry, &storage_type, &storage_size);
+	if (storage == NULL)
+		return EFI_NOT_FOUND;
+	guid = storage + (storage_type == 0x24U ? 2U : 4U);
+	if (storage_type == 0x24U)
+		ascii_name = (const CHAR8 *)(storage + 22U);
+	else if (storage_type == 0x26U)
+		ascii_name = (const CHAR8 *)(storage + 26U);
+	if (ascii_name != NULL) {
+		while (22U + name_length < storage_size && ascii_name[name_length] != 0)
+			name_length++;
+		if ((storage_type == 0x24U ? 22U : 26U) + name_length >= storage_size)
+			return EFI_INVALID_PARAMETER;
+	} else {
+		for (index = 0U; entry->name_space[index] != 0U; index++)
+			language[index] = (CHAR8)entry->name_space[index];
+		language[index] = 0;
+		needed = 0U;
+		status = cdk2_hii_get_string(&context.database, language,
+			entry->package_handle, entry->varstore_info, NULL, &needed, NULL);
+		if (status != EFI_BUFFER_TOO_SMALL)
+			return EFI_NOT_FOUND;
+		status = allocate(&context, needed, (void **)&name_value);
+		if (EFI_ERROR(status))
+			return status;
+		status = cdk2_hii_get_string(&context.database, language,
+			entry->package_handle, entry->varstore_info, name_value, &needed, NULL);
+		if (EFI_ERROR(status)) {
+			release(&context, name_value);
+			return status;
+		}
+		name_length = text_length(name_value);
+	}
+	status = keyword_device_path(list->driver_handle, &path, &path_size);
+	if (EFI_ERROR(status)) {
+		if (name_value != NULL)
+			release(&context, name_value);
+		return status;
+	}
+	needed = 5U + 32U + 6U + name_length * 4U + 6U + path_size * 2U +
+		(storage_type == 0x25U ? 6U + name_length * 4U : 15U + 16U) +
+		(value == NULL ? 0U : 7U + text_length(value)) + 1U;
+	status = allocate(&context, needed * sizeof(CHAR16), (void **)&output);
+	if (EFI_ERROR(status))
+		goto cleanup_name;
+	cursor = output;
+#define PUT_TEXT(text) do { const CHAR16 *p_ = (text); while (*p_ != 0U) *cursor++ = *p_++; } while (0)
+	PUT_TEXT(L"GUID=");
+	for (index = 0U; index < 16U; index++) {
+		*cursor++ = keyword_hex(guid[index] >> 4); *cursor++ = keyword_hex(guid[index] & 15U);
+	}
+	PUT_TEXT(L"&NAME=");
+	for (index = 0U; index < name_length; index++) {
+		UINT16 character = name_value == NULL ? (UINT8)ascii_name[index] : name_value[index];
+		*cursor++ = keyword_hex((UINT8)(character >> 12));
+		*cursor++ = keyword_hex((UINT8)((character >> 8) & 15U));
+		*cursor++ = keyword_hex((UINT8)((character >> 4) & 15U));
+		*cursor++ = keyword_hex((UINT8)(character & 15U));
+	}
+	PUT_TEXT(L"&PATH=");
+	if (path_text != NULL)
+		*path_text = cursor;
+	for (index = 0U; index < path_size; index++) {
+		*cursor++ = keyword_hex(path[index] >> 4); *cursor++ = keyword_hex(path[index] & 15U);
+	}
+	if (storage_type == 0x25U) {
+		PUT_TEXT(L"&NAME=");
+		for (index = 0U; index < name_length; index++) {
+			UINT16 character = name_value[index];
+			*cursor++ = keyword_hex((UINT8)(character >> 12));
+			*cursor++ = keyword_hex((UINT8)((character >> 8) & 15U));
+			*cursor++ = keyword_hex((UINT8)((character >> 4) & 15U));
+			*cursor++ = keyword_hex((UINT8)(character & 15U));
+		}
+	} else {
+		static const CHAR16 hex[] = L"0123456789ABCDEF";
+		PUT_TEXT(L"&OFFSET=");
+		for (index = 0U; index < 4U; index++)
+			*cursor++ = hex[(entry->varstore_info >> ((3U - index) * 4U)) & 15U];
+		PUT_TEXT(L"&WIDTH=");
+		for (index = 0U; index < 4U; index++)
+			*cursor++ = hex[(entry->width >> ((3U - index) * 4U)) & 15U];
+	}
+	if (value != NULL) {
+		PUT_TEXT(L"&VALUE=");
+		PUT_TEXT(value);
+	}
+	*cursor = 0U;
+#undef PUT_TEXT
+	*configuration = output;
+	status = EFI_SUCCESS;
+cleanup_name:
+	if (name_value != NULL)
+		release(&context, name_value);
+	return status;
+}
+static EFI_STATUS keyword_extract_value(struct cdk2_hii_keyword *entry,
+	CHAR16 **value)
+{
+	const struct cdk2_hii_list *list = entry->package_handle;
+	struct config_access_protocol *access;
+	CHAR16 *request, *result = NULL, *copy;
+	CHAR16 *progress;
+	const CHAR16 *found, *end;
+	EFI_STATUS status;
+	UINTN length;
+
+	status = context.boot->handle_protocol(list->driver_handle,
+		&config_access_guid, (void **)&access);
+	if (EFI_ERROR(status))
+		return status;
+	status = keyword_config_request(entry, NULL, &request, NULL);
+	if (EFI_ERROR(status))
+		return status;
+	status = access->extract(access, request, &progress, &result);
+	release(&context, request);
+	if (EFI_ERROR(status))
+		return status;
+	if (result == NULL)
+		return EFI_DEVICE_ERROR;
+	found = result;
+	while (*found != 0U && !token(found, L"&VALUE="))
+		found++;
+	if (*found == 0U) {
+		release(&context, result);
+		return EFI_DEVICE_ERROR;
+	}
+	found += 7U;
+	for (end = found; *end != 0U && *end != L'&'; end++)
+		;
+	length = (UINTN)(end - found);
+	status = allocate(&context, (length + 1U) * sizeof(CHAR16), (void **)&copy);
+	if (!EFI_ERROR(status)) {
+		__builtin_memcpy(copy, found, length * sizeof(CHAR16));
+		copy[length] = 0U;
+		*value = copy;
+	}
+	release(&context, result);
+	return status;
+}
+static EFI_STATUS keyword_route_value(struct cdk2_hii_keyword *entry,
+	const CHAR16 *value)
+{
+	const struct cdk2_hii_list *list = entry->package_handle;
+	struct config_access_protocol *access;
+	CHAR16 *configuration;
+	CHAR16 *progress;
+	EFI_STATUS status;
+
+	status = context.boot->handle_protocol(list->driver_handle,
+		&config_access_guid, (void **)&access);
+	if (EFI_ERROR(status))
+		return status;
+	status = keyword_config_request(entry, value, &configuration, NULL);
+	if (EFI_ERROR(status))
+		return status;
+	status = access->route(access, configuration, &progress);
+	release(&context, configuration);
+	return status;
+}
+static EFI_STATUS keyword_refresh(struct cdk2_hii_keyword *entry)
+{
+	CHAR16 *value;
+	EFI_STATUS status;
+
+	if (entry->package_handle == NULL)
+		return EFI_SUCCESS;
+	status = keyword_extract_value(entry, &value);
+	if (EFI_ERROR(status))
+		return status;
+	release(&context, entry->value);
+	entry->value = value;
+	return EFI_SUCCESS;
+}
 static EFI_STATUS CDK2_MS_ABI keyword_set(const void *self, const CHAR16 *request,
 	CHAR16 **progress, UINT32 *progress_error)
 {
@@ -845,9 +1113,11 @@ static EFI_STATUS CDK2_MS_ABI keyword_set(const void *self, const CHAR16 *reques
 		cursor = *next == L'&' ? next + 1U : next;
 	}
 	for (index = 0U; index < count; index++) {
-		status = cdk2_hii_set_keyword_data(&context.database,
-			staged[index].name_space, staged[index].keyword,
-			staged[index].value);
+		status = staged[index].entry->package_handle == NULL ?
+			cdk2_hii_set_keyword_data(&context.database,
+				staged[index].name_space, staged[index].keyword,
+				staged[index].value) :
+			keyword_route_value(staged[index].entry, staged[index].value);
 		if (EFI_ERROR(status)) {
 			*progress = (CHAR16 *)staged[index].start;
 			*progress_error = 0x80000000U;
@@ -946,6 +1216,11 @@ static EFI_STATUS CDK2_MS_ABI keyword_get(const void *self,
 			     (requested_namespace != NULL && keyword_text_equal(
 				requested_namespace,
 				context.database.keywords[index].name_space)))) {
+				status = keyword_refresh(&context.database.keywords[index]);
+				if (EFI_ERROR(status)) {
+					*progress_error = 0x80000000U;
+					return status;
+				}
 				if (matches++ != 0U)
 					offset++;
 				entries[matches - 1U] = &context.database.keywords[index];
@@ -969,6 +1244,11 @@ static EFI_STATUS CDK2_MS_ABI keyword_get(const void *self,
 				*progress_error = requested_namespace == NULL ?
 					0x00000001U : 0x00000004U;
 				return EFI_NOT_FOUND;
+			}
+			status = keyword_refresh(entry);
+			if (EFI_ERROR(status)) {
+				*progress_error = 0x80000000U;
+				return status;
 			}
 			while (*next == L'&' && !token(next + 1U, L"KEYWORD=")) {
 				const CHAR16 *after;

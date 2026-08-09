@@ -8,9 +8,23 @@
 static void *published[6];
 static EFI_STATUS install_status;
 static UINTN config_calls;
+static UINT8 test_path[] = { 1U, 2U, 4U, 0U, 0x7fU, 0xffU, 4U, 0U };
+static UINTN u16_length(const CHAR16 *text)
+{ UINTN length = 0U; while (text[length] != 0U) length++; return length; }
 static EFI_STATUS CDK2_MS_ABI access_extract(const void *self, const CHAR16 *request,
 	CHAR16 **progress, CHAR16 **results)
-{ (void)self; config_calls++; *progress = (CHAR16 *)(request + 24U); *results = NULL; return EFI_SUCCESS; }
+{
+	static const CHAR16 suffix[] = L"&VALUE=A5";
+	UINTN request_length = u16_length(request), suffix_length = u16_length(suffix);
+	(void)self; config_calls++; *progress = (CHAR16 *)(request + request_length);
+	*results = malloc((request_length + suffix_length + 1U) * sizeof(CHAR16));
+	if (*results == NULL)
+		return EFI_OUT_OF_RESOURCES;
+	__builtin_memcpy(*results, request, request_length * sizeof(CHAR16));
+	__builtin_memcpy(*results + request_length, suffix,
+		(suffix_length + 1U) * sizeof(CHAR16));
+	return EFI_SUCCESS;
+}
 static EFI_STATUS CDK2_MS_ABI access_route(const void *self,
 	const CHAR16 *configuration, CHAR16 **progress)
 { (void)self; config_calls++; *progress = (CHAR16 *)(configuration + 24U); return EFI_SUCCESS; }
@@ -29,7 +43,17 @@ static EFI_STATUS CDK2_MS_ABI locate_path(const EFI_GUID *guid, void **path,
 }
 static EFI_STATUS CDK2_MS_ABI handle_protocol(void *handle, const EFI_GUID *guid,
 	void **protocol)
-{ (void)guid; if (handle != (void *)9) return EFI_NOT_FOUND; *protocol = &config_access; return EFI_SUCCESS; }
+{
+	if (handle != (void *)9)
+		return EFI_NOT_FOUND;
+	*protocol = same_guid(guid, &device_path_guid) ? (void *)test_path :
+		(void *)&config_access;
+	return EFI_SUCCESS;
+}
+static void write16(UINT8 *data, UINT16 value)
+{ data[0] = value; data[1] = value >> 8; }
+static void write32(UINT8 *data, UINT32 value)
+{ write16(data, value); write16(data + 2U, value >> 16); }
 static EFI_STATUS CDK2_MS_ABI pool_allocate(UINT32 type, UINTN size, void **buffer)
 { (void)type; *buffer = malloc(size); return *buffer == NULL ? EFI_OUT_OF_RESOURCES : EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI pool_free(void *buffer)
@@ -57,6 +81,8 @@ int main(void)
 	struct cdk2_efi_hii_config_routing_protocol *config;
 	struct cdk2_efi_config_keyword_protocol *keyword;
 	CHAR16 *progress, *results;
+	UINT8 routed_list[52] = { 0 };
+	void *routed_handle;
 	UINT32 progress_error;
 	int failures = 0;
 
@@ -124,6 +150,24 @@ int main(void)
 		cdk2_hii_get_keyword_data(&context.database, L"x-UEFI-test", L"Mode",
 			&results) == EFI_SUCCESS && results[0] == L'2',
 		"multi-keyword validation modified storage before a later failure");
+	free(results);
+	write32(routed_list + 16U, sizeof(routed_list));
+	write32(routed_list + 20U, (0x02U << 24) | 28U);
+	routed_list[24] = 0x24U; routed_list[25] = 24U;
+	write16(routed_list + 42U, 1U); write16(routed_list + 44U, 8U);
+	routed_list[46] = 'V';
+	write32(routed_list + 48U, (CDK2_HII_PACKAGE_END << 24) | 4U);
+	failures += expect(cdk2_hii_new_package_list(&context.database, routed_list,
+		(void *)9, &routed_handle) == EFI_SUCCESS &&
+		cdk2_hii_register_package_keyword(&context.database, routed_handle,
+			L"x-UEFI-test", L"Routed", 1U, 1U, 2U, 1U, 0x07U, 0U,
+			FALSE) == EFI_SUCCESS &&
+		keyword->get_data(keyword, L"x-UEFI-test", L"KEYWORD=Routed&Numeric:1",
+			&progress, &progress_error, &results) == EFI_SUCCESS &&
+		keyword->set_data(keyword,
+			L"NAMESPACE=x-UEFI-test&KEYWORD=Routed&VALUE=5A", &progress,
+			&progress_error) == EFI_SUCCESS && config_calls >= 4U,
+		"IFR keyword value was not forwarded through ConfigAccess");
 	free(results);
 	install_status = EFI_DEVICE_ERROR;
 	failures += expect(cdk2_hii_database_entry((void *)1, &system) == EFI_DEVICE_ERROR,
