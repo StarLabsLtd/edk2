@@ -52,7 +52,8 @@ enum cdk2_pci_host_phase {
 	CDK2_PCI_ALLOCATE_RESOURCES,
 	CDK2_PCI_SET_RESOURCES,
 	CDK2_PCI_FREE_RESOURCES,
-	CDK2_PCI_END_RESOURCE_ALLOCATION
+	CDK2_PCI_END_RESOURCE_ALLOCATION,
+	CDK2_PCI_END_ENUMERATION
 };
 
 struct cdk2_pci_resource_request {
@@ -71,6 +72,7 @@ struct cdk2_pci_host_model {
 		request[CDK2_PCI_HOST_MAX_ROOTS][CDK2_PCI_RESOURCE_TYPES];
 	size_t count;
 	uint8_t can_restart, resource_assigned;
+	uint8_t resource_submitted[CDK2_PCI_HOST_MAX_ROOTS];
 	void *allocator_context;
 	cdk2_pci_reserve_fn *reserve;
 	cdk2_pci_release_fn *release;

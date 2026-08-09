@@ -3,6 +3,8 @@
 #include <cdk2/pci_host_bridge.h>
 #include <cdk2/pcd.h>
 
+typedef EFI_STATUS CDK2_MS_ABI get_next_root_fn(void *, void **);
+
 struct table_header { UINT64 signature; UINT32 revision, size, crc, reserved; };
 struct system_table_view {
 	struct table_header header;
@@ -16,7 +18,7 @@ struct system_table_view {
 
 struct resource_protocol_view {
 	void *notify;
-	EFI_STATUS (CDK2_MS_ABI *next)(void *, void **);
+	get_next_root_fn *next;
 };
 
 #pragma pack(push, 1)
@@ -108,8 +110,10 @@ EFI_STATUS CDK2_MS_ABI pci_host_bridge_qemu_entry(void *image, void *table)
 		if (descriptor != 0x8a)
 			goto bad;
 	}
-	if (descriptors == 0 || descriptors > CDK2_PCI_ROOT_BRIDGE_APERTURES)
+	if (descriptors > CDK2_PCI_ROOT_BRIDGE_APERTURES)
 		goto bad;
+	if (descriptors == 0)
+		serial_write("CDK2_PCI_HOST_BRIDGE_CONFIGURATION_EMPTY\r\n");
 	serial_write("CDK2_PCI_HOST_BRIDGE_CONFIGURATION_OK\r\n");
 	status = root_io->pci.read(root_io, CDK2_PCI_UINT16, pci_address, 1, &vendor);
 	if (EFI_ERROR(status) || vendor != 0x8086U)

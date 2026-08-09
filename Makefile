@@ -73,6 +73,7 @@ CDK2_CONFIG_TARGETS := build check manifest modules native-stage \
 	native-bl-support-test native-bl-support-package native-bl-support-fv \
 	native-bl-support-oracle native-pci-host-bridge-fv \
 	native-pci-host-bridge-oracle \
+	native-pci-host-bridge-in-fv-oracle \
 	manifest-check print
 
 CDK2_RECURSIVE_ARGS := \

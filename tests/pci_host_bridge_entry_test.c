@@ -13,6 +13,7 @@ static void *installed;
 static unsigned int allocations, frees, installs;
 static int provide_pcd;
 static unsigned int uninstalls;
+static unsigned int gcd_memory_adds, gcd_io_adds;
 static unsigned int fail_install_on;
 static void *published_path;
 
@@ -90,6 +91,58 @@ static uint64_t CDK2_MS_ABI gcd_free(uint64_t base, uint64_t length)
 	return EFI_SUCCESS;
 }
 
+static uint64_t CDK2_MS_ABI gcd_add(uint32_t type, uint64_t base,
+	uint64_t length, ...)
+{
+	(void)base;
+	if (type == 2U)
+		gcd_io_adds++;
+	if (type == 3U)
+		gcd_memory_adds++;
+	return (type == 2U || type == 3U) && length != 0 ? EFI_SUCCESS :
+		EFI_INVALID_PARAMETER;
+}
+
+static uint64_t CDK2_MS_ABI gcd_set(uint64_t base, uint64_t length,
+	uint64_t attributes)
+{
+	(void)base;
+	return length != 0 && attributes == 1U ? EFI_SUCCESS : EFI_INVALID_PARAMETER;
+}
+
+struct memory_map_view {
+	uint64_t base, length, capabilities, attributes;
+	uint32_t type, pad;
+	void *image, *device;
+};
+struct io_map_view {
+	uint64_t base, length;
+	uint32_t type, pad;
+	void *image, *device;
+};
+
+static uint64_t CDK2_MS_ABI memory_map(size_t *count, void **map)
+{
+	struct memory_map_view *entry = calloc(1, sizeof(*entry));
+
+	if (entry == NULL)
+		return EFI_OUT_OF_RESOURCES;
+	entry->length = UINT64_MAX;
+	*count = 1; *map = entry;
+	return EFI_SUCCESS;
+}
+
+static uint64_t CDK2_MS_ABI io_map(size_t *count, void **map)
+{
+	struct io_map_view *entry = calloc(1, sizeof(*entry));
+
+	if (entry == NULL)
+		return EFI_OUT_OF_RESOURCES;
+	entry->length = UINT64_MAX;
+	*count = 1; *map = entry;
+	return EFI_SUCCESS;
+}
+
 struct boot_view {
 	uint8_t pad[40]; void *pages, *free_pages; uint8_t before_pool[8];
 	void *allocate, *release; uint8_t before_stall[168]; void *stall;
@@ -100,7 +153,7 @@ struct config_view { EFI_GUID guid; void *table; };
 struct dxe_view {
 	uint8_t header[24]; void *add_memory, *allocate_memory, *free_memory;
 	void *remove_memory, *get_memory, *set_memory, *get_memory_map, *add_io;
-	void *allocate_io, *free_io;
+	void *allocate_io, *free_io, *remove_io, *get_io, *get_io_map;
 };
 struct system_view {
 	uint8_t header[24]; uint16_t *vendor; uint32_t revision, pad;
@@ -230,8 +283,15 @@ int main(void)
 	hob.payload.bridge.allocation_attributes = 0x1234;
 	hob.payload.bridge.no_extended_config = 1;
 	hob.payload.bridge.aperture[0].limit = 0xff;
+	hob.payload.bridge.aperture[1].base = 0x1000;
+	hob.payload.bridge.aperture[1].limit = 0x1fff;
 	hob.payload.bridge.aperture[2].base = 0x80000000;
 	hob.payload.bridge.aperture[2].limit = 0x800fffff;
+	for (size_t aperture = 3; aperture < CDK2_PCI_ROOT_BRIDGE_APERTURES;
+	     aperture++) {
+		hob.payload.bridge.aperture[aperture].base = 1;
+		hob.payload.bridge.aperture[aperture].limit = 0;
+	}
 	hob.end.type = 0xffff;
 	hob.end.length = sizeof(hob.end);
 	memset(&boot, 0, sizeof(boot));
@@ -244,10 +304,15 @@ int main(void)
 	boot.install = install;
 	boot.uninstall = uninstall;
 	memset(&dxe, 0, sizeof(dxe));
+	dxe.add_memory = gcd_add;
 	dxe.allocate_memory = gcd_allocate;
 	dxe.free_memory = gcd_free;
+	dxe.set_memory = gcd_set;
+	dxe.get_memory_map = memory_map;
+	dxe.add_io = gcd_add;
 	dxe.allocate_io = gcd_allocate;
 	dxe.free_io = gcd_free;
+	dxe.get_io_map = io_map;
 	config[0].guid = hob_list;
 	config[0].table = &hob;
 	config[1].guid = dxe_guid;
@@ -260,6 +325,8 @@ int main(void)
 		installed != NULL && published_path != NULL &&
 		*(uint8_t *)published_path == 2,
 		"host, root I/O, and ACPI device path were not atomically published");
+	failures += expect(gcd_io_adds == 1 && gcd_memory_adds == 1,
+		"root apertures were not registered in the GCD maps before publication");
 	protocol = installed;
 	failures += expect(protocol->next(protocol, &root) == EFI_SUCCESS && root != NULL &&
 		protocol->attributes(protocol, root, &attributes) == EFI_SUCCESS &&
@@ -292,8 +359,10 @@ int main(void)
 			"descriptor submission did not reserve through GCD");
 		failures += expect(protocol->proposed(protocol, root,
 			&configuration) == EFI_SUCCESS &&
-			((struct resource_view *)configuration)[1].type == 0 &&
-			((struct resource_view *)configuration)[1].translation == 0,
+			((struct resource_view *)configuration)[0].type == 0 &&
+			((struct resource_view *)configuration)[0].translation == 0 &&
+			((struct end_view *)((struct resource_view *)configuration + 1))->
+				descriptor == 0x79,
 			"allocated proposal did not report EFI_RESOURCE_SATISFIED");
 		(void)release(configuration);
 		failures += expect(protocol->notify(protocol, CDK2_PCI_FREE_RESOURCES) ==

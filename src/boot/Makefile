@@ -38,6 +38,11 @@ CDK2_NATIVE_PCI_HOST_BRIDGE_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/PciHostBridgeDxe.ffs
 CDK2_NATIVE_PCI_HOST_BRIDGE_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-pci-host-bridge.fv
 CDK2_NATIVE_PCI_HOST_BRIDGE_QEMU_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/pci-host-bridge-qemu.o
 CDK2_NATIVE_PCI_HOST_BRIDGE_QEMU_PE ?= $(CDK2_NATIVE_BUILD_DIR)/pci-host-bridge-qemu.efi
+CDK2_NATIVE_PCI_HOST_BRIDGE_IN_FV_PE ?= $(CDK2_NATIVE_BUILD_DIR)/pci-host-bridge-in-fv.efi
+CDK2_NATIVE_PCI_HOST_BRIDGE_IN_FV_DEPEX_GEN ?= $(CDK2_NATIVE_BUILD_DIR)/pci-host-bridge-in-fv-depex-gen
+CDK2_NATIVE_PCI_HOST_BRIDGE_IN_FV_DEPEX ?= $(CDK2_NATIVE_BUILD_DIR)/pci-host-bridge-in-fv.depex
+CDK2_NATIVE_PCI_HOST_BRIDGE_IN_FV_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/pci-host-bridge-in-fv.ffs
+CDK2_NATIVE_PCI_HOST_BRIDGE_DIAGNOSTIC_FV ?= $(CDK2_NATIVE_BUILD_DIR)/pci-host-bridge-diagnostic.fv
 CDK2_NATIVE_PCD_GENERATED_DATABASE ?= $(CDK2_NATIVE_BUILD_DIR)/PcdDxe.database
 CDK2_NATIVE_PCD_DATABASE ?= $(CDK2_NATIVE_PCD_GENERATED_DATABASE)
 CDK2_NATIVE_PCD_MODEL_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/pcd-model.o
@@ -1969,6 +1974,42 @@ $(CDK2_NATIVE_PCI_HOST_BRIDGE_QEMU_PE): \
 		-T "$(CDK2_DIR)/tests/pci_host_bridge_qemu.ld" -o "$@" \
 		"$(CDK2_NATIVE_PCI_HOST_BRIDGE_QEMU_OBJ)"
 	@"$(CDK2_NATIVE_PERELOCCHECK)" --subsystem 10 "$@"
+
+.PHONY: native-pci-host-bridge-in-fv-oracle
+native-pci-host-bridge-in-fv-oracle: $(CDK2_NATIVE_PCI_HOST_BRIDGE_DIAGNOSTIC_FV)
+	@printf '%s\n' "native PCI Host Bridge in-FV oracle: $<"
+
+$(CDK2_NATIVE_PCI_HOST_BRIDGE_IN_FV_PE): \
+		$(CDK2_NATIVE_PCI_HOST_BRIDGE_QEMU_OBJ) \
+		$(CDK2_DIR)/tests/pci_host_bridge_qemu.ld $(CDK2_NATIVE_PERELOCCHECK)
+	@$(CDK2_NATIVE_LD) -mi386pep --subsystem 11 \
+		--entry pci_host_bridge_qemu_entry --image-base 0 \
+		--section-alignment 0x1000 --file-alignment 0x1000 --build-id=none \
+		--no-insert-timestamp -s --nxcompat \
+		-T "$(CDK2_DIR)/tests/pci_host_bridge_qemu.ld" -o "$@" \
+		"$(CDK2_NATIVE_PCI_HOST_BRIDGE_QEMU_OBJ)"
+	@"$(CDK2_NATIVE_PERELOCCHECK)" --subsystem 11 "$@"
+
+$(CDK2_NATIVE_PCI_HOST_BRIDGE_IN_FV_DEPEX_GEN): \
+		$(CDK2_DIR)/tests/pci_host_bridge_qemu_depex.c | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -o "$@" "$<"
+
+$(CDK2_NATIVE_PCI_HOST_BRIDGE_IN_FV_DEPEX): \
+		$(CDK2_NATIVE_PCI_HOST_BRIDGE_IN_FV_DEPEX_GEN)
+	@"$<" "$@"
+
+$(CDK2_NATIVE_PCI_HOST_BRIDGE_IN_FV_FFS): \
+		$(CDK2_NATIVE_PCI_HOST_BRIDGE_IN_FV_PE) \
+		$(CDK2_NATIVE_PCI_HOST_BRIDGE_IN_FV_DEPEX) $(CDK2_NATIVE_FFSBUILD)
+	@"$(CDK2_NATIVE_FFSBUILD)" cd3bafb6-50fb-4fe8-8e4e-ab74d2c1a600 \
+		PciHostBridgeOracle 1.0 0x5046 "$<" "$@" \
+		"$(CDK2_NATIVE_PCI_HOST_BRIDGE_IN_FV_DEPEX)"
+
+$(CDK2_NATIVE_PCI_HOST_BRIDGE_DIAGNOSTIC_FV): \
+		$(CDK2_NATIVE_PCI_HOST_BRIDGE_FV) \
+		$(CDK2_NATIVE_PCI_HOST_BRIDGE_IN_FV_FFS) $(CDK2_NATIVE_FVREPLACE)
+	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_PCI_HOST_BRIDGE_FV)" \
+		0x3094b8 "$(CDK2_NATIVE_PCI_HOST_BRIDGE_IN_FV_FFS)" "$@"
 
 $(CDK2_NATIVE_PCI_HOST_BRIDGE_MODEL_OBJ): \
 		$(CDK2_DIR)/src/modules/pci_host_bridge/model.c \

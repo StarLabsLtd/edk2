@@ -15,6 +15,20 @@ typedef uint64_t CDK2_MS_ABI free_pages_fn(uint64_t, size_t);
 typedef uint64_t CDK2_MS_ABI gcd_allocate_fn(uint32_t, uint32_t, size_t,
 	uint64_t, uint64_t *, void *, void *);
 typedef uint64_t CDK2_MS_ABI gcd_free_fn(uint64_t, uint64_t);
+typedef uint64_t CDK2_MS_ABI gcd_add_fn(uint32_t, uint64_t, uint64_t, ...);
+typedef uint64_t CDK2_MS_ABI gcd_set_fn(uint64_t, uint64_t, uint64_t);
+typedef uint64_t CDK2_MS_ABI gcd_get_map_fn(size_t *, void **);
+
+struct gcd_memory_descriptor {
+	uint64_t base, length, capabilities, attributes;
+	uint32_t type, pad;
+	void *image, *device;
+};
+struct gcd_io_descriptor {
+	uint64_t base, length;
+	uint32_t type, pad;
+	void *image, *device;
+};
 
 struct boot_services_view {
 	uint8_t before_allocate_pages[40];
@@ -40,7 +54,10 @@ typedef char uninstall_offset_check[
 	offsetof(struct boot_services_view, uninstall_multiple_protocols) == 336 ? 1 : -1];
 
 struct cpu_io_view {
-	struct { cdk2_pci_io_fn *read, *write; } mem, io;
+	struct {
+		cdk2_pci_io_fn *read;
+		cdk2_pci_io_fn *write;
+	} mem, io;
 };
 
 struct iommu_view {
@@ -64,12 +81,17 @@ struct system_table_view {
 
 struct dxe_services_view {
 	uint8_t header[24];
-	void *add_memory;
+	gcd_add_fn *add_memory;
 	gcd_allocate_fn *allocate_memory;
 	gcd_free_fn *free_memory;
-	void *remove_memory, *get_memory, *set_memory, *get_memory_map, *add_io;
+	void *remove_memory, *get_memory;
+	gcd_set_fn *set_memory;
+	gcd_get_map_fn *get_memory_map;
+	gcd_add_fn *add_io;
 	gcd_allocate_fn *allocate_io;
 	gcd_free_fn *free_io;
+	void *remove_io, *get_io;
+	gcd_get_map_fn *get_io_map;
 };
 
 struct gcd_context {
@@ -274,6 +296,90 @@ static uint64_t CDK2_MS_ABI gcd_release(void *context, uint8_t memory,
 		return EFI_INVALID_PARAMETER;
 	function = memory ? owner->services->free_memory : owner->services->free_io;
 	return function == NULL ? EFI_UNSUPPORTED : function(base, length);
+}
+
+static uint64_t add_io_aperture(struct dxe_services_view *services,
+	uint64_t base, uint64_t length)
+{
+	struct gcd_io_descriptor *map;
+	size_t count, index;
+	uint64_t status = services->get_io_map(&count, (void **)&map);
+
+	if (status != EFI_SUCCESS)
+		return status;
+	for (index = 0; index < count; index++) {
+		uint64_t start = map[index].base > base ? map[index].base : base;
+		uint64_t map_end = map[index].base + map[index].length;
+		uint64_t end = map_end < base + length ? map_end : base + length;
+
+		if (start >= end || map[index].type == 2U)
+			continue;
+		if (map[index].type != 0U) {
+			status = EFI_INVALID_PARAMETER;
+			break;
+		}
+		status = services->add_io(2U, start, end - start);
+		if (status != EFI_SUCCESS)
+			break;
+	}
+	(void)boot_services->free_pool(map);
+	return status;
+}
+
+static uint64_t add_memory_aperture(struct dxe_services_view *services,
+	uint64_t base, uint64_t length)
+{
+	struct gcd_memory_descriptor *map;
+	size_t count, index;
+	uint64_t status = services->get_memory_map(&count, (void **)&map);
+
+	if (status != EFI_SUCCESS)
+		return status;
+	for (index = 0; index < count; index++) {
+		uint64_t start = map[index].base > base ? map[index].base : base;
+		uint64_t map_end = map[index].base + map[index].length;
+		uint64_t end = map_end < base + length ? map_end : base + length;
+
+		if (start >= end || (map[index].type == 3U &&
+		    (map[index].capabilities & 1ULL) == 1ULL))
+			continue;
+		if (map[index].type != 0U) {
+			status = EFI_INVALID_PARAMETER;
+			break;
+		}
+		status = services->add_memory(3U, start, end - start, 1ULL);
+		if (status != EFI_SUCCESS)
+			break;
+	}
+	(void)boot_services->free_pool(map);
+	if (status == EFI_SUCCESS)
+		(void)services->set_memory(base, length, 1ULL);
+	return status;
+}
+
+static uint64_t initialize_gcd_apertures(struct dxe_services_view *services)
+{
+	size_t root, aperture;
+
+	for (root = 0; root < host.count; root++)
+		for (aperture = 1; aperture < CDK2_PCI_ROOT_BRIDGE_APERTURES;
+		     aperture++) {
+			const struct cdk2_pci_aperture *range =
+				&host.root[root].aperture[aperture];
+			uint64_t status;
+
+			if (range->base > range->limit)
+				continue;
+			status = aperture == 1 ? add_io_aperture(services,
+				range->base - range->translation,
+				range->limit - range->base + 1U) :
+				add_memory_aperture(services,
+				range->base - range->translation,
+				range->limit - range->base + 1U);
+			if (status != EFI_SUCCESS)
+				return status;
+		}
+	return EFI_SUCCESS;
 }
 
 static int same_guid(const EFI_GUID *left, const EFI_GUID *right)
@@ -503,10 +609,13 @@ static uint64_t CDK2_MS_ABI submit(void *self, void *handle, void *configuration
 	}
 	for (type = 0; type < CDK2_PCI_RESOURCE_TYPES; type++)
 		if ((submitted & ((size_t)1U << type)) == 0) {
-			status = cdk2_pci_host_submit(&host, index, type, 0, 0);
-			if (status != EFI_SUCCESS)
-				return status;
+			host.request[index][type].length = 0;
+			host.request[index][type].alignment = 0;
+			host.request[index][type].base = 0;
+			host.request[index][type].submitted = 0;
+			host.request[index][type].allocated = 0;
 		}
+	host.resource_submitted[index] = 1;
 	return EFI_SUCCESS;
 }
 
@@ -672,8 +781,10 @@ uint64_t CDK2_MS_ABI cdk2_pci_host_bridge_entry(void *image, void *system)
 		if (same_guid(&table->tables[index].guid, &dxe_services_guid))
 			dxe = table->tables[index].table;
 	}
-	if (dxe == NULL || dxe->allocate_memory == NULL || dxe->free_memory == NULL ||
-	    dxe->allocate_io == NULL || dxe->free_io == NULL)
+	if (dxe == NULL || dxe->add_memory == NULL || dxe->allocate_memory == NULL ||
+	    dxe->free_memory == NULL || dxe->set_memory == NULL ||
+	    dxe->get_memory_map == NULL || dxe->add_io == NULL ||
+	    dxe->allocate_io == NULL || dxe->free_io == NULL || dxe->get_io_map == NULL)
 		return EFI_NOT_FOUND;
 	while (hob != NULL && hob->type != 0xffffU) {
 		struct guid_hob *guid = (struct guid_hob *)hob;
@@ -696,6 +807,9 @@ uint64_t CDK2_MS_ABI cdk2_pci_host_bridge_entry(void *image, void *system)
 			if (status != EFI_SUCCESS)
 				return status;
 			boot_services = table->boot;
+			status = initialize_gcd_apertures(dxe);
+			if (status != EFI_SUCCESS)
+				return status;
 			return publish_protocols(table->boot);
 		}
 		hob = (struct hob_header *)((uint8_t *)hob + hob->length);

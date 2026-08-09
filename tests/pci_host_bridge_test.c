@@ -96,11 +96,13 @@ int main(void)
 		if (type != 1)
 			failures += expect(cdk2_pci_host_submit(&host, 0, type, 0, 0) ==
 				EFI_SUCCESS, "empty resource request rejected");
+	host.resource_submitted[0] = 1;
 	failures += expect(cdk2_pci_host_notify(&host, CDK2_PCI_ALLOCATE_RESOURCES) ==
 		EFI_NOT_READY, "allocation proceeded before every root submitted resources");
 	for (size_t type = 0; type < CDK2_PCI_RESOURCE_TYPES; type++)
 		failures += expect(cdk2_pci_host_submit(&host, 1, type, 0, 0) ==
 			EFI_SUCCESS, "second root empty request rejected");
+	host.resource_submitted[1] = 1;
 	failures += expect(cdk2_pci_host_notify(&host, CDK2_PCI_ALLOCATE_RESOURCES) ==
 		EFI_SUCCESS && host.request[0][1].allocated &&
 		host.request[0][1].base == 0x80000000,
@@ -119,6 +121,8 @@ int main(void)
 			failures += expect(cdk2_pci_host_submit(&host, root_index, type,
 				root_index == 0 && type < 2 ? 0x100 : 0, 0) == EFI_SUCCESS,
 				"rollback fixture resource submission failed");
+	for (size_t root_index = 0; root_index < host.count; root_index++)
+		host.resource_submitted[root_index] = 1;
 	fail_reservation = 2;
 	failures += expect(cdk2_pci_host_notify(&host, CDK2_PCI_ALLOCATE_RESOURCES) ==
 		EFI_OUT_OF_RESOURCES && reservations == 2 && releases == 1 &&

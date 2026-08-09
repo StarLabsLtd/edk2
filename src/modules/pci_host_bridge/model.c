@@ -179,12 +179,13 @@ uint64_t cdk2_pci_host_notify(struct cdk2_pci_host_model *host,
 	size_t root, type;
 	uint64_t status;
 
-	if (host == NULL || phase > CDK2_PCI_END_RESOURCE_ALLOCATION)
+	if (host == NULL || phase > CDK2_PCI_END_ENUMERATION)
 		return EFI_INVALID_PARAMETER;
 	if (phase == CDK2_PCI_BEGIN_ENUMERATION) {
 		if (!host->can_restart)
 			return EFI_NOT_READY;
 		memset(host->request, 0, sizeof(host->request));
+		memset(host->resource_submitted, 0, sizeof(host->resource_submitted));
 		return EFI_SUCCESS;
 	}
 	if (phase == CDK2_PCI_BEGIN_BUS_ALLOCATION) {
@@ -196,6 +197,7 @@ uint64_t cdk2_pci_host_notify(struct cdk2_pci_host_model *host,
 			for (type = 0; type < CDK2_PCI_RESOURCE_TYPES; type++)
 				release_request(host, root, type);
 		memset(host->request, 0, sizeof(host->request));
+		memset(host->resource_submitted, 0, sizeof(host->resource_submitted));
 		host->can_restart = 1;
 		return EFI_SUCCESS;
 	}
@@ -205,19 +207,25 @@ uint64_t cdk2_pci_host_notify(struct cdk2_pci_host_model *host,
 		uint8_t handled[CDK2_PCI_RESOURCE_TYPES] = { 0 };
 		size_t slot;
 
-		for (type = 0; type < CDK2_PCI_RESOURCE_TYPES; type++)
-			if (!host->request[root][type].submitted)
-				return EFI_NOT_READY;
+		if (!host->resource_submitted[root])
+			return EFI_NOT_READY;
 		for (slot = 0; slot < CDK2_PCI_RESOURCE_TYPES; slot++) {
 			size_t candidate = CDK2_PCI_RESOURCE_TYPES;
 			uint64_t maximum = 0;
 
-			for (type = 0; type < CDK2_PCI_RESOURCE_TYPES; type++)
+			for (type = 0; type < CDK2_PCI_RESOURCE_TYPES; type++) {
+				if (!host->request[root][type].submitted) {
+					handled[type] = 1;
+					continue;
+				}
 				if (!handled[type] && (candidate == CDK2_PCI_RESOURCE_TYPES ||
 				    maximum <= host->request[root][type].alignment)) {
 					candidate = type;
 					maximum = host->request[root][type].alignment;
 				}
+			}
+			if (candidate == CDK2_PCI_RESOURCE_TYPES)
+				continue;
 			handled[candidate] = 1;
 			status = allocate_request(host, root, candidate);
 			if (status != EFI_SUCCESS) {
