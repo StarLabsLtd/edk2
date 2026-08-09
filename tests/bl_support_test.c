@@ -153,6 +153,12 @@ int main(void)
 	failures += expect(!cdk2_bl_support_viewport(1919, 1080, &hidpi,
 		&width, &height) && width == 1919 && height == 1080,
 		"below-threshold framebuffer remains physical size");
+	failures += expect(!cdk2_bl_support_viewport(1919, 800, &hidpi,
+		&width, &height) && width == 1422 && height == 800,
+		"aspect cap applies before and independently of HiDPI qualification");
+	failures += expect(cdk2_bl_support_viewport(5121, 2160, &hidpi,
+		&width, &height) && width == 1920 && height == 1080,
+		"HiDPI evenness is evaluated after the wide viewport cap");
 
 	make_fixture(&fixture); calls = 0; fail_call = 3;
 	{
@@ -171,6 +177,16 @@ int main(void)
 	fixture.graphics.data.graphics_mode.horizontal_resolution = 0;
 	failures += expect(cdk2_bl_support_apply(&fixture, sizeof(fixture), &admitted,
 		&ops) == EFI_COMPROMISED_DATA, "zero graphics geometry rejected before mutation");
+	make_fixture(&fixture);
+	fixture.graphics.data.graphics_mode.pixel_format = (EFI_GRAPHICS_PIXEL_FORMAT)-1;
+	failures += expect(cdk2_bl_support_apply(&fixture, sizeof(fixture), &admitted,
+		&ops) == EFI_COMPROMISED_DATA, "negative graphics pixel format rejected");
+	make_fixture(&fixture);
+	fixture.board.header.name = graphics_guid;
+	values64[33] = 17;
+	failures += expect(cdk2_bl_support_apply(&fixture, sizeof(fixture), &admitted,
+		&ops) == EFI_SUCCESS && values32[29] == 3840 && values64[33] == 17,
+		"duplicate GUID HOB is framed but first matching HOB wins");
 	make_fixture(&fixture);
 	fixture.board.data.tpm20_present = 2;
 	values32[29] = 77;

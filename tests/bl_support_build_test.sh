@@ -21,9 +21,9 @@ sed 's/^CONFIG_CDK2_NATIVE_BL_SUPPORT=y$/# CONFIG_CDK2_NATIVE_BL_SUPPORT is not 
 	"$repo/defconfig" >"$tmp/defconfig"
 MAKEFLAGS= MAKEOVERRIDES= "$make_cmd" -s -C "$repo" CDK2_BUILD_DIR="$tmp/build" \
 	CDK2_CONFIG_READY= CDK2_CONFIG="$tmp/build/.config" CDK2_DEFCONFIG="$tmp/defconfig" \
-	native-bl-support-test native-bl-support-package \
-	>"$tmp/disabled.out"
-test "$(grep -xc 'native BlSupportDxe: disabled by Kconfig' "$tmp/disabled.out")" -eq 2
+		native-bl-support-test native-bl-support-package native-bl-support-oracle \
+		>"$tmp/disabled.out"
+	test "$(grep -xc 'native BlSupportDxe: disabled by Kconfig' "$tmp/disabled.out")" -eq 3
 test ! -e "$tmp/build/native/BlSupportDxe.ffs"
 
 if MAKEFLAGS= MAKEOVERRIDES= "$make_cmd" -s -C "$repo" \

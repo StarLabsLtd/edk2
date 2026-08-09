@@ -68,12 +68,8 @@ static EFI_STATUS validate_hobs(const void *list, size_t size, const void **grap
 				return EFI_COMPROMISED_DATA;
 			if (same_guid(&hob->name, &graphics_info_guid) && *graphics == NULL) {
 				*graphics = hob + 1; *graphics_size = header->hob_length - sizeof(*hob);
-			} else if (same_guid(&hob->name, &graphics_info_guid)) {
-				return EFI_COMPROMISED_DATA;
 			} else if (same_guid(&hob->name, &board_info_guid) && *board == NULL) {
 				*board = hob + 1; *board_size = header->hob_length - sizeof(*hob);
-			} else if (same_guid(&hob->name, &board_info_guid)) {
-				return EFI_COMPROMISED_DATA;
 			}
 		}
 		walked += header->hob_length;
@@ -92,20 +88,20 @@ BOOLEAN cdk2_bl_support_viewport(uint32_t horizontal, uint32_t vertical,
 		return FALSE;
 	*viewport_horizontal = horizontal;
 	*viewport_vertical = vertical;
-	if (!policy->hidpi || horizontal <= policy->threshold_horizontal ||
-	    vertical <= policy->threshold_vertical || (horizontal & 1U) != 0 ||
-	    (vertical & 1U) != 0)
-		return FALSE;
 	if (policy->wide_cap && policy->cap_width != 0 && policy->cap_height != 0 &&
 	    (uint64_t)horizontal * policy->cap_height >
 	    (uint64_t)vertical * policy->cap_width) {
 		candidate = (uint64_t)vertical * policy->cap_width / policy->cap_height;
 		candidate &= ~1ULL;
-		if (candidate != 0 && candidate < horizontal)
-			horizontal = (uint32_t)candidate;
+		if (candidate != 0 && candidate < *viewport_horizontal)
+			*viewport_horizontal = (uint32_t)candidate;
 	}
-	*viewport_horizontal = horizontal / 2U;
-	*viewport_vertical = vertical / 2U;
+	if (!policy->hidpi || horizontal <= policy->threshold_horizontal ||
+	    vertical <= policy->threshold_vertical || (*viewport_horizontal & 1U) != 0 ||
+	    (*viewport_vertical & 1U) != 0)
+		return FALSE;
+	*viewport_horizontal /= 2U;
+	*viewport_vertical /= 2U;
 	return TRUE;
 }
 
@@ -141,6 +137,7 @@ EFI_STATUS cdk2_bl_support_apply(const void *hob_list, size_t hob_size,
 		    graphics->frame_buffer_base || graphics->graphics_mode.version != 0 ||
 		    graphics->graphics_mode.horizontal_resolution == 0 ||
 		    graphics->graphics_mode.vertical_resolution == 0 ||
+		    (int)graphics->graphics_mode.pixel_format < 0 ||
 		    graphics->graphics_mode.pixel_format >= pixel_format_max ||
 		    graphics->graphics_mode.pixels_per_scan_line <
 		    graphics->graphics_mode.horizontal_resolution)

@@ -821,7 +821,7 @@ native-bl-support-package: $(CDK2_NATIVE_BL_SUPPORT_FFS)
 native-bl-support-oracle: $(CDK2_NATIVE_BL_SUPPORT_QEMU_PE)
 	@printf '%s\n' "native BlSupport oracle: $(CDK2_NATIVE_BL_SUPPORT_QEMU_PE)"
 else
-native-bl-support-test native-bl-support-package:
+native-bl-support-test native-bl-support-package native-bl-support-oracle:
 	@printf '%s\n' 'native BlSupportDxe: disabled by Kconfig'
 endif
 
@@ -1823,7 +1823,10 @@ $(CDK2_NATIVE_BL_SUPPORT_TEST): $(CDK2_DIR)/tests/bl_support_test.c \
 		"$(CDK2_DIR)/src/modules/bl_support/entry.c"
 
 $(CDK2_NATIVE_BL_SUPPORT_QEMU_OBJ): $(CDK2_DIR)/tests/bl_support_qemu.c \
-		$(CDK2_DIR)/include/cdk2/pcd.h $(CDK2_CONFIG_HEADER) | $(CDK2_NATIVE_BUILD_DIR)
+		$(CDK2_DIR)/include/cdk2/pcd.h \
+		$(CDK2_DIR)/include/guid/graphics_info_hob.h \
+		$(CDK2_DIR)/include/guid/acpi_board_info.h \
+		$(CDK2_DIR)/include/pi/hob.h $(CDK2_CONFIG_HEADER) | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
 		-mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args \
 		$(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
