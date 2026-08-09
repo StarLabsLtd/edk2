@@ -40,6 +40,7 @@ struct fixture {
 	unsigned int fail_proposed;
 	unsigned int enable_hotplug, hpc_lists, hpc_inits, hpc_paddings;
 	unsigned int fail_hpc_padding;
+	unsigned int visible_devices, fail_install_number;
 	UINTN phases[16];
 	struct cdk2_driver_binding_protocol *driver;
 	struct { void *notify; } *hotplug_request;
@@ -78,6 +79,8 @@ static EFI_STATUS CDK2_MS_ABI install(void **handle, const EFI_GUID *guid,
 	void *interface, ...)
 { __builtin_ms_va_list arguments; const EFI_GUID *next;
 	active->installs++; *handle = active;
+	if (active->fail_install_number == active->installs)
+		return EFI_DEVICE_ERROR;
 	if (active->installs == 1)
 		active->driver = interface;
 	if (guid->data1 == 0x19cb87abU)
@@ -98,8 +101,10 @@ static EFI_STATUS CDK2_MS_ABI old_unload(void *image)
 static EFI_STATUS CDK2_MS_ABI config_read(void *root, UINTN width,
 	uint64_t address, UINTN count, void *buffer)
 { (void)root; (void)width; (void)count;
-	if (active->enable_hotplug && ((address >> 16) & 0x1fU) == 1U)
-		*(uint32_t *)buffer = (address & 0xfffU) == 0U ? 0x56781234U : 0U;
+	if (active->enable_hotplug && ((address >> 16) & 0x1fU) != 0U &&
+	    ((address >> 16) & 0x1fU) <= active->visible_devices)
+		*(uint32_t *)buffer = (address & 0xfffU) == 0U ?
+			(0x56780000U | (uint32_t)((address >> 16) & 0x1fU)) : 0U;
 	else
 		*(uint32_t *)buffer = 0xffffffffU;
 	return EFI_SUCCESS; }
@@ -177,6 +182,7 @@ static void initialize(struct fixture *fixture)
 {
 	memset(fixture, 0, sizeof(*fixture)); active = fixture;
 	fixture->root_limit = 2;
+	fixture->visible_devices = 1;
 	fixture->boot.allocate_pool = pool; fixture->boot.free_pool = release;
 	fixture->boot.handle_protocol = handle;
 	fixture->boot.open_protocol = open_protocol;
@@ -252,11 +258,30 @@ int main(void)
 		fixture.hpc_paddings == 1);
 	CHECK(fixture.hotplug_request != NULL);
 	{
-		UINT8 children = 0;
+		UINT8 children = 0; void *new_children[2];
+		uint8_t remaining[10] = { 1, 1, 6, 0, 0, 2, 0x7f, 0xff, 4, 0 };
 		request_notify_fn *notify_request = fixture.hotplug_request->notify;
+		fixture.visible_devices = 2;
+		CHECK(notify_request(fixture.hotplug_request, 0U, (void *)1,
+			remaining, &children, new_children) == EFI_SUCCESS);
+		CHECK(children == 1);
+		children = 0;
 		CHECK(notify_request(fixture.hotplug_request, 1U, (void *)1, NULL,
 			&children, NULL) == EFI_SUCCESS);
-		CHECK(children == 0 && fixture.closes == 2);
+		CHECK(children == 0 && fixture.closes == 3);
+	}
+	CHECK(fixture.loaded.unload(&fixture) == EFI_SUCCESS);
+	initialize(&fixture); fixture.enable_hotplug = 1; fixture.root_limit = 1;
+	CHECK(cdk2_pci_bus_entry(&fixture, &fixture.system) == EFI_SUCCESS);
+	CHECK(fixture.driver->start(fixture.driver, (void *)1, NULL) == EFI_SUCCESS);
+	{
+		UINT8 children = 0; void *new_children[2];
+		uint8_t remaining[10] = { 1, 1, 6, 0, 0, 2, 0x7f, 0xff, 4, 0 };
+		request_notify_fn *notify_request = fixture.hotplug_request->notify;
+		fixture.visible_devices = 2; fixture.fail_install_number = 3;
+		CHECK(notify_request(fixture.hotplug_request, 0U, (void *)1,
+			remaining, &children, new_children) == EFI_DEVICE_ERROR);
+		CHECK(children == 0 && fixture.opens == 2 && fixture.closes == 0);
 	}
 	CHECK(fixture.loaded.unload(&fixture) == EFI_SUCCESS);
 	initialize(&fixture); fixture.enable_hotplug = 1; fixture.root_limit = 1;

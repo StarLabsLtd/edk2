@@ -677,29 +677,99 @@ rollback_rom:
 	return -1;
 }
 
-static EFI_STATUS hotplug_add(struct entry_context *entry, UINTN root,
-	UINT8 *number, void **handles)
+static int filter_remaining(struct entry_context *entry, UINTN root,
+	void *controller, const void *remaining,
+	const struct cdk2_pci_topology *discovered,
+	struct cdk2_pci_topology *filtered)
 {
-	struct cdk2_pci_topology *discovered;
+	const UINT8 *path = remaining; UINT8 selected[CDK2_PCI_MAX_FUNCTIONS] = { 0 };
+	UINT16 parent = CDK2_PCI_ROOT_PARENT, remap[CDK2_PCI_MAX_FUNCTIONS];
+	size_t offset = 0, path_size; int controller_found =
+		controller == entry->roots[root].controller;
+	if (remaining == NULL) {
+		*filtered = *discovered;
+		return 0;
+	}
+	if (device_path_size(remaining, &path_size) != 0)
+		return -1;
+	if (controller != entry->roots[root].controller)
+		for (UINTN child = 0; child < entry->driver.binding.child_count; child++)
+			if (entry->driver.binding.children[child]->handle == controller)
+				for (UINTN function = 0; function < discovered->count; function++)
+					if (function_same_bdf(
+						&entry->driver.binding.children[child]->function,
+						&discovered->functions[function])) {
+						parent = function;
+						controller_found = 1;
+					}
+	if (!controller_found)
+		return -1;
+	while (offset + 4U < path_size) {
+		UINTN found;
+		if (path[offset] != 1U || path[offset + 1U] != 1U ||
+		    path[offset + 2U] != 6U || path[offset + 3U] != 0U)
+			return -1;
+		for (found = 0; found < discovered->count; found++)
+			if (discovered->functions[found].parent_index == parent &&
+			    discovered->functions[found].function == path[offset + 4U] &&
+			    discovered->functions[found].device == path[offset + 5U])
+				break;
+		if (found == discovered->count)
+			return -1;
+		selected[found] = 1; parent = found; offset += 6U;
+	}
+	if (offset + 4U != path_size || path[offset] != 0x7fU)
+		return -1;
+	memset(filtered, 0, sizeof(*filtered));
+	for (UINTN index = 0; index < discovered->count; index++) {
+		if (!selected[index] && !retained_bdf(entry->roots[root].topology,
+			&discovered->functions[index])) {
+			remap[index] = CDK2_PCI_ROOT_PARENT;
+			continue;
+		}
+		remap[index] = filtered->count;
+		filtered->functions[filtered->count++] = discovered->functions[index];
+	}
+	for (UINTN index = 0; index < filtered->count; index++)
+		if (filtered->functions[index].parent_index != CDK2_PCI_ROOT_PARENT) {
+			UINT16 mapped = remap[filtered->functions[index].parent_index];
+			if (mapped == CDK2_PCI_ROOT_PARENT)
+				return -1;
+			filtered->functions[index].parent_index = mapped;
+		}
+	return 0;
+}
+
+static EFI_STATUS hotplug_add(struct entry_context *entry, UINTN root,
+	void *controller, void *remaining, UINT8 *number, void **handles)
+{
+	struct cdk2_pci_topology *discovered, *filtered;
 	struct cdk2_pci_cfg cfg = { .context = entry, .crs_retries = 100,
 		.read = cfg_read, .write = cfg_write };
 	struct add_publish_context publish = { entry, root, handles, 0 };
 	if (handles == NULL)
 		return EFI_INVALID_PARAMETER;
 	discovered = allocate(entry, sizeof(*discovered));
-	if (discovered == NULL)
+	filtered = allocate(entry, sizeof(*filtered));
+	if (discovered == NULL || filtered == NULL) {
+		if (discovered != NULL) release(entry, discovered);
+		if (filtered != NULL) release(entry, filtered);
 		return EFI_OUT_OF_RESOURCES;
+	}
 	memset(discovered, 0, sizeof(*discovered)); entry->building_root = root;
 	if (cdk2_pci_enumerate(&cfg, entry->roots[root].first_bus,
 		entry->roots[root].last_bus, discovered) != 0 ||
+	    filter_remaining(entry, root, controller, remaining, discovered,
+		filtered) != 0 ||
 	    cdk2_pci_hot_add_transaction(&cfg, entry->roots[root].topology,
-		discovered, &entry->roots[root].policy, publish_hot_add,
+		filtered, &entry->roots[root].policy, publish_hot_add,
 		&publish) != 0 || publish.handle_count > UINT8_MAX) {
-		release(entry, discovered);
+		release(entry, discovered); release(entry, filtered);
 		return EFI_DEVICE_ERROR;
 	}
+	release(entry, discovered);
 	release(entry, entry->roots[root].topology);
-	entry->roots[root].topology = discovered;
+	entry->roots[root].topology = filtered;
 	*number = (UINT8)publish.handle_count;
 	return EFI_SUCCESS;
 }
@@ -809,7 +879,8 @@ static EFI_STATUS CDK2_MS_ABI hotplug_notify(
 found:
 	if (root == CDK2_PCI_MAX_ROOTS || entry->roots[root].topology == NULL)
 		return EFI_NOT_FOUND;
-	return operation == 0U ? hotplug_add(entry, root, number, handles) :
+	return operation == 0U ? hotplug_add(entry, root, controller, remaining,
+		number, handles) :
 		hotplug_remove(entry, root, controller, number, handles);
 }
 
