@@ -617,9 +617,15 @@ native-capsule-runtime-test: $(CDK2_NATIVE_CAPSULE_RUNTIME_TEST) \
 native-capsule-runtime-fv: $(CDK2_NATIVE_CAPSULE_RUNTIME_FV)
 	@printf '%s\n' "native capsule runtime FV: $(CDK2_NATIVE_CAPSULE_RUNTIME_FV)"
 
-native-esrt-test: $(CDK2_NATIVE_ESRT_TEST) $(CDK2_NATIVE_ESRT_ENTRY_TEST)
+native-esrt-test: $(CDK2_NATIVE_ESRT_TEST) $(CDK2_NATIVE_ESRT_ENTRY_TEST) \
+		$(CDK2_NATIVE_ESRT_ENTRY_OBJ) $(CDK2_DIR)/tests/esrt_dependency_test.sh
 	@"$(CDK2_NATIVE_ESRT_TEST)"
 	@"$(CDK2_NATIVE_ESRT_ENTRY_TEST)"
+	@"$(CDK2_DIR)/tests/esrt_dependency_test.sh" "$(MAKE)" \
+		"$(CDK2_DIR)/src/boot/Makefile" "$(CDK2_DIR)" "$(CDK2_BUILD_DIR)" \
+		"$(CDK2_NATIVE_BUILD_DIR)" "$(CDK2_CONFIG_HEADER)" "$(CDK2_NATIVE_CC)" \
+		"$(CDK2_DIR)/include/cdk2/capsule_runtime_abi.h" \
+		"$(CDK2_NATIVE_ESRT_ENTRY_OBJ)"
 
 native-esrt-ffs: $(CDK2_NATIVE_ESRT_FFS)
 	@printf '%s\n' "native ESRT FFS: $(CDK2_NATIVE_ESRT_FFS)"
@@ -1475,13 +1481,13 @@ $(CDK2_NATIVE_TPM2_ACPI_TABLE_TEST): $(CDK2_DIR)/tests/tpm2_acpi_table_test.c $(
 $(CDK2_NATIVE_ESRT_TEST): $(CDK2_DIR)/tests/esrt_test.c $(CDK2_DIR)/src/modules/esrt/esrt.c $(CDK2_DIR)/include/cdk2/esrt.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_DIR)/tests/esrt_test.c" "$(CDK2_DIR)/src/modules/esrt/esrt.c"
 
-$(CDK2_NATIVE_ESRT_ENTRY_TEST): $(CDK2_DIR)/tests/esrt_entry_test.c $(CDK2_DIR)/src/modules/esrt/entry.c $(CDK2_DIR)/src/modules/esrt/esrt.c $(CDK2_DIR)/include/cdk2/esrt.h $(CDK2_DIR)/include/cdk2/esrt_abi.h $(CDK2_CONFIG_HEADER) | $(CDK2_NATIVE_BUILD_DIR)
+$(CDK2_NATIVE_ESRT_ENTRY_TEST): $(CDK2_DIR)/tests/esrt_entry_test.c $(CDK2_DIR)/src/modules/esrt/entry.c $(CDK2_DIR)/src/modules/esrt/esrt.c $(CDK2_DIR)/include/cdk2/esrt.h $(CDK2_DIR)/include/cdk2/esrt_abi.h $(CDK2_DIR)/include/cdk2/capsule_runtime_abi.h $(CDK2_CONFIG_HEADER) | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -fshort-wchar $(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_DIR)/tests/esrt_entry_test.c" "$(CDK2_DIR)/src/modules/esrt/esrt.c"
 
 $(CDK2_NATIVE_ESRT_OBJ): $(CDK2_DIR)/src/modules/esrt/esrt.c $(CDK2_DIR)/include/cdk2/esrt.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) -mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args $(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
 
-$(CDK2_NATIVE_ESRT_ENTRY_OBJ): $(CDK2_DIR)/src/modules/esrt/entry.c $(CDK2_DIR)/include/cdk2/esrt.h $(CDK2_DIR)/include/cdk2/esrt_abi.h $(CDK2_CONFIG_HEADER) | $(CDK2_NATIVE_BUILD_DIR)
+$(CDK2_NATIVE_ESRT_ENTRY_OBJ): $(CDK2_DIR)/src/modules/esrt/entry.c $(CDK2_DIR)/include/cdk2/esrt.h $(CDK2_DIR)/include/cdk2/esrt_abi.h $(CDK2_DIR)/include/cdk2/capsule_runtime_abi.h $(CDK2_CONFIG_HEADER) | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) -mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args -fshort-wchar $(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
 
 $(CDK2_NATIVE_ESRT_PE): $(CDK2_NATIVE_ESRT_OBJ) $(CDK2_NATIVE_ESRT_ENTRY_OBJ) $(CDK2_DIR)/src/modules/esrt/esrt.ld $(CDK2_NATIVE_PERELOCCHECK)

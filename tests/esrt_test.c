@@ -82,6 +82,11 @@ int main(void)
 		.lowest_supported_version = 4, .last_attempt_version = 8,
 		.last_attempt_status = 7, .descriptor_version = 3 };
 	images[1] = images[0]; images[1].version = 7; /* duplicate: smallest wins */
+	images[1].lowest_supported_version = 2;
+	images[1].attributes_supported = CDK2_ESRT_IMAGE_IN_USE;
+	images[1].attributes_setting = CDK2_ESRT_IMAGE_IN_USE;
+	images[1].last_attempt_version = 6;
+	images[1].last_attempt_status = 9;
 	images[2] = (struct cdk2_esrt_fmp_image){ .image_type_id = b.firmware_class,
 		.version = 30, .attributes_supported = CDK2_ESRT_IMAGE_IN_USE,
 		.attributes_setting = CDK2_ESRT_IMAGE_IN_USE, .descriptor_version = 1 };
@@ -89,8 +94,21 @@ int main(void)
 	old.h.resource_count = 1; old.e[0] = b; old.e[0].firmware_type = CDK2_ESRT_TYPE_UEFI_DRIVER;
 	assert(cdk2_esrt_sync_fmp(&esrt, images, 4, &old.h) == EFI_SUCCESS && f.fmp_count == 2);
 	assert(f.fmp[0].firmware_version == 7 && f.fmp[0].firmware_type == CDK2_ESRT_TYPE_SYSTEM &&
-		f.fmp[0].lowest_supported_version == 4 && f.fmp[0].last_attempt_status == 7 &&
+		f.fmp[0].lowest_supported_version == 4 && f.fmp[0].last_attempt_version == 6 &&
+		f.fmp[0].last_attempt_status == 9 &&
 		f.fmp[0].capsule_flags == 0x55);
+	/* Duplicate ordering cannot weaken restrictive metadata or change the minimum. */
+	images[0].version = 7; images[0].lowest_supported_version = 2;
+	images[0].attributes_supported = CDK2_ESRT_IMAGE_IN_USE;
+	images[0].attributes_setting = CDK2_ESRT_IMAGE_IN_USE;
+	images[1].version = 9; images[1].lowest_supported_version = 6;
+	images[1].attributes_supported = CDK2_ESRT_IMAGE_IN_USE |
+		CDK2_ESRT_IMAGE_RESET_REQUIRED;
+	images[1].attributes_setting = CDK2_ESRT_IMAGE_IN_USE |
+		CDK2_ESRT_IMAGE_RESET_REQUIRED;
+	assert(cdk2_esrt_sync_fmp(&esrt, images, 2, NULL) == EFI_SUCCESS &&
+		f.fmp_count == 1 && f.fmp[0].firmware_version == 7 &&
+		f.fmp[0].lowest_supported_version == 6 && f.fmp[0].capsule_flags == 0x55);
 	assert(f.fmp[1].firmware_type == CDK2_ESRT_TYPE_UEFI_DRIVER &&
 		f.fmp[1].lowest_supported_version == 0 && f.fmp[1].last_attempt_status == 0);
 	/* Providers that cannot report IN_USE are presumed active. */

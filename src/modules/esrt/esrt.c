@@ -190,6 +190,7 @@ EFI_STATUS cdk2_esrt_sync_fmp(struct cdk2_esrt *esrt,
 	if (EFI_ERROR(status))
 		return status;
 	for (i = 0; i < image_count; i++) {
+		struct cdk2_esrt_entry candidate;
 		if ((images[i].attributes_supported & CDK2_ESRT_IMAGE_IN_USE) &&
 		    !(images[i].attributes_setting & CDK2_ESRT_IMAGE_IN_USE))
 			continue;
@@ -201,14 +202,22 @@ EFI_STATUS cdk2_esrt_sync_fmp(struct cdk2_esrt *esrt,
 		for (j = 0; j < count; j++)
 			if (guid_equal(&cache[j].firmware_class, &images[i].image_type_id))
 				break;
-		if (j < count && cache[j].firmware_version <= images[i].version)
-			continue;
 		if (j == count) {
 			if (count == esrt->max_fmp)
 				return EFI_OUT_OF_RESOURCES;
 			count++;
+			from_fmp(esrt, &cache[j], &images[i], published);
+			continue;
 		}
-		from_fmp(esrt, &cache[j], &images[i], published);
+		from_fmp(esrt, &candidate, &images[i], published);
+		if (candidate.firmware_version < cache[j].firmware_version) {
+			cache[j].firmware_version = candidate.firmware_version;
+			cache[j].last_attempt_version = candidate.last_attempt_version;
+			cache[j].last_attempt_status = candidate.last_attempt_status;
+		}
+		if (candidate.lowest_supported_version > cache[j].lowest_supported_version)
+			cache[j].lowest_supported_version = candidate.lowest_supported_version;
+		cache[j].capsule_flags |= candidate.capsule_flags;
 	}
 	return esrt->ops->write(esrt->context, CDK2_ESRT_FMP, cache, count);
 }
