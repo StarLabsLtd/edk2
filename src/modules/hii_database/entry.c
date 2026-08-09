@@ -632,12 +632,26 @@ static UINTN text_length(const CHAR16 *text)
 		length++;
 	return length;
 }
-static BOOLEAN text_equal(const CHAR16 *left, const CHAR16 *right)
+static CHAR16 keyword_fold(CHAR16 character)
+{
+	return character >= L'A' && character <= L'Z' ?
+		(CHAR16)(character + (L'a' - L'A')) : character;
+}
+static BOOLEAN keyword_text_equal(const CHAR16 *left, const CHAR16 *right)
 {
 	UINTN index = 0U;
-	while (left[index] != 0U && left[index] == right[index])
+	while (left[index] != 0U &&
+	       keyword_fold(left[index]) == keyword_fold(right[index]))
 		index++;
-	return left[index] == right[index];
+	return keyword_fold(left[index]) == keyword_fold(right[index]);
+}
+static BOOLEAN keyword_prefix(const CHAR16 *text, const CHAR16 *prefix)
+{
+	UINTN index = 0U;
+	while (prefix[index] != 0U &&
+	       keyword_fold(text[index]) == keyword_fold(prefix[index]))
+		index++;
+	return prefix[index] == 0U;
 }
 static BOOLEAN token(const CHAR16 *text, const CHAR16 *name)
 {
@@ -768,60 +782,88 @@ static struct cdk2_hii_keyword *lookup_keyword(const CHAR16 *name_space,
 	UINTN index;
 	for (index = 0; index < CDK2_HII_MAX_KEYWORDS; index++)
 		if (context.database.keywords[index].active &&
-		    text_equal(context.database.keywords[index].name_space, name_space) &&
-		    text_equal(context.database.keywords[index].keyword, keyword))
+		    keyword_text_equal(context.database.keywords[index].name_space,
+			name_space) &&
+		    keyword_text_equal(context.database.keywords[index].keyword, keyword))
 			return &context.database.keywords[index];
 	return NULL;
 }
 static EFI_STATUS CDK2_MS_ABI keyword_set(const void *self, const CHAR16 *request,
 	CHAR16 **progress, UINT32 *progress_error)
 {
-	CHAR16 name_space[128], keyword[128], value[256];
+	struct staged_keyword {
+		struct cdk2_hii_keyword *entry;
+		CHAR16 name_space[128], keyword[128], value[256];
+		const CHAR16 *start;
+	};
+	struct staged_keyword *staged;
 	const CHAR16 *cursor, *next;
-	struct cdk2_hii_keyword *entry;
+	UINTN count = 0U, index;
 	EFI_STATUS status;
 
 	(void)self;
 	if (request == NULL || progress == NULL || progress_error == NULL)
 		return EFI_INVALID_PARAMETER;
+	status = allocate(&context, sizeof(*staged) * CDK2_HII_MAX_KEYWORDS,
+		(void **)&staged);
+	if (EFI_ERROR(status))
+		return status;
 	cursor = request;
 	while (*cursor != 0U) {
+		if (count == CDK2_HII_MAX_KEYWORDS) {
+			status = EFI_OUT_OF_RESOURCES;
+			goto failed;
+		}
 		*progress = (CHAR16 *)cursor;
-		status = field(cursor, L"NAMESPACE=", name_space,
-			ARRAY_SIZE(name_space), &next);
+		staged[count].start = cursor;
+		status = field(cursor, L"NAMESPACE=", staged[count].name_space,
+			ARRAY_SIZE(staged[count].name_space), &next);
 		if (EFI_ERROR(status) || *next != L'&' ||
 		    !token(next + 1U, L"KEYWORD="))
 			goto malformed;
-		status = field(next + 1U, L"KEYWORD=", keyword,
-			ARRAY_SIZE(keyword), &next);
+		status = field(next + 1U, L"KEYWORD=", staged[count].keyword,
+			ARRAY_SIZE(staged[count].keyword), &next);
 		if (EFI_ERROR(status) || *next != L'&' || !token(next + 1U, L"VALUE="))
 			goto malformed;
-		status = field(next + 1U, L"VALUE=", value, ARRAY_SIZE(value), &next);
+		status = field(next + 1U, L"VALUE=", staged[count].value,
+			ARRAY_SIZE(staged[count].value), &next);
 		if (EFI_ERROR(status))
 			goto malformed;
-		entry = lookup_keyword(name_space, keyword);
-		if (entry == NULL) {
+		staged[count].entry = lookup_keyword(staged[count].name_space,
+			staged[count].keyword);
+		if (staged[count].entry == NULL) {
 			*progress_error = 0x00000004U;
-			return EFI_NOT_FOUND;
+			status = EFI_NOT_FOUND;
+			goto failed;
 		}
-		if (entry->read_only) {
+		if (staged[count].entry->read_only) {
 			*progress_error = 0x00000010U;
-			return EFIERR(15);
+			status = EFIERR(15);
+			goto failed;
 		}
-		status = cdk2_hii_set_keyword_data(&context.database, name_space,
-			keyword, value);
-		if (EFI_ERROR(status)) {
-			*progress_error = 0x80000000U;
-			return status;
-		}
+		count++;
 		cursor = *next == L'&' ? next + 1U : next;
+	}
+	for (index = 0U; index < count; index++) {
+		status = cdk2_hii_set_keyword_data(&context.database,
+			staged[index].name_space, staged[index].keyword,
+			staged[index].value);
+		if (EFI_ERROR(status)) {
+			*progress = (CHAR16 *)staged[index].start;
+			*progress_error = 0x80000000U;
+			goto failed;
+		}
 	}
 	*progress = (CHAR16 *)cursor;
 	*progress_error = 0U;
+	release(&context, staged);
 	return EFI_SUCCESS;
 malformed:
 	*progress_error = 0x00000002U;
-	return EFI_INVALID_PARAMETER;
+	status = EFI_INVALID_PARAMETER;
+failed:
+	release(&context, staged);
+	return status;
 }
 
 static EFI_STATUS append_keyword(CHAR16 *output, UINTN *offset,
@@ -861,8 +903,11 @@ static EFI_STATUS CDK2_MS_ABI keyword_get(const void *self,
 	if (request == NULL) {
 		for (index = 0; index < CDK2_HII_MAX_KEYWORDS; index++)
 			if (context.database.keywords[index].active &&
-			    (requested_namespace == NULL || text_equal(requested_namespace,
-				context.database.keywords[index].name_space))) {
+			    ((requested_namespace == NULL && keyword_prefix(
+				context.database.keywords[index].name_space, L"x-UEFI-")) ||
+			     (requested_namespace != NULL && keyword_text_equal(
+				requested_namespace,
+				context.database.keywords[index].name_space)))) {
 				if (matches++ != 0U)
 					offset++;
 				entries[matches - 1U] = &context.database.keywords[index];

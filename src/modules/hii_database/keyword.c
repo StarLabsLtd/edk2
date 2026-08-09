@@ -10,12 +10,18 @@ static UINTN length(const CHAR16 *text)
 	return result;
 }
 
+static CHAR16 folded(CHAR16 character)
+{
+	return character >= L'A' && character <= L'Z' ?
+		(CHAR16)(character + (L'a' - L'A')) : character;
+}
+
 static BOOLEAN equal(const CHAR16 *left, const CHAR16 *right)
 {
 	UINTN index = 0U;
-	while (left[index] != 0U && left[index] == right[index])
+	while (left[index] != 0U && folded(left[index]) == folded(right[index]))
 		index++;
-	return left[index] == 0U && right[index] == 0U;
+	return folded(left[index]) == folded(right[index]);
 }
 
 static EFI_STATUS duplicate(struct cdk2_hii_database *database,

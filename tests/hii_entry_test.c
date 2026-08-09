@@ -83,10 +83,17 @@ int main(void)
 		"a mandatory protocol method was not published");
 	(void)cdk2_hii_register_keyword(&context.database, L"x-UEFI-test", L"Mode",
 		L"1", FALSE);
-	failures += expect(keyword->get_data(keyword, L"x-UEFI-test", L"KEYWORD=Mode",
+	(void)cdk2_hii_register_keyword(&context.database, L"private", L"Hidden",
+		L"0", FALSE);
+	failures += expect(keyword->get_data(keyword, L"X-uefi-TEST", L"KEYWORD=mode",
 		&progress, &progress_error, &results) == EFI_SUCCESS &&
 		progress_error == 0U && results[0] == L'N',
-		"keyword request adapter failed");
+		"case-insensitive keyword request adapter failed");
+	free(results);
+	failures += expect(keyword->get_data(keyword, NULL, NULL, &progress,
+		&progress_error, &results) == EFI_SUCCESS && results[0] == L'N' &&
+		results[10] == L'x',
+		"NULL namespace did not restrict discovery to x-UEFI languages");
 	free(results);
 	failures += expect(config->extract_config(config,
 		L"GUID=A&PATH=0102&OFFSET=0", &progress, &results) == EFI_SUCCESS &&
@@ -97,6 +104,13 @@ int main(void)
 		L"NAMESPACE=x-UEFI-test&KEYWORD=Mode&VALUE=2", &progress,
 		&progress_error) == EFI_SUCCESS && progress_error == 0U,
 		"keyword response adapter failed");
+	failures += expect(keyword->set_data(keyword,
+		L"NAMESPACE=x-UEFI-test&KEYWORD=Mode&VALUE=3&NAMESPACE=x-UEFI-test&"
+		L"KEYWORD=Missing&VALUE=4", &progress, &progress_error) == EFI_NOT_FOUND &&
+		cdk2_hii_get_keyword_data(&context.database, L"x-UEFI-test", L"Mode",
+			&results) == EFI_SUCCESS && results[0] == L'2',
+		"multi-keyword validation modified storage before a later failure");
+	free(results);
 	install_status = EFI_DEVICE_ERROR;
 	failures += expect(cdk2_hii_database_entry((void *)1, &system) == EFI_DEVICE_ERROR,
 		"protocol publication failure was not propagated");
