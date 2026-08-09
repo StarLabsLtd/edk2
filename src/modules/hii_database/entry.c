@@ -57,6 +57,7 @@ struct hii_entry_context {
 	} notify_bridges[CDK2_HII_MAX_NOTIFIES];
 };
 static struct hii_entry_context context;
+static void *pending_keyboard_event;
 
 static const EFI_GUID database_guid = { 0xef9fc172, 0xa1b2, 0x4693,
 	{ 0xb3, 0x27, 0x6d, 0x32, 0xfc, 0x41, 0x60, 0x42 } };
@@ -285,20 +286,47 @@ static void CDK2_MS_ABI keyboard_event_notify(void *event, void *opaque)
 static EFI_STATUS CDK2_MS_ABI set_layout(const void *self, const EFI_GUID *guid)
 {
 	void *event;
-	EFI_STATUS status;
+	EFI_STATUS status, close_status;
+	UINTN old_layout, index;
 	(void)self;
-	status = cdk2_hii_set_keyboard_layout(&context.database, guid);
-	if (EFI_ERROR(status) || context.boot->create_event_ex == NULL ||
+	if (pending_keyboard_event != NULL) {
+		status = context.boot->close_event(pending_keyboard_event);
+		if (EFI_ERROR(status))
+			return status;
+		pending_keyboard_event = NULL;
+	}
+	if (context.boot->create_event_ex == NULL ||
 	    context.boot->signal_event == NULL || context.boot->close_event == NULL)
-		return status;
+		return EFI_UNSUPPORTED;
+	old_layout = context.database.current_keyboard_layout;
+	if (guid == NULL)
+		return EFI_INVALID_PARAMETER;
+	for (index = 0; index < context.database.keyboard_layout_count; index++)
+		if (same_guid(&context.database.keyboard_layouts[index], guid))
+			break;
+	if (index == context.database.keyboard_layout_count)
+		return EFI_NOT_FOUND;
 	status = context.boot->create_event_ex(0x00000200U, 8U,
 		keyboard_event_notify, NULL,
 		&keyboard_event_guid, &event);
 	if (EFI_ERROR(status))
 		return status;
+	status = cdk2_hii_set_keyboard_layout(&context.database, guid);
+	if (EFI_ERROR(status)) {
+		pending_keyboard_event = event;
+		close_status = context.boot->close_event(event);
+		if (!EFI_ERROR(close_status))
+			pending_keyboard_event = NULL;
+		return EFI_ERROR(close_status) ? close_status : status;
+	}
 	status = context.boot->signal_event(event);
-	(void)context.boot->close_event(event);
-	return status;
+	if (EFI_ERROR(status))
+		context.database.current_keyboard_layout = old_layout;
+	pending_keyboard_event = event;
+	close_status = context.boot->close_event(event);
+	if (!EFI_ERROR(close_status))
+		pending_keyboard_event = NULL;
+	return EFI_ERROR(status) ? status : close_status;
 }
 static EFI_STATUS CDK2_MS_ABI get_driver(const void *self, void *handle, void **driver)
 { (void)self; return cdk2_hii_get_package_list_handle(&context.database, handle, driver); }
@@ -727,30 +755,92 @@ static EFI_STATUS resolve_config_access(const CHAR16 *configuration,
 	return EFI_SUCCESS;
 }
 
+static const CHAR16 *entry_find_text(const CHAR16 *text, const CHAR16 *needle)
+{
+	UINTN index, candidate;
+
+	for (index = 0U; text[index] != 0U; index++) {
+		for (candidate = 0U; needle[candidate] != 0U &&
+		     text[index + candidate] == needle[candidate]; candidate++)
+			;
+		if (needle[candidate] == 0U)
+			return text + index;
+	}
+	return NULL;
+}
+
+static BOOLEAN config_selector_matches(const CHAR16 *header, const CHAR16 *label,
+	const CHAR16 *expected)
+{
+	const CHAR16 *value = entry_find_text(header, label);
+	UINTN index;
+
+	if (value == NULL)
+		return FALSE;
+	value += text_length(label);
+	for (index = 0U; expected[index] != 0U && value[index] == expected[index];
+	     index++)
+		;
+	return expected[index] == 0U &&
+		(value[index] == 0U || value[index] == L'&');
+}
+
 static EFI_STATUS CDK2_MS_ABI get_alt_config(const void *self,
 	const CHAR16 *configuration, const EFI_GUID *guid, const CHAR16 *name,
 	const void *device_path, const UINT16 *altcfg_id, CHAR16 **result)
 {
 	CHAR16 header[512], altcfg[5];
-	UINTN index = 0U;
+	CHAR16 guid_text[33], name_text[257], path_text[1025];
+	const CHAR16 *segment, *end, *body;
+	const UINT8 *bytes;
+	UINTN index, length, path_size = 0U;
 	static const CHAR16 hex[] = L"0123456789ABCDEF";
 
-	(void)self; (void)guid; (void)name; (void)device_path;
+	(void)self;
 	if (configuration == NULL || result == NULL)
 		return EFI_INVALID_PARAMETER;
-	while (configuration[index] != 0U && index + 1U < ARRAY_SIZE(header)) {
-		if (configuration[index] == L'&' &&
-		    (token(configuration + index, L"&ALTCFG=") ||
-		     token(configuration + index, L"&OFFSET=") ||
-		     token(configuration + index, L"&WIDTH=") ||
-		     token(configuration + index, L"&VALUE=")))
-			break;
-		header[index] = configuration[index];
-		index++;
-	}
-	if (index == 0U || index + 1U == ARRAY_SIZE(header))
+	if (!token(configuration, L"GUID="))
 		return EFI_INVALID_PARAMETER;
-	header[index] = 0U;
+	if (guid != NULL) {
+		bytes = (const UINT8 *)guid;
+		for (index = 0U; index < sizeof(*guid); index++) {
+			guid_text[index * 2U] = hex[bytes[index] >> 4];
+			guid_text[index * 2U + 1U] = hex[bytes[index] & 15U];
+		}
+		guid_text[32] = 0U;
+	}
+	if (name != NULL) {
+		for (length = 0U; name[length] != 0U; length++)
+			if (length >= 64U)
+				return EFI_INVALID_PARAMETER;
+		for (index = 0U; index < length; index++) {
+			name_text[index * 4U] = hex[(name[index] >> 12) & 15U];
+			name_text[index * 4U + 1U] = hex[(name[index] >> 8) & 15U];
+			name_text[index * 4U + 2U] = hex[(name[index] >> 4) & 15U];
+			name_text[index * 4U + 3U] = hex[name[index] & 15U];
+		}
+		name_text[length * 4U] = 0U;
+	}
+	if (device_path != NULL) {
+		bytes = device_path;
+		while (path_size + 4U <= 512U) {
+			length = (UINTN)bytes[path_size + 2U] |
+				((UINTN)bytes[path_size + 3U] << 8);
+			if (length < 4U || path_size > 512U - length)
+				return EFI_INVALID_PARAMETER;
+			path_size += length;
+			if (bytes[path_size - length] == 0x7fU &&
+			    bytes[path_size - length + 1U] == 0xffU)
+				break;
+		}
+		if (path_size == 0U || path_size > 512U)
+			return EFI_INVALID_PARAMETER;
+		for (index = 0U; index < path_size; index++) {
+			path_text[index * 2U] = hex[bytes[index] >> 4];
+			path_text[index * 2U + 1U] = hex[bytes[index] & 15U];
+		}
+		path_text[path_size * 2U] = 0U;
+	}
 	if (altcfg_id != NULL) {
 		altcfg[0] = hex[(*altcfg_id >> 12) & 0x0fU];
 		altcfg[1] = hex[(*altcfg_id >> 8) & 0x0fU];
@@ -758,8 +848,40 @@ static EFI_STATUS CDK2_MS_ABI get_alt_config(const void *self,
 		altcfg[3] = hex[*altcfg_id & 0x0fU];
 		altcfg[4] = 0U;
 	}
-	return cdk2_hii_get_alt_config(&context.database, configuration, header,
-		altcfg_id == NULL ? NULL : altcfg, result);
+	for (segment = configuration; *segment != 0U;) {
+		end = segment + text_length(segment);
+		for (index = 1U; segment[index] != 0U; index++)
+			if (segment[index] == L'&' && token(segment + index + 1U, L"GUID=")) {
+				end = segment + index;
+				break;
+			}
+		body = end;
+		for (index = 0U; segment + index < end; index++)
+			if (segment[index] == L'&' &&
+			    (token(segment + index, L"&ALTCFG=") ||
+			     token(segment + index, L"&OFFSET=") ||
+			     token(segment + index, L"&WIDTH=") ||
+			     token(segment + index, L"&VALUE="))) {
+				body = segment + index;
+				break;
+			}
+		length = (UINTN)(body - segment);
+		if (length >= ARRAY_SIZE(header))
+			return EFI_INVALID_PARAMETER;
+		__builtin_memcpy(header, segment, length * sizeof(CHAR16));
+		header[length] = 0U;
+		if ((guid != NULL && !config_selector_matches(header, L"GUID=", guid_text)) ||
+		    (name != NULL && !config_selector_matches(header, L"NAME=", name_text)) ||
+		    (device_path != NULL &&
+		     !config_selector_matches(header, L"PATH=", path_text)))
+			goto next_segment;
+		if (cdk2_hii_get_alt_config(&context.database, segment, header,
+			altcfg_id == NULL ? NULL : altcfg, result) == EFI_SUCCESS)
+			return EFI_SUCCESS;
+next_segment:
+		segment = *end == 0U ? end : end + 1U;
+	}
+	return EFI_NOT_FOUND;
 }
 static EFI_STATUS field(const CHAR16 *cursor, const CHAR16 *name, CHAR16 *value,
 	UINTN capacity, const CHAR16 **next)
@@ -1560,9 +1682,24 @@ static EFI_STATUS CDK2_MS_ABI keyword_get(const void *self,
 				*progress_error = 0x00000002U;
 				return EFI_INVALID_PARAMETER;
 			}
-			entry = requested_namespace == NULL ? NULL :
-				lookup_keyword_selector(requested_namespace, keyword,
+			if (requested_namespace != NULL) {
+				entry = lookup_keyword_selector(requested_namespace, keyword,
 					selector, selector_length);
+			} else {
+				entry = NULL;
+				for (index = 0U; index < CDK2_HII_MAX_KEYWORDS; index++)
+					if (context.database.keywords[index].active &&
+					    keyword_prefix(context.database.keywords[index].name_space,
+						L"x-UEFI-") &&
+					    keyword_text_equal(context.database.keywords[index].keyword,
+						keyword) &&
+					    (selector == NULL || keyword_selector_matches(
+						&context.database.keywords[index], selector,
+						selector_length))) {
+						entry = &context.database.keywords[index];
+						break;
+					}
+			}
 			if (entry == NULL) {
 				*progress_error = requested_namespace == NULL ?
 					0x00000001U : 0x00000004U;
@@ -1654,6 +1791,9 @@ EFI_STATUS CDK2_MS_ABI cdk2_hii_database_entry(void *image, void *system_table)
 	if (system == NULL || system->boot == NULL)
 		return EFI_INVALID_PARAMETER;
 	context.boot = system->boot;
+	if (context.boot->allocate_pool == NULL || context.boot->free_pool == NULL ||
+	    context.boot->install_multiple == NULL)
+		return EFI_UNSUPPORTED;
 	status = cdk2_hii_database_init(&context.database, &ops, &context);
 	if (EFI_ERROR(status))
 		return status;
@@ -1687,11 +1827,14 @@ EFI_STATUS CDK2_MS_ABI cdk2_hii_database_entry(void *image, void *system_table)
 	context.keyword_protocol = (struct cdk2_efi_config_keyword_protocol) {
 		.set_data = keyword_set, .get_data = keyword_get
 	};
-	return context.boot->install_multiple(&handle,
+	status = context.boot->install_multiple(&handle,
 		&database_guid, &context.database_protocol,
 		&string_guid, &context.string_protocol,
 		&image_guid, &context.image_protocol,
 		&font_guid, &context.font_protocol,
 		&config_guid, &context.config_protocol,
 		&keyword_guid, &context.keyword_protocol, NULL);
+	if (EFI_ERROR(status))
+		cdk2_hii_database_destroy(&context.database);
+	return status;
 }

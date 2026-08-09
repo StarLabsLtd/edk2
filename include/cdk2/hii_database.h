@@ -139,6 +139,7 @@ struct cdk2_hii_keyboard_record {
 
 EFI_STATUS cdk2_hii_database_init(struct cdk2_hii_database *database,
 	const struct cdk2_hii_database_ops *ops, void *context);
+void cdk2_hii_database_destroy(struct cdk2_hii_database *database);
 EFI_STATUS cdk2_hii_new_package_list(struct cdk2_hii_database *database,
 	const void *package_list, void *driver_handle, void **handle);
 EFI_STATUS cdk2_hii_remove_package_list(struct cdk2_hii_database *database,

@@ -7,6 +7,7 @@
 
 static void *published[6];
 static EFI_STATUS install_status;
+static EFI_STATUS create_status, signal_status, close_status;
 static UINTN config_calls;
 static UINT8 test_path[] = { 1U, 2U, 4U, 0U, 0x7fU, 0xffU, 4U, 0U };
 static UINTN u16_length(const CHAR16 *text)
@@ -81,6 +82,18 @@ static EFI_STATUS CDK2_MS_ABI install(void **handle, ...)
 	published[5] = &context.keyword_protocol;
 	return install_status;
 }
+static EFI_STATUS CDK2_MS_ABI create_event(UINT32 type, UINTN tpl,
+	void (CDK2_MS_ABI *notify)(void *, void *), void *opaque,
+	const EFI_GUID *group, void **event)
+{
+	(void)type; (void)tpl; (void)notify; (void)opaque; (void)group;
+	*event = (void *)0x1234;
+	return create_status;
+}
+static EFI_STATUS CDK2_MS_ABI signal_event(void *event)
+{ return event == (void *)0x1234 ? signal_status : EFI_INVALID_PARAMETER; }
+static EFI_STATUS CDK2_MS_ABI close_event(void *event)
+{ return event == (void *)0x1234 ? close_status : EFI_INVALID_PARAMETER; }
 static int expect(int condition, const char *message)
 { if (!condition) fprintf(stderr, "HII entry test: %s\n", message); return !condition; }
 
@@ -101,6 +114,9 @@ int main(void)
 	boot.allocate_pool = pool_allocate;
 	boot.free_pool = pool_free;
 	boot.install_multiple = install;
+	boot.create_event_ex = create_event;
+	boot.signal_event = signal_event;
+	boot.close_event = close_event;
 	boot.locate_device_path = locate_path;
 	boot.handle_protocol = handle_protocol;
 	system.boot = &boot;
@@ -121,6 +137,8 @@ int main(void)
 		"a mandatory protocol method was not published");
 	(void)cdk2_hii_register_keyword(&context.database, L"x-UEFI-test", L"Mode",
 		L"1", FALSE);
+	(void)cdk2_hii_register_keyword(&context.database, L"x-UEFI-other", L"Mode",
+		L"9", FALSE);
 	(void)cdk2_hii_register_keyword(&context.database, L"private", L"Hidden",
 		L"0", FALSE);
 	(void)cdk2_hii_register_keyword(&context.database, L"x-UEFI-test", L"Fixed",
@@ -147,11 +165,57 @@ int main(void)
 		results[10] == L'x',
 		"NULL namespace did not restrict discovery to x-UEFI languages");
 	free(results);
+	failures += expect(keyword->get_data(keyword, NULL, L"KEYWORD=Mode", &progress,
+		&progress_error, &results) == EFI_SUCCESS &&
+		u16_contains(results, L"NAMESPACE=x-UEFI-test&KEYWORD=Mode") &&
+		!u16_contains(results, L"NAMESPACE=x-UEFI-other"),
+		"NULL namespace keyword lookup did not use database order");
+	free(results);
+	{
+		static const EFI_GUID selected_guid = { 1U, 2U, 3U, { 4U } };
+		static const UINT8 selected_path[] = { 0x7fU, 0xffU, 4U, 0U };
+		failures += expect(config->get_alt_config(config,
+			L"GUID=00000000000000000000000000000000&NAME=0058&PATH=7FFF0400&"
+			L"ALTCFG=0001&OFFSET=0&WIDTH=1&VALUE=00&"
+			L"GUID=01000000020003000400000000000000&NAME=0059&PATH=7FFF0400&"
+			L"ALTCFG=0001&OFFSET=0&WIDTH=1&VALUE=11",
+			&selected_guid, L"Y", selected_path, &(UINT16){ 1U }, &results) ==
+			EFI_SUCCESS && u16_contains(results, L"VALUE=11") &&
+			!u16_contains(results, L"VALUE=00"),
+			"GetAltCfg ignored GUID/NAME/PATH selectors");
+		free(results);
+	}
 	failures += expect(config->extract_config(config,
 		L"GUID=A&PATH=0102&OFFSET=0", &progress, &results) == EFI_SUCCESS &&
 		config->route_config(config, L"GUID=A&PATH=0102&VALUE=00", &progress) ==
 		EFI_SUCCESS && config_calls == 2U,
 		"ConfigAccess device-path routing failed");
+	free(results);
+	{
+		EFI_GUID first = { .data1 = 0x11U }, second = { .data1 = 0x22U }, current;
+		(void)cdk2_hii_add_keyboard_layout(&context.database, &first);
+		(void)cdk2_hii_add_keyboard_layout(&context.database, &second);
+		create_status = EFI_DEVICE_ERROR;
+		failures += expect(database->set_keyboard_layout(database, &second) ==
+			EFI_DEVICE_ERROR && cdk2_hii_get_keyboard_layout(&context.database,
+				&current) == EFI_SUCCESS && same_guid(&current, &first),
+			"CreateEventEx failure changed the keyboard layout");
+		create_status = EFI_SUCCESS; signal_status = EFI_DEVICE_ERROR;
+		failures += expect(database->set_keyboard_layout(database, &second) ==
+			EFI_DEVICE_ERROR && cdk2_hii_get_keyboard_layout(&context.database,
+				&current) == EFI_SUCCESS && same_guid(&current, &first),
+			"SignalEvent failure did not roll back the keyboard layout");
+		signal_status = EFI_SUCCESS; close_status = EFI_DEVICE_ERROR;
+		failures += expect(database->set_keyboard_layout(database, &second) ==
+			EFI_DEVICE_ERROR && pending_keyboard_event != NULL &&
+			cdk2_hii_get_keyboard_layout(&context.database, &current) == EFI_SUCCESS &&
+			same_guid(&current, &second),
+			"CloseEvent failure lost event ownership or committed state");
+		close_status = EFI_SUCCESS;
+		failures += expect(database->set_keyboard_layout(database, &first) ==
+			EFI_SUCCESS && pending_keyboard_event == NULL,
+			"retained keyboard event was not closed on retry");
+	}
 	failures += expect(keyword->set_data(keyword,
 		L"NAMESPACE=x-UEFI-test&KEYWORD=Mode&VALUE=2", &progress,
 		&progress_error) == EFI_SUCCESS && progress_error == 0U,
@@ -208,8 +272,14 @@ int main(void)
 		u16_contains(results, L"&DISPLAYNAME=Routing mode"),
 		"PATH-qualified keyword owner or KeywordInfo was not returned");
 	free(results);
+	cdk2_hii_database_destroy(&context.database);
 	install_status = EFI_DEVICE_ERROR;
-	failures += expect(cdk2_hii_database_entry((void *)1, &system) == EFI_DEVICE_ERROR,
-		"protocol publication failure was not propagated");
+	failures += expect(cdk2_hii_database_entry((void *)1, &system) ==
+		EFI_DEVICE_ERROR && context.database.ops == NULL,
+		"failed protocol publication did not destroy initialized ownership");
+	install_status = EFI_SUCCESS;
+	failures += expect(cdk2_hii_database_entry((void *)1, &system) == EFI_SUCCESS,
+		"entry retry after publication rollback failed");
+	cdk2_hii_database_destroy(&context.database);
 	return failures == 0 ? 0 : 1;
 }

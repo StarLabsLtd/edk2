@@ -17,6 +17,19 @@ static struct cdk2_hii_glyph *find_glyph(struct cdk2_hii_database *database,
 	return NULL;
 }
 
+static struct cdk2_hii_glyph *find_package_glyph(
+	struct cdk2_hii_database *database, void *package_handle, CHAR16 character)
+{
+	UINTN index;
+
+	for (index = 0; index < CDK2_HII_MAX_GLYPHS; index++)
+		if (database->glyphs[index].active &&
+		    database->glyphs[index].package_handle == package_handle &&
+		    database->glyphs[index].character == character)
+			return &database->glyphs[index];
+	return NULL;
+}
+
 EFI_STATUS cdk2_hii_register_glyph(struct cdk2_hii_database *database,
 	CHAR16 character, UINT16 width, UINT16 height, UINT16 baseline,
 	const struct cdk2_hii_pixel *bitmap)
@@ -54,7 +67,7 @@ EFI_STATUS cdk2_hii_register_package_glyph_metrics(
 	if (EFI_ERROR(status))
 		return status;
 	__builtin_memcpy(copy, bitmap, bytes);
-	glyph = find_glyph(database, character);
+	glyph = find_package_glyph(database, package_handle, character);
 	if (glyph == NULL)
 		for (index = 0; index < CDK2_HII_MAX_GLYPHS; index++)
 			if (!database->glyphs[index].active) {
@@ -253,6 +266,9 @@ EFI_STATUS cdk2_hii_string_to_image_colored(struct cdk2_hii_database *database,
 		if (measured_line > measured_width)
 			measured_width = measured_line;
 		measured_height += measured_line_height;
+		if (measured_width > 0xffffU || measured_height > 0xffffU ||
+		    x > 0xffffU - measured_width || y > 0xffffU - measured_height)
+			return EFI_INVALID_PARAMETER;
 		status = database->ops->allocate(database->context, sizeof(**output),
 			(void **)output);
 		if (EFI_ERROR(status))

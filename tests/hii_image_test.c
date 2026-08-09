@@ -59,5 +59,11 @@ int main(void)
 	failures += expect(cdk2_hii_draw_image_id(&database, handle, id, 2U, &output,
 		2U, 2U, NULL) == EFI_SUCCESS && output->image.bitmap[8].blue == 1U,
 		"clipped bitmap composition failed");
+	{
+		struct cdk2_hii_image_output *overflow = NULL;
+		failures += expect(cdk2_hii_draw_image(&database, &image, 0U, &overflow,
+			0xffffU, 0U, NULL) == EFI_INVALID_PARAMETER && overflow == NULL,
+			"overflowing auto-sized image surface was admitted");
+	}
 	return failures == 0 ? 0 : 1;
 }

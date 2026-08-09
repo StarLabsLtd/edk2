@@ -189,6 +189,9 @@ EFI_STATUS cdk2_hii_draw_image(struct cdk2_hii_database *database,
 		return screen_blt(target->image.screen, image->bitmap, x, y,
 			image->width, image->height);
 	if (target == NULL) {
+		if (x > 0xffffU || y > 0xffffU || image->width > 0xffffU - x ||
+		    image->height > 0xffffU - y)
+			return EFI_INVALID_PARAMETER;
 		status = database->ops->allocate(database->context, sizeof(*target),
 			(void **)&target);
 		if (EFI_ERROR(status))

@@ -29,7 +29,8 @@ EFI_STATUS cdk2_hii_add_keyboard_layout_record(struct cdk2_hii_database *databas
 		return EFI_INVALID_PARAMETER;
 	__builtin_memcpy(&guid, bytes + 2U, sizeof(guid));
 	for (index = 0; index < database->keyboard_layout_count; index++)
-		if (same_guid(&database->keyboard_layouts[index], &guid))
+		if (same_guid(&database->keyboard_layouts[index], &guid) &&
+		    database->keyboard_records[index].package_handle == package_handle)
 			return EFI_INVALID_PARAMETER;
 	if (database->keyboard_layout_count == CDK2_HII_MAX_KEYBOARD_LAYOUTS)
 		return EFI_OUT_OF_RESOURCES;

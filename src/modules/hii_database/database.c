@@ -173,6 +173,36 @@ EFI_STATUS cdk2_hii_database_init(struct cdk2_hii_database *database,
 	return EFI_SUCCESS;
 }
 
+void cdk2_hii_database_destroy(struct cdk2_hii_database *database)
+{
+	UINTN index;
+
+	if (database == NULL || database->ops == NULL || database->ops->release == NULL)
+		return;
+	for (index = 0; index < CDK2_HII_MAX_LISTS; index++)
+		if (database->lists[index].active)
+			(void)cdk2_hii_remove_package_list(database, &database->lists[index]);
+	cdk2_hii_remove_glyphs(database, NULL);
+	cdk2_hii_remove_keywords(database, NULL);
+	for (index = 0; index < CDK2_HII_MAX_CONFIG_ROUTES; index++)
+		if (database->config_routes != NULL && database->config_routes[index].active)
+			(void)cdk2_hii_unregister_config_route(database,
+				&database->config_routes[index]);
+	if (database->keywords != NULL)
+		database->ops->release(database->context, database->keywords);
+	if (database->config_routes != NULL)
+		database->ops->release(database->context, database->config_routes);
+	if (database->keyboard_records != NULL)
+		database->ops->release(database->context, database->keyboard_records);
+	if (database->glyphs != NULL)
+		database->ops->release(database->context, database->glyphs);
+	if (database->images != NULL)
+		database->ops->release(database->context, database->images);
+	if (database->strings != NULL)
+		database->ops->release(database->context, database->strings);
+	*database = (struct cdk2_hii_database) { 0 };
+}
+
 EFI_STATUS cdk2_hii_new_package_list(struct cdk2_hii_database *database,
 	const void *package_list, void *driver_handle, void **handle)
 {

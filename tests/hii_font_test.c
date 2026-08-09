@@ -70,5 +70,27 @@ int main(void)
 		&background) == EFI_SUCCESS && clipped_pixels[0].red == 0xaaU &&
 		clipped_pixels[1].blue == 0xbbU && column == 2U,
 		"font color or horizontal clipping semantics failed");
+	output = NULL;
+	column = 0U;
+	failures += expect(cdk2_hii_string_to_image(&database, 0U, L"A", &output,
+		0xffffU, 0U, NULL, NULL, &column, NULL) == EFI_INVALID_PARAMETER &&
+		output == NULL, "overflowing auto-sized font surface was admitted");
+	{
+		struct cdk2_hii_image_output *glyph_image = NULL;
+		UINTN glyph_baseline;
+		pixels[0].red = 0x11U;
+		(void)cdk2_hii_register_package_glyph(&database, (void *)1, L'Z',
+			2U, 4U, 3U, pixels);
+		pixels[0].red = 0x22U;
+		(void)cdk2_hii_register_package_glyph(&database, (void *)2, L'Z',
+			2U, 4U, 3U, pixels);
+		cdk2_hii_remove_glyphs(&database, (void *)2);
+		failures += expect(cdk2_hii_get_glyph(&database, L'Z', &glyph_image,
+			&glyph_baseline) == EFI_SUCCESS &&
+			glyph_image->image.bitmap[0].red == 0x11U,
+			"failed staged glyph replacement destroyed the admitted glyph");
+		release(NULL, glyph_image->image.bitmap);
+		release(NULL, glyph_image);
+	}
 	return failures == 0 ? 0 : 1;
 }
