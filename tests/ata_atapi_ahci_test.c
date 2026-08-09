@@ -8,11 +8,14 @@
 
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "failed: %s:%d: %s\n", \
 	__FILE__, __LINE__, #x); exit(EXIT_FAILURE); } } while (0)
+#define ARRAY_SIZE(array) (sizeof(array) / sizeof((array)[0]))
 
 struct fixture {
 	unsigned int allocations, releases, maps, unmaps, flushes, fail_allocate;
 	unsigned int fail_map, fail_unmap, fail_flush, writes, ci_reads;
-	unsigned int hold_ci, ghc_reads;
+	unsigned int fail_write; UINT16 write_offsets[128], write_ports[128];
+	UINT32 write_values[128];
+	unsigned int hold_ci, ghc_reads; UINT32 hold_command;
 	UINT64 now; UINT32 registers[64]; enum cdk2_ahci_dma_operation operation;
 };
 static EFI_STATUS allocate(void *opaque, size_t size, size_t alignment,
@@ -46,10 +49,13 @@ static UINT32 read_register(void *opaque, UINT16 port, UINT16 offset)
 		f->registers[offset / 4U] = 0;
 	if (offset == 0x04U && f->ghc_reads++ != 0U)
 		f->registers[offset / 4U] = 0;
-	return f->registers[offset / 4U]; }
+	return f->registers[offset / 4U] |
+		(offset == 0x18U ? f->hold_command : 0U); }
 static EFI_STATUS write_register(void *opaque, UINT16 port, UINT16 offset, UINT32 value)
-{ struct fixture *f = opaque; (void)port; f->writes++; f->registers[offset / 4U] = value;
-	return EFI_SUCCESS; }
+{ struct fixture *f = opaque; f->write_offsets[f->writes] = offset;
+	f->write_ports[f->writes] = port; f->write_values[f->writes] = value;
+	f->writes++; if (f->writes == f->fail_write) return EFI_DEVICE_ERROR;
+	f->registers[offset / 4U] = value; return EFI_SUCCESS; }
 static UINT64 get_time(void *opaque)
 { struct fixture *f = opaque; return f->now++; }
 static void delay(void *opaque, UINTN microseconds)
@@ -89,11 +95,43 @@ int main(void)
 	CHECK(cdk2_ahci_execute(&engine, 0, &packet, atapi, sizeof(atapi), 100) ==
 		EFI_SUCCESS);
 	CHECK(asb.status == 0x50 && asb.error == 0x04);
+	CHECK(engine.active_port == 0 && fixture.registers[0] ==
+		(UINT32)engine.command_list.device);
+	{
+		unsigned int sequence = 0;
+		static const UINT16 offsets[] = { 0x18, 0x18, 0x00, 0x04, 0x08,
+			0x0c, 0x10, 0x30, 0x18, 0x18 };
+		for (unsigned int index = 0; index < fixture.writes; index++) {
+			if (sequence < ARRAY_SIZE(offsets) &&
+			    fixture.write_offsets[index] == offsets[sequence])
+				sequence++;
+		}
+		CHECK(sequence == ARRAY_SIZE(offsets));
+		CHECK(fixture.write_values[8] == 0x10U &&
+			fixture.write_values[9] == 0x11U);
+	}
 	CHECK(fixture.operation == CDK2_AHCI_BUS_MASTER_WRITE && fixture.maps == 2 &&
 		fixture.unmaps == 2 && engine.active_slots == 0);
 	CHECK((get32(engine.command_list.host) >> 16) == 3);
 	CHECK((get32((UINT8 *)engine.command_tables[0].host + 0x80U + 12U) &
 		0x3fffffU) == CDK2_AHCI_PRDT_MAX_BYTES - 1U);
+	{
+		unsigned int before = fixture.writes, restored = 0, configured = 0;
+
+		fixture.ci_reads = 0;
+		CHECK(cdk2_ahci_execute(&engine, 2, &packet, NULL, 0, 100) ==
+			EFI_SUCCESS);
+		for (unsigned int index = before; index < fixture.writes; index++) {
+			if (fixture.write_ports[index] == 0 &&
+			    fixture.write_offsets[index] == 0x00U)
+				restored = 1;
+			if (restored && fixture.write_ports[index] == 2 &&
+			    fixture.write_offsets[index] == 0x00U)
+				configured = 1;
+		}
+		CHECK(restored && configured && engine.active_port == 2 &&
+			engine.configured_ports == (1U << 2));
+	}
 	fixture.ci_reads = 0; fixture.fail_map = fixture.maps + 1;
 	CHECK(cdk2_ahci_execute(&engine, 0, &packet, NULL, 0, 100) == EFI_DEVICE_ERROR);
 	CHECK(engine.active_slots == 0);
@@ -105,7 +143,38 @@ int main(void)
 	fixture.registers[0x04 / 4] = 0;
 	CHECK(cdk2_ahci_reset_controller(&engine, 100) == EFI_SUCCESS);
 	cdk2_ahci_engine_destroy(&engine);
+	CHECK(fixture.registers[0] == 0 && fixture.registers[2] == 0);
 	CHECK(fixture.releases == 6);
+	for (unsigned int failure = 1; failure <= 10; failure++) {
+		initialize(&fixture, &services);
+		fixture.registers[0x00 / 4] = 0x11111111U;
+		fixture.registers[0x04 / 4] = 0x22222222U;
+		fixture.registers[0x08 / 4] = 0x33333333U;
+		fixture.registers[0x0c / 4] = 0x44444444U;
+		fixture.registers[0x18 / 4] = 0x10U;
+		CHECK(cdk2_ahci_engine_init(&engine, &services, 1U << 8, 1) ==
+			EFI_SUCCESS);
+		fixture.fail_write = failure;
+		CHECK(cdk2_ahci_execute(&engine, 0, &packet, NULL, 0, 100) ==
+			EFI_DEVICE_ERROR);
+		CHECK(fixture.registers[0x00 / 4] == 0x11111111U &&
+			fixture.registers[0x04 / 4] == 0x22222222U &&
+			fixture.registers[0x08 / 4] == 0x33333333U &&
+			fixture.registers[0x0c / 4] == 0x44444444U &&
+			fixture.registers[0x18 / 4] == 0x10U);
+		CHECK(engine.configured_ports == 0 && engine.active_port == 0xffffU);
+		cdk2_ahci_engine_destroy(&engine);
+	}
+	initialize(&fixture, &services);
+	CHECK(cdk2_ahci_engine_init(&engine, &services, 1U << 8, 1) == EFI_SUCCESS);
+	fixture.registers[0x00 / 4] = 0x11111111U;
+	fixture.hold_command = 0x8000U;
+	CHECK(cdk2_ahci_execute(&engine, 0, &packet, NULL, 0, 2) ==
+		EFI_DEVICE_ERROR);
+	CHECK(engine.configured_ports == 1 && engine.active_port == 0xffffU);
+	fixture.hold_command = 0;
+	cdk2_ahci_engine_destroy(&engine);
+	CHECK(fixture.releases == 4 && fixture.registers[0x00 / 4] == 0x11111111U);
 	initialize(&fixture, &services); fixture.fail_allocate = 3;
 	CHECK(cdk2_ahci_engine_init(&engine, &services, 1U << 8, 1) ==
 		EFI_OUT_OF_RESOURCES);

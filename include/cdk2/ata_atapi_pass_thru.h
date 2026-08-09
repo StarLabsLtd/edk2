@@ -264,6 +264,9 @@ struct cdk2_ahci_engine {
 	struct cdk2_ahci_allocation command_list, received_fis;
 	struct cdk2_ahci_allocation command_tables[CDK2_AHCI_MAX_SLOTS];
 	UINT32 capability, ports_implemented, active_slots;
+	UINT32 original_command[32], original_clb[32], original_clbu[32];
+	UINT32 original_fb[32], original_fbu[32], configured_ports;
+	UINT16 active_port;
 	UINT8 slots, initialized;
 };
 

@@ -12,9 +12,14 @@
 #define AHCI_PX_SERR 0x30U
 #define AHCI_PX_CI 0x38U
 #define AHCI_PX_IS 0x10U
+#define AHCI_PX_CLB 0x00U
+#define AHCI_PX_CLBU 0x04U
+#define AHCI_PX_FB 0x08U
+#define AHCI_PX_FBU 0x0cU
 #define AHCI_CMD_ST 0x01U
 #define AHCI_CMD_FRE 0x10U
 #define AHCI_CMD_CR 0x8000U
+#define AHCI_CMD_FR 0x4000U
 #define AHCI_TFD_ERR 0x01U
 #define AHCI_TFD_BUSY 0x80U
 #define AHCI_TFD_DRQ 0x08U
@@ -26,6 +31,8 @@ static int services_valid(const struct cdk2_ahci_dma_services *services)
 		services->read != NULL && services->write != NULL && services->time != NULL &&
 		services->delay != NULL;
 }
+static EFI_STATUS restore_port(struct cdk2_ahci_engine *engine, UINT16 port,
+	UINT64 timeout);
 
 static EFI_STATUS allocate_dma(struct cdk2_ahci_engine *engine,
 	struct cdk2_ahci_allocation *allocation, size_t size, size_t alignment)
@@ -49,6 +56,9 @@ void cdk2_ahci_engine_destroy(struct cdk2_ahci_engine *engine)
 {
 	if (engine == NULL || !services_valid(&engine->services))
 		return;
+	for (UINT16 port = 0; port < 32U; port++)
+		if ((engine->configured_ports & (1U << port)) != 0U)
+			(void)restore_port(engine, port, 5000000U);
 	for (UINT8 slot = engine->slots; slot != 0U; slot--)
 		if (engine->command_tables[slot - 1U].host != NULL)
 			(void)engine->services.release(engine->services.context,
@@ -72,6 +82,7 @@ EFI_STATUS cdk2_ahci_engine_init(struct cdk2_ahci_engine *engine,
 		return EFI_INVALID_PARAMETER;
 	memset(engine, 0, sizeof(*engine)); engine->services = *services;
 	engine->capability = capability; engine->ports_implemented = ports_implemented;
+	engine->active_port = 0xffffU;
 	engine->slots = (UINT8)(((capability >> 8) & 0x1fU) + 1U);
 	status = allocate_dma(engine, &engine->command_list, 1024, 1024);
 	if (EFI_ERROR(status))
@@ -122,6 +133,117 @@ static EFI_STATUS abort_port(struct cdk2_ahci_engine *engine, UINT16 port,
 		command | AHCI_CMD_ST)) && !EFI_ERROR(status))
 		status = EFI_DEVICE_ERROR;
 	return status;
+}
+
+static EFI_STATUS configure_port(struct cdk2_ahci_engine *engine, UINT16 port,
+	UINT64 timeout)
+{
+	UINT32 command = engine->services.read(engine->services.context, port,
+		AHCI_PX_CMD);
+	EFI_STATUS status;
+
+	if (engine->active_port == port)
+		return EFI_SUCCESS;
+	if (engine->active_port < 32U) {
+		status = restore_port(engine, engine->active_port, timeout);
+		if (EFI_ERROR(status))
+			return status;
+	}
+	engine->original_command[port] = command;
+	engine->original_clb[port] = engine->services.read(engine->services.context,
+		port, AHCI_PX_CLB);
+	engine->original_clbu[port] = engine->services.read(engine->services.context,
+		port, AHCI_PX_CLBU);
+	engine->original_fb[port] = engine->services.read(engine->services.context,
+		port, AHCI_PX_FB);
+	engine->original_fbu[port] = engine->services.read(engine->services.context,
+		port, AHCI_PX_FBU);
+	engine->configured_ports |= 1U << port;
+	status = engine->services.write(engine->services.context, port, AHCI_PX_CMD,
+		command & ~AHCI_CMD_ST);
+	if (!EFI_ERROR(status))
+		status = wait_clear(engine, port, AHCI_PX_CMD, AHCI_CMD_CR, timeout);
+	if (!EFI_ERROR(status))
+		status = engine->services.write(engine->services.context, port,
+			AHCI_PX_CMD, command & ~(AHCI_CMD_ST | AHCI_CMD_FRE));
+	if (!EFI_ERROR(status))
+		status = wait_clear(engine, port, AHCI_PX_CMD, AHCI_CMD_FR, timeout);
+	if (!EFI_ERROR(status))
+		status = engine->services.write(engine->services.context, port,
+			AHCI_PX_CLB, (UINT32)engine->command_list.device);
+	if (!EFI_ERROR(status))
+		status = engine->services.write(engine->services.context, port,
+			AHCI_PX_CLBU, (UINT32)(engine->command_list.device >> 32));
+	if (!EFI_ERROR(status))
+		status = engine->services.write(engine->services.context, port,
+			AHCI_PX_FB, (UINT32)engine->received_fis.device);
+	if (!EFI_ERROR(status))
+		status = engine->services.write(engine->services.context, port,
+			AHCI_PX_FBU, (UINT32)(engine->received_fis.device >> 32));
+	if (!EFI_ERROR(status))
+		status = engine->services.write(engine->services.context, port,
+			AHCI_PX_IS, 0xffffffffU);
+	if (!EFI_ERROR(status))
+		status = engine->services.write(engine->services.context, port,
+			AHCI_PX_SERR, 0xffffffffU);
+	if (!EFI_ERROR(status))
+		status = engine->services.write(engine->services.context, port,
+			AHCI_PX_CMD, (command & ~(AHCI_CMD_ST | AHCI_CMD_FRE)) |
+			AHCI_CMD_FRE);
+	if (!EFI_ERROR(status))
+		status = engine->services.write(engine->services.context, port,
+			AHCI_PX_CMD, command | AHCI_CMD_FRE | AHCI_CMD_ST);
+	if (EFI_ERROR(status)) {
+		EFI_STATUS rollback = restore_port(engine, port, timeout);
+
+		return EFI_ERROR(rollback) ? EFI_DEVICE_ERROR : status;
+	}
+	engine->active_port = port;
+	return status;
+}
+
+static EFI_STATUS restore_port(struct cdk2_ahci_engine *engine, UINT16 port,
+	UINT64 timeout)
+{
+	EFI_STATUS first = EFI_SUCCESS, status;
+	UINT32 command;
+
+	if (port >= 32U || (engine->configured_ports & (1U << port)) == 0U)
+		return EFI_SUCCESS;
+	command = engine->services.read(engine->services.context, port, AHCI_PX_CMD);
+	status = engine->services.write(engine->services.context, port, AHCI_PX_CMD,
+		command & ~AHCI_CMD_ST);
+	if (!EFI_ERROR(status))
+		status = wait_clear(engine, port, AHCI_PX_CMD, AHCI_CMD_CR, timeout);
+	if (EFI_ERROR(status))
+		first = status;
+	status = engine->services.write(engine->services.context, port, AHCI_PX_CMD,
+		command & ~(AHCI_CMD_ST | AHCI_CMD_FRE));
+	if (!EFI_ERROR(status))
+		status = wait_clear(engine, port, AHCI_PX_CMD, AHCI_CMD_FR, timeout);
+	if (EFI_ERROR(status) && !EFI_ERROR(first))
+		first = status;
+	if (EFI_ERROR(engine->services.write(engine->services.context, port,
+		AHCI_PX_CLB, engine->original_clb[port])) && !EFI_ERROR(first))
+		first = EFI_DEVICE_ERROR;
+	if (EFI_ERROR(engine->services.write(engine->services.context, port,
+		AHCI_PX_CLBU, engine->original_clbu[port])) && !EFI_ERROR(first))
+		first = EFI_DEVICE_ERROR;
+	if (EFI_ERROR(engine->services.write(engine->services.context, port,
+		AHCI_PX_FB, engine->original_fb[port])) && !EFI_ERROR(first))
+		first = EFI_DEVICE_ERROR;
+	if (EFI_ERROR(engine->services.write(engine->services.context, port,
+		AHCI_PX_FBU, engine->original_fbu[port])) && !EFI_ERROR(first))
+		first = EFI_DEVICE_ERROR;
+	if (EFI_ERROR(engine->services.write(engine->services.context, port,
+		AHCI_PX_CMD, engine->original_command[port])) && !EFI_ERROR(first))
+		first = EFI_DEVICE_ERROR;
+	if (!EFI_ERROR(first)) {
+		engine->configured_ports &= ~(1U << port);
+		if (engine->active_port == port)
+			engine->active_port = 0xffffU;
+	}
+	return first;
 }
 
 EFI_STATUS cdk2_ahci_reset_controller(struct cdk2_ahci_engine *engine,
@@ -186,7 +308,8 @@ EFI_STATUS cdk2_ahci_execute(struct cdk2_ahci_engine *engine, UINT16 port,
 {
 	struct cdk2_ahci_command command; void *mappings[CDK2_AHCI_MAX_PRDT];
 	UINT16 mapping_count = 0; UINT64 device;
-	void *buffer; size_t remaining, mapped; UINT8 slot; EFI_STATUS status;
+	void *buffer; size_t remaining, mapped; UINT8 slot, command_issued = 0;
+	EFI_STATUS status;
 	enum cdk2_ahci_dma_operation operation;
 	if (engine == NULL || !engine->initialized || packet == NULL || port >= 32U ||
 	    (engine->ports_implemented & (1U << port)) == 0U)
@@ -254,6 +377,9 @@ EFI_STATUS cdk2_ahci_execute(struct cdk2_ahci_engine *engine, UINT16 port,
 	status = engine->services.flush(engine->services.context);
 	if (EFI_ERROR(status))
 		goto cleanup;
+	status = configure_port(engine, port, timeout);
+	if (EFI_ERROR(status))
+		goto cleanup;
 	status = wait_clear(engine, port, AHCI_PX_TFD, AHCI_TFD_BUSY | AHCI_TFD_DRQ,
 		timeout);
 	if (EFI_ERROR(status))
@@ -264,13 +390,13 @@ EFI_STATUS cdk2_ahci_execute(struct cdk2_ahci_engine *engine, UINT16 port,
 		status = EFI_DEVICE_ERROR;
 		goto cleanup;
 	}
+	command_issued = 1;
 	status = wait_clear(engine, port, AHCI_PX_CI, 1U << slot, timeout);
 	if (!EFI_ERROR(status) && (engine->services.read(engine->services.context, port,
 		AHCI_PX_TFD) & AHCI_TFD_ERR) != 0U)
 		status = EFI_DEVICE_ERROR;
 	if (packet->asb != NULL) {
-		const UINT8 *fis = (const UINT8 *)engine->received_fis.host +
-			(size_t)port * 256U + 0x40U;
+		const UINT8 *fis = (const UINT8 *)engine->received_fis.host + 0x40U;
 
 		memset(packet->asb, 0, sizeof(*packet->asb));
 		packet->asb->status = fis[2];
@@ -292,7 +418,8 @@ cleanup:
 			mappings[mapping_count])) && !EFI_ERROR(status))
 			status = EFI_DEVICE_ERROR;
 	}
-	if (EFI_ERROR(status) && EFI_ERROR(abort_port(engine, port, timeout)) &&
+	if (EFI_ERROR(status) && command_issued &&
+	    EFI_ERROR(abort_port(engine, port, timeout)) &&
 	    status != EFI_TIMEOUT)
 		status = EFI_DEVICE_ERROR;
 	if (EFI_ERROR(engine->services.flush(engine->services.context)) && !EFI_ERROR(status))
