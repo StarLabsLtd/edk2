@@ -339,6 +339,7 @@ int cdk2_pci_probe_function(const struct cdk2_pci_cfg *cfg,
 	fn->subclass = (uint8_t)(value >> 16);
 	fn->class_code = (uint8_t)(value >> 24);
 	fn->header_type = (uint8_t)(id >> 16);
+	fn->command = (uint16_t)command;
 	fn->bar_count = 0;
 	/* Stable enumeration disables decoding while BARs are sized. */
 	if (write_cfg(cfg, fn->bus, fn->device, fn->function, PCI_COMMAND, 2,

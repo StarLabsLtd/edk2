@@ -53,10 +53,17 @@ int cdk2_pci_discover_option_rom(const struct cdk2_pci_cfg *cfg,
 			uint16_t payload_offset = get16(header + 0x16);
 			if (get16(header + 4) != 0x0ef1U || payload_offset >= length)
 				return -1;
+			if ((function->vendor_id != 0U &&
+			     get16(pcir + 4) != function->vendor_id) ||
+			    (function->device_id != 0U &&
+			     get16(pcir + 6) != function->device_id))
+				return -1;
 			staged.option_rom[staged.option_rom_images].payload_offset =
 				payload_offset;
 			staged.option_rom[staged.option_rom_images].machine =
 				get16(header + 0x0a);
+			staged.option_rom[staged.option_rom_images].subsystem =
+				get16(header + 8);
 			staged.option_rom[staged.option_rom_images].compression =
 				header[0x0c];
 			if (header[0x0c] > 1U)
@@ -84,7 +91,7 @@ int cdk2_pci_prepare_option_rom(const struct cdk2_pci_cfg *cfg,
 	void *shadow;
 	size_t shadow_size;
 	if (cfg == NULL || ops == NULL || ops->allocate == NULL || ops->free == NULL ||
-	    ops->load_image == NULL || function == NULL ||
+	    ops->load_image == NULL || ops->start_image == NULL || function == NULL ||
 	    function->option_rom_shadow != NULL)
 		return -1;
 	staged = *function;
@@ -106,7 +113,11 @@ int cdk2_pci_prepare_option_rom(const struct cdk2_pci_cfg *cfg,
 	for (uint8_t i = 0; i < staged.option_rom_images; i++) {
 		void *payload, *handle;
 		size_t payload_size;
-		if (staged.option_rom[i].code_type != 3U)
+		if (staged.option_rom[i].code_type != 3U ||
+		    (staged.option_rom[i].machine != 0x014cU &&
+		     staged.option_rom[i].machine != 0x8664U) ||
+		    (staged.option_rom[i].subsystem != 11U &&
+		     staged.option_rom[i].subsystem != 12U))
 			continue;
 		payload = (uint8_t *)shadow + staged.option_rom[i].offset +
 			staged.option_rom[i].payload_offset;
@@ -143,6 +154,8 @@ int cdk2_pci_prepare_option_rom(const struct cdk2_pci_cfg *cfg,
 		if (ops->load_image(ops->context, payload, payload_size, &handle) != 0)
 			goto rollback;
 		staged.option_rom[i].image_handle = handle;
+		if (ops->start_image(ops->context, handle) != 0)
+			goto rollback;
 		if (staged.option_rom_image_handle == NULL)
 			staged.option_rom_image_handle = handle;
 	}

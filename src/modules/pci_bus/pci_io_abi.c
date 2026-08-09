@@ -107,11 +107,11 @@ static EFI_STATUS CDK2_MS_ABI allocate_buffer(
 	struct cdk2_efi_pci_io_protocol *this, UINTN type, UINTN memory_type,
 	UINTN pages, void **host, UINT64 attributes)
 {
-	(void)memory_type;
-	if (host == NULL || type > 1U)
+	if (host == NULL || type > 1U ||
+	    (memory_type != 4U && memory_type != 6U))
 		return EFI_INVALID_PARAMETER;
 	*host = cdk2_pci_io_allocate_buffer(model(this), pages, attributes);
-	return *host == NULL ? EFI_DEVICE_ERROR : EFI_SUCCESS;
+	return *host == NULL ? status(model(this), -1) : EFI_SUCCESS;
 }
 
 static EFI_STATUS CDK2_MS_ABI free_buffer(struct cdk2_efi_pci_io_protocol *this,
@@ -166,6 +166,8 @@ static EFI_STATUS CDK2_MS_ABI get_bar_attributes(
 	memset(descriptor, 0, 48);
 	descriptor[0] = 0x8a; descriptor[1] = 0x2b;
 	descriptor[3] = io->bar_space[bar] == CDK2_PCI_IO_PORT ? 1U : 0U;
+	descriptor[5] = io->bar_prefetchable[bar] ? 0x06U : 0U;
+	descriptor[6] = io->bar_64[bar] ? 64U : 32U;
 	for (unsigned int byte = 0; byte < 8U; byte++) {
 		descriptor[14 + byte] = (uint8_t)(io->bar_base[bar] >> (byte * 8U));
 		descriptor[22 + byte] = (uint8_t)((io->bar_base[bar] +

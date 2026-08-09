@@ -13,6 +13,7 @@ typedef EFI_STATUS CDK2_MS_ABI close_fn(void *, const EFI_GUID *, void *, void *
 typedef EFI_STATUS CDK2_MS_ABI install_fn(void **, const EFI_GUID *, void *, ...);
 typedef EFI_STATUS CDK2_MS_ABI uninstall_fn(void *, const EFI_GUID *, void *, ...);
 typedef EFI_STATUS CDK2_MS_ABI image_unload_fn(void *);
+typedef EFI_STATUS CDK2_MS_ABI image_start_fn(void *, UINTN *, CHAR16 * *);
 typedef EFI_STATUS CDK2_MS_ABI locate_fn(const EFI_GUID *, void *, void **);
 typedef EFI_STATUS CDK2_MS_ABI load_image_fn(BOOLEAN, void *, void *, void *,
 	UINTN, void **);
@@ -52,7 +53,7 @@ struct boot_services_view {
 	UINT8 before_pool[64]; pool_fn * allocate_pool; free_fn * free_pool;
 	UINT8 before_handle[72]; handle_fn * handle_protocol;
 	UINT8 before_load[40]; load_image_fn * load_image;
-	UINT8 before_unload[16]; image_unload_fn * unload_image;
+	image_start_fn *start_image; UINT8 before_unload[8]; image_unload_fn * unload_image;
 	UINT8 before_open[48]; open_fn * open_protocol; close_fn * close_protocol;
 	UINT8 before_locate[24]; locate_fn * locate_protocol;
 	install_fn *install_multiple;
@@ -657,6 +658,19 @@ static int rom_load(void *opaque, const void *image, size_t size, void **handle)
 	return EFI_ERROR(entry->boot->load_image(FALSE, entry->image, NULL,
 		(void *)image, size, handle)) ? -1 : 0;
 }
+static int rom_start(void *opaque, void *handle)
+{
+	struct entry_context *entry = opaque;
+	CHAR16 *exit_data = NULL;
+	UINTN exit_size = 0;
+	EFI_STATUS status;
+	if (entry->boot->start_image == NULL)
+		return -1;
+	status = entry->boot->start_image(handle, &exit_size, &exit_data);
+	if (exit_data != NULL)
+		(void)entry->boot->free_pool(exit_data);
+	return EFI_ERROR(status) ? -1 : 0;
+}
 static void rom_unload(void *opaque, void *handle)
 {
 	struct entry_context *entry = opaque;
@@ -666,7 +680,7 @@ static void rom_unload(void *opaque, void *handle)
 static const struct cdk2_pci_rom_ops rom_ops = {
 	.context = &context, .allocate = rom_allocate, .free = rom_free,
 	.decompress_info = rom_decompress_info, .decompress = rom_decompress,
-	.load_image = rom_load, .unload_image = rom_unload
+	.load_image = rom_load, .start_image = rom_start, .unload_image = rom_unload
 };
 static void release_function(void *opaque, struct cdk2_pci_function *function)
 { cdk2_pci_release_option_rom(&rom_ops, function); (void)opaque; }
@@ -709,11 +723,9 @@ static int publish_hot_add(void *opaque, const struct cdk2_pci_topology *topolog
 			if (function->bars[bar].kind == CDK2_PCI_BAR_ROM &&
 			    function->bars[bar].base != 0U && function->bars[bar].size != 0U)
 				has_rom = 1;
-		if (has_rom) {
-			int rom_status = cdk2_pci_prepare_option_rom(&cfg, &rom_ops, function);
-			if (rom_status < 0)
-				goto rollback_rom;
-		}
+		/* A broken option ROM must not suppress the PCI function itself. */
+		if (has_rom)
+			(void)cdk2_pci_prepare_option_rom(&cfg, &rom_ops, function);
 	}
 	entry->driver.binding.services.release_function = NULL;
 	publish->handle_count = CDK2_PCI_MAX_FUNCTIONS;
@@ -803,8 +815,10 @@ static EFI_STATUS hotplug_add(struct entry_context *entry, UINTN root,
 	struct cdk2_pci_topology *discovered, *filtered;
 	struct cdk2_pci_cfg cfg = { .context = entry, .crs_retries = 100,
 		.read = cfg_read, .write = cfg_write };
-	struct add_publish_context publish = { entry, root, handles, 0 };
-	if (handles == NULL)
+	UINT8 capacity = *number;
+	void *staged_handles[CDK2_PCI_MAX_FUNCTIONS];
+	struct add_publish_context publish = { entry, root, staged_handles, 0 };
+	if (handles == NULL && capacity != 0U)
 		return EFI_INVALID_PARAMETER;
 	discovered = allocate(entry, sizeof(*discovered));
 	filtered = allocate(entry, sizeof(*filtered));
@@ -819,13 +833,31 @@ static EFI_STATUS hotplug_add(struct entry_context *entry, UINTN root,
 	if (cdk2_pci_enumerate(&cfg, entry->roots[root].first_bus,
 		entry->roots[root].last_bus, discovered) != 0 ||
 	    filter_remaining(entry, root, controller, remaining, discovered,
-		filtered) != 0 ||
-	    cdk2_pci_hot_add_transaction(&cfg, entry->roots[root].topology,
-		filtered, &entry->roots[root].policy, publish_hot_add,
-		&publish) != 0 || publish.handle_count > UINT8_MAX) {
+			filtered) != 0) {
 		release(entry, discovered); release(entry, filtered);
 		return EFI_DEVICE_ERROR;
 	}
+	{
+		UINTN required = 0;
+		for (UINTN index = 0; index < filtered->count; index++)
+			if (!retained_bdf(entry->roots[root].topology,
+				&filtered->functions[index]))
+				required++;
+		if (required > capacity) {
+			*number = required > UINT8_MAX ? UINT8_MAX : (UINT8)required;
+			release(entry, discovered); release(entry, filtered);
+			return EFI_BUFFER_TOO_SMALL;
+		}
+	}
+	if (cdk2_pci_hot_add_transaction(&cfg, entry->roots[root].topology,
+				filtered, &entry->roots[root].policy, publish_hot_add,
+				&publish) != 0 || publish.handle_count > UINT8_MAX) {
+		release(entry, discovered); release(entry, filtered);
+		*number = 0;
+		return EFI_DEVICE_ERROR;
+	}
+	if (publish.handle_count != 0U)
+		memcpy(handles, staged_handles, publish.handle_count * sizeof(*handles));
 	release(entry, discovered);
 	release(entry, entry->roots[root].topology);
 	entry->roots[root].topology = filtered;
@@ -1112,16 +1144,18 @@ static EFI_STATUS global_start(void *opaque, void *controller, void *remaining)
 				.segment = 0,
 				.first_bus = entry->roots[root].first_bus,
 				.last_bus = entry->roots[root].last_bus,
+				.assigned = roots[root].resources_assigned,
 				.policy = policies[root] };
 		}
-		for (UINTN root = 1; root < count; root++)
-			if (roots[root].resources_assigned != roots[0].resources_assigned) {
-				release(entry, combined); status = EFI_UNSUPPORTED; goto rollback;
+		{
+			int needs_allocation = 0;
+			for (UINTN root = 0; root < count; root++)
+				needs_allocation |= !roots[root].resources_assigned;
+			if (needs_allocation && cdk2_pci_allocate_root_resources(
+				    &cfg, combined, allocations, count) != 0) {
+				release(entry, combined); status = EFI_DEVICE_ERROR;
+				goto rollback;
 			}
-		if (!roots[0].resources_assigned &&
-		    cdk2_pci_allocate_root_resources(&cfg, combined, allocations,
-			count) != 0) {
-			release(entry, combined); status = EFI_DEVICE_ERROR; goto rollback;
 		}
 		for (UINTN root = 0; root < count; root++)
 			for (UINTN function = 0; function < roots[root].topology->count;
@@ -1146,11 +1180,9 @@ static EFI_STATUS global_start(void *opaque, void *controller, void *remaining)
 				if (device->bars[bar].kind == CDK2_PCI_BAR_ROM &&
 				    device->bars[bar].base != 0U && device->bars[bar].size != 0U)
 					has_rom = 1;
-			if (has_rom && cdk2_pci_prepare_option_rom(&cfg, &rom_ops,
-				device) < 0) {
-				status = EFI_DEVICE_ERROR;
-				goto rollback;
-			}
+			/* ROM dispatch is best effort; PCI I/O publication is independent. */
+			if (has_rom)
+				(void)cdk2_pci_prepare_option_rom(&cfg, &rom_ops, device);
 		}
 	}
 	status = host->notify_phase(host, 5U);
@@ -1269,7 +1301,9 @@ static int root_delay(void *opaque, uint64_t ticks)
 	struct entry_context *entry = child->entry_context;
 	typedef EFI_STATUS CDK2_MS_ABI stall_fn(UINTN);
 	stall_fn **stall = (stall_fn **)((UINT8 *)entry->boot + 248U);
-	child->io_status = *stall == NULL ? EFI_UNSUPPORTED : (*stall)(ticks);
+	UINT64 microseconds = (ticks + 9U) / 10U;
+	child->io_status = *stall == NULL || microseconds > MAX_UINTN ?
+		EFI_UNSUPPORTED : (*stall)((UINTN)microseconds);
 	return EFI_ERROR(child->io_status) ? -1 : 0;
 }
 static int root_map(void *opaque, unsigned int operation, void *host,
@@ -1347,20 +1381,39 @@ static int initialize_io(void *opaque, const struct cdk2_pci_function *function,
 	    root->flush == NULL)
 		return -1;
 	child->root_io = root; child->entry_context = entry;
-	io->segment = 0; io->bus = function->bus; io->device = function->device;
+	io->segment = root->segment; io->bus = function->bus; io->device = function->device;
 	io->function = function->function;
 	io->backend = (struct cdk2_pci_io_backend) {
 		.context = child, .access = root_access, .delay = root_delay,
 		.map = root_map, .unmap = root_unmap, .allocate = root_allocate,
 		.free = root_free, .flush = root_flush, .allocate_pool = root_pool,
 		.set_bar_attributes = root_set_bar_attributes, .status = root_status };
-	for (UINTN bar = 0; bar < function->bar_count && bar < 6U; bar++) {
-		io->bar_base[bar] = function->bars[bar].base;
-		io->bar_size[bar] = function->bars[bar].size;
-		io->bar_space[bar] = function->bars[bar].kind == CDK2_PCI_BAR_IO ?
-			CDK2_PCI_IO_PORT : CDK2_PCI_IO_MEM;
+	for (UINTN bar = 0; bar < function->bar_count; bar++) {
+		UINT8 index = function->bars[bar].index;
+		if (index >= 6U || function->bars[bar].kind == CDK2_PCI_BAR_ROM)
+			continue;
+		io->bar_base[index] = function->bars[bar].base;
+		io->bar_size[index] = function->bars[bar].size;
+		io->bar_space[index] = function->bars[bar].kind == CDK2_PCI_BAR_IO ?
+				CDK2_PCI_IO_PORT : CDK2_PCI_IO_MEM;
+		io->bar_64[index] = function->bars[bar].kind == CDK2_PCI_BAR_MEM64;
+		io->bar_prefetchable[index] = function->bars[bar].prefetchable;
 	}
-	io->supported_attributes = 0x100U | 0x200U | 0x400U | 0x8000U;
+	io->supported_attributes = 0x400U;
+	for (UINTN bar = 0; bar < 6U; bar++)
+		if (io->bar_size[bar] != 0U)
+			io->supported_attributes |= io->bar_space[bar] == CDK2_PCI_IO_PORT ?
+				0x100U : 0x200U;
+	if (root->get_attributes != NULL) {
+		UINT64 supports = 0, current = 0;
+		if (!EFI_ERROR(root->get_attributes(root, &supports, &current))) {
+			io->supported_attributes &= supports | 0x700U;
+			io->supported_attributes |= supports & 0x8000U;
+		}
+	}
+	io->attributes = ((function->command & 1U) ? 0x100U : 0U) |
+		((function->command & 2U) ? 0x200U : 0U) |
+		((function->command & 4U) ? 0x400U : 0U);
 	return 0;
 }
 

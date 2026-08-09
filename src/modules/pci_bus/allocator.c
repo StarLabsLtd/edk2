@@ -361,6 +361,8 @@ int cdk2_pci_allocate_root_resources(const struct cdk2_pci_cfg *cfg,
 		int root = root_for_bus(roots, root_count, fn->bus);
 		if (root < 0)
 			return -1;
+		if (roots[root].assigned)
+			continue;
 		if (cfg_read(cfg, fn, PCI_COMMAND, 2, &commands[i]) != 0 ||
 		    stage_write(cfg, fn, PCI_COMMAND, 2, commands[i] & ~3U, &journal) != 0 ||
 		    stage_controls(cfg, fn, &policies[root], &journal) != 0)
@@ -403,6 +405,8 @@ int cdk2_pci_allocate_root_resources(const struct cdk2_pci_cfg *cfg,
 	}
 	for (size_t i = 0; i < staged.count; i++) {
 		int root = root_for_bus(roots, root_count, staged.functions[i].bus);
+		if (root >= 0 && roots[root].assigned)
+			continue;
 		if (root < 0 ||
 		    stage_sriov(cfg, &staged.functions[i], &policies[root], &journal) != 0 ||
 		    stage_write(cfg, &staged.functions[i], PCI_COMMAND, 2, commands[i],
@@ -414,6 +418,8 @@ int cdk2_pci_allocate_root_resources(const struct cdk2_pci_cfg *cfg,
 		int root = root_for_bus(roots, root_count, fn->bus);
 		if (root < 0)
 			return -1;
+		if (roots[root].assigned)
+			continue;
 		if ((fn->header_type & 0x7fU) == 1U &&
 		    stage_bridge(cfg, fn, &staged, &policies[root], &journal, NULL) != 0)
 			return -1;

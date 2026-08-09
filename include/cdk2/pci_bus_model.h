@@ -46,6 +46,7 @@ struct cdk2_pci_function {
 	uint8_t header_type, class_code, subclass, programming_interface;
 	uint8_t secondary_bus, subordinate_bus;
 	uint16_t vendor_id, device_id;
+	uint16_t command;
 	uint16_t pcie_cap, ari_cap, sriov_cap, resizable_bar_cap;
 	uint16_t total_vfs, initial_vfs, vf_offset, vf_stride;
 	uint16_t vf_device_id;
@@ -80,6 +81,7 @@ struct cdk2_pci_function {
 		uint32_t size;
 		uint32_t payload_offset;
 		uint16_t machine;
+		uint16_t subsystem;
 		uint8_t code_type;
 		uint8_t compression;
 		void *image_handle;
@@ -110,6 +112,7 @@ struct cdk2_pci_allocation_policy {
 struct cdk2_pci_root_allocation {
 	uint16_t segment;
 	uint8_t first_bus, last_bus;
+	uint8_t assigned;
 	struct cdk2_pci_allocation_policy policy;
 };
 
@@ -158,6 +161,7 @@ struct cdk2_pci_rom_ops {
 		void *destination, size_t destination_size, void *scratch,
 		size_t scratch_size);
 	int (*load_image)(void *context, const void *image, size_t size, void **handle);
+	int (*start_image)(void *context, void *handle);
 	void (*unload_image)(void *context, void *handle);
 };
 

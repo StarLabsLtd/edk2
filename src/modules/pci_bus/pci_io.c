@@ -114,6 +114,7 @@ int cdk2_pci_io_poll(struct cdk2_pci_io_model *io, enum cdk2_pci_io_space space,
 	if (result == NULL || width > 3U)
 		return -1;
 	for (;;) {
+		uint64_t step;
 		if (cdk2_pci_io_access(io, space, 0, bar, offset, width, 1, &current) != 0)
 			return -1;
 		*result = current;
@@ -121,9 +122,11 @@ int cdk2_pci_io_poll(struct cdk2_pci_io_model *io, enum cdk2_pci_io_space space,
 			return 0;
 		if (elapsed >= delay)
 			return 1;
-		if (io->backend.delay == NULL || io->backend.delay(io->backend.context, 1) != 0)
+		step = delay - elapsed > 10U ? 10U : delay - elapsed;
+		if (io->backend.delay == NULL ||
+		    io->backend.delay(io->backend.context, step) != 0)
 			return -1;
-		elapsed++;
+		elapsed += step;
 	}
 }
 

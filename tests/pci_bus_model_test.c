@@ -22,9 +22,9 @@ struct fixture {
 	unsigned int fail_write;
 	unsigned int crs_reads;
 	uint8_t rom[1024];
-	unsigned int allocations, frees, loads, unloads, hotplug_inits, hotplug_deinits;
+	unsigned int allocations, frees, loads, starts, unloads, hotplug_inits, hotplug_deinits;
 	unsigned int socket_power, socket_reset, socket_notify;
-	int fail_load, fail_hotplug;
+	int fail_load, fail_start, fail_hotplug;
 };
 
 static void put16(uint8_t *p, uint16_t v) { p[0] = v; p[1] = v >> 8; }
@@ -147,6 +147,14 @@ static int rom_load(void *context, const void *image, size_t size, void **handle
 	return 0;
 }
 
+static int rom_start(void *context, void *handle)
+{
+	struct fixture *fixture = context;
+	(void)handle;
+	fixture->starts++;
+	return fixture->fail_start ? -1 : 0;
+}
+
 static void rom_unload(void *context, void *handle)
 {
 	struct fixture *fixture = context;
@@ -256,6 +264,7 @@ static int topology_test(void)
 	memset(&topology, 0xa5, sizeof(topology));
 	CHECK(cdk2_pci_enumerate(&cfg, 0, 4, &topology) == 0);
 	CHECK(topology.count == 5); CHECK(topology.functions[0].bar_count == 1);
+	CHECK(topology.functions[0].command == 7);
 	CHECK(topology.functions[0].bars[0].size == 0x1000);
 	CHECK(topology.functions[1].pcie_cap == 0x40);
 	CHECK(topology.functions[1].ari_cap == 0x100);
@@ -395,7 +404,7 @@ static int host_and_rom_test(void)
 	struct cdk2_pci_function function = { 0 }, before;
 	struct cdk2_pci_bus_resource_request proposed[CDK2_PCI_RESOURCE_CLASSES] = { 0 };
 	struct cdk2_pci_rom_ops rom_ops = { &f, rom_allocate, rom_free,
-		rom_decompress_info, rom_decompress, rom_load, rom_unload };
+		rom_decompress_info, rom_decompress, rom_load, rom_start, rom_unload };
 	uint8_t load_buffer[512], path[24] = { 4, 8, 24, 0 }; size_t load_size = 0;
 	add(&f, 0, 0, 0, 1, 1, 0);
 	add(&f, 2, 0, 0, 2, 2, 0);
@@ -424,7 +433,8 @@ static int host_and_rom_test(void)
 	function.bars[0] = (struct cdk2_pci_bar) {
 		.kind = CDK2_PCI_BAR_ROM, .base = 0x100000, .size = sizeof(f.rom) };
 	f.rom[0] = 0x55; f.rom[1] = 0xaa; put16(f.rom + 0x18, 0x20);
-	put16(f.rom + 4, 0x0ef1); put16(f.rom + 0x0a, 0x8664);
+	put16(f.rom + 4, 0x0ef1); put16(f.rom + 8, 11);
+	put16(f.rom + 0x0a, 0x8664);
 	f.rom[0x0c] = 1; put16(f.rom + 0x16, 0x40);
 	memcpy(f.rom + 0x20, "PCIR", 4); put16(f.rom + 0x30, 1);
 	f.rom[0x34] = 3; f.rom[0x35] = 0x80;
@@ -435,6 +445,7 @@ static int host_and_rom_test(void)
 	CHECK(cdk2_pci_prepare_option_rom(&cfg, &rom_ops, &function) == 0);
 	CHECK(function.option_rom_shadow != NULL);
 	CHECK(function.option_rom_image_handle == &f);
+	CHECK(f.starts == 1);
 	CHECK(function.option_rom[0].machine == 0x8664);
 	CHECK(function.option_rom[0].compression == 1);
 	CHECK(cdk2_pci_option_rom_load_file(&function, 0, 0, NULL, &load_size) == 1);
@@ -450,10 +461,33 @@ static int host_and_rom_test(void)
 	cdk2_pci_release_option_rom(&rom_ops, &function);
 	CHECK(function.option_rom_shadow == NULL);
 	CHECK(f.unloads == 1);
+	put16(f.rom + 8, 12); put16(f.rom + 0x0a, 0x014c);
+	CHECK(cdk2_pci_prepare_option_rom(&cfg, &rom_ops, &function) == 0);
+	CHECK(function.option_rom_image_handle == &f);
+	CHECK(f.loads == 2 && f.starts == 2);
+	cdk2_pci_release_option_rom(&rom_ops, &function);
+	CHECK(f.unloads == 2);
+	put16(f.rom + 8, 10);
+	CHECK(cdk2_pci_prepare_option_rom(&cfg, &rom_ops, &function) == 0);
+	CHECK(function.option_rom_image_handle == NULL && f.loads == 2);
+	cdk2_pci_release_option_rom(&rom_ops, &function);
+	put16(f.rom + 8, 13);
+	CHECK(cdk2_pci_prepare_option_rom(&cfg, &rom_ops, &function) == 0);
+	CHECK(function.option_rom_image_handle == NULL && f.loads == 2);
+	cdk2_pci_release_option_rom(&rom_ops, &function);
+	put16(f.rom + 8, 11); put16(f.rom + 0x0a, 0x01c0);
+	CHECK(cdk2_pci_prepare_option_rom(&cfg, &rom_ops, &function) == 0);
+	CHECK(function.option_rom_image_handle == NULL && f.loads == 2);
+	cdk2_pci_release_option_rom(&rom_ops, &function);
+	put16(f.rom + 0x0a, 0x8664);
 	function.option_rom_images = 0; function.option_rom_efi_images = 0;
 	f.fail_load = 1; before = function;
 	CHECK(cdk2_pci_prepare_option_rom(&cfg, &rom_ops, &function) != 0);
 	CHECK(memcmp(&before, &function, sizeof(before)) == 0);
+	f.fail_load = 0; f.fail_start = 1; before = function;
+	CHECK(cdk2_pci_prepare_option_rom(&cfg, &rom_ops, &function) != 0);
+	CHECK(memcmp(&before, &function, sizeof(before)) == 0);
+	CHECK(f.unloads == 3);
 	before = function; f.rom[0x20] = 0;
 	CHECK(cdk2_pci_discover_option_rom(&cfg, &function) != 0);
 	CHECK(memcmp(&before, &function, sizeof(before)) == 0);
@@ -513,7 +547,11 @@ static int hotplug_rollback_test(void)
 	return 0;
 }
 
-struct io_fixture { uint64_t observed; uint16_t command; unsigned int frees; };
+struct io_fixture {
+	uint64_t observed, delay_ticks;
+	uint16_t command;
+	unsigned int frees, delays;
+};
 
 static int io_access(void *context, enum cdk2_pci_io_space space, int write,
 	unsigned int width, uint64_t address, size_t count, void *buffer)
@@ -533,7 +571,11 @@ static int io_access(void *context, enum cdk2_pci_io_space space, int write,
 }
 
 static int io_delay(void *context, uint64_t ticks)
-{ (void)context; (void)ticks; return 0; }
+{
+	struct io_fixture *fixture = context;
+	fixture->delays++; fixture->delay_ticks += ticks;
+	return 0;
+}
 static void *io_allocate(void *context, size_t pages, int below_4g)
 { (void)context; (void)below_4g; return calloc(pages, 4096); }
 static int io_free(void *context, size_t pages, void *buffer)
@@ -557,6 +599,7 @@ static int pci_io_core_test(void)
 			.allocate = io_allocate, .free = io_free,
 			.allocate_pool = io_allocate_pool },
 		.bar_base = { 0x80000000 }, .bar_size = { 0x1000 },
+		.bar_64 = { 1 }, .bar_prefetchable = { 1 },
 		.supported_attributes = 0x700, .segment = 1, .bus = 2, .device = 3,
 		.function = 4,
 	};
@@ -569,6 +612,9 @@ static int pci_io_core_test(void)
 		&value) == 0);
 	CHECK(cdk2_pci_io_poll(&io, CDK2_PCI_IO_MEM, 0, 0, 0, UINT64_MAX, 0x55, 1,
 		&poll_result) == 0);
+	CHECK(cdk2_pci_io_poll(&io, CDK2_PCI_IO_MEM, 0, 0, 0, UINT64_MAX, 0xaa, 19,
+		&poll_result) == 1);
+	CHECK(fixture.delays == 2 && fixture.delay_ticks == 19);
 	CHECK(cdk2_pci_io_attributes(&io, 2, 0x300, NULL) == 0);
 	CHECK(fixture.command == 3);
 	CHECK(cdk2_pci_io_attributes(&io, 0, 0, &attributes) == 0);
@@ -592,7 +638,11 @@ static int pci_io_core_test(void)
 	CHECK(instance.protocol.get_bar_attributes(&instance.protocol, 0, &bar_supports,
 		&bar_resources) == EFI_SUCCESS);
 	CHECK(((uint8_t *)bar_resources)[0] == 0x8a);
+	CHECK(((uint8_t *)bar_resources)[5] == 0x06);
+	CHECK(((uint8_t *)bar_resources)[6] == 64);
 	free(bar_resources);
+	CHECK(instance.protocol.allocate_buffer(&instance.protocol, 0, 7, 1,
+		&allocated, 0) == EFI_INVALID_PARAMETER);
 	original = malloc(sizeof(*original)); moved = malloc(sizeof(*moved));
 	CHECK(original != NULL && moved != NULL);
 	cdk2_pci_io_initialize_protocol(original, &io);
@@ -645,6 +695,15 @@ static int multi_root_atomic_test(void)
 	f.fail_write = 0; f.writes = 0;
 	CHECK(cdk2_pci_allocate_root_resources(&cfg, &topology, roots, 2) == 0);
 	CHECK(topology.functions[0].bars[0].base == 0x80000000);
+	CHECK(topology.functions[1].bars[0].base == 0x90000000);
+	roots[0].assigned = 1;
+	topology.functions[0].bars[0].base = 0x81000000;
+	put32(f.devices[0].data + 0x10, 0x81000000);
+	topology.functions[1].bars[0].base = 0;
+	put32(f.devices[1].data + 0x10, 0);
+	CHECK(cdk2_pci_allocate_root_resources(&cfg, &topology, roots, 2) == 0);
+	CHECK(topology.functions[0].bars[0].base == 0x81000000);
+	CHECK(get(f.devices[0].data + 0x10, 4) == 0x81000000);
 	CHECK(topology.functions[1].bars[0].base == 0x90000000);
 	return 0;
 }

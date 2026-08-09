@@ -31,7 +31,7 @@ struct fake_boot {
 	uint8_t before_pool[64]; void *allocate_pool, *free_pool;
 	uint8_t before_handle[72]; void *handle_protocol;
 	uint8_t before_load[40]; void *load_image;
-	uint8_t before_unload[16]; void *unload_image;
+	void *start_image; uint8_t before_unload[8]; void *unload_image;
 	uint8_t before_open[48]; void *open_protocol, *close_protocol;
 	uint8_t before_locate[24]; void *locate_protocol;
 	void *install_multiple, *uninstall_multiple;
@@ -50,6 +50,7 @@ struct fixture {
 	unsigned int fail_hpc_padding;
 	unsigned int visible_devices, fail_install_number;
 	unsigned int extended_config_reads;
+	unsigned int fail_late_config;
 	UINTN phases[16];
 	struct cdk2_driver_binding_protocol *driver;
 	struct cdk2_efi_pci_io_protocol *pci_io;
@@ -113,6 +114,9 @@ static EFI_STATUS CDK2_MS_ABI old_unload(void *image)
 static EFI_STATUS CDK2_MS_ABI config_read(void *root, UINTN width,
 	uint64_t address, UINTN count, void *buffer)
 { uint64_t reg = address >> 32; (void)root; (void)width; (void)count;
+	if (active->fail_late_config && active->phase_count != 0U &&
+	    active->phases[active->phase_count - 1U] == 7U)
+		return EFI_DEVICE_ERROR;
 	if (reg != 0U)
 		active->extended_config_reads++;
 	else
@@ -249,11 +253,12 @@ int main(void)
 	CHECK(offsetof(struct fake_boot, open_protocol) == 280);
 	CHECK(offsetof(struct fake_boot, close_protocol) == 288);
 	CHECK(offsetof(struct fake_boot, load_image) == 200);
+	CHECK(offsetof(struct fake_boot, start_image) == 208);
 	CHECK(offsetof(struct fake_boot, unload_image) == 224);
 	CHECK(offsetof(struct fake_boot, locate_protocol) == 320);
 	CHECK(offsetof(struct fake_boot, install_multiple) == 328);
 	CHECK(offsetof(struct fake_boot, uninstall_multiple) == 336);
-	initialize(&fixture);
+	initialize(&fixture); fixture.fail_late_config = 1;
 	CHECK(cdk2_pci_bus_entry(&fixture, &fixture.system) == EFI_SUCCESS);
 	CHECK(fixture.installs == 1 && fixture.loaded.unload == cdk2_pci_bus_unload);
 	CHECK(fixture.driver != NULL);
@@ -264,6 +269,7 @@ int main(void)
 	CHECK(fixture.submits == 2 && fixture.proposed == 2);
 	CHECK(fixture.phase_count == 7 && fixture.phases[0] == 0 &&
 		fixture.phases[6] == 7);
+	fixture.fail_late_config = 0;
 	CHECK(fixture.driver->start(fixture.driver, (void *)2, NULL) ==
 		EFI_ALREADY_STARTED);
 	{
@@ -286,10 +292,16 @@ int main(void)
 		fixture.hpc_paddings == 1);
 	CHECK(fixture.hotplug_request != NULL);
 	{
-		UINT8 children = 0; void *new_children[2];
+		UINT8 children = 0; void *new_children[2] = {
+			(void *)(UINTN)0xaaaaU, (void *)(UINTN)0xbbbbU };
 		uint8_t remaining[10] = { 1, 1, 6, 0, 0, 2, 0x7f, 0xff, 4, 0 };
 		request_notify_fn *notify_request = fixture.hotplug_request->notify;
 		fixture.visible_devices = 2;
+		CHECK(notify_request(fixture.hotplug_request, 0U, (void *)1,
+			remaining, &children, new_children) == EFI_BUFFER_TOO_SMALL);
+		CHECK(children == 1 && new_children[0] == (void *)(UINTN)0xaaaaU &&
+			new_children[1] == (void *)(UINTN)0xbbbbU);
+		children = 2;
 		CHECK(notify_request(fixture.hotplug_request, 0U, (void *)1,
 			remaining, &children, new_children) == EFI_SUCCESS);
 		CHECK(children == 1);
@@ -301,7 +313,7 @@ int main(void)
 				&device, &function) == EFI_SUCCESS);
 			CHECK(segment == 0U && bus == 0U && device <= 31U && function <= 7U);
 		}
-		children = 0;
+			children = 0;
 		CHECK(notify_request(fixture.hotplug_request, 1U, (void *)1, NULL,
 			&children, NULL) == EFI_SUCCESS);
 		CHECK(children == 0 && fixture.closes == 3);
@@ -311,7 +323,7 @@ int main(void)
 	CHECK(cdk2_pci_bus_entry(&fixture, &fixture.system) == EFI_SUCCESS);
 	CHECK(fixture.driver->start(fixture.driver, (void *)1, NULL) == EFI_SUCCESS);
 	{
-		UINT8 children = 0; void *new_children[2];
+			UINT8 children = 2; void *new_children[2];
 		uint8_t remaining[10] = { 1, 1, 6, 0, 0, 2, 0x7f, 0xff, 4, 0 };
 		request_notify_fn *notify_request = fixture.hotplug_request->notify;
 		fixture.visible_devices = 2; fixture.fail_install_number = 3;
