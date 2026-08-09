@@ -222,6 +222,13 @@ CDK2_NATIVE_DEVICE_PATH_DEPEX_GEN ?= $(CDK2_NATIVE_BUILD_DIR)/device-path-depex-
 CDK2_NATIVE_DEVICE_PATH_DEPEX ?= $(CDK2_NATIVE_BUILD_DIR)/DevicePathDxe.depex
 CDK2_NATIVE_DEVICE_PATH_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/DevicePathDxe.ffs
 CDK2_NATIVE_DEVICE_PATH_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-device-path.fv
+CDK2_NATIVE_BL_SUPPORT_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-bl-support-test
+CDK2_NATIVE_BL_SUPPORT_OBJS := $(CDK2_NATIVE_BUILD_DIR)/bl-support-model.o \
+	$(CDK2_NATIVE_BUILD_DIR)/bl-support-entry.o
+CDK2_NATIVE_BL_SUPPORT_PE ?= $(CDK2_NATIVE_BUILD_DIR)/BlSupportDxe.efi
+CDK2_NATIVE_BL_SUPPORT_DEPEX_GEN ?= $(CDK2_NATIVE_BUILD_DIR)/bl-support-depex-gen
+CDK2_NATIVE_BL_SUPPORT_DEPEX ?= $(CDK2_NATIVE_BUILD_DIR)/BlSupportDxe.depex
+CDK2_NATIVE_BL_SUPPORT_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/BlSupportDxe.ffs
 CDK2_NATIVE_PARTITION_GPT_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-partition-gpt-test
 CDK2_NATIVE_PARTITION_MBR_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-partition-mbr-test
 CDK2_NATIVE_PARTITION_EL_TORITO_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-partition-el-torito-test
@@ -339,7 +346,8 @@ CDK2_NATIVE_HOST_TOOLS := \
 	$(CDK2_NATIVE_PARTITION_EL_TORITO_TEST) \
 	$(CDK2_NATIVE_PARTITION_UDF_TEST) \
 	$(CDK2_NATIVE_PARTITION_CHILD_TEST) \
-	$(CDK2_NATIVE_PARTITION_DRIVER_TEST)
+	$(CDK2_NATIVE_PARTITION_DRIVER_TEST) \
+	$(CDK2_NATIVE_BL_SUPPORT_TEST)
 CDK2_NATIVE_LINK_FLAGS := -static -no-pie -nostdlib -nostartfiles -nodefaultlibs -Wl,-z,max-page-size=0x1000 -Wl,-z,common-page-size=0x1000 -Wl,-T,"$(CDK2_NATIVE_DIR)/cdk2.ld"
 CDK2_NATIVE_LINK_POST_MAP_FLAGS := -Wl,--gc-sections -Wl,--build-id=none
 
@@ -348,6 +356,7 @@ CDK2_NATIVE_LINK_POST_MAP_FLAGS := -Wl,--gc-sections -Wl,--build-id=none
 .PHONY: native-pcd-package native-pcd-fv
 .PHONY: native-device-path-test native-device-path-fv
 .PHONY: native-partition-test native-partition-fv
+.PHONY: native-bl-support-test native-bl-support-package
 
 ifeq ($(CONFIG_CDK2_NATIVE_STAGE),y)
 CDK2_NATIVE_STAGE_DEPS := $(CDK2_NATIVE_ELF)
@@ -467,6 +476,13 @@ $(CDK2_NATIVE_BUILD_DIR)/partition-%.o: $(CDK2_DIR)/src/modules/partition/%.c $(
 		-mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args \
 		$(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
 
+$(CDK2_NATIVE_BUILD_DIR)/bl-support-model.o: \
+		$(CDK2_DIR)/src/modules/bl_support/bl_support.c \
+		$(CDK2_DIR)/include/cdk2/bl_support.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
+		-mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args \
+		$(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+
 $(CDK2_NATIVE_PARTITION_PE): $(CDK2_NATIVE_PARTITION_OBJS) \
 		$(CDK2_DIR)/src/modules/partition/partition.ld $(CDK2_NATIVE_PERELOCCHECK)
 	@$(CDK2_NATIVE_LD) -mi386pep --subsystem 11 --entry cdk2_partition_entry \
@@ -479,6 +495,34 @@ $(CDK2_NATIVE_PARTITION_PE): $(CDK2_NATIVE_PARTITION_OBJS) \
 $(CDK2_NATIVE_PARTITION_FFS): $(CDK2_NATIVE_PARTITION_PE) $(CDK2_NATIVE_FFSBUILD)
 	@"$(CDK2_NATIVE_FFSBUILD)" 1fa1f39e-feff-4aae-bd7b-38a070a3b609 \
 		PartitionDxe 1.0 0xa04a "$<" "$@" -
+
+$(CDK2_NATIVE_BUILD_DIR)/bl-support-entry.o: \
+		$(CDK2_DIR)/src/modules/bl_support/entry.c \
+		$(CDK2_DIR)/include/cdk2/bl_support.h $(CDK2_DIR)/include/cdk2/pcd.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
+		-mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args \
+		$(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+
+$(CDK2_NATIVE_BL_SUPPORT_PE): $(CDK2_NATIVE_BL_SUPPORT_OBJS) \
+		$(CDK2_DIR)/src/modules/bl_support/bl_support.ld $(CDK2_NATIVE_PERELOCCHECK)
+	@$(CDK2_NATIVE_LD) -mi386pep --subsystem 11 --entry cdk2_bl_support_entry \
+		--image-base 0 --section-alignment 0x1000 --file-alignment 0x1000 \
+		--build-id=none --no-insert-timestamp -s --nxcompat \
+		-T "$(CDK2_DIR)/src/modules/bl_support/bl_support.ld" -o "$@" \
+		$(CDK2_NATIVE_BL_SUPPORT_OBJS)
+	@"$(CDK2_NATIVE_PERELOCCHECK)" --subsystem 11 "$@"
+
+$(CDK2_NATIVE_BL_SUPPORT_DEPEX_GEN): \
+		$(CDK2_DIR)/src/modules/bl_support/depex.c | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -o "$@" "$<"
+
+$(CDK2_NATIVE_BL_SUPPORT_DEPEX): $(CDK2_NATIVE_BL_SUPPORT_DEPEX_GEN)
+	@"$<" "$@"
+
+$(CDK2_NATIVE_BL_SUPPORT_FFS): $(CDK2_NATIVE_BL_SUPPORT_PE) \
+		$(CDK2_NATIVE_BL_SUPPORT_DEPEX) $(CDK2_NATIVE_FFSBUILD)
+	@"$(CDK2_NATIVE_FFSBUILD)" c68daa4e-7ab5-41e8-a91d-5954421053f3 \
+		BlSupportDxe 1.0 0x4062 "$<" "$@" "$(CDK2_NATIVE_BL_SUPPORT_DEPEX)"
 
 ifeq ($(CONFIG_CDK2_NATIVE_DEVICE_PATH),y)
 CDK2_NATIVE_DEVICE_PATH_CHECK_DEPS := $(CDK2_NATIVE_DEVICE_PATH_PE) \
@@ -556,6 +600,7 @@ native-check: $(CDK2_CONFIG_HEADER) $(CDK2_NATIVE_ELF) $(CDK2_NATIVE_OVERRIDE_EL
 	@"$(CDK2_NATIVE_PARTITION_UDF_TEST)"
 	@"$(CDK2_NATIVE_PARTITION_CHILD_TEST)"
 	@"$(CDK2_NATIVE_PARTITION_DRIVER_TEST)"
+	@"$(CDK2_NATIVE_BL_SUPPORT_TEST)"
 ifeq ($(CONFIG_CDK2_NATIVE_DEVICE_PATH),y)
 	@"$(CDK2_NATIVE_DEVICE_PATH_DRIVER_TEST)"
 	@test "$$(wc -c < "$(CDK2_NATIVE_DEVICE_PATH_FFS)")" -eq $$((0xf062))
@@ -744,6 +789,14 @@ native-partition-test: $(CDK2_NATIVE_PARTITION_GPT_TEST) \
 
 native-partition-fv: $(CDK2_NATIVE_PARTITION_FV)
 	@printf '%s\n' "native partition FV: $(CDK2_NATIVE_PARTITION_FV)"
+
+native-bl-support-test: $(CDK2_NATIVE_BL_SUPPORT_TEST)
+	@"$<"
+
+native-bl-support-package: $(CDK2_NATIVE_BL_SUPPORT_FFS)
+	@test "$$(wc -c < "$(CDK2_NATIVE_BL_SUPPORT_FFS)")" -eq $$((0x4062))
+	@test "$$(od -An -tx1 "$(CDK2_NATIVE_BL_SUPPORT_DEPEX)" | tr -d ' \n')" = \
+		060000130608
 
 native-pch-smi-dispatch-fv: $(CDK2_NATIVE_PCH_SMI_DISPATCH_FV)
 	@printf '%s\n' "native PCH SMI dispatch FV: $(CDK2_NATIVE_PCH_SMI_DISPATCH_FV)"
@@ -1706,6 +1759,15 @@ $(CDK2_NATIVE_PARTITION_CHILD_TEST): $(CDK2_DIR)/tests/partition_child_test.c $(
 
 $(CDK2_NATIVE_PARTITION_DRIVER_TEST): $(CDK2_DIR)/tests/partition_driver_test.c $(CDK2_DIR)/src/modules/partition/partition_driver.c $(CDK2_DIR)/src/modules/partition/partition_child.c $(CDK2_DIR)/src/modules/partition/partition.c $(CDK2_DIR)/include/cdk2/partition.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$<" "$(CDK2_DIR)/src/modules/partition/partition_driver.c" "$(CDK2_DIR)/src/modules/partition/partition_child.c" "$(CDK2_DIR)/src/modules/partition/partition.c"
+
+$(CDK2_NATIVE_BL_SUPPORT_TEST): $(CDK2_DIR)/tests/bl_support_test.c \
+		$(CDK2_DIR)/src/modules/bl_support/bl_support.c \
+		$(CDK2_DIR)/src/modules/bl_support/entry.c \
+		$(CDK2_DIR)/include/cdk2/bl_support.h $(CDK2_DIR)/include/cdk2/pcd.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) \
+		-o "$@" "$(CDK2_DIR)/tests/bl_support_test.c" \
+		"$(CDK2_DIR)/src/modules/bl_support/bl_support.c" \
+		"$(CDK2_DIR)/src/modules/bl_support/entry.c"
 
 FORCE:
 
