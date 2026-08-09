@@ -275,3 +275,119 @@ EFI_STATUS cdk2_ide_execute(struct cdk2_ide_engine *engine, UINT8 channel,
 		(void)cdk2_ide_reset(engine, channel, timeout);
 	return status;
 }
+
+EFI_STATUS cdk2_ide_atapi_execute(struct cdk2_ide_engine *engine, UINT8 channel,
+	UINT8 device, struct cdk2_ata_command_packet *packet, const UINT8 *cdb,
+	size_t cdb_size, UINT64 timeout)
+{
+	struct cdk2_ata_command_block acb = { 0 };
+	UINT8 *in_buffer, *out_buffer;
+	UINT32 in_remaining, out_remaining;
+	UINT16 base, data;
+	EFI_STATUS status;
+	UINT64 start;
+
+	if (engine == NULL || !engine->initialized || packet == NULL || cdb == NULL ||
+	    (cdb_size != 12U && cdb_size != 16U) ||
+	    channel >= engine->channel_count || device > 1U)
+		return EFI_INVALID_PARAMETER;
+	acb.command = 0xa0U;
+	acb.features = (packet->protocol == 6U || packet->protocol == 0x0aU ||
+		packet->protocol == 0x0bU) ? 1U : 0U;
+	acb.cylinder_low = 0xfeU;
+	acb.cylinder_high = 0xffU;
+	status = issue_task_file(engine, channel, device, &acb, timeout);
+	if (EFI_ERROR(status))
+		goto complete;
+	status = wait_status(engine, channel, ATA_ST_BSY, ATA_ST_DRQ, timeout);
+	if (EFI_ERROR(status))
+		goto complete;
+	base = engine->channels[channel].command;
+	data = base + ATA_DATA;
+	for (size_t index = 0; index < cdb_size; index += 2U)
+		if (EFI_ERROR(engine->services.write16(engine->services.context, data,
+			(UINT16)cdb[index] | ((UINT16)cdb[index + 1U] << 8)))) {
+			status = EFI_DEVICE_ERROR;
+			goto complete;
+		}
+	in_buffer = packet->in_data;
+	out_buffer = packet->out_data;
+	in_remaining = packet->in_length;
+	out_remaining = packet->out_length;
+	start = engine->services.time(engine->services.context);
+	for (;;) {
+		UINT8 ata_status = engine->services.read8(engine->services.context,
+			base + ATA_STATUS);
+		UINT8 reason;
+		UINT32 phase_bytes, transfer_bytes;
+
+		if ((ata_status & (ATA_ST_ERR | ATA_ST_DF)) != 0U) {
+			status = EFI_DEVICE_ERROR;
+			break;
+		}
+		if ((ata_status & ATA_ST_BSY) != 0U) {
+			if (timeout != 0U && engine->services.time(
+				engine->services.context) - start >= timeout) {
+				status = EFI_TIMEOUT;
+				break;
+			}
+			engine->services.delay(engine->services.context, 10);
+			continue;
+		}
+		if ((ata_status & ATA_ST_DRQ) == 0U) {
+			status = EFI_SUCCESS;
+			break;
+		}
+		reason = engine->services.read8(engine->services.context,
+			base + ATA_COUNT);
+		if ((reason & 1U) != 0U) {
+			status = EFI_DEVICE_ERROR;
+			break;
+		}
+		phase_bytes = engine->services.read8(engine->services.context,
+			base + ATA_LBA_MID) | ((UINT32)engine->services.read8(
+			engine->services.context, base + ATA_LBA_HIGH) << 8);
+		if (phase_bytes == 0U)
+			phase_bytes = 0x10000U;
+		if ((reason & 2U) != 0U) {
+			transfer_bytes = phase_bytes < in_remaining ? phase_bytes : in_remaining;
+			for (UINT32 offset = 0; offset < phase_bytes; offset += 2U) {
+				UINT16 value = engine->services.read16(
+					engine->services.context, data);
+				if (offset < transfer_bytes)
+					in_buffer[offset] = (UINT8)value;
+				if (offset + 1U < transfer_bytes)
+					in_buffer[offset + 1U] = (UINT8)(value >> 8);
+			}
+			in_buffer += transfer_bytes;
+			in_remaining -= transfer_bytes;
+		} else {
+			transfer_bytes = phase_bytes < out_remaining ?
+				phase_bytes : out_remaining;
+			for (UINT32 offset = 0; offset < phase_bytes; offset += 2U) {
+				UINT16 value = offset < transfer_bytes ? out_buffer[offset] : 0U;
+
+				if (offset + 1U < transfer_bytes)
+					value |= (UINT16)out_buffer[offset + 1U] << 8;
+				if (EFI_ERROR(engine->services.write16(
+					engine->services.context, data, value))) {
+					status = EFI_DEVICE_ERROR;
+					goto complete;
+				}
+			}
+			out_buffer += transfer_bytes;
+			out_remaining -= transfer_bytes;
+		}
+		if (phase_bytes > transfer_bytes) {
+			status = EFI_BAD_BUFFER_SIZE;
+			break;
+		}
+	}
+	packet->in_length -= in_remaining;
+	packet->out_length -= out_remaining;
+complete:
+	capture_status(engine, channel, packet->asb);
+	if (EFI_ERROR(status))
+		(void)cdk2_ide_reset(engine, channel, timeout);
+	return status;
+}

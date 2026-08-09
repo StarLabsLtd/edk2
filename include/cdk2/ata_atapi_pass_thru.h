@@ -249,5 +249,8 @@ EFI_STATUS cdk2_ide_reset(struct cdk2_ide_engine *engine, UINT8 channel,
 	UINT64 timeout);
 EFI_STATUS cdk2_ide_execute(struct cdk2_ide_engine *engine, UINT8 channel,
 	UINT8 device, struct cdk2_ata_command_packet *packet, UINT64 timeout);
+EFI_STATUS cdk2_ide_atapi_execute(struct cdk2_ide_engine *engine, UINT8 channel,
+	UINT8 device, struct cdk2_ata_command_packet *packet, const UINT8 *cdb,
+	size_t cdb_size, UINT64 timeout);
 
 #endif
