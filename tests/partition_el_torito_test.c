@@ -124,8 +124,30 @@ int main(void)
 	EXPECT(partitions[1].boot_entry == 1 && partitions[1].attributes == 1U);
 
 	make_fixture();
+	catalog = iso_sector(20U);
+	write16(catalog + 64 + 2, 0x0101U);
+	catalog[97] = 0U;
+	catalog[128] = 0x88U;
+	write16(catalog + 128 + 6, 1U);
+	write32(catalog + 128 + 8, 50U);
+	catalog[160] = 0x88U;
+	write16(catalog + 160 + 6, 1U);
+	write32(catalog + 160 + 8, 60U);
+	EXPECT(parse(partitions, 3U, &count) == EFI_BUFFER_TOO_SMALL);
+	make_fixture();
+	catalog = iso_sector(20U);
+	write16(catalog + 64 + 2, 65U);
+	memset(catalog + 96, 0, 32U);
+	catalog = iso_sector(21U);
+	catalog[32] = 0x88U;
+	write16(catalog + 32 + 6, 1U);
+	write32(catalog + 32 + 8, 50U);
+	EXPECT(parse(partitions, 3U, &count) == EFI_SUCCESS && count == 2U &&
+		partitions[1].start_lba == 200U);
+
+	make_fixture();
 	iso_sector(16U)[1] = 'X';
-	EXPECT(parse(partitions, 3U, &count) == EFI_COMPROMISED_DATA);
+	EXPECT(parse(partitions, 3U, &count) == EFI_NOT_FOUND);
 	make_fixture();
 	catalog = iso_sector(20U);
 	catalog[12] ^= 1U;

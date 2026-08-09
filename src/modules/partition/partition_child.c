@@ -20,6 +20,7 @@ struct cdk2_partition_child {
 	void *device_path;
 	UINT64 byte_offset;
 	UINT64 byte_size;
+	BOOLEAN parent_open;
 };
 
 static const EFI_GUID efi_system_partition_guid = {
@@ -144,16 +145,13 @@ static void complete(struct cdk2_partition_child *child,
 }
 
 static EFI_STATUS CDK2_MS_ABI child_reset2(struct cdk2_block_io2 *block,
-	BOOLEAN extended, struct cdk2_block_io2_token *token)
+	BOOLEAN extended)
 {
 	struct cdk2_partition_child *child = from_block2(block);
-	EFI_STATUS status;
 
 	if (child->parent_block2 != NULL)
-		return child->parent_block2->reset(child->parent_block2, extended, token);
-	status = child->parent_block->reset(child->parent_block, extended);
-	complete(child, token, status);
-	return token != NULL && token->event != NULL ? EFI_SUCCESS : status;
+		return child->parent_block2->reset(child->parent_block2, extended);
+	return child->parent_block->reset(child->parent_block, extended);
 }
 
 static EFI_STATUS block2_transfer(struct cdk2_block_io2 *block, BOOLEAN write,
@@ -165,7 +163,9 @@ static EFI_STATUS block2_transfer(struct cdk2_block_io2 *block, BOOLEAN write,
 	EFI_STATUS status;
 
 	status = block_range(child, media_id, lba, size, buffer, &parent_lba);
-	if (EFI_ERROR(status) || size == 0) {
+	if (EFI_ERROR(status))
+		return status;
+	if (size == 0) {
 		complete(child, token, status);
 		return token != NULL && token->event != NULL ? EFI_SUCCESS : status;
 	}
@@ -240,7 +240,9 @@ static EFI_STATUS disk2_transfer(struct cdk2_disk_io2 *disk, BOOLEAN write,
 	EFI_STATUS status;
 
 	status = disk_range(child, media_id, offset, size, buffer, &parent_offset);
-	if (EFI_ERROR(status) || size == 0) {
+	if (EFI_ERROR(status))
+		return status;
+	if (size == 0) {
 		if (token != NULL) {
 			token->transaction_status = status;
 			if (token->event != NULL)
@@ -248,10 +250,7 @@ static EFI_STATUS disk2_transfer(struct cdk2_disk_io2 *disk, BOOLEAN write,
 		}
 		return token != NULL && token->event != NULL ? EFI_SUCCESS : status;
 	}
-	if (child->parent_disk2 != NULL)
-		return (write ? child->parent_disk2->write_disk_ex :
-			child->parent_disk2->read_disk_ex)(child->parent_disk2, media_id,
-			parent_offset, token, size, buffer);
+	/* Complete through Disk I/O so Cancel remains scoped to this child. */
 	status = disk_transfer(&child->disk, write, media_id, offset, size, buffer);
 	if (token != NULL) {
 		token->transaction_status = status;
@@ -279,8 +278,9 @@ static uint64_t CDK2_MS_ABI child_cancel(struct cdk2_disk_io2 *disk)
 {
 	struct cdk2_partition_child *child = from_disk2(disk);
 
-	return child->parent_disk2 == NULL ? EFI_SUCCESS :
-		child->parent_disk2->cancel(child->parent_disk2);
+	/* Child requests complete synchronously and never enter the parent's queue. */
+	(void)child;
+	return EFI_SUCCESS;
 }
 
 static uint64_t CDK2_MS_ABI child_flush_disk2(struct cdk2_disk_io2 *disk,
@@ -289,8 +289,6 @@ static uint64_t CDK2_MS_ABI child_flush_disk2(struct cdk2_disk_io2 *disk,
 	struct cdk2_partition_child *child = from_disk2(disk);
 	EFI_STATUS status;
 
-	if (child->parent_disk2 != NULL)
-		return child->parent_disk2->flush_disk_ex(child->parent_disk2, token);
 	status = child->parent_block->flush_blocks(child->parent_block);
 	if (token != NULL) {
 		token->transaction_status = status;
@@ -375,11 +373,19 @@ EFI_STATUS cdk2_partition_child_create(
 	}
 	status = services->open_parent(parent, child->handle);
 	if (EFI_ERROR(status)) {
-		(void)services->uninstall(child->handle, &child->block, &child->block2,
+		EFI_STATUS rollback = services->uninstall(child->handle, &child->block,
+			&child->block2,
 			&child->disk, &child->disk2, device_path, &child->info);
+
+		if (EFI_ERROR(rollback)) {
+			/* Installed interfaces still own every backing pointer. */
+			*child_out = child;
+			return EFI_SUCCESS;
+		}
 		services->free(child);
 		return status;
 	}
+	child->parent_open = TRUE;
 	*child_out = child;
 	return EFI_SUCCESS;
 }
@@ -390,14 +396,17 @@ EFI_STATUS cdk2_partition_child_destroy(struct cdk2_partition_child *child)
 
 	if (child == NULL)
 		return EFI_INVALID_PARAMETER;
-	status = child->services->close_parent(child->parent, child->handle);
-	if (EFI_ERROR(status))
-		return status;
+	if (child->parent_open) {
+		status = child->services->close_parent(child->parent, child->handle);
+		if (EFI_ERROR(status))
+			return status;
+	}
 	status = child->services->uninstall(child->handle, &child->block,
 		&child->block2, &child->disk, &child->disk2, child->device_path,
 		&child->info);
 	if (EFI_ERROR(status)) {
-		(void)child->services->open_parent(child->parent, child->handle);
+		if (child->parent_open)
+			(void)child->services->open_parent(child->parent, child->handle);
 		return status;
 	}
 	child->services->free(child);

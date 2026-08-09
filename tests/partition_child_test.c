@@ -14,6 +14,8 @@ static UINTN opens;
 static UINTN closes;
 static UINTN frees;
 static UINTN signals;
+static UINTN parent_disk2_calls;
+static UINTN parent_cancels;
 static EFI_STATUS install_status;
 static EFI_STATUS open_status;
 static EFI_STATUS uninstall_status;
@@ -64,6 +66,27 @@ static uint64_t CDK2_MS_ABI disk_write(struct cdk2_disk_io *disk, uint32_t id,
 	uint64_t offset, size_t size, void *buffer)
 {
 	return disk_read(disk, id, offset, size, buffer);
+}
+
+static uint64_t CDK2_MS_ABI disk2_cancel(struct cdk2_disk_io2 *disk)
+{
+	(void)disk;
+	parent_cancels++;
+	return EFI_SUCCESS;
+}
+
+static uint64_t CDK2_MS_ABI disk2_rw(struct cdk2_disk_io2 *disk, uint32_t id,
+	uint64_t offset, struct cdk2_disk_io2_token *token, size_t size, void *buffer)
+{
+	(void)disk; (void)id; (void)offset; (void)token; (void)size; (void)buffer;
+	parent_disk2_calls++;
+	return EFI_SUCCESS;
+}
+
+static uint64_t CDK2_MS_ABI disk2_flush(struct cdk2_disk_io2 *disk,
+	struct cdk2_disk_io2_token *token)
+{
+	return disk2_rw(disk, 0, 0, token, 0, NULL);
 }
 
 static EFI_STATUS allocate(UINTN size, void **buffer)
@@ -145,6 +168,8 @@ static void reset_state(void)
 	closes = 0;
 	frees = 0;
 	signals = 0;
+	parent_disk2_calls = 0;
+	parent_cancels = 0;
 	install_status = EFI_SUCCESS;
 	open_status = EFI_SUCCESS;
 	uninstall_status = EFI_SUCCESS;
@@ -181,6 +206,9 @@ int main(void)
 		.read_disk = disk_read,
 		.write_disk = disk_write,
 	};
+	struct cdk2_disk_io2 parent_disk2 = {
+		CDK2_DISK_IO2_REVISION, disk2_cancel, disk2_rw, disk2_rw, disk2_flush
+	};
 	struct cdk2_partition partition = {
 		.scheme = CDK2_PARTITION_MBR,
 		.start_lba = 10U,
@@ -203,7 +231,7 @@ int main(void)
 
 	reset_state();
 	EXPECT(cdk2_partition_child_create(&services, (void *)2, &parent_block, NULL,
-		&parent_disk, NULL, (void *)3, &partition, &child) == EFI_SUCCESS);
+		&parent_disk, &parent_disk2, (void *)3, &partition, &child) == EFI_SUCCESS);
 	EXPECT(installs == 1U && opens == 1U &&
 		installed_info->revision == 0x1000U && installed_info->type == 1U &&
 		installed_info->system == TRUE &&
@@ -227,7 +255,18 @@ int main(void)
 		buffer) == EFI_SUCCESS && block_token.transaction_status == EFI_SUCCESS &&
 		signals == 1U && last_lba == 11U);
 	EXPECT(disk2->read_disk_ex(disk2, 7U, 1U, &disk_token, 1U, buffer) ==
-		EFI_SUCCESS && disk_token.transaction_status == EFI_SUCCESS && signals == 2U);
+		EFI_SUCCESS && disk_token.transaction_status == EFI_SUCCESS && signals == 2U &&
+		parent_disk2_calls == 0);
+	EXPECT(disk2->cancel(disk2) == EFI_SUCCESS && parent_cancels == 0);
+	EXPECT(block2->reset(block2, TRUE) == EFI_SUCCESS && signals == 2U);
+	block_token.transaction_status = EFI_NOT_READY;
+	EXPECT(block2->read_blocks(block2, 8U, 1U, &block_token, sizeof(buffer),
+		buffer) == EFI_INVALID_PARAMETER && signals == 2U &&
+		block_token.transaction_status == EFI_NOT_READY);
+	disk_token.transaction_status = EFI_NOT_READY;
+	EXPECT(disk2->read_disk_ex(disk2, 8U, 1U, &disk_token, 1U, buffer) ==
+		EFI_INVALID_PARAMETER && signals == 2U &&
+		disk_token.transaction_status == EFI_NOT_READY);
 	EXPECT(cdk2_partition_child_destroy(child) == EFI_SUCCESS);
 	EXPECT(closes == 1U && uninstalls == 1U && frees == 1U);
 
@@ -241,6 +280,15 @@ int main(void)
 	EXPECT(cdk2_partition_child_create(&services, NULL, &parent_block, NULL,
 		&parent_disk, NULL, NULL, &partition, &child) == EFI_DEVICE_ERROR);
 	EXPECT(frees == 1U && uninstalls == 1U);
+	reset_state();
+	open_status = EFI_DEVICE_ERROR;
+	uninstall_status = EFI_DEVICE_ERROR;
+	EXPECT(cdk2_partition_child_create(&services, NULL, &parent_block, NULL,
+		&parent_disk, NULL, NULL, &partition, &child) == EFI_SUCCESS);
+	EXPECT(frees == 0 && uninstalls == 1U && child != NULL);
+	uninstall_status = EFI_SUCCESS;
+	EXPECT(cdk2_partition_child_destroy(child) == EFI_SUCCESS &&
+		closes == 0 && frees == 1U);
 	reset_state();
 	EXPECT(cdk2_partition_child_create(&services, NULL, &parent_block, NULL,
 		&parent_disk, NULL, NULL, &partition, &child) == EFI_SUCCESS);

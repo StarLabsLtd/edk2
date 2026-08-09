@@ -9,7 +9,7 @@
 #define DISK_BLOCKS 100U
 
 struct fixture {
-	UINT8 disk[3][BLOCK_SIZE];
+	UINT8 disk[DISK_BLOCKS][BLOCK_SIZE];
 	BOOLEAN fail_read;
 };
 
@@ -34,10 +34,26 @@ static EFI_STATUS read_blocks(void *context, UINT64 lba, UINTN blocks,
 
 	if (fixture->fail_read)
 		return EFI_DEVICE_ERROR;
-	if (lba + blocks > 3U)
+	if (lba + blocks > DISK_BLOCKS)
 		return EFI_INVALID_PARAMETER;
 	memcpy(buffer, &fixture->disk[lba], blocks * BLOCK_SIZE);
 	return EFI_SUCCESS;
+}
+
+static void make_backup(struct fixture *fixture)
+{
+	UINT8 *header = fixture->disk[DISK_BLOCKS - 1U];
+
+	memcpy(fixture->disk[DISK_BLOCKS - 2U], fixture->disk[2], BLOCK_SIZE);
+	memcpy(header, fixture->disk[1], BLOCK_SIZE);
+	write64(header + 24, DISK_BLOCKS - 1U);
+	write64(header + 32, 1U);
+	write64(header + 48, DISK_BLOCKS - 3U);
+	write64(header + 72, DISK_BLOCKS - 2U);
+	write32(header + 88, cdk2_partition_crc32(
+		fixture->disk[DISK_BLOCKS - 2U], BLOCK_SIZE));
+	write32(header + 16, 0);
+	write32(header + 16, cdk2_partition_crc32(header, 92U));
 }
 
 static void update_crcs(struct fixture *fixture)
@@ -123,6 +139,38 @@ int main(void)
 	EXPECT(partitions[0].attributes == 0x1122334455667788ULL);
 	EXPECT(partitions[0].index == 1U && partitions[0].name[0] == 'O' &&
 		partitions[0].name[1] == 'S');
+
+	make_fixture(&fixture);
+	make_backup(&fixture);
+	fixture.disk[1][40] ^= 1U;
+	status = parse(&fixture, BLOCK_SIZE, partitions, 2U, &count);
+	EXPECT(status == EFI_SUCCESS &&
+		count == 1U && partitions[0].start_lba == 40U);
+	make_fixture(&fixture);
+	make_backup(&fixture);
+	fixture.disk[2][60] ^= 1U;
+	EXPECT(parse(&fixture, BLOCK_SIZE, partitions, 2U, &count) == EFI_SUCCESS &&
+		count == 1U);
+	make_fixture(&fixture);
+	make_backup(&fixture);
+	fixture.disk[1][0] = 0;
+	EXPECT(parse(&fixture, BLOCK_SIZE, partitions, 2U, &count) == EFI_SUCCESS &&
+		count == 1U);
+	make_fixture(&fixture);
+	write64(fixture.disk[1] + 72, 40U);
+	update_crcs(&fixture);
+	EXPECT(parse(&fixture, BLOCK_SIZE, partitions, 2U, &count) ==
+		EFI_COMPROMISED_DATA);
+	make_fixture(&fixture);
+	write64(fixture.disk[1] + 72, DISK_BLOCKS - 1U);
+	update_crcs(&fixture);
+	EXPECT(parse(&fixture, BLOCK_SIZE, partitions, 2U, &count) ==
+		EFI_COMPROMISED_DATA);
+	make_fixture(&fixture);
+	write64(fixture.disk[1] + 32, 50U);
+	update_crcs(&fixture);
+	EXPECT(parse(&fixture, BLOCK_SIZE, partitions, 2U, &count) ==
+		EFI_COMPROMISED_DATA);
 
 	make_fixture(&fixture);
 	fixture.disk[1][0] = 0;

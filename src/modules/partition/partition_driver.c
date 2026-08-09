@@ -155,11 +155,78 @@ static UINT16 path_node_length(const UINT8 *node)
 	return (UINT16)node[2] | (UINT16)node[3] << 8;
 }
 
+static UINT32 path_read32(const UINT8 *bytes)
+{
+	return (UINT32)bytes[0] | (UINT32)bytes[1] << 8 |
+		(UINT32)bytes[2] << 16 | (UINT32)bytes[3] << 24;
+}
+
+static UINT64 path_read64(const UINT8 *bytes)
+{
+	return (UINT64)path_read32(bytes) | (UINT64)path_read32(bytes + 4U) << 32;
+}
+
+static BOOLEAN path_bytes_equal(const void *left, const void *right, UINTN size)
+{
+	const UINT8 *a = left;
+	const UINT8 *b = right;
+
+	while (size-- != 0)
+		if (*a++ != *b++)
+			return FALSE;
+	return TRUE;
+}
+
+static BOOLEAN remaining_valid(const UINT8 *remaining)
+{
+	UINT16 length;
+
+	if (remaining == NULL)
+		return TRUE;
+	length = path_node_length(remaining);
+	if (remaining[0] == 0x7fU)
+		return remaining[1] == 0xffU && length == 4U;
+	if (remaining[0] != 4U ||
+	    !((remaining[1] == 1U && length == 42U) ||
+	      (remaining[1] == 2U && length == 24U)))
+		return FALSE;
+	return remaining[length] == 0x7fU && remaining[length + 1U] == 0xffU &&
+		path_node_length(remaining + length) == 4U;
+}
+
+static BOOLEAN remaining_matches(const UINT8 *remaining,
+	const struct cdk2_partition *partition)
+{
+	UINT64 blocks = partition->end_lba - partition->start_lba + 1U;
+
+	if (remaining == NULL || remaining[0] == 0x7fU)
+		return TRUE;
+	if (remaining[1] == 2U)
+		return (partition->scheme == CDK2_PARTITION_EL_TORITO ||
+			partition->scheme == CDK2_PARTITION_UDF) &&
+			path_read32(remaining + 4U) == partition->boot_entry &&
+			path_read64(remaining + 8U) == partition->start_lba &&
+			path_read64(remaining + 16U) == blocks;
+	if (partition->scheme != CDK2_PARTITION_GPT &&
+	    partition->scheme != CDK2_PARTITION_MBR)
+		return FALSE;
+	if (path_read32(remaining + 4U) != partition->index ||
+	    path_read64(remaining + 8U) != partition->start_lba ||
+	    path_read64(remaining + 16U) != blocks)
+		return FALSE;
+	if (partition->scheme == CDK2_PARTITION_GPT)
+		return remaining[40] == 2U && remaining[41] == 2U &&
+			path_bytes_equal(remaining + 24U, &partition->unique_guid, 16U);
+	return remaining[40] == 1U && remaining[41] == 1U &&
+		path_bytes_equal(remaining + 24U, &partition->disk_signature, 4U);
+}
+
 static EFI_STATUS build_child_path(const UINT8 *parent,
 	const struct cdk2_partition *partition, void **result)
 {
 	UINT8 node[42] = { 0 };
 	UINTN parent_size = 0;
+	UINTN instance_count = 0;
 	UINTN node_size;
 	UINT16 length;
 	UINT8 *output;
@@ -171,8 +238,16 @@ static EFI_STATUS build_child_path(const UINT8 *parent,
 		length = path_node_length(parent + parent_size);
 		if (length < 4U || length > MAX_UINT16 - parent_size)
 			return EFI_COMPROMISED_DATA;
-		if (parent[parent_size] == 0x7fU && parent[parent_size + 1U] == 0xffU)
-			break;
+		if (parent[parent_size] == 0x7fU) {
+			if (length != 4U || (parent[parent_size + 1U] != 0x01U &&
+			    parent[parent_size + 1U] != 0xffU))
+				return EFI_COMPROMISED_DATA;
+			instance_count++;
+			parent_size += length;
+			if (parent[parent_size - 3U] == 0xffU)
+				break;
+			continue;
+		}
 		parent_size += length;
 	}
 	if (parent_size >= MAX_UINT16)
@@ -212,16 +287,27 @@ static EFI_STATUS build_child_path(const UINT8 *parent,
 		__builtin_memcpy(node + 16, &partition_size, sizeof(partition_size));
 		node_size = 24U;
 	}
-	if (parent_size > MAX_UINTN - node_size - 4U)
+	if (instance_count == 0 || instance_count >
+	    (MAX_UINTN - parent_size) / node_size)
 		return EFI_OUT_OF_RESOURCES;
-	if (EFI_ERROR(allocate(parent_size + node_size + 4U, (void **)&output)))
+	if (EFI_ERROR(allocate(parent_size + instance_count * node_size,
+	    (void **)&output)))
 		return EFI_OUT_OF_RESOURCES;
-	__builtin_memcpy(output, parent, parent_size);
-	__builtin_memcpy(output + parent_size, node, node_size);
-	output[parent_size + node_size] = 0x7fU;
-	output[parent_size + node_size + 1U] = 0xffU;
-	output[parent_size + node_size + 2U] = 4U;
-	output[parent_size + node_size + 3U] = 0;
+	{
+		UINTN input = 0;
+		UINTN written = 0;
+
+		while (input < parent_size) {
+			length = path_node_length(parent + input);
+			if (parent[input] == 0x7fU) {
+				__builtin_memcpy(output + written, node, node_size);
+				written += node_size;
+			}
+			__builtin_memcpy(output + written, parent + input, length);
+			written += length;
+			input += length;
+		}
+	}
 	*result = output;
 	return EFI_SUCCESS;
 }
@@ -257,7 +343,8 @@ static EFI_STATUS CDK2_MS_ABI supported(struct driver_binding *driver,
 	void *interface;
 	EFI_STATUS status;
 
-	(void)remaining;
+	if (!remaining_valid(remaining))
+		return EFI_UNSUPPORTED;
 	status = boot->open_protocol(controller, &disk_io_guid, &interface,
 		driver->driver_binding_handle, controller, OPEN_TEST_PROTOCOL);
 	if (EFI_ERROR(status))
@@ -266,16 +353,19 @@ static EFI_STATUS CDK2_MS_ABI supported(struct driver_binding *driver,
 		driver->driver_binding_handle, controller, OPEN_TEST_PROTOCOL);
 }
 
-static void destroy_records(struct controller_record *record)
+static EFI_STATUS destroy_records(struct controller_record *record)
 {
 	while (record->children != NULL) {
 		struct child_record *child = record->children;
+		EFI_STATUS status = cdk2_partition_child_destroy(child->child);
 
+		if (EFI_ERROR(status))
+			return status;
 		record->children = child->next;
-		(void)cdk2_partition_child_destroy(child->child);
 		release(child->device_path);
 		release(child);
 	}
+	return EFI_SUCCESS;
 }
 
 static EFI_STATUS CDK2_MS_ABI start(struct driver_binding *driver,
@@ -293,9 +383,12 @@ static EFI_STATUS CDK2_MS_ABI start(struct driver_binding *driver,
 	UINTN scratch_size;
 	UINTN count;
 	UINTN index;
+	UINTN created = 0;
+	BOOLEAN retained = FALSE;
 	EFI_STATUS status;
 
-	(void)remaining;
+	if (!remaining_valid(remaining))
+		return EFI_UNSUPPORTED;
 	status = boot->open_protocol(controller, &disk_io_guid, (void **)&disk,
 		driver->driver_binding_handle, controller, OPEN_BY_DRIVER);
 	if (EFI_ERROR(status))
@@ -336,6 +429,9 @@ static EFI_STATUS CDK2_MS_ABI start(struct driver_binding *driver,
 	for (index = 0; index < count; index++) {
 		struct child_record *child;
 
+		if (!remaining_matches(remaining, &partitions[index]))
+			continue;
+
 		status = allocate(sizeof(*child), (void **)&child);
 		if (EFI_ERROR(status))
 			goto fail;
@@ -354,6 +450,11 @@ static EFI_STATUS CDK2_MS_ABI start(struct driver_binding *driver,
 		}
 		child->next = record->children;
 		record->children = child;
+		created++;
+	}
+	if (created == 0) {
+		status = EFI_NOT_FOUND;
+		goto fail;
 	}
 	record->next = controllers;
 	controllers = record;
@@ -363,8 +464,18 @@ static EFI_STATUS CDK2_MS_ABI start(struct driver_binding *driver,
 	return EFI_SUCCESS;
 fail:
 	if (record != NULL) {
-		destroy_records(record);
-		release(record);
+		EFI_STATUS cleanup = destroy_records(record);
+
+		if (EFI_ERROR(cleanup)) {
+			/* Published interfaces keep the controller record and paths alive. */
+			record->next = controllers;
+			controllers = record;
+			record = NULL;
+			retained = TRUE;
+			status = EFI_SUCCESS;
+		} else {
+			release(record);
+		}
 	}
 	if (partitions != NULL)
 		release(partitions);
@@ -372,8 +483,9 @@ fail:
 		release(entries);
 	if (scratch != NULL)
 		release(scratch);
-	(void)boot->close_protocol(controller, &disk_io_guid,
-		driver->driver_binding_handle, controller);
+	if (!retained)
+		(void)boot->close_protocol(controller, &disk_io_guid,
+			driver->driver_binding_handle, controller);
 	return status;
 }
 

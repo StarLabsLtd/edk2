@@ -46,7 +46,7 @@ struct cdk2_block_io2_token {
 };
 struct cdk2_block_io2;
 typedef EFI_STATUS CDK2_MS_ABI cdk2_block2_reset_fn(struct cdk2_block_io2 *,
-	BOOLEAN, struct cdk2_block_io2_token *);
+	BOOLEAN);
 typedef EFI_STATUS CDK2_MS_ABI cdk2_block2_rw_fn(struct cdk2_block_io2 *, UINT32,
 	UINT64, struct cdk2_block_io2_token *, UINTN, void *);
 typedef EFI_STATUS CDK2_MS_ABI cdk2_block2_flush_fn(struct cdk2_block_io2 *,

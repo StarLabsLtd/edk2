@@ -68,6 +68,7 @@ static UINTN child_uninstalls;
 static UINTN fail_allocation;
 static BOOLEAN fail_child_install;
 static BOOLEAN fail_child_open;
+static void *installed_path;
 
 static void write32(UINT8 *bytes, UINT32 value)
 {
@@ -161,7 +162,10 @@ static struct cdk2_block_io block = {
 static struct cdk2_disk_io disk = {
 	CDK2_DISK_IO_REVISION, disk_rw, disk_rw
 };
-static UINT8 parent_path[] = { 0x7fU, 0xffU, 4U, 0U };
+static UINT8 parent_path[] = {
+	0x7fU, 0x01U, 4U, 0U,
+	0x7fU, 0xffU, 4U, 0U,
+};
 
 static EFI_STATUS CDK2_MS_ABI allocate_pool(UINT32 type, UINTN size, void **buffer)
 {
@@ -170,6 +174,8 @@ static EFI_STATUS CDK2_MS_ABI allocate_pool(UINT32 type, UINTN size, void **buff
 	if (fail_allocation != 0 && allocations == fail_allocation)
 		return EFI_OUT_OF_RESOURCES;
 	*buffer = malloc((size_t)size);
+	if (size == 92U)
+		installed_path = *buffer;
 	return *buffer == NULL ? EFI_OUT_OF_RESOURCES : EFI_SUCCESS;
 }
 
@@ -270,6 +276,7 @@ static void clear_faults(void)
 	fail_allocation = 0;
 	fail_child_install = FALSE;
 	fail_child_open = FALSE;
+	installed_path = NULL;
 }
 
 int main(void)
@@ -277,6 +284,7 @@ int main(void)
 	struct system_table_view system = { { 0 }, &boot_services };
 	void *controller = (void *)0x2000;
 	UINTN fault;
+	UINT8 remaining[46] = { 0 };
 	int failures = 0;
 
 	make_gpt();
@@ -288,11 +296,39 @@ int main(void)
 	clear_faults();
 	EXPECT(installed_binding->start(installed_binding, controller, NULL) == EFI_SUCCESS);
 	EXPECT(child_installs == 1U && child_handle != NULL);
+	EXPECT(installed_path != NULL && ((UINT8 *)installed_path)[0] == 4U &&
+		((UINT8 *)installed_path)[42] == 0x7fU &&
+		((UINT8 *)installed_path)[43] == 0x01U &&
+		((UINT8 *)installed_path)[46] == 4U &&
+		((UINT8 *)installed_path)[88] == 0x7fU &&
+		((UINT8 *)installed_path)[89] == 0xffU);
 	EXPECT(installed_binding->stop(installed_binding, controller, 1U,
 		&child_handle) == EFI_SUCCESS);
 	EXPECT(child_uninstalls == 1U);
 	EXPECT(installed_binding->stop(installed_binding, controller, 0, NULL) ==
 		EFI_SUCCESS);
+	remaining[0] = 4U; remaining[1] = 1U; remaining[2] = 42U;
+	write32(remaining + 4, 1U);
+	write64(remaining + 8, 40U);
+	write64(remaining + 16, 10U);
+	remaining[24] = 2U; remaining[40] = 2U; remaining[41] = 2U;
+	remaining[42] = 0x7fU; remaining[43] = 0xffU; remaining[44] = 4U;
+	clear_faults();
+	EXPECT(installed_binding->supported(installed_binding, controller, remaining) ==
+		EFI_SUCCESS);
+	EXPECT(installed_binding->start(installed_binding, controller, remaining) ==
+		EFI_SUCCESS && child_installs == 1U);
+	EXPECT(installed_binding->stop(installed_binding, controller, 1U,
+		&child_handle) == EFI_SUCCESS);
+	EXPECT(installed_binding->stop(installed_binding, controller, 0, NULL) ==
+		EFI_SUCCESS);
+	write32(remaining + 4, 2U);
+	clear_faults();
+	EXPECT(installed_binding->start(installed_binding, controller, remaining) ==
+		EFI_NOT_FOUND && child_installs == 0);
+	remaining[2] = 41U;
+	EXPECT(installed_binding->supported(installed_binding, controller, remaining) ==
+		EFI_UNSUPPORTED);
 	for (fault = 1; fault <= 4U; fault++) {
 		clear_faults();
 		fail_allocation = fault;

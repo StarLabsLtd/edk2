@@ -61,26 +61,34 @@ static void seal(UINT8 *block, UINT16 tag, UINT32 location, UINT16 crc_length)
 static void make_fixture(void)
 {
 	UINT8 *block;
+	UINT32 base;
 
 	memset(&fixture, 0, sizeof(fixture));
 	block = fixture.disk[256];
 	write32(block + 16, 4U * BLOCK_SIZE);
 	write32(block + 20, 300U);
 	seal(block, 2U, 256U, 16U);
-	seal(fixture.disk[300], 1U, 300U, 16U);
-	block = fixture.disk[301];
-	write16(block + 22, 0U);
-	write32(block + 184, 1U);
-	write32(block + 188, 400U);
-	write32(block + 192, 100U);
-	seal(block, 5U, 301U, 180U);
-	block = fixture.disk[302];
-	write32(block + 212, BLOCK_SIZE);
-	write32(block + 248, BLOCK_SIZE);
-	write32(block + 252, 5U);
-	write16(block + 256, 0U);
-	seal(block, 6U, 302U, 424U);
-	seal(fixture.disk[303], 8U, 303U, 16U);
+	for (base = 300U; base <= 320U; base += 20U) {
+		seal(fixture.disk[base], 1U, base, 16U);
+		block = fixture.disk[base + 1U];
+		write16(block + 22, 5U);
+		write32(block + 184, 1U);
+		write32(block + 188, 400U);
+		write32(block + 192, 100U);
+		seal(block, 5U, base + 1U, 180U);
+		block = fixture.disk[base + 2U];
+		write32(block + 212, BLOCK_SIZE);
+		write32(block + 248, BLOCK_SIZE);
+		write32(block + 252, 5U);
+		write16(block + 256, 0U);
+		write32(block + 264, 6U);
+		write32(block + 268, 1U);
+		block[440] = 1U;
+		block[441] = 6U;
+		write16(block + 444, 5U);
+		seal(block, 6U, base + 2U, 424U);
+		seal(fixture.disk[base + 3U], 8U, base + 3U, 16U);
+	}
 	seal(fixture.disk[405], 256U, 5U, 496U);
 }
 
@@ -130,7 +138,22 @@ int main(void)
 	EXPECT(parse(partitions, 2U, &count) == EFI_SUCCESS && count == 1U);
 	EXPECT(partitions[0].scheme == CDK2_PARTITION_UDF);
 	EXPECT(partitions[0].start_lba == 400U && partitions[0].end_lba == 499U);
-	EXPECT(partitions[0].index == 1U && partitions[0].attributes == 1U);
+	EXPECT(partitions[0].index == 6U && partitions[0].attributes == 1U);
+	make_fixture();
+	write32(fixture.disk[302] + 264, 64U);
+	fixture.disk[302][440] = 2U;
+	fixture.disk[302][441] = 64U;
+	write16(fixture.disk[302] + 478, 5U);
+	seal(fixture.disk[302], 6U, 302U, 424U);
+	EXPECT(parse(partitions, 2U, &count) == EFI_SUCCESS && count == 1U &&
+		partitions[0].index == 6U);
+
+	make_fixture();
+	write32(fixture.disk[256] + 24, 4U * BLOCK_SIZE);
+	write32(fixture.disk[256] + 28, 320U);
+	seal(fixture.disk[256], 2U, 256U, 16U);
+	fixture.disk[301][4] ^= 1U;
+	EXPECT(parse(partitions, 2U, &count) == EFI_SUCCESS && count == 1U);
 
 	make_fixture();
 	memcpy(fixture.disk[599], fixture.disk[256], BLOCK_SIZE);
