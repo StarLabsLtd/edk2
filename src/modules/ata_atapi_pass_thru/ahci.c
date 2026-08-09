@@ -184,7 +184,8 @@ EFI_STATUS cdk2_ahci_execute(struct cdk2_ahci_engine *engine, UINT16 port,
 	struct cdk2_ata_command_packet *packet, const UINT8 *atapi, size_t atapi_size,
 	UINT64 timeout)
 {
-	struct cdk2_ahci_command command; void *mapping = NULL; UINT64 device;
+	struct cdk2_ahci_command command; void *mappings[CDK2_AHCI_MAX_PRDT];
+	UINT16 mapping_count = 0; UINT64 device;
 	void *buffer; size_t remaining, mapped; UINT8 slot; EFI_STATUS status;
 	enum cdk2_ahci_dma_operation operation;
 	if (engine == NULL || !engine->initialized || packet == NULL || port >= 32U ||
@@ -205,12 +206,17 @@ EFI_STATUS cdk2_ahci_execute(struct cdk2_ahci_engine *engine, UINT16 port,
 		CDK2_AHCI_BUS_MASTER_WRITE;
 	while (remaining != 0U) {
 		mapped = remaining;
+		if (mapping_count == CDK2_AHCI_MAX_PRDT) {
+			status = EFI_BAD_BUFFER_SIZE;
+			goto cleanup;
+		}
 		status = engine->services.map(engine->services.context, operation, buffer,
-			&mapped, &device, &mapping);
+			&mapped, &device, &mappings[mapping_count]);
 		if (EFI_ERROR(status) || mapped == 0U) {
 			status = EFI_DEVICE_ERROR;
 			goto cleanup;
 		}
+		mapping_count++;
 		while (mapped != 0U) {
 			size_t chunk = mapped > CDK2_AHCI_PRDT_MAX_BYTES ?
 				CDK2_AHCI_PRDT_MAX_BYTES : mapped;
@@ -223,10 +229,6 @@ EFI_STATUS cdk2_ahci_execute(struct cdk2_ahci_engine *engine, UINT16 port,
 			device += chunk; mapped -= chunk; remaining -= chunk;
 			buffer = (UINT8 *)buffer + chunk;
 		}
-		status = engine->services.unmap(engine->services.context, mapping);
-		mapping = NULL;
-		if (EFI_ERROR(status))
-			goto cleanup;
 	}
 	if (command.prdt_count != 0U)
 		command.prdt[command.prdt_count - 1U].interrupt = 1;
@@ -267,9 +269,12 @@ EFI_STATUS cdk2_ahci_execute(struct cdk2_ahci_engine *engine, UINT16 port,
 		AHCI_PX_TFD) & AHCI_TFD_ERR) != 0U)
 		status = EFI_DEVICE_ERROR;
 cleanup:
-	if (mapping != NULL && EFI_ERROR(engine->services.unmap(engine->services.context,
-		mapping)) && !EFI_ERROR(status))
-		status = EFI_DEVICE_ERROR;
+	while (mapping_count != 0U) {
+		mapping_count--;
+		if (EFI_ERROR(engine->services.unmap(engine->services.context,
+			mappings[mapping_count])) && !EFI_ERROR(status))
+			status = EFI_DEVICE_ERROR;
+	}
 	if (EFI_ERROR(status) && EFI_ERROR(abort_port(engine, port, timeout)) &&
 	    status != EFI_TIMEOUT)
 		status = EFI_DEVICE_ERROR;

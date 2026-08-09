@@ -174,4 +174,37 @@ EFI_STATUS cdk2_ahci_execute(struct cdk2_ahci_engine *engine, UINT16 port,
 	struct cdk2_ata_command_packet *packet, const UINT8 *atapi, size_t atapi_size,
 	UINT64 timeout);
 
+#define CDK2_IDE_MAX_PRD 64U
+struct cdk2_ide_channel { UINT16 command, control, bus_master; };
+struct cdk2_ide_prd { UINT32 address; UINT16 count, end; };
+struct cdk2_ide_services {
+	void *context;
+	UINT8 (*read8)(void *context, UINT16 port);
+	UINT16 (*read16)(void *context, UINT16 port);
+	EFI_STATUS (*write8)(void *context, UINT16 port, UINT8 value);
+	EFI_STATUS (*write16)(void *context, UINT16 port, UINT16 value);
+	EFI_STATUS (*write32)(void *context, UINT16 port, UINT32 value);
+	EFI_STATUS (*map)(void *context, enum cdk2_ahci_dma_operation operation,
+		void *host, size_t *size, UINT64 *device, void **mapping);
+	EFI_STATUS (*unmap)(void *context, void *mapping);
+	EFI_STATUS (*flush)(void *context);
+	EFI_STATUS (*set_timing)(void *context, UINT8 channel, UINT8 device);
+	UINT64 (*time)(void *context);
+	void (*delay)(void *context, UINTN microseconds);
+};
+struct cdk2_ide_engine {
+	struct cdk2_ide_services services;
+	struct cdk2_ide_channel channels[2];
+	struct cdk2_ide_prd prd[CDK2_IDE_MAX_PRD];
+	UINT8 channel_count, initialized;
+};
+
+EFI_STATUS cdk2_ide_engine_init(struct cdk2_ide_engine *engine,
+	const struct cdk2_ide_services *services, const struct cdk2_ide_channel *channels,
+	UINT8 channel_count);
+EFI_STATUS cdk2_ide_reset(struct cdk2_ide_engine *engine, UINT8 channel,
+	UINT64 timeout);
+EFI_STATUS cdk2_ide_execute(struct cdk2_ide_engine *engine, UINT8 channel,
+	UINT8 device, struct cdk2_ata_command_packet *packet, UINT64 timeout);
+
 #endif
