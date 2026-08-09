@@ -14,6 +14,11 @@ static struct cdk2_hii_glyph *find_glyph(struct cdk2_hii_database *database,
 		if (database->glyphs[index].active &&
 		    database->glyphs[index].character == character)
 			return &database->glyphs[index];
+	if (character != 0U)
+		for (index = 0; index < CDK2_HII_MAX_GLYPHS; index++)
+			if (database->glyphs[index].active &&
+			    database->glyphs[index].character == 0U)
+				return &database->glyphs[index];
 	return NULL;
 }
 
@@ -59,7 +64,7 @@ EFI_STATUS cdk2_hii_register_package_glyph_metrics(
 	EFI_STATUS status;
 	UINTN index, bytes;
 
-	if (database == NULL || character == 0U || width == 0U || height == 0U ||
+	if (database == NULL || width == 0U || height == 0U ||
 	    advance_x < 0 || bitmap == NULL)
 		return EFI_INVALID_PARAMETER;
 	bytes = (UINTN)width * height * sizeof(*bitmap);

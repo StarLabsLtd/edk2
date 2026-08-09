@@ -7,6 +7,8 @@
 
 static void *published[6];
 static EFI_STATUS install_status;
+static EFI_STATUS uninstall_status;
+static UINTN uninstall_calls;
 static EFI_STATUS create_status, signal_status, close_status;
 static UINTN config_calls;
 static UINT8 test_path[] = { 1U, 2U, 4U, 0U, 0x7fU, 0xffU, 4U, 0U };
@@ -51,6 +53,7 @@ static EFI_STATUS CDK2_MS_ABI locate_path(const EFI_GUID *guid, void **path,
 	(void)guid;
 	if (bytes[0] != 1U || bytes[1] != 2U)
 		return EFI_NOT_FOUND;
+	*path = (UINT8 *)*path + 4U;
 	*handle = (void *)9;
 	return EFI_SUCCESS;
 }
@@ -73,7 +76,7 @@ static EFI_STATUS CDK2_MS_ABI pool_free(void *buffer)
 { free(buffer); return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI install(void **handle, ...)
 {
-	(void)handle;
+	*handle = (void *)0x44;
 	published[0] = &context.database_protocol;
 	published[1] = &context.string_protocol;
 	published[2] = &context.image_protocol;
@@ -82,6 +85,8 @@ static EFI_STATUS CDK2_MS_ABI install(void **handle, ...)
 	published[5] = &context.keyword_protocol;
 	return install_status;
 }
+static EFI_STATUS CDK2_MS_ABI uninstall(void *handle, ...)
+{ uninstall_calls++; return handle == (void *)0x44 ? uninstall_status : EFI_INVALID_PARAMETER; }
 static EFI_STATUS CDK2_MS_ABI create_event(UINT32 type, UINTN tpl,
 	void (CDK2_MS_ABI *notify)(void *, void *), void *opaque,
 	const EFI_GUID *group, void **event)
@@ -114,6 +119,7 @@ int main(void)
 	boot.allocate_pool = pool_allocate;
 	boot.free_pool = pool_free;
 	boot.install_multiple = install;
+	boot.uninstall_multiple = uninstall;
 	boot.create_event_ex = create_event;
 	boot.signal_event = signal_event;
 	boot.close_event = close_event;
@@ -135,6 +141,34 @@ int main(void)
 		config->route_config != NULL && config->block_to_config != NULL &&
 		config->config_to_block != NULL && config->get_alt_config != NULL,
 		"a mandatory protocol method was not published");
+	{
+		struct path_list { struct cdk2_hii_package_list_header list;
+			struct cdk2_hii_package_header opaque; UINT32 value;
+			struct cdk2_hii_package_header end; } input = {
+			.list = { .length = sizeof(input) },
+			.opaque = { (0xe0U << 24) | 8U }, .value = 1U,
+			.end = { (CDK2_HII_PACKAGE_END << 24) | 4U }
+		};
+		UINT8 output[64]; UINTN output_size = sizeof(output), offset;
+		void *path_handle = NULL; BOOLEAN found_path = FALSE;
+		failures += expect(database->new_package_list(database, &input, (void *)9,
+			&path_handle) == EFI_SUCCESS && database->export_package_lists(database,
+			path_handle, &output_size, output) == EFI_SUCCESS,
+			"DriverHandle DevicePath package was not synthesized");
+		for (offset = sizeof(input.list); offset + 4U <= output_size;) {
+			UINT32 header = (UINT32)output[offset] | ((UINT32)output[offset + 1U] << 8) |
+				((UINT32)output[offset + 2U] << 16) | ((UINT32)output[offset + 3U] << 24);
+			if ((header >> 24) == 0x08U) found_path = TRUE;
+			if ((header & 0x00ffffffU) < 4U) break;
+			offset += header & 0x00ffffffU;
+		}
+		failures += expect(found_path, "export omitted synthesized DevicePath package");
+		(void)database->remove_package_list(database, path_handle);
+	}
+	failures += expect(database->list_package_lists(database, 1U, NULL,
+		&(UINTN){ 0U }, NULL) == EFI_INVALID_PARAMETER &&
+		config->extract_config(config, L"GUID=A", NULL, &results) == EFI_INVALID_PARAMETER,
+		"database/config ABI NULL validation failed");
 	(void)cdk2_hii_register_keyword(&context.database, L"x-UEFI-test", L"Mode",
 		L"1", FALSE);
 	(void)cdk2_hii_register_keyword(&context.database, L"x-UEFI-other", L"Mode",
@@ -186,8 +220,8 @@ int main(void)
 		free(results);
 	}
 	failures += expect(config->extract_config(config,
-		L"GUID=A&PATH=0102&OFFSET=0", &progress, &results) == EFI_SUCCESS &&
-		config->route_config(config, L"GUID=A&PATH=0102&VALUE=00", &progress) ==
+		L"GUID=A&PATH=010204007FFF0400&OFFSET=0", &progress, &results) == EFI_SUCCESS &&
+		config->route_config(config, L"GUID=A&PATH=010204007FFF0400&VALUE=00", &progress) ==
 		EFI_SUCCESS && config_calls == 2U,
 		"ConfigAccess device-path routing failed");
 	free(results);
@@ -272,7 +306,9 @@ int main(void)
 		u16_contains(results, L"&DISPLAYNAME=Routing mode"),
 		"PATH-qualified keyword owner or KeywordInfo was not returned");
 	free(results);
-	cdk2_hii_database_destroy(&context.database);
+	failures += expect(cdk2_hii_database_unload((void *)1) == EFI_SUCCESS &&
+		uninstall_calls == 1U && context.database.ops == NULL,
+		"unload did not uninstall protocols before releasing ownership");
 	install_status = EFI_DEVICE_ERROR;
 	failures += expect(cdk2_hii_database_entry((void *)1, &system) ==
 		EFI_DEVICE_ERROR && context.database.ops == NULL,

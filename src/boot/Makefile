@@ -271,6 +271,7 @@ CDK2_NATIVE_TPM2_ACPI_TABLE_DEPEX ?= $(CDK2_NATIVE_BUILD_DIR)/Tpm2AcpiTableDxe.d
 CDK2_NATIVE_TPM2_ACPI_TABLE_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/Tpm2AcpiTableDxe.ffs
 CDK2_NATIVE_TPM2_ACPI_TABLE_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-tpm2-acpi-table.fv
 CDK2_NATIVE_HII_DATABASE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-hii-database-test
+CDK2_NATIVE_HII_DATABASE_MODEL_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-hii-database-model-test
 CDK2_NATIVE_HII_PACKAGE_PARSE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-hii-package-parse-test
 CDK2_NATIVE_HII_DATABASE_OBJS := $(patsubst %.c,$(CDK2_NATIVE_BUILD_DIR)/hii-database-%.o,database.c string.c image.c font.c keyboard.c config.c keyword.c package_parse.c entry.c)
 CDK2_NATIVE_HII_DATABASE_PE ?= $(CDK2_NATIVE_BUILD_DIR)/HiiDatabase.efi
@@ -893,11 +894,18 @@ native-graphics-console-test: $(CDK2_NATIVE_GRAPHICS_CONSOLE_TEST) $(CDK2_NATIVE
 	@"$(CDK2_NATIVE_GRAPHICS_ENTRY_TEST)"
 
 native-hii-database-test: $(CDK2_NATIVE_HII_DATABASE_TEST) \
-		$(CDK2_NATIVE_HII_PACKAGE_PARSE_TEST)
+		$(CDK2_NATIVE_HII_PACKAGE_PARSE_TEST) $(CDK2_NATIVE_HII_DATABASE_MODEL_TEST)
 	@"$(CDK2_NATIVE_HII_DATABASE_TEST)"
 	@"$(CDK2_NATIVE_HII_PACKAGE_PARSE_TEST)"
+	@"$(CDK2_NATIVE_HII_DATABASE_MODEL_TEST)"
 
 native-hii-database-ffs: $(CDK2_NATIVE_HII_DATABASE_FFS)
+	@test "$$(wc -c < "$(CDK2_NATIVE_HII_DATABASE_FFS)")" -eq $$((0x2405e))
+	@test "$$(od -An -tx1 -N16 "$(CDK2_NATIVE_HII_DATABASE_FFS)" | tr -d ' \n')" = \
+		624d8c34bdbf82489ecec80bb1c4783b
+	@test "$$(od -An -tx1 "$(CDK2_NATIVE_HII_DATABASE_DEPEX)" | tr -d ' \n')" = \
+		1600001302f6f0a3134a26f03ef2e0dec512342f3408
+	@"$(CDK2_NATIVE_PERELOCCHECK)" --subsystem 11 "$(CDK2_NATIVE_HII_DATABASE_PE)"
 	@printf '%s\n' "native HII database FFS: $(CDK2_NATIVE_HII_DATABASE_FFS)"
 
 native-hii-database-oracle: $(CDK2_NATIVE_HII_DATABASE_QEMU_PE)
@@ -1710,6 +1718,8 @@ CDK2_NATIVE_PRE_HII_DATABASE_FV := $(CDK2_NATIVE_FINAL_FV)
 CDK2_NATIVE_FINAL_FV := $(CDK2_NATIVE_HII_DATABASE_FV)
 
 native-hii-database-fv: $(CDK2_NATIVE_HII_DATABASE_FV)
+	@"$(CDK2_NATIVE_FVINFO)" "$(CDK2_NATIVE_HII_DATABASE_FV)" | \
+		grep -q '^348c4d62-bfbd-4882-9ece-c80bb1c4783b[[:space:]]0x00135298[[:space:]]0x0002405e[[:space:]]0x07[[:space:]]HiiDatabase$$'
 	@printf '%s\n' "native HII database FV: $(CDK2_NATIVE_HII_DATABASE_FV)"
 
 $(CDK2_NATIVE_HII_DATABASE_FV): $(CDK2_NATIVE_PRE_HII_DATABASE_FV) \
@@ -1841,6 +1851,15 @@ $(CDK2_NATIVE_HII_PACKAGE_PARSE_TEST): $(CDK2_DIR)/tests/hii_platform_font_test.
 		$(CDK2_NATIVE_INCLUDES) \
 		-DHII_PLATFORM_SIMPLE_FONT_FIXTURE='"$(CDK2_DIR)/tests/fixtures/hii_platform_simple_font_package.bin"' \
 		-o "$@" "$(CDK2_DIR)/tests/hii_platform_font_test.c" \
+		$(filter-out $(CDK2_DIR)/src/modules/hii_database/entry.c \
+		$(CDK2_DIR)/src/modules/hii_database/depex.c,$(wildcard $(CDK2_DIR)/src/modules/hii_database/*.c))
+
+$(CDK2_NATIVE_HII_DATABASE_MODEL_TEST): $(CDK2_DIR)/tests/hii_database_test.c \
+		$(filter-out $(CDK2_DIR)/src/modules/hii_database/entry.c \
+		$(CDK2_DIR)/src/modules/hii_database/depex.c,$(wildcard $(CDK2_DIR)/src/modules/hii_database/*.c)) \
+		$(CDK2_DIR)/include/cdk2/hii_database.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -fshort-wchar \
+		$(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_DIR)/tests/hii_database_test.c" \
 		$(filter-out $(CDK2_DIR)/src/modules/hii_database/entry.c \
 		$(CDK2_DIR)/src/modules/hii_database/depex.c,$(wildcard $(CDK2_DIR)/src/modules/hii_database/*.c))
 

@@ -78,18 +78,32 @@ static BOOLEAN list_has_package(const struct cdk2_hii_list *list, UINT8 type,
 	return FALSE;
 }
 
-static void notify_list(struct cdk2_hii_database *database,
-	struct cdk2_hii_list *list, UINTN operation)
+static BOOLEAN replacement_type(const void *new_list, UINT8 type);
+static void notify_list_filtered(struct cdk2_hii_database *database,
+	struct cdk2_hii_list *list, void *callback_handle, UINTN operation,
+	const void *types)
 {
-	const struct cdk2_hii_package_list_header *header = list->data;
+	void *snapshot = NULL;
+	const struct cdk2_hii_package_list_header *header;
 	const struct cdk2_hii_package_header *package;
 	const EFI_GUID *package_guid;
 	struct cdk2_hii_notify *notify;
-	UINT32 offset = sizeof(*header);
+	UINT32 offset = sizeof(*header), snapshot_size = list->size;
 	UINTN index;
 
-	while (offset < list->size) {
-		package = (const void *)((const UINT8 *)list->data + offset);
+	/* Notifications may update or remove this list.  Walk an owned snapshot. */
+	if (EFI_ERROR(database->ops->allocate(database->context, snapshot_size,
+		&snapshot)))
+		return;
+	__builtin_memcpy(snapshot, list->data, snapshot_size);
+	header = snapshot;
+
+	while (offset < snapshot_size) {
+		package = (const void *)((const UINT8 *)snapshot + offset);
+		if (types != NULL && !replacement_type(types, package_type(package))) {
+			offset += package_length(package);
+			continue;
+		}
 		package_guid = package_type(package) == 1U && package_length(package) >=
 			sizeof(*package) + sizeof(*package_guid) ?
 			(const void *)(package + 1) : NULL;
@@ -101,10 +115,32 @@ static void notify_list(struct cdk2_hii_database *database,
 			    (!notify->use_guid || (package_guid != NULL &&
 			     same_guid(&notify->package_guid, package_guid))))
 				(void)notify->callback(notify->context, package_type(package),
-					package_guid, package, list, operation);
+						package_guid, package, callback_handle, operation);
 		}
 		offset += package_length(package);
 	}
+	database->ops->release(database->context, snapshot);
+}
+
+static void notify_list(struct cdk2_hii_database *database,
+	struct cdk2_hii_list *list, UINTN operation)
+{ notify_list_filtered(database, list, list, operation, NULL); }
+
+static BOOLEAN replacement_type(const void *new_list, UINT8 type)
+{
+	const struct cdk2_hii_package_list_header *header = new_list;
+	const struct cdk2_hii_package_header *package;
+	UINT32 offset = sizeof(*header);
+
+	while (offset < header->length) {
+		package = (const void *)((const UINT8 *)new_list + offset);
+		if (package_type(package) == CDK2_HII_PACKAGE_END)
+			break;
+		if (package_type(package) == type)
+			return TRUE;
+		offset += package_length(package);
+	}
+	return FALSE;
 }
 
 EFI_STATUS cdk2_hii_database_init(struct cdk2_hii_database *database,
@@ -282,10 +318,14 @@ EFI_STATUS cdk2_hii_update_package_list(struct cdk2_hii_database *database,
 	void *handle, const void *package_list)
 {
 	struct cdk2_hii_list *list = handle;
-	struct cdk2_hii_list *staged = NULL;
+	struct cdk2_hii_list staged = { 0 };
+	struct cdk2_hii_list additions = { 0 };
+	const struct cdk2_hii_package_list_header *incoming = package_list;
+	const struct cdk2_hii_package_header *package;
+	struct cdk2_hii_package_list_header *merged;
 	EFI_STATUS status;
-	UINT32 size;
-	UINTN index;
+	UINT32 size, merged_size, offset, output;
+	UINTN index, merged_needed;
 
 	if (database == NULL || list < database->lists ||
 	    list >= database->lists + CDK2_HII_MAX_LISTS || !list->active)
@@ -293,62 +333,78 @@ EFI_STATUS cdk2_hii_update_package_list(struct cdk2_hii_database *database,
 	status = validate_list(package_list, &size);
 	if (EFI_ERROR(status))
 		return status;
-	for (index = 0; index < CDK2_HII_MAX_LISTS; index++)
-		if (!database->lists[index].active) {
-			staged = &database->lists[index];
+	merged_needed = sizeof(*merged) + sizeof(*package);
+	for (offset = sizeof(*merged); offset < list->size; offset += package_length(package)) {
+		package = (const void *)((const UINT8 *)list->data + offset);
+		if (package_type(package) == CDK2_HII_PACKAGE_END)
 			break;
-		}
-	if (staged == NULL)
+		if (!replacement_type(package_list, package_type(package)))
+			merged_needed += package_length(package);
+	}
+	merged_needed += size - sizeof(*incoming) - sizeof(*package);
+	if (merged_needed > 0xffffffffU)
 		return EFI_OUT_OF_RESOURCES;
-	status = database->ops->allocate(database->context, size, &staged->data);
+	merged_size = (UINT32)merged_needed;
+	status = database->ops->allocate(database->context, merged_size, (void **)&merged);
 	if (EFI_ERROR(status))
 		return status;
-	__builtin_memcpy(staged->data, package_list, size);
-	staged->size = size;
-	staged->driver_handle = list->driver_handle;
-	staged->active = TRUE;
-	status = cdk2_hii_ingest_package_list(database, staged);
+	merged->guid = ((const struct cdk2_hii_package_list_header *)list->data)->guid;
+	merged->length = merged_size;
+	output = sizeof(*merged);
+	for (offset = sizeof(*merged); offset < list->size; offset += package_length(package)) {
+		package = (const void *)((const UINT8 *)list->data + offset);
+		if (package_type(package) == CDK2_HII_PACKAGE_END)
+			break;
+		if (!replacement_type(package_list, package_type(package))) {
+			__builtin_memcpy((UINT8 *)merged + output, package, package_length(package));
+			output += package_length(package);
+		}
+	}
+	__builtin_memcpy((UINT8 *)merged + output, (const UINT8 *)package_list + sizeof(*incoming),
+		size - sizeof(*incoming));
+	staged.data = merged; staged.size = merged_size;
+	staged.driver_handle = list->driver_handle; staged.active = TRUE;
+	/* Free decoded capacity while retaining the old raw list for rollback. */
+	cdk2_hii_remove_strings(database, list); cdk2_hii_remove_images(database, list);
+	cdk2_hii_remove_glyphs(database, list); cdk2_hii_remove_keyboard_layouts(database, list);
+	cdk2_hii_remove_keywords(database, list);
+	status = cdk2_hii_ingest_package_list(database, &staged);
 	if (EFI_ERROR(status)) {
-		cdk2_hii_remove_strings(database, staged);
-		cdk2_hii_remove_images(database, staged);
-		cdk2_hii_remove_glyphs(database, staged);
-		cdk2_hii_remove_keyboard_layouts(database, staged);
-		cdk2_hii_remove_keywords(database, staged);
-		database->ops->release(database->context, staged->data);
-		*staged = (struct cdk2_hii_list) { 0 };
+		cdk2_hii_remove_strings(database, &staged); cdk2_hii_remove_images(database, &staged);
+		cdk2_hii_remove_glyphs(database, &staged); cdk2_hii_remove_keyboard_layouts(database, &staged);
+		cdk2_hii_remove_keywords(database, &staged);
+		database->ops->release(database->context, merged);
+		if (EFI_ERROR(cdk2_hii_ingest_package_list(database, list)))
+			return EFI_DEVICE_ERROR;
 		return status;
 	}
-	notify_list(database, list, HII_NOTIFY_REMOVE);
-	cdk2_hii_remove_strings(database, list);
-	cdk2_hii_remove_images(database, list);
-	cdk2_hii_remove_glyphs(database, list);
-	cdk2_hii_remove_keyboard_layouts(database, list);
-	cdk2_hii_remove_keywords(database, list);
+	notify_list_filtered(database, list, list, HII_NOTIFY_REMOVE, package_list);
 	database->ops->release(database->context, list->data);
-	list->data = staged->data;
-	list->size = staged->size;
+	list->data = staged.data;
+	list->size = staged.size;
 	for (index = 0; index < CDK2_HII_MAX_STRINGS; index++)
 		if (database->strings[index].active &&
-		    database->strings[index].package_handle == staged)
+			    database->strings[index].package_handle == &staged)
 			database->strings[index].package_handle = list;
 	for (index = 0; index < CDK2_HII_MAX_IMAGES; index++)
 		if (database->images[index].active &&
-		    database->images[index].package_handle == staged)
+			    database->images[index].package_handle == &staged)
 			database->images[index].package_handle = list;
 	for (index = 0; index < CDK2_HII_MAX_GLYPHS; index++)
 		if (database->glyphs[index].active &&
-		    database->glyphs[index].package_handle == staged)
+			    database->glyphs[index].package_handle == &staged)
 			database->glyphs[index].package_handle = list;
 	for (index = 0; index < database->keyboard_layout_count; index++)
 		if (database->keyboard_records[index].active &&
-		    database->keyboard_records[index].package_handle == staged)
+			    database->keyboard_records[index].package_handle == &staged)
 			database->keyboard_records[index].package_handle = list;
 	for (index = 0; index < CDK2_HII_MAX_KEYWORDS; index++)
 		if (database->keywords[index].active &&
-		    database->keywords[index].package_handle == staged)
+			    database->keywords[index].package_handle == &staged)
 			database->keywords[index].package_handle = list;
-	*staged = (struct cdk2_hii_list) { 0 };
-	notify_list(database, list, HII_NOTIFY_ADD);
+	/* Incoming-only ADD notification; use the persistent handle in a raw snapshot. */
+	additions = *list; additions.data = (void *)package_list; additions.size = size;
+	notify_list_filtered(database, &additions, list, HII_NOTIFY_ADD, NULL);
 	return EFI_SUCCESS;
 }
 
@@ -360,6 +416,12 @@ EFI_STATUS cdk2_hii_export_package_lists(struct cdk2_hii_database *database,
 
 	if (database == NULL || size == NULL)
 		return EFI_INVALID_PARAMETER;
+	/* EXPORT callbacks run before sizing/copying and may update the database. */
+	for (index = 0; index < CDK2_HII_MAX_LISTS; index++) {
+		list = &database->lists[index];
+		if (list->active && (handle == NULL || handle == list))
+			notify_list(database, list, HII_NOTIFY_EXPORT);
+	}
 	for (index = 0; index < CDK2_HII_MAX_LISTS; index++) {
 		list = &database->lists[index];
 		if (list->active && (handle == NULL || handle == list))
@@ -377,7 +439,6 @@ EFI_STATUS cdk2_hii_export_package_lists(struct cdk2_hii_database *database,
 			continue;
 		__builtin_memcpy((UINT8 *)buffer + offset, list->data, list->size);
 		offset += list->size;
-		notify_list(database, list, HII_NOTIFY_EXPORT);
 	}
 	*size = needed;
 	return EFI_SUCCESS;
@@ -391,6 +452,9 @@ EFI_STATUS cdk2_hii_list_package_lists(struct cdk2_hii_database *database,
 
 	if (database == NULL || count == NULL)
 		return EFI_INVALID_PARAMETER;
+	if ((package_type == 1U) != (package_guid != NULL) ||
+	    (*count != 0U && handles == NULL))
+		return EFI_INVALID_PARAMETER;
 	capacity = *count;
 	for (index = 0; index < CDK2_HII_MAX_LISTS; index++)
 		if (database->lists[index].active && list_has_package(&database->lists[index],
@@ -400,7 +464,9 @@ EFI_STATUS cdk2_hii_list_package_lists(struct cdk2_hii_database *database,
 			found++;
 		}
 	*count = found;
-	return handles == NULL || capacity < found ? EFI_BUFFER_TOO_SMALL : EFI_SUCCESS;
+	if (found == 0U)
+		return EFI_NOT_FOUND;
+	return capacity < found ? EFI_BUFFER_TOO_SMALL : EFI_SUCCESS;
 }
 
 EFI_STATUS cdk2_hii_register_package_notify(struct cdk2_hii_database *database,

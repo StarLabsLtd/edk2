@@ -6,6 +6,7 @@
 typedef EFI_STATUS CDK2_MS_ABI allocate_pool_fn(UINT32, UINTN, void **);
 typedef EFI_STATUS CDK2_MS_ABI free_pool_fn(void *);
 typedef EFI_STATUS CDK2_MS_ABI install_multiple_fn(void **, ...);
+typedef EFI_STATUS CDK2_MS_ABI uninstall_multiple_fn(void *, ...);
 typedef EFI_STATUS CDK2_MS_ABI handle_protocol_fn(void *, const EFI_GUID *, void **);
 typedef EFI_STATUS CDK2_MS_ABI locate_handle_buffer_fn(UINTN, const EFI_GUID *,
 	void *, UINTN *, void ***);
@@ -16,6 +17,8 @@ typedef EFI_STATUS CDK2_MS_ABI create_event_ex_fn(UINT32, UINTN,
 	event_notify_fn *, void *,
 	const EFI_GUID *, void **);
 typedef EFI_STATUS CDK2_MS_ABI event_fn(void *);
+typedef EFI_STATUS CDK2_MS_ABI image_unload_fn(void *);
+struct loaded_image_protocol;
 struct boot_services_view {
 	UINT8 header[24];
 	void *raise_tpl, *restore_tpl, *allocate_pages, *free_pages, *get_memory_map;
@@ -36,13 +39,17 @@ struct boot_services_view {
 	locate_handle_buffer_fn *locate_handle_buffer;
 	void *locate_protocol;
 	install_multiple_fn *install_multiple;
-	void *uninstall_multiple, *calculate_crc32, *copy_mem, *set_mem;
+	uninstall_multiple_fn *uninstall_multiple;
+	void *calculate_crc32, *copy_mem, *set_mem;
 	create_event_ex_fn *create_event_ex;
 };
 struct system_table_view { UINT8 before_boot_services[96]; struct boot_services_view *boot; };
 
 struct hii_entry_context {
 	struct boot_services_view *boot;
+	void *installed_handle;
+	struct loaded_image_protocol *loaded_image;
+	image_unload_fn *original_unload;
 	struct cdk2_hii_database database;
 	struct cdk2_efi_hii_database_protocol database_protocol;
 	struct cdk2_efi_hii_string_protocol string_protocol;
@@ -83,6 +90,8 @@ static const EFI_GUID config_access_guid = { 0x330d4706, 0xf2a0, 0x4e4f,
 	{ 0xa3, 0x69, 0xb6, 0x6f, 0xa8, 0xd5, 0x43, 0x85 } };
 static const EFI_GUID device_path_guid = { 0x09576e91, 0x6d3f, 0x11d2,
 	{ 0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b } };
+static const EFI_GUID loaded_image_guid = { 0x5b1b31a1, 0x9562, 0x11d2,
+	{ 0x8e, 0x3f, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b } };
 
 typedef EFI_STATUS CDK2_MS_ABI decoder_names_fn(void *, EFI_GUID **, UINT16 *);
 typedef EFI_STATUS CDK2_MS_ABI decoder_decode_fn(void *, void *, UINTN,
@@ -107,6 +116,12 @@ struct config_access_protocol {
 	config_extract_fn *extract;
 	config_route_fn *route;
 	void *callback;
+};
+struct loaded_image_protocol {
+	UINT32 revision; void *parent, *system, *device, *file_path, *reserved;
+	UINT32 load_options_size; void *load_options, *image_base;
+	UINT64 image_size; UINT32 code_type, data_type;
+	image_unload_fn *unload;
 };
 
 static EFI_STATUS allocate(void *opaque, UINTN size, void **buffer)
@@ -185,9 +200,51 @@ static EFI_STATUS screen_blt(void *screen, struct cdk2_hii_pixel *bitmap,
 		x, y, width, height, 0U);
 }
 
-static EFI_STATUS CDK2_MS_ABI new_package(const void *self, const void *list,
+static UINTN device_path_size(const UINT8 *path)
+{
+	UINTN offset = 0U, length;
+	if (path == NULL) return 0U;
+	while (offset < 0x10000U) {
+		length = (UINTN)path[offset + 2U] | ((UINTN)path[offset + 3U] << 8);
+		if (length < 4U || offset + length > 0x10000U) return 0U;
+		offset += length;
+		if (path[offset - length] == 0x7fU && path[offset - length + 1U] == 0xffU)
+			return offset;
+	}
+	return 0U;
+}
+static EFI_STATUS CDK2_MS_ABI new_package(const void *self, const void *raw,
 	void *driver, void **handle)
-{ (void)self; return cdk2_hii_new_package_list(&context.database, list, driver, handle); }
+{
+	const struct cdk2_hii_package_list_header *list = raw;
+	struct cdk2_hii_package_list_header *augmented;
+	struct cdk2_hii_package_header *package;
+	UINT8 *path = NULL;
+	UINTN path_size, old_end, total;
+	EFI_STATUS status;
+	(void)self;
+	if (raw == NULL || handle == NULL) return EFI_INVALID_PARAMETER;
+	if (driver == NULL || context.boot->handle_protocol == NULL ||
+	    EFI_ERROR(context.boot->handle_protocol(driver, &device_path_guid, (void **)&path)))
+		return cdk2_hii_new_package_list(&context.database, raw, driver, handle);
+	path_size = device_path_size(path);
+	if (path_size == 0U || list->length < sizeof(*list) + sizeof(*package))
+		return EFI_INVALID_PARAMETER;
+	old_end = list->length - sizeof(*package);
+	total = list->length + sizeof(*package) + path_size;
+	status = allocate(&context, total, (void **)&augmented);
+	if (EFI_ERROR(status)) return status;
+	__builtin_memcpy(augmented, raw, old_end);
+	package = (void *)((UINT8 *)augmented + old_end);
+	package->length_and_type = (UINT32)(sizeof(*package) + path_size) | (0x08U << 24);
+	__builtin_memcpy(package + 1, path, path_size);
+	package = (void *)((UINT8 *)package + sizeof(*package) + path_size);
+	package->length_and_type = sizeof(*package) | (CDK2_HII_PACKAGE_END << 24);
+	augmented->length = total;
+	status = cdk2_hii_new_package_list(&context.database, augmented, driver, handle);
+	release(&context, augmented);
+	return status;
+}
 static EFI_STATUS CDK2_MS_ABI remove_package(const void *self, void *handle)
 { (void)self; return cdk2_hii_remove_package_list(&context.database, handle); }
 static EFI_STATUS CDK2_MS_ABI update_package(const void *self, void *handle,
@@ -201,6 +258,8 @@ static EFI_STATUS CDK2_MS_ABI list_packages(const void *self, UINT8 type,
 
 	(void)self;
 	if (size == NULL)
+		return EFI_INVALID_PARAMETER;
+	if ((type == 1U) != (guid != NULL) || (*size != 0U && handles == NULL))
 		return EFI_INVALID_PARAMETER;
 	capacity = *size / sizeof(*handles);
 	count = capacity;
@@ -594,6 +653,7 @@ static EFI_STATUS CDK2_MS_ABI extract_config(const void *self, const CHAR16 *req
 	void *path;
 	EFI_STATUS status;
 	(void)self;
+	if (progress == NULL || results == NULL) return EFI_INVALID_PARAMETER;
 	status = cdk2_hii_extract_config(&context.database, request, &core_progress,
 		results);
 	if (status != EFI_NOT_FOUND) {
@@ -619,6 +679,7 @@ static EFI_STATUS CDK2_MS_ABI route_config(const void *self, const CHAR16 *confi
 	void *path;
 	EFI_STATUS status;
 	(void)self;
+	if (progress == NULL) return EFI_INVALID_PARAMETER;
 	status = cdk2_hii_route_config(&context.database, configuration, &core_progress);
 	if (status != EFI_NOT_FOUND) {
 		*progress = (CHAR16 *)core_progress;
@@ -639,6 +700,8 @@ static EFI_STATUS CDK2_MS_ABI block_to_config(const void *self, const CHAR16 *re
 	const CHAR16 *core_progress;
 	EFI_STATUS status;
 	(void)self;
+	if (request == NULL || block == NULL || configuration == NULL || progress == NULL)
+		return EFI_INVALID_PARAMETER;
 	status = cdk2_hii_block_to_config(&context.database, request, block, size,
 		configuration, &core_progress);
 	*progress = (CHAR16 *)core_progress;
@@ -650,9 +713,40 @@ static EFI_STATUS CDK2_MS_ABI config_to_block(const void *self,
 	const CHAR16 *core_progress;
 	EFI_STATUS status;
 	(void)self;
+	if (configuration == NULL || size == NULL || progress == NULL ||
+	    (*size != 0U && block == NULL)) return EFI_INVALID_PARAMETER;
 	status = cdk2_hii_config_to_block(configuration, block, size, &core_progress);
 	*progress = (CHAR16 *)core_progress;
 	return status;
+}
+
+EFI_STATUS CDK2_MS_ABI cdk2_hii_database_unload(void *image)
+{
+	EFI_STATUS status;
+	(void)image;
+	if (context.database.ops == NULL)
+		return EFI_NOT_STARTED;
+	if (pending_keyboard_event != NULL) {
+		status = context.boot->close_event(pending_keyboard_event);
+		if (EFI_ERROR(status)) return status;
+		pending_keyboard_event = NULL;
+	}
+	if (context.boot->uninstall_multiple == NULL)
+		return EFI_UNSUPPORTED;
+	status = context.boot->uninstall_multiple(context.installed_handle,
+		&database_guid, &context.database_protocol,
+		&string_guid, &context.string_protocol,
+		&image_guid, &context.image_protocol,
+		&font_guid, &context.font_protocol,
+		&config_guid, &context.config_protocol,
+		&keyword_guid, &context.keyword_protocol, NULL);
+	if (EFI_ERROR(status)) return status;
+	if (context.loaded_image != NULL)
+		context.loaded_image->unload = context.original_unload;
+	cdk2_hii_database_destroy(&context.database);
+	context.installed_handle = NULL;
+	context.loaded_image = NULL; context.original_unload = NULL;
+	return EFI_SUCCESS;
 }
 
 static UINTN text_length(const CHAR16 *text)
@@ -744,6 +838,13 @@ static EFI_STATUS resolve_config_access(const CHAR16 *configuration,
 	remaining = bytes;
 	status = context.boot->locate_device_path(&config_access_guid, &remaining,
 		&handle);
+	if (!EFI_ERROR(status)) {
+		UINT8 *end = remaining;
+		if (end < bytes || end + 4U > bytes + digits / 2U ||
+		    end[0] != 0x7fU || end[1] != 0xffU || end[2] != 4U || end[3] != 0U ||
+		    end + 4U != bytes + digits / 2U)
+			status = EFI_INVALID_PARAMETER;
+	}
 	if (!EFI_ERROR(status))
 		status = context.boot->handle_protocol(handle, &config_access_guid,
 			(void **)access);
@@ -1790,6 +1891,8 @@ EFI_STATUS CDK2_MS_ABI cdk2_hii_database_entry(void *image, void *system_table)
 
 	if (system == NULL || system->boot == NULL)
 		return EFI_INVALID_PARAMETER;
+	if (context.database.ops != NULL)
+		return EFI_ALREADY_STARTED;
 	context.boot = system->boot;
 	if (context.boot->allocate_pool == NULL || context.boot->free_pool == NULL ||
 	    context.boot->install_multiple == NULL)
@@ -1797,6 +1900,12 @@ EFI_STATUS CDK2_MS_ABI cdk2_hii_database_entry(void *image, void *system_table)
 	status = cdk2_hii_database_init(&context.database, &ops, &context);
 	if (EFI_ERROR(status))
 		return status;
+	if (context.boot->handle_protocol != NULL && image != NULL &&
+	    !EFI_ERROR(context.boot->handle_protocol(image, &loaded_image_guid,
+		(void **)&context.loaded_image)) && context.loaded_image != NULL) {
+		context.original_unload = context.loaded_image->unload;
+		context.loaded_image->unload = cdk2_hii_database_unload;
+	}
 	context.database_protocol = (struct cdk2_efi_hii_database_protocol) {
 		.new_package_list = new_package, .remove_package_list = remove_package,
 		.update_package_list = update_package, .list_package_lists = list_packages,
@@ -1834,7 +1943,12 @@ EFI_STATUS CDK2_MS_ABI cdk2_hii_database_entry(void *image, void *system_table)
 		&font_guid, &context.font_protocol,
 		&config_guid, &context.config_protocol,
 		&keyword_guid, &context.keyword_protocol, NULL);
-	if (EFI_ERROR(status))
+	if (EFI_ERROR(status)) {
+		if (context.loaded_image != NULL)
+			context.loaded_image->unload = context.original_unload;
+		context.loaded_image = NULL; context.original_unload = NULL;
 		cdk2_hii_database_destroy(&context.database);
+	} else
+		context.installed_handle = handle;
 	return status;
 }

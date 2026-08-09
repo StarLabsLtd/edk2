@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 
 #include <cdk2/hii_database_abi.h>
+#include <cdk2/hii_database.h>
 
 typedef EFI_STATUS CDK2_MS_ABI locate_protocol_fn(const EFI_GUID *, void *, void **);
 struct boot_services_view {
@@ -26,6 +27,14 @@ static const EFI_GUID config_guid = { 0x587e72d7, 0xcc50, 0x4f79,
 	{ 0x82, 0x09, 0xca, 0x29, 0x1f, 0xc1, 0xa1, 0x0f } };
 static const EFI_GUID keyword_guid = { 0x0a8badd5, 0x03b8, 0x4d19,
 	{ 0xb1, 0x28, 0x7b, 0x8f, 0x0e, 0xda, 0xa5, 0x96 } };
+static UINTN notify_count;
+static EFI_STATUS CDK2_MS_ABI package_notify(UINT8 type, const EFI_GUID *guid,
+	const void *package, void *handle, UINTN operation)
+{
+	(void)guid; (void)package; (void)handle;
+	if (type == 0xe0U && operation != 0U) notify_count++;
+	return EFI_SUCCESS;
+}
 
 static UINT8 port_read(UINT16 port)
 {
@@ -56,6 +65,15 @@ EFI_STATUS CDK2_MS_ABI hii_database_qemu_entry(void *image, void *table)
 	struct cdk2_efi_hii_font_protocol *font;
 	struct cdk2_efi_hii_config_routing_protocol *config;
 	struct cdk2_efi_config_keyword_protocol *keyword;
+	struct oracle_list { struct cdk2_hii_package_list_header list;
+		struct cdk2_hii_package_header package; UINT32 value;
+		struct cdk2_hii_package_header end; } synthetic = {
+		.list = { .guid = { 0x48494932U, 0x1111U, 0x2222U, { 3U } },
+			.length = sizeof(synthetic) },
+		.package = { (0xe0U << 24) | 8U }, .value = 0x12345678U,
+		.end = { (CDK2_HII_PACKAGE_END << 24) | 4U }
+	}, exported;
+	void *hii_handle = NULL, *notify_handle = NULL;
 	UINTN size = 0;
 
 	(void)image;
@@ -68,6 +86,21 @@ EFI_STATUS CDK2_MS_ABI hii_database_qemu_entry(void *image, void *table)
 		EFI_BUFFER_TOO_SMALL || size == 0U)
 		goto bad;
 	serial_write("CDK2_HII_DATABASE_PROTOCOL_OK\r\n");
+	if (database->register_package_notify(database, 0xe0U, NULL, package_notify,
+		1U | 2U | 4U | 8U, &notify_handle) != EFI_SUCCESS ||
+	    database->new_package_list(database, &synthetic, NULL, &hii_handle) != EFI_SUCCESS)
+		goto bad;
+	synthetic.value++;
+	if (database->update_package_list(database, hii_handle, &synthetic) != EFI_SUCCESS)
+		goto bad;
+	size = sizeof(exported);
+	if (database->export_package_lists(database, hii_handle, &size, &exported) !=
+		EFI_SUCCESS || size != sizeof(exported) || exported.value != synthetic.value ||
+	    notify_count != 4U || database->remove_package_list(database, hii_handle) !=
+		EFI_SUCCESS || database->unregister_package_notify(database, notify_handle) !=
+		EFI_SUCCESS || notify_count != 5U)
+		goto bad;
+	serial_write("CDK2_HII_DATABASE_BEHAVIOR_OK\r\n");
 	if (!locate(system, &string_guid, (void **)&string) || string->get_string == NULL ||
 	    string->get_languages == NULL || !EFI_ERROR(string->get_languages(string, NULL, NULL, &size)))
 		goto bad;
