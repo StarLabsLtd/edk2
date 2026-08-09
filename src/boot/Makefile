@@ -118,6 +118,7 @@ CDK2_NATIVE_ENGLISH_PE ?= $(CDK2_NATIVE_BUILD_DIR)/EnglishDxe.efi
 CDK2_NATIVE_ENGLISH_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/EnglishDxe.ffs
 CDK2_NATIVE_ENGLISH_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-english.fv
 CDK2_NATIVE_DISK_IO_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-disk-io-test
+CDK2_NATIVE_FAT_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-fat-test
 CDK2_NATIVE_DISK_IO_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/disk-io.o
 CDK2_NATIVE_DISK_IO_PE ?= $(CDK2_NATIVE_BUILD_DIR)/DiskIoDxe.efi
 CDK2_NATIVE_DISK_IO_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/DiskIoDxe.ffs
@@ -356,6 +357,7 @@ CDK2_NATIVE_HOST_TOOLS := \
 	$(CDK2_NATIVE_MONO_TEST) \
 	$(CDK2_NATIVE_ENGLISH_TEST) \
 	$(CDK2_NATIVE_DISK_IO_TEST) \
+	$(CDK2_NATIVE_FAT_TEST) \
 	$(CDK2_NATIVE_SERIAL_IO_TEST) \
 	$(CDK2_NATIVE_SMBIOS_TEST) \
 	$(CDK2_NATIVE_SMM_CONTROL_TEST) \
@@ -391,7 +393,7 @@ CDK2_NATIVE_HOST_TOOLS := \
 CDK2_NATIVE_LINK_FLAGS := -static -no-pie -nostdlib -nostartfiles -nodefaultlibs -Wl,-z,max-page-size=0x1000 -Wl,-z,common-page-size=0x1000 -Wl,-T,"$(CDK2_NATIVE_DIR)/cdk2.ld"
 CDK2_NATIVE_LINK_POST_MAP_FLAGS := -Wl,--gc-sections -Wl,--build-id=none
 
-.PHONY: native-stage native-coreboot-stage native-coreboot-image native-pcd-package native-metronome-fv native-security-stub-fv native-null-memory-test-fv native-null-memory-test-test native-watchdog-fv native-monotonic-counter-fv native-status-code-router-fv native-status-code-router-test native-status-code-handler-fv native-status-code-handler-test native-cpu-io2-fv native-cpu-io2-test native-english-test native-english-fv native-disk-io-fv native-disk-io-test native-serial-io-fv native-serial-io-test native-smbios-fv native-smbios-test native-reset-system-fv native-reset-system-test native-pcat-rtc-fv native-pcat-rtc-test native-smm-access-fv native-smm-access-test native-smm-control-fv native-smm-control-test native-cpu-io2-smm-fv native-cpu-io2-smm-test native-pch-smi-dispatch-test native-pch-smi-dispatch-fv native-local-apic-timer-test native-local-apic-timer-fv native-graphics-console-test native-graphics-console-fv native-capsule-runtime-test native-capsule-runtime-fv native-check native-pack native-service-test native-coreboot-test native-fv-test native-fvpack-test native-fvinfo native-fvinfo-test native-ffsbuild-test native-pe-test native-module-test native-security-stub-test native-elfcheck-test FORCE
+.PHONY: native-stage native-coreboot-stage native-coreboot-image native-pcd-package native-metronome-fv native-security-stub-fv native-null-memory-test-fv native-null-memory-test-test native-watchdog-fv native-monotonic-counter-fv native-status-code-router-fv native-status-code-router-test native-status-code-handler-fv native-status-code-handler-test native-cpu-io2-fv native-cpu-io2-test native-english-test native-english-fv native-disk-io-fv native-disk-io-test native-fat-test native-serial-io-fv native-serial-io-test native-smbios-fv native-smbios-test native-reset-system-fv native-reset-system-test native-pcat-rtc-fv native-pcat-rtc-test native-smm-access-fv native-smm-access-test native-smm-control-fv native-smm-control-test native-cpu-io2-smm-fv native-cpu-io2-smm-test native-pch-smi-dispatch-test native-pch-smi-dispatch-fv native-local-apic-timer-test native-local-apic-timer-fv native-graphics-console-test native-graphics-console-fv native-capsule-runtime-test native-capsule-runtime-fv native-check native-pack native-service-test native-coreboot-test native-fv-test native-fvpack-test native-fvinfo native-fvinfo-test native-ffsbuild-test native-pe-test native-module-test native-security-stub-test native-elfcheck-test FORCE
 .PHONY: native-tpm2-acpi-table-test native-tpm2-acpi-table-fv native-esrt-test native-esrt-ffs native-esrt-fv
 .PHONY: native-pcd-package native-pcd-fv
 .PHONY: native-device-path-test native-device-path-fv
@@ -640,6 +642,7 @@ native-check: $(CDK2_CONFIG_HEADER) $(CDK2_NATIVE_ELF) $(CDK2_NATIVE_OVERRIDE_EL
 	@"$(CDK2_NATIVE_MONO_TEST)"
 	@"$(CDK2_NATIVE_ENGLISH_TEST)"
 	@"$(CDK2_NATIVE_DISK_IO_TEST)"
+	@"$(CDK2_NATIVE_FAT_TEST)"
 	@"$(CDK2_NATIVE_SERIAL_IO_TEST)"
 	@"$(CDK2_NATIVE_SMBIOS_TEST)"
 	@"$(CDK2_NATIVE_SMM_CONTROL_TEST)"
@@ -765,6 +768,9 @@ native-status-code-handler-fv: $(CDK2_NATIVE_STATUS_CODE_HANDLER_FV)
 native-status-code-handler-test: $(CDK2_NATIVE_STATUS_CODE_HANDLER_TEST)
 	@"$(CDK2_NATIVE_STATUS_CODE_HANDLER_TEST)"
 native-disk-io-test: $(CDK2_NATIVE_DISK_IO_TEST)
+	@"$<"
+
+native-fat-test: $(CDK2_NATIVE_FAT_TEST)
 	@"$<"
 
 native-disk-io-fv: $(CDK2_NATIVE_DISK_IO_FV)
@@ -1780,6 +1786,11 @@ $(CDK2_NATIVE_CPU_IO2_TEST): $(CDK2_DIR)/tests/cpu_io2_test.c $(CDK2_DIR)/src/mo
 
 $(CDK2_NATIVE_DISK_IO_TEST): $(CDK2_DIR)/tests/disk_io_test.c $(CDK2_DIR)/src/modules/disk_io/disk_io.c $(CDK2_DIR)/include/cdk2/disk_io.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$<"
+
+$(CDK2_NATIVE_FAT_TEST): $(CDK2_DIR)/tests/fat_test.c $(CDK2_DIR)/src/modules/fat/fat.c $(CDK2_DIR)/include/cdk2/fat.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) \
+		-o "$@" "$(CDK2_DIR)/tests/fat_test.c" \
+		"$(CDK2_DIR)/src/modules/fat/fat.c"
 
 $(CDK2_NATIVE_SERIAL_IO_TEST): $(CDK2_DIR)/tests/serial_io_test.c $(CDK2_DIR)/src/modules/serial_io/serial_io.c $(CDK2_DIR)/include/cdk2/serial_io.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$<"
