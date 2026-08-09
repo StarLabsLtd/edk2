@@ -39,6 +39,7 @@ int main(void)
 {
 	struct fixture fixture;
 	struct cdk2_pci_root_bridge_view bridge;
+	struct cdk2_pci_host_model host;
 	size_t count;
 	uint8_t assigned;
 	int failures = 0;
@@ -53,6 +54,32 @@ int main(void)
 		"root-bridge handoff fields were not preserved");
 	failures += expect(cdk2_pci_root_bridge_get(&fixture, sizeof(fixture), 2,
 		&bridge) == EFI_NOT_FOUND, "out-of-range root bridge accepted");
+	failures += expect(cdk2_pci_host_init(&host, &fixture, sizeof(fixture)) ==
+		EFI_SUCCESS && host.count == 2 && host.can_restart,
+		"host allocation model did not import all root bridges");
+	failures += expect(cdk2_pci_host_notify(&host,
+		CDK2_PCI_BEGIN_BUS_ALLOCATION) == EFI_SUCCESS && !host.can_restart &&
+		cdk2_pci_host_notify(&host, CDK2_PCI_BEGIN_ENUMERATION) == EFI_NOT_READY,
+		"enumeration restart gate was not enforced");
+	failures += expect(cdk2_pci_host_notify(&host, CDK2_PCI_FREE_RESOURCES) ==
+		EFI_SUCCESS && host.can_restart, "free phase did not permit restart");
+	failures += expect(cdk2_pci_host_submit(&host, 0, 1, 0x1000, 0xfff) ==
+		EFI_SUCCESS, "aligned memory request rejected");
+	for (size_t type = 0; type < CDK2_PCI_RESOURCE_TYPES; type++)
+		if (type != 1)
+			failures += expect(cdk2_pci_host_submit(&host, 0, type, 0, 0) ==
+				EFI_SUCCESS, "empty resource request rejected");
+	failures += expect(cdk2_pci_host_notify(&host, CDK2_PCI_ALLOCATE_RESOURCES) ==
+		EFI_NOT_READY, "allocation proceeded before every root submitted resources");
+	for (size_t type = 0; type < CDK2_PCI_RESOURCE_TYPES; type++)
+		failures += expect(cdk2_pci_host_submit(&host, 1, type, 0, 0) ==
+			EFI_SUCCESS, "second root empty request rejected");
+	failures += expect(cdk2_pci_host_notify(&host, CDK2_PCI_ALLOCATE_RESOURCES) ==
+		EFI_SUCCESS && host.request[0][1].allocated &&
+		host.request[0][1].base == 0x80000000,
+		"memory request was not allocated inside its admitted aperture");
+	failures += expect(cdk2_pci_host_submit(&host, 0, 1, 0x1000, 0x123) ==
+		EFI_INVALID_PARAMETER, "non power-of-two alignment mask accepted");
 	fixture.header.header.length--;
 	failures += expect(cdk2_pci_root_bridges_validate(&fixture, sizeof(fixture),
 		&count, &assigned) == EFI_COMPROMISED_DATA,

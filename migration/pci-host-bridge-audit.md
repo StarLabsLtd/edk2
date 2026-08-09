@@ -19,3 +19,18 @@ windows, and malformed boolean fields. It deliberately does not yet publish a
 host-bridge or root-bridge-I/O protocol, so the retained inventory remains
 unchanged until the allocation state machine and CPU I/O-backed protocol ABI
 are complete.
+
+The second inventory-neutral slice adds the restart/resource-submission model,
+alignment-ordered aperture allocation checks, a concrete DXE entry that imports
+the handoff from the configuration-table HOB list, and publication of the first
+three exact Host Bridge Resource Allocation protocol methods. The standalone
+package preserves GUID, `0x1108e` envelope, UI/version strings, file type, and
+the admitted DEPEX byte-for-byte.
+
+This is not ready to replace the retained driver. The ACPI resource-descriptor
+methods (`StartBusEnumeration`, `SetBusNumbers`, `SubmitResources`, and
+`GetProposedResources`) still return `EFI_UNSUPPORTED`; GCD allocation,
+translation-aware 64-bit fallback, conflict reporting, IOMMU integration, and
+per-root `EFI_PCI_ROOT_BRIDGE_IO_PROTOCOL` publication remain. No FV replacement
+target is provided until those semantics and hardware-backed CPU I/O paths are
+complete.

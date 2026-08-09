@@ -42,6 +42,7 @@ CDK2_KCONFIG_ENV = \
 CDK2_CONFIG_TARGETS := build check manifest modules native-stage \
 	native-coreboot-stage native-coreboot-image native-check native-pack native-service-test \
 	native-pcd-package \
+	native-pci-host-bridge-package \
 	native-coreboot-test native-fv-test native-fvpack-test native-pe-test \
 	native-fvinfo native-fvinfo-test native-null-memory-test-fv \
 	native-null-memory-test-test native-module-test native-elfcheck-test \
@@ -94,7 +95,7 @@ CDK2_RECURSIVE_ARGS := \
 .PHONY: all build build-image config defconfig olddefconfig menuconfig \
 	prepare-kconfig check manifest modules native-stage native-coreboot-stage \
 	native-coreboot-image native-check native-pack native-service-test native-coreboot-test \
-	native-pcd-package native-pcd-fv \
+	native-pcd-package native-pcd-fv native-pci-host-bridge-package \
 	native-fv-test native-fvpack-test native-pe-test native-module-test \
 	native-fvinfo native-fvinfo-test native-ffsbuild-test native-security-stub-test \
 	native-security-stub-fv native-null-memory-test-fv native-null-memory-test-test \

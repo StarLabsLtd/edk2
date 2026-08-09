@@ -9,6 +9,8 @@
 
 #define CDK2_PCI_ROOT_BRIDGES_REVISION 1U
 #define CDK2_PCI_ROOT_BRIDGE_APERTURES 6U
+#define CDK2_PCI_HOST_MAX_ROOTS 16U
+#define CDK2_PCI_RESOURCE_TYPES 5U
 
 #pragma pack(push, 1)
 struct cdk2_payload_header {
@@ -42,9 +44,39 @@ struct cdk2_pci_root_bridge_view {
 	struct cdk2_pci_aperture aperture[CDK2_PCI_ROOT_BRIDGE_APERTURES];
 };
 
+enum cdk2_pci_host_phase {
+	CDK2_PCI_BEGIN_ENUMERATION,
+	CDK2_PCI_BEGIN_BUS_ALLOCATION,
+	CDK2_PCI_END_BUS_ALLOCATION,
+	CDK2_PCI_BEGIN_RESOURCE_ALLOCATION,
+	CDK2_PCI_ALLOCATE_RESOURCES,
+	CDK2_PCI_SET_RESOURCES,
+	CDK2_PCI_FREE_RESOURCES,
+	CDK2_PCI_END_RESOURCE_ALLOCATION
+};
+
+struct cdk2_pci_resource_request {
+	uint64_t length, alignment, base;
+	uint8_t submitted, allocated;
+};
+
+struct cdk2_pci_host_model {
+	struct cdk2_pci_root_bridge_view root[CDK2_PCI_HOST_MAX_ROOTS];
+	struct cdk2_pci_resource_request
+		request[CDK2_PCI_HOST_MAX_ROOTS][CDK2_PCI_RESOURCE_TYPES];
+	size_t count;
+	uint8_t can_restart, resource_assigned;
+};
+
 uint64_t cdk2_pci_root_bridges_validate(const void *hob, size_t hob_size,
 	size_t *count, uint8_t *resource_assigned);
 uint64_t cdk2_pci_root_bridge_get(const void *hob, size_t hob_size,
 	size_t index, struct cdk2_pci_root_bridge_view *bridge);
+uint64_t cdk2_pci_host_init(struct cdk2_pci_host_model *host,
+	const void *hob, size_t hob_size);
+uint64_t cdk2_pci_host_notify(struct cdk2_pci_host_model *host,
+	enum cdk2_pci_host_phase phase);
+uint64_t cdk2_pci_host_submit(struct cdk2_pci_host_model *host, size_t root,
+	size_t type, uint64_t length, uint64_t alignment);
 
 #endif
