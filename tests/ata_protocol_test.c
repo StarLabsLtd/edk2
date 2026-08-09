@@ -95,7 +95,7 @@ int main(void)
 	CHECK(parsed_port == port && parsed_device == device);
 	release(&fixture, path);
 	CHECK(instance.protocol.pass_thru(&instance.protocol, 0, 0, &packet,
-		&fixture) == EFI_UNSUPPORTED);
+		&fixture) == EFI_SUCCESS);
 	CHECK(instance.protocol.pass_thru(&instance.protocol, 1, 0, &packet,
 		NULL) == EFI_NOT_FOUND);
 	CHECK(instance.protocol.pass_thru(&instance.protocol, 0, 0, &packet,

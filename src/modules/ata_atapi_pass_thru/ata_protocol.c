@@ -35,8 +35,7 @@ static EFI_STATUS CDK2_MS_ABI pass_thru(
 
 	if (instance == NULL || packet == NULL || packet->acb == NULL)
 		return EFI_INVALID_PARAMETER;
-	if (event != NULL)
-		return EFI_UNSUPPORTED;
+	(void)event;
 	controller = instance->controller;
 	if (controller == NULL || !controller->started ||
 	    !device_exists(&controller->topology, port, multiplier))
