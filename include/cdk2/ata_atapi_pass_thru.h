@@ -13,6 +13,10 @@
 #define CDK2_ATA_PASS_THRU_ATTRIBUTES_PHYSICAL 0x0001U
 #define CDK2_ATA_PASS_THRU_ATTRIBUTES_LOGICAL 0x0002U
 #define CDK2_ATA_PASS_THRU_ATTRIBUTES_NONBLOCKIO 0x0004U
+#define CDK2_EXT_SCSI_TARGET_BYTES 16U
+#define CDK2_EXT_SCSI_DIRECTION_READ 0U
+#define CDK2_EXT_SCSI_DIRECTION_WRITE 1U
+#define CDK2_EXT_SCSI_DIRECTION_BIDIRECTIONAL 2U
 
 enum cdk2_ata_mode { CDK2_ATA_IDE, CDK2_ATA_AHCI };
 enum cdk2_ata_device_type { CDK2_ATA_DISK, CDK2_ATAPI_DEVICE, CDK2_PORT_MULTIPLIER };
@@ -157,6 +161,53 @@ struct cdk2_ata_protocol_instance {
 	struct cdk2_ata_protocol_services services;
 };
 EFI_STATUS cdk2_ata_protocol_init(struct cdk2_ata_protocol_instance *instance,
+	struct cdk2_ata_controller *controller,
+	const struct cdk2_ata_protocol_services *services, UINT32 io_align);
+
+struct cdk2_ext_scsi_mode { UINT32 adapter_id, attributes, io_align; };
+struct cdk2_ext_scsi_packet {
+	UINT64 timeout;
+	void *in_data, *out_data, *sense_data, *cdb;
+	UINT32 in_length, out_length;
+	UINT8 cdb_length, direction, host_status, target_status, sense_length;
+};
+struct cdk2_ext_scsi_protocol;
+typedef EFI_STATUS CDK2_MS_ABI cdk2_ext_scsi_pass_fn(
+	struct cdk2_ext_scsi_protocol *, UINT8 *, UINT64,
+	struct cdk2_ext_scsi_packet *, void *);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_ext_scsi_next_lun_fn(
+	struct cdk2_ext_scsi_protocol *, UINT8 **, UINT64 *);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_ext_scsi_build_path_fn(
+	struct cdk2_ext_scsi_protocol *, UINT8 *, UINT64, void **);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_ext_scsi_get_lun_fn(
+	struct cdk2_ext_scsi_protocol *, void *, UINT8 **, UINT64 *);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_ext_scsi_reset_channel_fn(
+	struct cdk2_ext_scsi_protocol *);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_ext_scsi_reset_target_fn(
+	struct cdk2_ext_scsi_protocol *, UINT8 *, UINT64);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_ext_scsi_next_target_fn(
+	struct cdk2_ext_scsi_protocol *, UINT8 **);
+struct cdk2_ext_scsi_protocol {
+	struct cdk2_ext_scsi_mode *mode;
+	cdk2_ext_scsi_pass_fn *pass_thru;
+	cdk2_ext_scsi_next_lun_fn *get_next_target_lun;
+	cdk2_ext_scsi_build_path_fn *build_device_path;
+	cdk2_ext_scsi_get_lun_fn *get_target_lun;
+	cdk2_ext_scsi_reset_channel_fn *reset_channel;
+	cdk2_ext_scsi_reset_target_fn *reset_target_lun;
+	cdk2_ext_scsi_next_target_fn *get_next_target;
+};
+struct cdk2_ext_scsi_instance {
+	struct cdk2_ext_scsi_protocol protocol;
+	struct cdk2_ext_scsi_mode mode;
+	struct cdk2_ata_controller *controller;
+	struct cdk2_ata_protocol_services services;
+	UINT8 target[CDK2_EXT_SCSI_TARGET_BYTES];
+	UINT8 previous[CDK2_EXT_SCSI_TARGET_BYTES];
+	UINT64 previous_lun;
+	UINT8 enumerated;
+};
+EFI_STATUS cdk2_ext_scsi_init(struct cdk2_ext_scsi_instance *instance,
 	struct cdk2_ata_controller *controller,
 	const struct cdk2_ata_protocol_services *services, UINT32 io_align);
 

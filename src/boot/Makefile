@@ -2270,6 +2270,7 @@ native-ata-atapi-entry-test: $(CDK2_NATIVE_ATA_ATAPI_ENTRY_TEST)
 
 $(CDK2_NATIVE_ATA_PROTOCOL_TEST): $(CDK2_DIR)/tests/ata_protocol_test.c \
 		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/ata_protocol.c \
+		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/ext_scsi.c \
 		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/model.c \
 		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/ahci.c \
 		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/ide.c \
@@ -2277,6 +2278,7 @@ $(CDK2_NATIVE_ATA_PROTOCOL_TEST): $(CDK2_DIR)/tests/ata_protocol_test.c \
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -fsanitize=address,undefined \
 		$(CDK2_NATIVE_INCLUDES) -o "$@" $(CDK2_DIR)/tests/ata_protocol_test.c \
 		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/ata_protocol.c \
+		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/ext_scsi.c \
 		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/model.c \
 		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/ahci.c \
 		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/ide.c
