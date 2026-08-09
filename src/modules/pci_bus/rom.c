@@ -44,6 +44,24 @@ int cdk2_pci_discover_option_rom(const struct cdk2_pci_cfg *cfg,
 			return -1;
 		if (staged.option_rom_images == UINT8_MAX)
 			return -1;
+		if (staged.option_rom_images == CDK2_PCI_MAX_ROM_IMAGES)
+			return -1;
+		staged.option_rom[staged.option_rom_images].offset = (uint32_t)offset;
+		staged.option_rom[staged.option_rom_images].size = (uint32_t)length;
+		staged.option_rom[staged.option_rom_images].code_type = pcir[0x14];
+		if (pcir[0x14] == 3U) {
+			uint16_t payload_offset = get16(header + 0x16);
+			if (get16(header + 4) != 0x0ef1U || payload_offset >= length)
+				return -1;
+			staged.option_rom[staged.option_rom_images].payload_offset =
+				payload_offset;
+			staged.option_rom[staged.option_rom_images].machine =
+				get16(header + 0x0a);
+			staged.option_rom[staged.option_rom_images].compression =
+				header[0x0c];
+			if (header[0x0c] > 1U)
+				return -1;
+		}
 		staged.option_rom_images++;
 		if (pcir[0x14] == 3U) {
 			staged.option_rom_efi_images++;
@@ -63,8 +81,8 @@ int cdk2_pci_prepare_option_rom(const struct cdk2_pci_cfg *cfg,
 {
 	struct cdk2_pci_function staged;
 	const struct cdk2_pci_bar *rom = NULL;
-	void *shadow, *expanded = NULL, *handle = NULL;
-	size_t shadow_size, expanded_size;
+	void *shadow;
+	size_t shadow_size;
 	if (cfg == NULL || ops == NULL || ops->allocate == NULL || ops->free == NULL ||
 	    ops->load_image == NULL || function == NULL ||
 	    function->option_rom_shadow != NULL)
@@ -85,28 +103,48 @@ int cdk2_pci_prepare_option_rom(const struct cdk2_pci_cfg *cfg,
 			ops->free(ops->context, shadow);
 		return -1;
 	}
-	if (ops->decompress != NULL && shadow_size <= SIZE_MAX / 4U) {
-		expanded_size = shadow_size * 4U;
-		expanded = ops->allocate(ops->context, expanded_size);
-		if (expanded != NULL && ops->decompress(ops->context, shadow, shadow_size,
-			expanded, &expanded_size) == 0) {
-			ops->free(ops->context, shadow);
-			shadow = expanded;
-			shadow_size = expanded_size;
-			expanded = NULL;
+	for (uint8_t i = 0; i < staged.option_rom_images; i++) {
+		void *payload, *handle;
+		size_t payload_size;
+		if (staged.option_rom[i].code_type != 3U)
+			continue;
+		payload = (uint8_t *)shadow + staged.option_rom[i].offset +
+			staged.option_rom[i].payload_offset;
+		payload_size = staged.option_rom[i].size -
+			staged.option_rom[i].payload_offset;
+		if (staged.option_rom[i].compression == 1U) {
+			if (ops->decompress == NULL || payload_size > SIZE_MAX / 4U)
+				goto rollback;
+			staged.option_rom[i].decompressed_size = payload_size * 4U;
+			staged.option_rom[i].decompressed = ops->allocate(ops->context,
+				staged.option_rom[i].decompressed_size);
+			if (staged.option_rom[i].decompressed == NULL ||
+			    ops->decompress(ops->context, payload, payload_size,
+				staged.option_rom[i].decompressed,
+				&staged.option_rom[i].decompressed_size) != 0)
+				goto rollback;
+			payload = staged.option_rom[i].decompressed;
+			payload_size = staged.option_rom[i].decompressed_size;
 		}
-		if (expanded != NULL)
-			ops->free(ops->context, expanded);
-	}
-	if (ops->load_image(ops->context, shadow, shadow_size, &handle) != 0) {
-		ops->free(ops->context, shadow);
-		return -1;
+		if (ops->load_image(ops->context, payload, payload_size, &handle) != 0)
+			goto rollback;
+		staged.option_rom[i].image_handle = handle;
+		if (staged.option_rom_image_handle == NULL)
+			staged.option_rom_image_handle = handle;
 	}
 	staged.option_rom_shadow = shadow;
 	staged.option_rom_shadow_size = shadow_size;
-	staged.option_rom_image_handle = handle;
 	*function = staged;
 	return 0;
+rollback:
+	for (uint8_t i = 0; i < staged.option_rom_images; i++) {
+		if (staged.option_rom[i].image_handle != NULL && ops->unload_image != NULL)
+			ops->unload_image(ops->context, staged.option_rom[i].image_handle);
+		if (staged.option_rom[i].decompressed != NULL)
+			ops->free(ops->context, staged.option_rom[i].decompressed);
+	}
+	ops->free(ops->context, shadow);
+	return -1;
 }
 
 void cdk2_pci_release_option_rom(const struct cdk2_pci_rom_ops *ops,
@@ -114,11 +152,51 @@ void cdk2_pci_release_option_rom(const struct cdk2_pci_rom_ops *ops,
 {
 	if (ops == NULL || function == NULL)
 		return;
-	if (function->option_rom_image_handle != NULL && ops->unload_image != NULL)
-		ops->unload_image(ops->context, function->option_rom_image_handle);
+	for (uint8_t i = 0; i < function->option_rom_images; i++) {
+		if (function->option_rom[i].image_handle != NULL &&
+		    ops->unload_image != NULL)
+			ops->unload_image(ops->context,
+				function->option_rom[i].image_handle);
+		if (function->option_rom[i].decompressed != NULL && ops->free != NULL)
+			ops->free(ops->context, function->option_rom[i].decompressed);
+		function->option_rom[i].image_handle = NULL;
+		function->option_rom[i].decompressed = NULL;
+		function->option_rom[i].decompressed_size = 0;
+	}
 	if (function->option_rom_shadow != NULL && ops->free != NULL)
 		ops->free(ops->context, function->option_rom_shadow);
 	function->option_rom_image_handle = NULL;
 	function->option_rom_shadow = NULL;
 	function->option_rom_shadow_size = 0;
+}
+
+int cdk2_pci_option_rom_load_file(const struct cdk2_pci_function *function,
+	unsigned int image, size_t offset, void *buffer, size_t *size)
+{
+	const uint8_t *source;
+	size_t available;
+	if (function == NULL || size == NULL || image >= function->option_rom_images ||
+	    function->option_rom[image].code_type != 3U ||
+	    function->option_rom_shadow == NULL)
+		return -1;
+	if (function->option_rom[image].decompressed != NULL) {
+		source = function->option_rom[image].decompressed;
+		available = function->option_rom[image].decompressed_size;
+	} else {
+		source = (const uint8_t *)function->option_rom_shadow +
+			function->option_rom[image].offset +
+			function->option_rom[image].payload_offset;
+		available = function->option_rom[image].size -
+			function->option_rom[image].payload_offset;
+	}
+	if (offset > available)
+		return -1;
+	available -= offset;
+	if (buffer == NULL || *size < available) {
+		*size = available;
+		return 1;
+	}
+	memcpy(buffer, source + offset, available);
+	*size = available;
+	return 0;
 }

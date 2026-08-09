@@ -11,6 +11,7 @@
 #define CDK2_PCI_MAX_REBAR 6U
 #define CDK2_PCI_MAX_ROOTS 8U
 #define CDK2_PCI_RESOURCE_CLASSES 4U
+#define CDK2_PCI_MAX_ROM_IMAGES 16U
 
 enum cdk2_pci_bar_kind {
 	CDK2_PCI_BAR_NONE,
@@ -72,6 +73,17 @@ struct cdk2_pci_function {
 	void *option_rom_shadow;
 	size_t option_rom_shadow_size;
 	void *option_rom_image_handle;
+	struct {
+		uint32_t offset;
+		uint32_t size;
+		uint32_t payload_offset;
+		uint16_t machine;
+		uint8_t code_type;
+		uint8_t compression;
+		void *image_handle;
+		void *decompressed;
+		size_t decompressed_size;
+	} option_rom[CDK2_PCI_MAX_ROM_IMAGES];
 };
 
 struct cdk2_pci_resource_request {
@@ -136,6 +148,16 @@ struct cdk2_pci_rom_ops {
 	void (*unload_image)(void *context, void *handle);
 };
 
+struct cdk2_pci_cardbus_socket {
+	void *context;
+	int (*set_power)(void *context, int enabled);
+	int (*reset)(void *context);
+	int (*notify)(void *context, int inserted, uint64_t generation);
+	uint64_t generation;
+	uint8_t present;
+	uint8_t powered;
+};
+
 struct cdk2_pci_topology {
 	struct cdk2_pci_function functions[CDK2_PCI_MAX_FUNCTIONS];
 	size_t count;
@@ -168,5 +190,9 @@ int cdk2_pci_prepare_option_rom(const struct cdk2_pci_cfg *cfg,
 	const struct cdk2_pci_rom_ops *ops, struct cdk2_pci_function *function);
 void cdk2_pci_release_option_rom(const struct cdk2_pci_rom_ops *ops,
 	struct cdk2_pci_function *function);
+int cdk2_pci_option_rom_load_file(const struct cdk2_pci_function *function,
+	unsigned int image, size_t offset, void *buffer, size_t *size);
+int cdk2_pci_cardbus_insert(struct cdk2_pci_cardbus_socket *socket);
+int cdk2_pci_cardbus_remove(struct cdk2_pci_cardbus_socket *socket);
 
 #endif

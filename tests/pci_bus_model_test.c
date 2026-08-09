@@ -19,6 +19,7 @@ struct fixture {
 	unsigned int crs_reads;
 	uint8_t rom[1024];
 	unsigned int allocations, frees, loads, unloads, hotplug_inits, hotplug_deinits;
+	unsigned int socket_power, socket_reset, socket_notify;
 	int fail_load, fail_hotplug;
 };
 
@@ -166,6 +167,28 @@ static int hotplug_padding(void *context, const struct cdk2_pci_function *bridge
 	(void)context; (void)bridge;
 	memset(padding, 0, sizeof(uint64_t) * CDK2_PCI_RESOURCE_CLASSES);
 	padding[1] = 0x100000;
+	return 0;
+}
+
+static int socket_power(void *context, int enabled)
+{
+	struct fixture *fixture = context;
+	fixture->socket_power = (unsigned int)enabled;
+	return 0;
+}
+
+static int socket_reset(void *context)
+{
+	struct fixture *fixture = context;
+	fixture->socket_reset++;
+	return 0;
+}
+
+static int socket_notify(void *context, int inserted, uint64_t generation)
+{
+	struct fixture *fixture = context;
+	(void)inserted; (void)generation;
+	fixture->socket_notify++;
 	return 0;
 }
 
@@ -347,6 +370,7 @@ static int host_and_rom_test(void)
 	struct cdk2_pci_resource_request proposed[CDK2_PCI_RESOURCE_CLASSES] = { 0 };
 	struct cdk2_pci_rom_ops rom_ops = { &f, rom_allocate, rom_free,
 		rom_decompress, rom_load, rom_unload };
+	uint8_t load_buffer[512]; size_t load_size = 0;
 	add(&f, 0, 0, 0, 1, 1, 0);
 	topology.count = 1;
 	CHECK(cdk2_pci_host_set(&host) != 0);
@@ -355,15 +379,20 @@ static int host_and_rom_test(void)
 	CHECK(cdk2_pci_host_submit(&host, &policy) == 0);
 	proposed[1].kind = CDK2_PCI_BAR_MEM32; proposed[1].length = 0x100000;
 	CHECK(cdk2_pci_host_add_root(&host, 0, 0, 0, proposed) == 0);
+	CHECK(cdk2_pci_host_add_root(&host, 0, 0, 2, proposed) != 0);
+	CHECK(cdk2_pci_host_add_root(&host, 0, 2, 2, proposed) == 0);
 	CHECK(cdk2_pci_host_allocate(&host) == 0);
 	CHECK(host.allocation_status == 0);
 	CHECK(host.roots[0].status[1] == 0);
+	CHECK(host.roots[1].status[1] == 0);
 	CHECK(cdk2_pci_host_set(&host) == 0);
 	CHECK(cdk2_pci_host_end(&host) == 0);
 	function.bar_count = 1;
 	function.bars[0] = (struct cdk2_pci_bar) {
 		.kind = CDK2_PCI_BAR_ROM, .base = 0x100000, .size = sizeof(f.rom) };
 	f.rom[0] = 0x55; f.rom[1] = 0xaa; put16(f.rom + 0x18, 0x20);
+	put16(f.rom + 4, 0x0ef1); put16(f.rom + 0x0a, 0x8664);
+	f.rom[0x0c] = 1; put16(f.rom + 0x16, 0x40);
 	memcpy(f.rom + 0x20, "PCIR", 4); put16(f.rom + 0x30, 1);
 	f.rom[0x34] = 3; f.rom[0x35] = 0x80;
 	CHECK(cdk2_pci_discover_option_rom(&cfg, &function) == 0);
@@ -373,6 +402,12 @@ static int host_and_rom_test(void)
 	CHECK(cdk2_pci_prepare_option_rom(&cfg, &rom_ops, &function) == 0);
 	CHECK(function.option_rom_shadow != NULL);
 	CHECK(function.option_rom_image_handle == &f);
+	CHECK(function.option_rom[0].machine == 0x8664);
+	CHECK(function.option_rom[0].compression == 1);
+	CHECK(cdk2_pci_option_rom_load_file(&function, 0, 0, NULL, &load_size) == 1);
+	CHECK(load_size == 448);
+	CHECK(cdk2_pci_option_rom_load_file(&function, 0, 0, load_buffer,
+		&load_size) == 0);
 	cdk2_pci_release_option_rom(&rom_ops, &function);
 	CHECK(function.option_rom_shadow == NULL);
 	CHECK(f.unloads == 1);
@@ -383,6 +418,21 @@ static int host_and_rom_test(void)
 	before = function; f.rom[0x20] = 0;
 	CHECK(cdk2_pci_discover_option_rom(&cfg, &function) != 0);
 	CHECK(memcmp(&before, &function, sizeof(before)) == 0);
+	return 0;
+}
+
+static int cardbus_socket_test(void)
+{
+	struct fixture f = { 0 };
+	struct cdk2_pci_cardbus_socket socket = { &f, socket_power, socket_reset,
+		socket_notify, 0, 0, 0 };
+	CHECK(cdk2_pci_cardbus_remove(&socket) != 0);
+	CHECK(cdk2_pci_cardbus_insert(&socket) == 0);
+	CHECK(socket.present == 1 && socket.powered == 1 && socket.generation == 1);
+	CHECK(f.socket_reset == 1 && f.socket_notify == 1);
+	CHECK(cdk2_pci_cardbus_insert(&socket) != 0);
+	CHECK(cdk2_pci_cardbus_remove(&socket) == 0);
+	CHECK(socket.present == 0 && socket.powered == 0 && socket.generation == 2);
 	return 0;
 }
 
@@ -460,7 +510,7 @@ int main(void)
 {
 	if (topology_test() || temporary_bridge_and_crs_test() ||
 	    overflow_and_cardbus_test() || allocator_test() || host_and_rom_test() ||
-	    hotplug_rollback_test() || corruption_test())
+	    hotplug_rollback_test() || cardbus_socket_test() || corruption_test())
 		return 1;
 	puts("pci bus model tests: PASS");
 	return 0;

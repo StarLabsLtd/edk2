@@ -32,6 +32,34 @@ int cdk2_pci_host_allocate(struct cdk2_pci_host_model *host)
 	if (host == NULL || host->phase != CDK2_PCI_HOST_BEGIN ||
 	    host->cfg == NULL || host->topology == NULL)
 		return -1;
+	if (host->root_count != 0U) {
+		uint64_t required[CDK2_PCI_MAX_ROOTS][CDK2_PCI_RESOURCE_CLASSES] = { { 0 } };
+		for (size_t i = 0; i < host->topology->count; i++) {
+			const struct cdk2_pci_function *fn = &host->topology->functions[i];
+			size_t root;
+			for (root = 0; root < host->root_count; root++)
+				if (fn->bus >= host->roots[root].first_bus &&
+				    fn->bus <= host->roots[root].last_bus)
+					break;
+			if (root == host->root_count)
+				goto preflight_failed;
+			for (uint8_t bar = 0; bar < fn->bar_count; bar++) {
+				const struct cdk2_pci_bar *resource = &fn->bars[bar];
+				unsigned int kind = resource->kind == CDK2_PCI_BAR_IO ? 0U :
+					(resource->kind == CDK2_PCI_BAR_MEM64 ? 2U :
+					(resource->prefetchable ? 3U : 1U));
+				if (UINT64_MAX - required[root][kind] < resource->size)
+					goto preflight_failed;
+				required[root][kind] += resource->size;
+			}
+		}
+		for (size_t root = 0; root < host->root_count; root++)
+			for (unsigned int resource = 0;
+			     resource < CDK2_PCI_RESOURCE_CLASSES; resource++)
+				if (required[root][resource] >
+				    host->roots[root].proposed[resource].length)
+					goto preflight_failed;
+	}
 	host->allocation_status = cdk2_pci_allocate_resources(host->cfg,
 		host->topology, &host->proposed);
 	for (size_t root = 0; root < host->root_count; root++)
@@ -42,6 +70,13 @@ int cdk2_pci_host_allocate(struct cdk2_pci_host_model *host)
 		return -1;
 	host->phase = CDK2_PCI_HOST_ALLOCATED;
 	return 0;
+preflight_failed:
+	host->allocation_status = -1;
+	for (size_t root = 0; root < host->root_count; root++)
+		for (unsigned int resource = 0; resource < CDK2_PCI_RESOURCE_CLASSES;
+		     resource++)
+			host->roots[root].status[resource] = -1;
+	return -1;
 }
 
 int cdk2_pci_host_add_root(struct cdk2_pci_host_model *host, uint16_t segment,
@@ -51,6 +86,11 @@ int cdk2_pci_host_add_root(struct cdk2_pci_host_model *host, uint16_t segment,
 	if (host == NULL || proposed == NULL || host->phase != CDK2_PCI_HOST_BEGIN ||
 	    host->root_count == CDK2_PCI_MAX_ROOTS || first_bus > last_bus)
 		return -1;
+	for (size_t root = 0; root < host->root_count; root++)
+		if (segment == host->roots[root].segment &&
+		    first_bus <= host->roots[root].last_bus &&
+		    last_bus >= host->roots[root].first_bus)
+			return -1;
 	host->roots[host->root_count].segment = segment;
 	host->roots[host->root_count].first_bus = first_bus;
 	host->roots[host->root_count].last_bus = last_bus;
