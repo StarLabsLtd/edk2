@@ -102,13 +102,20 @@ EFI_STATUS cdk2_fat_binding_start(struct cdk2_fat_binding *binding,
 	status = cdk2_fat_binding_refresh(mount);
 	if (EFI_ERROR(status))
 		goto close_disk;
-	status = binding->ops->publish(binding->context, controller,
-		&cdk2_fat_simple_fs_guid, mount);
+	status = binding->ops->allocate(binding->context, sizeof(*mount->simple_fs),
+		(void **)&mount->simple_fs);
 	if (EFI_ERROR(status))
 		goto close_disk;
+	cdk2_fat_protocol_init(mount->simple_fs, binding, mount);
+	status = binding->ops->publish(binding->context, controller,
+		&cdk2_fat_simple_fs_guid, &mount->simple_fs->protocol);
+	if (EFI_ERROR(status))
+		goto release_protocol;
 	mount->published = 1U; mount->next = binding->mounts;
 	binding->mounts = mount;
 	return EFI_SUCCESS;
+release_protocol:
+	binding->ops->release(binding->context, mount->simple_fs);
 close_disk:
 	(void)binding->ops->close(binding->context, controller,
 		&cdk2_fat_disk_io_guid);
@@ -136,14 +143,14 @@ EFI_STATUS cdk2_fat_binding_stop(struct cdk2_fat_binding *binding,
 	if (mount->open_handles != 0U)
 		return FAT_ACCESS_DENIED;
 	status = binding->ops->unpublish(binding->context, controller,
-		&cdk2_fat_simple_fs_guid, mount);
+		&cdk2_fat_simple_fs_guid, &mount->simple_fs->protocol);
 	if (EFI_ERROR(status))
 		return status;
 	status = binding->ops->close(binding->context, controller,
 		&cdk2_fat_disk_io_guid);
 	if (EFI_ERROR(status)) {
 		(void)binding->ops->publish(binding->context, controller,
-			&cdk2_fat_simple_fs_guid, mount);
+			&cdk2_fat_simple_fs_guid, &mount->simple_fs->protocol);
 		return status;
 	}
 	status = binding->ops->close(binding->context, controller,
@@ -152,10 +159,11 @@ EFI_STATUS cdk2_fat_binding_stop(struct cdk2_fat_binding *binding,
 		(void)binding->ops->open(binding->context, controller,
 			&cdk2_fat_disk_io_guid, (void **)&mount->disk);
 		(void)binding->ops->publish(binding->context, controller,
-			&cdk2_fat_simple_fs_guid, mount);
+			&cdk2_fat_simple_fs_guid, &mount->simple_fs->protocol);
 		return status;
 	}
-	*link = mount->next; binding->ops->release(binding->context, mount);
+	*link = mount->next; binding->ops->release(binding->context, mount->simple_fs);
+	binding->ops->release(binding->context, mount);
 	return EFI_SUCCESS;
 }
 

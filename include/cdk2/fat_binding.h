@@ -17,6 +17,7 @@ struct cdk2_fat_binding_ops {
 };
 struct cdk2_fat_io_token { void *event; EFI_STATUS transaction_status; };
 struct cdk2_fat_binding;
+struct cdk2_fat_protocol_volume;
 EFI_STATUS cdk2_fat_complete_io(const struct cdk2_fat_binding *binding,
 	struct cdk2_fat_io_token *token, EFI_STATUS status);
 
@@ -26,6 +27,7 @@ struct cdk2_fat_mount {
 	struct cdk2_block_io *block;
 	struct cdk2_disk_io *disk;
 	void *controller;
+	struct cdk2_fat_protocol_volume *simple_fs;
 	UINT32 media_id;
 	UINTN open_handles;
 	BOOLEAN published;
@@ -48,5 +50,72 @@ EFI_STATUS cdk2_fat_binding_stop(struct cdk2_fat_binding *binding,
 EFI_STATUS cdk2_fat_binding_refresh(struct cdk2_fat_mount *mount);
 EFI_STATUS cdk2_fat_binding_open_handle(struct cdk2_fat_mount *mount);
 void cdk2_fat_binding_close_handle(struct cdk2_fat_mount *mount);
+
+struct cdk2_fat_file_protocol;
+struct cdk2_fat_file_io_token {
+	void *event;
+	EFI_STATUS status;
+	UINTN buffer_size;
+	void *buffer;
+};
+typedef EFI_STATUS CDK2_MS_ABI cdk2_fat_file_open_fn(
+	struct cdk2_fat_file_protocol *, struct cdk2_fat_file_protocol **,
+	CHAR16 *, UINT64, UINT64);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_fat_file_close_fn(struct cdk2_fat_file_protocol *);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_fat_file_delete_fn(struct cdk2_fat_file_protocol *);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_fat_file_rw_fn(
+	struct cdk2_fat_file_protocol *, UINTN *, void *);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_fat_file_position_get_fn(
+	struct cdk2_fat_file_protocol *, UINT64 *);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_fat_file_position_set_fn(
+	struct cdk2_fat_file_protocol *, UINT64);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_fat_file_info_get_fn(
+	struct cdk2_fat_file_protocol *, EFI_GUID *, UINTN *, void *);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_fat_file_info_set_fn(
+	struct cdk2_fat_file_protocol *, EFI_GUID *, UINTN, void *);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_fat_file_flush_fn(struct cdk2_fat_file_protocol *);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_fat_file_open_ex_fn(
+	struct cdk2_fat_file_protocol *, struct cdk2_fat_file_protocol **,
+	CHAR16 *, UINT64, UINT64, struct cdk2_fat_file_io_token *);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_fat_file_rw_ex_fn(
+	struct cdk2_fat_file_protocol *, struct cdk2_fat_file_io_token *);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_fat_file_flush_ex_fn(
+	struct cdk2_fat_file_protocol *, struct cdk2_fat_file_io_token *);
+
+struct cdk2_fat_file_protocol {
+	UINT64 revision;
+	cdk2_fat_file_open_fn *open;
+	cdk2_fat_file_close_fn *close;
+	cdk2_fat_file_delete_fn *delete;
+	cdk2_fat_file_rw_fn *read;
+	cdk2_fat_file_rw_fn *write;
+	cdk2_fat_file_position_get_fn *get_position;
+	cdk2_fat_file_position_set_fn *set_position;
+	cdk2_fat_file_info_get_fn *get_info;
+	cdk2_fat_file_info_set_fn *set_info;
+	cdk2_fat_file_flush_fn *flush;
+	cdk2_fat_file_open_ex_fn *open_ex;
+	cdk2_fat_file_rw_ex_fn *read_ex;
+	cdk2_fat_file_rw_ex_fn *write_ex;
+	cdk2_fat_file_flush_ex_fn *flush_ex;
+};
+
+struct cdk2_fat_simple_fs_protocol {
+	UINT64 revision;
+	EFI_STATUS (CDK2_MS_ABI *open_volume)(struct cdk2_fat_simple_fs_protocol *,
+		struct cdk2_fat_file_protocol **);
+};
+
+struct cdk2_fat_protocol_volume {
+	struct cdk2_fat_simple_fs_protocol protocol;
+	struct cdk2_fat_binding *binding;
+	struct cdk2_fat_mount *mount;
+};
+
+extern const EFI_GUID cdk2_fat_file_info_guid;
+extern const EFI_GUID cdk2_fat_fs_info_guid;
+extern const EFI_GUID cdk2_fat_volume_label_info_guid;
+void cdk2_fat_protocol_init(struct cdk2_fat_protocol_volume *volume,
+	struct cdk2_fat_binding *binding, struct cdk2_fat_mount *mount);
 
 #endif
