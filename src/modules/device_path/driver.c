@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: BSD-2-Clause-Patent */
 
 #include <cdk2/device_path.h>
+#include <cdk2/capsule_runtime_abi.h>
 
 typedef EFI_STATUS CDK2_MS_ABI allocate_pool_fn(UINT32, UINTN, void **);
 typedef EFI_STATUS CDK2_MS_ABI free_pool_fn(void *);
@@ -12,7 +13,7 @@ struct boot_services_view {
 	void *slots_before_allocate[5];
 	allocate_pool_fn *allocate_pool;
 	free_pool_fn *free_pool;
-	void *slots_before_install_multiple[34];
+	void *slots_before_install_multiple[31];
 	install_multiple_fn *install_multiple;
 	uninstall_multiple_fn *uninstall_multiple;
 };
@@ -25,7 +26,11 @@ struct system_table_view {
 typedef char allocate_offset_check[
 	OFFSET_OF(struct boot_services_view, allocate_pool) == 64 ? 1 : -1];
 typedef char install_offset_check[
-	OFFSET_OF(struct boot_services_view, install_multiple) == 352 ? 1 : -1];
+	OFFSET_OF(struct boot_services_view, install_multiple) ==
+	OFFSET_OF(struct cdk2_boot_services_view, install_multiple) ? 1 : -1];
+typedef char uninstall_offset_check[
+	OFFSET_OF(struct boot_services_view, uninstall_multiple) ==
+	OFFSET_OF(struct cdk2_boot_services_view, uninstall_multiple) ? 1 : -1];
 typedef char boot_offset_check[
 	OFFSET_OF(struct system_table_view, boot) == 96 ? 1 : -1];
 typedef char utilities_abi_size_check[

@@ -14,10 +14,14 @@ struct boot_services_view {
 	void *slots_before_allocate[5];
 	allocate_pool_fn *allocate_pool;
 	free_pool_fn *free_pool;
-	void *slots_before_install_multiple[34];
+	void *slots_before_install_multiple[31];
 	install_multiple_fn *install_multiple;
 	uninstall_multiple_fn *uninstall_multiple;
 };
+typedef char install_offset_check[
+	OFFSET_OF(struct boot_services_view, install_multiple) == 328 ? 1 : -1];
+typedef char uninstall_offset_check[
+	OFFSET_OF(struct boot_services_view, uninstall_multiple) == 336 ? 1 : -1];
 struct system_table_view {
 	UINT8 before_boot_services[96];
 	struct boot_services_view *boot;
@@ -25,6 +29,7 @@ struct system_table_view {
 EFI_STATUS CDK2_MS_ABI cdk2_device_path_entry(void *, struct system_table_view *);
 
 static UINTN installs, uninstalls, frees;
+static UINTN entry_fail_at = MAX_UINTN;
 
 static EFI_STATUS CDK2_MS_ABI allocate_pool(UINT32 type, UINTN size, void **buffer)
 {
@@ -42,10 +47,12 @@ static EFI_STATUS CDK2_MS_ABI free_pool(void *buffer)
 
 static EFI_STATUS CDK2_MS_ABI install_multiple(void **handle, ...)
 {
+	UINTN call = installs;
+
 	if (handle == NULL || installs >= 3)
 		return EFI_INVALID_PARAMETER;
 	installs++;
-	return EFI_SUCCESS;
+	return call == entry_fail_at ? EFI_DEVICE_ERROR : EFI_SUCCESS;
 }
 
 static EFI_STATUS CDK2_MS_ABI uninstall_multiple(void *handle, ...)
@@ -122,6 +129,12 @@ int main(void)
 			(unsigned long long)entry_status, (unsigned long long)installs);
 	failures += expect(entry_status == EFI_SUCCESS &&
 		installs == 3 && uninstalls == 0, "entry did not publish exactly three protocols");
+	installs = 0;
+	uninstalls = 0;
+	entry_fail_at = 2;
+	entry_status = cdk2_device_path_entry((void *)1, &system);
+	failures += expect(entry_status == EFI_DEVICE_ERROR && installs == 3 && uninstalls == 2,
+		"entry ABI publication failure did not roll back in reverse order");
 	utilities = cdk2_device_path_utilities();
 	to_text = cdk2_device_path_text_converter();
 	from_text = cdk2_device_path_text_parser();
