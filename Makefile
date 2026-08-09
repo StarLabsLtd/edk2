@@ -70,6 +70,7 @@ CDK2_CONFIG_TARGETS := build check manifest modules native-stage \
 	native-device-path-test native-device-path-fv \
 	native-partition-test native-partition-fv \
 	native-bl-support-test native-bl-support-package native-bl-support-fv \
+	native-bl-support-oracle \
 	manifest-check print
 
 CDK2_RECURSIVE_ARGS := \
@@ -122,6 +123,7 @@ CDK2_RECURSIVE_ARGS := \
 	native-device-path-test native-device-path-fv \
 	native-partition-test native-partition-fv \
 	native-bl-support-test native-bl-support-package native-bl-support-fv \
+	native-bl-support-oracle \
 	native-elfcheck-test manifest-check print lint \
 	lint-stable lint-extended test-lint \
 	jenkins what-jenkins-does retained-fv-check coreboot-stage clean FORCE

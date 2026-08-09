@@ -224,6 +224,8 @@ CDK2_NATIVE_DEVICE_PATH_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/DevicePathDxe.ffs
 CDK2_NATIVE_DEVICE_PATH_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-device-path.fv
 CDK2_NATIVE_BL_SUPPORT_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-bl-support-test
 CDK2_NATIVE_BL_SUPPORT_BUILD_TEST := $(CDK2_DIR)/tests/bl_support_build_test.sh
+CDK2_NATIVE_BL_SUPPORT_QEMU_OBJ := $(CDK2_NATIVE_BUILD_DIR)/bl-support-qemu.o
+CDK2_NATIVE_BL_SUPPORT_QEMU_PE := $(CDK2_NATIVE_BUILD_DIR)/bl-support-qemu.efi
 CDK2_NATIVE_BL_SUPPORT_OBJS := $(CDK2_NATIVE_BUILD_DIR)/bl-support-model.o \
 	$(CDK2_NATIVE_BUILD_DIR)/bl-support-entry.o
 CDK2_NATIVE_BL_SUPPORT_PE ?= $(CDK2_NATIVE_BUILD_DIR)/BlSupportDxe.efi
@@ -358,7 +360,8 @@ CDK2_NATIVE_LINK_POST_MAP_FLAGS := -Wl,--gc-sections -Wl,--build-id=none
 .PHONY: native-pcd-package native-pcd-fv
 .PHONY: native-device-path-test native-device-path-fv
 .PHONY: native-partition-test native-partition-fv
-.PHONY: native-bl-support-test native-bl-support-package native-bl-support-fv
+.PHONY: native-bl-support-test native-bl-support-package native-bl-support-fv \
+	native-bl-support-oracle
 
 ifeq ($(CONFIG_CDK2_NATIVE_STAGE),y)
 CDK2_NATIVE_STAGE_DEPS := $(CDK2_NATIVE_ELF)
@@ -814,6 +817,9 @@ native-bl-support-package: $(CDK2_NATIVE_BL_SUPPORT_FFS)
 	@test "$$(wc -c < "$(CDK2_NATIVE_BL_SUPPORT_FFS)")" -eq $$((0x4062))
 	@test "$$(od -An -tx1 "$(CDK2_NATIVE_BL_SUPPORT_DEPEX)" | tr -d ' \n')" = \
 		060000130608
+
+native-bl-support-oracle: $(CDK2_NATIVE_BL_SUPPORT_QEMU_PE)
+	@printf '%s\n' "native BlSupport oracle: $(CDK2_NATIVE_BL_SUPPORT_QEMU_PE)"
 else
 native-bl-support-test native-bl-support-package:
 	@printf '%s\n' 'native BlSupportDxe: disabled by Kconfig'
@@ -1815,6 +1821,20 @@ $(CDK2_NATIVE_BL_SUPPORT_TEST): $(CDK2_DIR)/tests/bl_support_test.c \
 		-o "$@" "$(CDK2_DIR)/tests/bl_support_test.c" \
 		"$(CDK2_DIR)/src/modules/bl_support/bl_support.c" \
 		"$(CDK2_DIR)/src/modules/bl_support/entry.c"
+
+$(CDK2_NATIVE_BL_SUPPORT_QEMU_OBJ): $(CDK2_DIR)/tests/bl_support_qemu.c \
+		$(CDK2_DIR)/include/cdk2/pcd.h $(CDK2_CONFIG_HEADER) | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
+		-mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args \
+		$(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+
+$(CDK2_NATIVE_BL_SUPPORT_QEMU_PE): $(CDK2_NATIVE_BL_SUPPORT_QEMU_OBJ) \
+		$(CDK2_DIR)/tests/bl_support_qemu.ld $(CDK2_NATIVE_PERELOCCHECK)
+	@$(CDK2_NATIVE_LD) -mi386pep --subsystem 10 --entry bl_support_qemu_entry \
+		--image-base 0 --section-alignment 0x1000 --file-alignment 0x1000 \
+		--build-id=none --no-insert-timestamp -s --nxcompat \
+		-T "$(CDK2_DIR)/tests/bl_support_qemu.ld" -o "$@" "$<"
+	@"$(CDK2_NATIVE_PERELOCCHECK)" --subsystem 10 "$@"
 
 FORCE:
 
