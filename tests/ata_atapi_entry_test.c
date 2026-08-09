@@ -79,14 +79,15 @@ static EFI_STATUS get_attributes(void *context, void *pci, native_uint64_t *orig
 { (void)context; (void)pci; *original = 0; *supported = 7; return EFI_SUCCESS; }
 static EFI_STATUS set_attributes(void *context, void *pci, UINT64 attributes)
 { (void)context; (void)pci; (void)attributes; return EFI_SUCCESS; }
-static EFI_STATUS discover_ide(void *context, void *pci, void *ide,
+static EFI_STATUS discover_ide(void *context, struct cdk2_ata_controller *controller,
 	struct cdk2_ata_topology *topology)
-{ (void)context; (void)pci; (void)ide;
+{ (void)context; (void)controller;
 	return cdk2_ata_add_device(topology, 0, 0, CDK2_ATA_DISK); }
-static EFI_STATUS discover_ahci(void *context, void *pci, native_uint32_t *cap,
+static EFI_STATUS discover_ahci(void *context, struct cdk2_ata_controller *controller,
+	native_uint32_t *cap,
 	native_uint32_t *pi,
 	struct cdk2_ata_topology *topology)
-{ (void)context; (void)pci; *cap = 0; *pi = 1;
+{ (void)context; (void)controller; *cap = 0; *pi = 1;
 	return cdk2_ata_add_device(topology, 0, 0xffff, CDK2_ATA_DISK); }
 static EFI_STATUS prepare(void *context, struct cdk2_ata_controller *controller)
 { (void)context; (void)controller; return EFI_SUCCESS; }
@@ -190,6 +191,8 @@ int main(void)
 	CHECK(entry.loaded->unload(&fixture) == EFI_SUCCESS);
 	CHECK(!entry.published && fixture.loaded.unload == old_unload);
 	CHECK(fixture.releases == 2 && fixture.closes >= 4);
+	CHECK(cdk2_ata_atapi_pass_thru_entry(&fixture, &fixture.system) == EFI_SUCCESS);
+	CHECK(fixture.loaded.unload(&fixture) == EFI_SUCCESS);
 	puts("ata atapi entry tests: PASS");
 	return 0;
 }

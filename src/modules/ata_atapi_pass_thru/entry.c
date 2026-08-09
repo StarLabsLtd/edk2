@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: BSD-2-Clause-Patent */
 
 #include <cdk2/ata_atapi_entry.h>
+#include <cdk2/ata_atapi_backend.h>
 
 #include <stddef.h>
 #include <string.h>
@@ -61,6 +62,8 @@ static const struct guid ext_scsi_guid = { 0x143b7632, 0xb81b, 0x4cb7,
 static CHAR16 driver_name[] = L"ATA/ATAPI Pass Thru Driver";
 static CHAR16 controller_name[] = L"ATA/ATAPI Controller";
 static struct cdk2_ata_entry *active_entry;
+static struct cdk2_ata_entry image_entry;
+static struct cdk2_ata_binding image_binding;
 
 static EFI_STATUS open_protocol(struct cdk2_ata_entry *entry, void *controller,
 	const struct guid *guid, void **interface, UINT32 attributes)
@@ -123,6 +126,64 @@ static void protocol_release(void *opaque, void *buffer)
 	(void)opaque;
 	if (active_entry != NULL)
 		(void)active_entry->boot->free_pool(buffer);
+}
+static void backend_release_pool(void *opaque, void *buffer, size_t size)
+{
+	(void)size;
+	protocol_release(opaque, buffer);
+}
+static EFI_STATUS hardware_read_class(void *opaque, void *pci, UINT8 code[3])
+{
+	(void)opaque;
+	return cdk2_ata_pci_read_class(pci, code);
+}
+static EFI_STATUS hardware_get_attributes(void *opaque, void *pci,
+	UINT64 *current, UINT64 *supported)
+{
+	(void)opaque;
+	return cdk2_ata_pci_get_attributes(pci, current, supported);
+}
+static EFI_STATUS hardware_enable_attributes(void *opaque, void *pci,
+	UINT64 attributes)
+{
+	(void)opaque;
+	return cdk2_ata_pci_enable_attributes(pci, attributes);
+}
+static EFI_STATUS hardware_restore_attributes(void *opaque, void *pci,
+	UINT64 attributes)
+{
+	(void)opaque;
+	return cdk2_ata_pci_restore_attributes(pci, attributes);
+}
+static EFI_STATUS hardware_prepare(void *opaque,
+	struct cdk2_ata_controller *controller)
+{
+	struct cdk2_ata_backend_pool pool = {
+		opaque, protocol_allocate, backend_release_pool };
+
+	return cdk2_ata_backend_prepare(&pool, controller);
+}
+static void hardware_release(void *opaque,
+	struct cdk2_ata_controller *controller)
+{
+	(void)opaque;
+	cdk2_ata_backend_release(controller);
+}
+static EFI_STATUS hardware_discover_ide(void *opaque,
+	struct cdk2_ata_controller *controller,
+	struct cdk2_ata_topology *topology)
+{
+	(void)opaque;
+	return cdk2_ata_backend_discover_ide(controller, topology);
+}
+static EFI_STATUS hardware_discover_ahci(void *opaque,
+	struct cdk2_ata_controller *controller, UINT32 *capability,
+	UINT32 *ports_implemented, struct cdk2_ata_topology *topology)
+{
+	(void)opaque;
+	*capability = controller->ahci_capability;
+	*ports_implemented = controller->ports_implemented;
+	return cdk2_ata_backend_discover_ahci(controller, topology);
 }
 static EFI_STATUS service_create_protocols(void *opaque,
 	struct cdk2_ata_controller *controller,
@@ -305,4 +366,22 @@ EFI_STATUS CDK2_MS_ABI cdk2_ata_entry_unload(void *image)
 	entry->loaded->unload = entry->original_unload;
 	entry->published = 0; active_entry = NULL;
 	return EFI_SUCCESS;
+}
+
+EFI_STATUS CDK2_MS_ABI cdk2_ata_atapi_pass_thru_entry(void *image,
+	void *system_table)
+{
+	struct cdk2_ata_binding_services services = {
+		.context = &image_entry, .read_class = hardware_read_class,
+		.get_attributes = hardware_get_attributes,
+		.enable_attributes = hardware_enable_attributes,
+		.restore_attributes = hardware_restore_attributes,
+		.discover_ide = hardware_discover_ide,
+		.discover_ahci = hardware_discover_ahci,
+		.prepare_engines = hardware_prepare,
+		.release_engines = hardware_release
+	};
+
+	return cdk2_ata_entry_publish_with_services(&image_entry, &image_binding,
+		&services, image, system_table);
 }

@@ -40,15 +40,17 @@ static EFI_STATUS enable(void *opaque, void *pci, UINT64 attributes)
 static EFI_STATUS restore(void *opaque, void *pci, UINT64 attributes)
 { struct fixture *f = opaque; (void)pci; CHECK(attributes == 0x80); f->restores++;
 	return fault(f); }
-static EFI_STATUS discover_ide(void *opaque, void *pci, void *ide,
+static EFI_STATUS discover_ide(void *opaque, struct cdk2_ata_controller *controller,
 	struct cdk2_ata_topology *topology)
-{ struct fixture *f = opaque; (void)pci; CHECK(ide == f); f->ide_discovers++;
+{ struct fixture *f = opaque; CHECK(controller->ide == f); f->ide_discovers++;
 	if (EFI_ERROR(fault(f)))
 		return EFI_DEVICE_ERROR;
 	return cdk2_ata_add_device(topology, 0, 0, CDK2_ATA_DISK); }
-static EFI_STATUS discover_ahci(void *opaque, void *pci, UINT32 *cap, UINT32 *pi,
+static EFI_STATUS discover_ahci(void *opaque, struct cdk2_ata_controller *controller,
+	UINT32 *cap, UINT32 *pi,
 	struct cdk2_ata_topology *topology)
-{ struct fixture *f = opaque; (void)pci; f->ahci_discovers++; *cap = 0x80000000;
+{ struct fixture *f = opaque; CHECK(controller->pci == f); f->ahci_discovers++;
+	*cap = 0x80000000;
 	*pi = 5;
 	if (EFI_ERROR(fault(f)))
 		return EFI_DEVICE_ERROR;

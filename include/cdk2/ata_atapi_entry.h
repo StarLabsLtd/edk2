@@ -58,5 +58,7 @@ EFI_STATUS cdk2_ata_entry_publish_with_services(struct cdk2_ata_entry *entry,
 	const struct cdk2_ata_binding_services *hardware_services,
 	void *image, void *system_table);
 EFI_STATUS CDK2_MS_ABI cdk2_ata_entry_unload(void *image);
+EFI_STATUS CDK2_MS_ABI cdk2_ata_atapi_pass_thru_entry(void *image,
+	void *system_table);
 
 #endif

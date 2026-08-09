@@ -125,9 +125,10 @@ struct cdk2_ata_binding_services {
 		UINT64 *supported);
 	EFI_STATUS (*enable_attributes)(void *context, void *pci, UINT64 attributes);
 	EFI_STATUS (*restore_attributes)(void *context, void *pci, UINT64 attributes);
-	EFI_STATUS (*discover_ide)(void *context, void *pci, void *ide,
+	EFI_STATUS (*discover_ide)(void *context, struct cdk2_ata_controller *controller,
 		struct cdk2_ata_topology *topology);
-	EFI_STATUS (*discover_ahci)(void *context, void *pci, UINT32 *capability,
+	EFI_STATUS (*discover_ahci)(void *context, struct cdk2_ata_controller *controller,
+		UINT32 *capability,
 		UINT32 *ports_implemented, struct cdk2_ata_topology *topology);
 	EFI_STATUS (*prepare_engines)(void *context, struct cdk2_ata_controller *controller);
 	void (*release_engines)(void *context, struct cdk2_ata_controller *controller);
