@@ -70,13 +70,16 @@ int main(void)
 {
 	struct fixture fixture; struct cdk2_ahci_dma_services services;
 	struct cdk2_ahci_engine engine; struct cdk2_ata_command_block acb = {0};
-	struct cdk2_ata_command_packet packet = { .acb = &acb };
+	struct cdk2_ata_status_block asb;
+	struct cdk2_ata_command_packet packet = { .asb = &asb, .acb = &acb };
 	struct cdk2_ahci_command command; UINT8 atapi[12] = { 0x28 };
 	void *large = malloc(0x600000U);
 	CHECK(large != NULL);
 	initialize(&fixture, &services);
 	CHECK(cdk2_ahci_engine_init(&engine, &services, 3U << 8, 5) == EFI_SUCCESS);
 	CHECK(engine.slots == 4 && fixture.allocations == 6);
+	((UINT8 *)engine.received_fis.host)[0x42] = 0x50;
+	((UINT8 *)engine.received_fis.host)[0x43] = 0x04;
 	acb.command = 0x25; acb.sector_number = 4; acb.sector_count = 8;
 	packet.in_data = large; packet.in_length = 0x600000U; packet.protocol = 0x0a;
 	CHECK(cdk2_ahci_build_command(&packet, 3, atapi, sizeof(atapi), &command) ==
@@ -85,6 +88,7 @@ int main(void)
 		command.fis[2] == 0x25 && command.atapi_command);
 	CHECK(cdk2_ahci_execute(&engine, 0, &packet, atapi, sizeof(atapi), 100) ==
 		EFI_SUCCESS);
+	CHECK(asb.status == 0x50 && asb.error == 0x04);
 	CHECK(fixture.operation == CDK2_AHCI_BUS_MASTER_WRITE && fixture.maps == 2 &&
 		fixture.unmaps == 2 && engine.active_slots == 0);
 	CHECK((get32(engine.command_list.host) >> 16) == 3);

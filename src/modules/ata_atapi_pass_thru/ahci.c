@@ -268,6 +268,23 @@ EFI_STATUS cdk2_ahci_execute(struct cdk2_ahci_engine *engine, UINT16 port,
 	if (!EFI_ERROR(status) && (engine->services.read(engine->services.context, port,
 		AHCI_PX_TFD) & AHCI_TFD_ERR) != 0U)
 		status = EFI_DEVICE_ERROR;
+	if (packet->asb != NULL) {
+		const UINT8 *fis = (const UINT8 *)engine->received_fis.host +
+			(size_t)port * 256U + 0x40U;
+
+		memset(packet->asb, 0, sizeof(*packet->asb));
+		packet->asb->status = fis[2];
+		packet->asb->error = fis[3];
+		packet->asb->sector_number = fis[4];
+		packet->asb->cylinder_low = fis[5];
+		packet->asb->cylinder_high = fis[6];
+		packet->asb->device_head = fis[7];
+		packet->asb->sector_number_exp = fis[8];
+		packet->asb->cylinder_low_exp = fis[9];
+		packet->asb->cylinder_high_exp = fis[10];
+		packet->asb->sector_count = fis[12];
+		packet->asb->sector_count_exp = fis[13];
+	}
 cleanup:
 	while (mapping_count != 0U) {
 		mapping_count--;

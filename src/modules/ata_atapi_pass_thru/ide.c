@@ -26,6 +26,31 @@
 #define BM_ERROR 0x02U
 #define BM_INTERRUPT 0x04U
 
+static void capture_status(struct cdk2_ide_engine *engine, UINT8 channel,
+	struct cdk2_ata_status_block *asb)
+{
+	UINT16 base;
+
+	if (asb == NULL)
+		return;
+	base = engine->channels[channel].command;
+	memset(asb, 0, sizeof(*asb));
+	asb->status = engine->services.read8(engine->services.context,
+		base + ATA_STATUS);
+	asb->error = engine->services.read8(engine->services.context,
+		base + ATA_FEATURE);
+	asb->sector_count = engine->services.read8(engine->services.context,
+		base + ATA_COUNT);
+	asb->sector_number = engine->services.read8(engine->services.context,
+		base + ATA_LBA_LOW);
+	asb->cylinder_low = engine->services.read8(engine->services.context,
+		base + ATA_LBA_MID);
+	asb->cylinder_high = engine->services.read8(engine->services.context,
+		base + ATA_LBA_HIGH);
+	asb->device_head = engine->services.read8(engine->services.context,
+		base + ATA_DEVICE);
+}
+
 static int valid_services(const struct cdk2_ide_services *services)
 {
 	return services != NULL && services->read8 != NULL && services->read16 != NULL &&
@@ -245,6 +270,7 @@ EFI_STATUS cdk2_ide_execute(struct cdk2_ide_engine *engine, UINT8 channel,
 		status = dma_transfer(engine, channel, packet, timeout);
 	else
 		status = wait_status(engine, channel, ATA_ST_BSY | ATA_ST_DRQ, 0, timeout);
+	capture_status(engine, channel, packet->asb);
 	if (EFI_ERROR(status))
 		(void)cdk2_ide_reset(engine, channel, timeout);
 	return status;

@@ -82,13 +82,16 @@ static void initialize(struct fixture *fixture, struct cdk2_ide_engine *engine)
 int main(void)
 {
 	struct fixture fixture; struct cdk2_ide_engine engine;
+	struct cdk2_ata_status_block asb;
 	struct cdk2_ata_command_block acb = { .command = 0x20, .sector_count = 1 };
 	UINT8 data[0x20000]; struct cdk2_ata_command_packet packet = {
-		.acb = &acb, .in_data = data, .in_length = 512, .protocol = 4 };
+		.asb = &asb, .acb = &acb, .in_data = data, .in_length = 512,
+		.protocol = 4 };
 	initialize(&fixture, &engine);
 	CHECK(cdk2_ide_execute(&engine, 0, 0, &packet, 100) == EFI_SUCCESS);
 	CHECK(fixture.timings == 1 && fixture.writes16 == 0 && data[0] == 0x34 &&
 		data[1] == 0x12);
+	CHECK(asb.status == 0 && asb.error == 0);
 	packet.in_data = NULL; packet.in_length = 0; packet.out_data = data;
 	packet.out_length = 512; packet.protocol = 5; fixture.status = 0;
 	CHECK(cdk2_ide_execute(&engine, 1, 1, &packet, 100) == EFI_SUCCESS);
