@@ -16,10 +16,23 @@ struct cdk2_bl_support_policy {
 	uint32_t cap_height;
 };
 
+typedef uint32_t cdk2_bl_get32(void *context, uint32_t token);
+typedef uint64_t cdk2_bl_get64(void *context, uint32_t token);
+typedef const void *cdk2_bl_get_ptr(void *context, uint32_t token);
+typedef size_t cdk2_bl_get_size(void *context, uint32_t token);
+typedef EFI_STATUS cdk2_bl_set32(void *context, uint32_t token, uint32_t value);
+typedef EFI_STATUS cdk2_bl_set64(void *context, uint32_t token, uint64_t value);
+typedef EFI_STATUS cdk2_bl_set_ptr(void *context, uint32_t token,
+	const void *value, size_t size);
+
 struct cdk2_bl_support_ops {
-	EFI_STATUS (*set32)(void *, uint32_t, uint32_t);
-	EFI_STATUS (*set64)(void *, uint32_t, uint64_t);
-	EFI_STATUS (*set_ptr)(void *, uint32_t, const void *, size_t);
+	cdk2_bl_get32 *get32;
+	cdk2_bl_get64 *get64;
+	cdk2_bl_get_ptr *get_ptr;
+	cdk2_bl_get_size *get_size;
+	cdk2_bl_set32 *set32;
+	cdk2_bl_set64 *set64;
+	cdk2_bl_set_ptr *set_ptr;
 	void *context;
 };
 

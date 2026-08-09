@@ -11,6 +11,10 @@ typedef EFI_STATUS CDK2_MS_ABI locate_protocol_fn(const EFI_GUID *, void *, void
 typedef EFI_STATUS CDK2_MS_ABI set32_fn(size_t, uint32_t);
 typedef EFI_STATUS CDK2_MS_ABI set64_fn(size_t, uint64_t);
 typedef EFI_STATUS CDK2_MS_ABI set_ptr_fn(size_t, size_t *, void *);
+typedef uint32_t CDK2_MS_ABI get32_fn(size_t);
+typedef uint64_t CDK2_MS_ABI get64_fn(size_t);
+typedef void *CDK2_MS_ABI get_ptr_fn(size_t);
+typedef size_t CDK2_MS_ABI get_size_fn(size_t);
 
 struct table_header { uint64_t signature; uint32_t revision, size, crc, reserved; };
 struct configuration_table { EFI_GUID guid; void *table; };
@@ -37,6 +41,27 @@ static EFI_STATUS set32(void *context, uint32_t token, uint32_t value)
 	return ((set32_fn *)pcd->set32)(token, value);
 }
 
+static uint32_t get32(void *context, uint32_t token)
+{
+	struct cdk2_pcd_protocol *pcd = context;
+	return ((get32_fn *)pcd->get32)(token);
+}
+static uint64_t get64(void *context, uint32_t token)
+{
+	struct cdk2_pcd_protocol *pcd = context;
+	return ((get64_fn *)pcd->get64)(token);
+}
+static const void *get_ptr(void *context, uint32_t token)
+{
+	struct cdk2_pcd_protocol *pcd = context;
+	return ((get_ptr_fn *)pcd->get_ptr)(token);
+}
+static size_t get_size(void *context, uint32_t token)
+{
+	struct cdk2_pcd_protocol *pcd = context;
+	return ((get_size_fn *)pcd->get_size)(token);
+}
+
 static EFI_STATUS set64(void *context, uint32_t token, uint64_t value)
 {
 	struct cdk2_pcd_protocol *pcd = context;
@@ -54,18 +79,21 @@ static EFI_STATUS hob_extent(const void *list, size_t *size)
 	const uint8_t *bytes = list;
 	size_t walked = 0;
 
-	if (list == NULL || size == NULL)
+	if (list == NULL || size == NULL || ((uintptr_t)list & 7U) != 0)
 		return EFI_INVALID_PARAMETER;
 	while (walked + sizeof(EFI_HOB_GENERIC_HEADER) <= MAX_HOB_LIST_SIZE) {
 		const EFI_HOB_GENERIC_HEADER *header = (const void *)(bytes + walked);
 
+		if (header->reserved != 0 || header->hob_length < sizeof(*header) ||
+		    (header->hob_length & 7U) != 0 ||
+		    header->hob_length > MAX_HOB_LIST_SIZE - walked)
+			return EFI_COMPROMISED_DATA;
 		if (header->hob_type == EFI_HOB_TYPE_END_OF_HOB_LIST) {
+			if (header->hob_length != sizeof(*header))
+				return EFI_COMPROMISED_DATA;
 			*size = walked + sizeof(*header);
 			return EFI_SUCCESS;
 		}
-		if (header->hob_length < sizeof(*header) ||
-		    header->hob_length > MAX_HOB_LIST_SIZE - walked)
-			return EFI_COMPROMISED_DATA;
 		walked += header->hob_length;
 	}
 	return EFI_COMPROMISED_DATA;
@@ -76,10 +104,14 @@ EFI_STATUS CDK2_MS_ABI cdk2_bl_support_entry(void *image_handle, void *system_ta
 	static const struct cdk2_bl_support_policy policy = {
 		.hidpi = CONFIG_CDK2_GOP_HIDPI,
 		.wide_cap = CONFIG_CDK2_GOP_HIDPI_ASPECT_CAP,
-		.threshold_horizontal = CONFIG_CDK2_GOP_HIDPI_H_THRESHOLD,
-		.threshold_vertical = CONFIG_CDK2_GOP_HIDPI_V_THRESHOLD,
-		.cap_width = CONFIG_CDK2_GOP_HIDPI_ASPECT_W,
-		.cap_height = CONFIG_CDK2_GOP_HIDPI_ASPECT_H,
+		.threshold_horizontal = CONFIG_CDK2_GOP_HIDPI_H_THRESHOLD != 0 ?
+			CONFIG_CDK2_GOP_HIDPI_H_THRESHOLD : 1920,
+		.threshold_vertical = CONFIG_CDK2_GOP_HIDPI_V_THRESHOLD != 0 ?
+			CONFIG_CDK2_GOP_HIDPI_V_THRESHOLD : 1080,
+		.cap_width = CONFIG_CDK2_GOP_HIDPI_ASPECT_W != 0 ?
+			CONFIG_CDK2_GOP_HIDPI_ASPECT_W : 16,
+		.cap_height = CONFIG_CDK2_GOP_HIDPI_ASPECT_H != 0 ?
+			CONFIG_CDK2_GOP_HIDPI_ASPECT_H : 9,
 	};
 	struct system_table_view *system = system_table;
 	struct cdk2_pcd_protocol *pcd;
@@ -97,7 +129,8 @@ EFI_STATUS CDK2_MS_ABI cdk2_bl_support_entry(void *image_handle, void *system_ta
 		const uint8_t *b = (const uint8_t *)&hob_list_guid;
 		size_t byte;
 
-		for (byte = 0; byte < sizeof(EFI_GUID) && a[byte] == b[byte]; byte++) { }
+		for (byte = 0; byte < sizeof(EFI_GUID) && a[byte] == b[byte]; byte++)
+			;
 		if (byte == sizeof(EFI_GUID)) {
 			hob_list = system->tables[index].table;
 			break;
@@ -114,8 +147,10 @@ EFI_STATUS CDK2_MS_ABI cdk2_bl_support_entry(void *image_handle, void *system_ta
 	status = locate(&pcd_protocol_guid, NULL, (void **)&pcd);
 	if (EFI_ERROR(status))
 		return status;
-	if (pcd == NULL || pcd->set32 == NULL || pcd->set64 == NULL || pcd->set_ptr == NULL)
+	if (pcd == NULL || pcd->get32 == NULL || pcd->get64 == NULL || pcd->get_ptr == NULL ||
+	    pcd->get_size == NULL || pcd->set32 == NULL || pcd->set64 == NULL || pcd->set_ptr == NULL)
 		return EFI_UNSUPPORTED;
-	ops = (struct cdk2_bl_support_ops){ set32, set64, set_ptr, pcd };
+	ops = (struct cdk2_bl_support_ops){ get32, get64, get_ptr, get_size,
+		set32, set64, set_ptr, pcd };
 	return cdk2_bl_support_apply(hob_list, hob_size, &policy, &ops);
 }

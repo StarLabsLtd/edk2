@@ -222,7 +222,7 @@ config CDK2_NATIVE_PARTITION
 config CDK2_NATIVE_BL_SUPPORT
 	bool "Build native bootloader support services"
 	default y
-	depends on CDK2_NATIVE_STAGE && CDK2_NATIVE_PCD
+	depends on CDK2_NATIVE_STAGE && CDK2_NATIVE_PCD && CDK2_GRAPHICS
 	help
 	  Consume the bounded coreboot graphics and board-information HOBs and
 	  publish their platform policy through the native configuration service.

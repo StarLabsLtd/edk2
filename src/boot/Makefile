@@ -223,6 +223,7 @@ CDK2_NATIVE_DEVICE_PATH_DEPEX ?= $(CDK2_NATIVE_BUILD_DIR)/DevicePathDxe.depex
 CDK2_NATIVE_DEVICE_PATH_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/DevicePathDxe.ffs
 CDK2_NATIVE_DEVICE_PATH_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-device-path.fv
 CDK2_NATIVE_BL_SUPPORT_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-bl-support-test
+CDK2_NATIVE_BL_SUPPORT_BUILD_TEST := $(CDK2_DIR)/tests/bl_support_build_test.sh
 CDK2_NATIVE_BL_SUPPORT_OBJS := $(CDK2_NATIVE_BUILD_DIR)/bl-support-model.o \
 	$(CDK2_NATIVE_BUILD_DIR)/bl-support-entry.o
 CDK2_NATIVE_BL_SUPPORT_PE ?= $(CDK2_NATIVE_BUILD_DIR)/BlSupportDxe.efi
@@ -479,7 +480,9 @@ $(CDK2_NATIVE_BUILD_DIR)/partition-%.o: $(CDK2_DIR)/src/modules/partition/%.c $(
 
 $(CDK2_NATIVE_BUILD_DIR)/bl-support-model.o: \
 		$(CDK2_DIR)/src/modules/bl_support/bl_support.c \
-		$(CDK2_DIR)/include/cdk2/bl_support.h | $(CDK2_NATIVE_BUILD_DIR)
+		$(CDK2_DIR)/include/cdk2/bl_support.h \
+		$(CDK2_DIR)/include/guid/graphics_info_hob.h \
+		$(CDK2_DIR)/include/guid/acpi_board_info.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
 		-mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args \
 		$(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
@@ -534,11 +537,15 @@ ifeq ($(CONFIG_CDK2_NATIVE_PARTITION),y)
 CDK2_NATIVE_PARTITION_CHECK_DEPS := $(CDK2_NATIVE_PARTITION_PE) \
 	$(CDK2_NATIVE_PARTITION_FFS)
 endif
+ifeq ($(CONFIG_CDK2_NATIVE_BL_SUPPORT),y)
+CDK2_NATIVE_BL_SUPPORT_CHECK_DEPS := $(CDK2_NATIVE_BL_SUPPORT_PE) \
+	$(CDK2_NATIVE_BL_SUPPORT_FFS) $(CDK2_NATIVE_BL_SUPPORT_TEST)
+endif
 
 native-check: $(CDK2_CONFIG_HEADER) $(CDK2_NATIVE_ELF) $(CDK2_NATIVE_OVERRIDE_ELF) \
 		$(CDK2_NATIVE_COREBOOT_ELF) $(CDK2_NATIVE_COREBOOT_ENTRY) \
 		$(CDK2_NATIVE_HOST_TOOLS) $(CDK2_NATIVE_DEVICE_PATH_CHECK_DEPS) \
-		$(CDK2_NATIVE_PARTITION_CHECK_DEPS)
+		$(CDK2_NATIVE_PARTITION_CHECK_DEPS) $(CDK2_NATIVE_BL_SUPPORT_CHECK_DEPS)
 	@$(CDK2_NATIVE_NM) "$(CDK2_NATIVE_ELF)" | grep -Eq '[[:space:]]W[[:space:]]cdk2_platform_initialize_native_context$$'
 	@$(CDK2_NATIVE_NM) "$(CDK2_NATIVE_ELF)" | grep -Eq '[[:space:]]W[[:space:]]cdk2_platform_late_init$$'
 	@$(CDK2_NATIVE_NM) "$(CDK2_NATIVE_OVERRIDE_ELF)" | grep -Eq '[[:space:]]T[[:space:]]cdk2_platform_initialize_native_context$$'
@@ -602,7 +609,10 @@ native-check: $(CDK2_CONFIG_HEADER) $(CDK2_NATIVE_ELF) $(CDK2_NATIVE_OVERRIDE_EL
 	@"$(CDK2_NATIVE_PARTITION_UDF_TEST)"
 	@"$(CDK2_NATIVE_PARTITION_CHILD_TEST)"
 	@"$(CDK2_NATIVE_PARTITION_DRIVER_TEST)"
+ifeq ($(CONFIG_CDK2_NATIVE_BL_SUPPORT),y)
 	@"$(CDK2_NATIVE_BL_SUPPORT_TEST)"
+	@"$(CDK2_NATIVE_BL_SUPPORT_BUILD_TEST)" "$(MAKE)" "$(CDK2_DIR)" "$(CDK2_BUILD_DIR)"
+endif
 ifeq ($(CONFIG_CDK2_NATIVE_DEVICE_PATH),y)
 	@"$(CDK2_NATIVE_DEVICE_PATH_DRIVER_TEST)"
 	@test "$$(wc -c < "$(CDK2_NATIVE_DEVICE_PATH_FFS)")" -eq $$((0xf062))
@@ -610,6 +620,10 @@ ifeq ($(CONFIG_CDK2_NATIVE_DEVICE_PATH),y)
 		ce0f689b6bad3a4fb60bf59899003443
 	@test "$$(od -An -tx1 "$(CDK2_NATIVE_DEVICE_PATH_DEPEX)" | tr -d ' \n')" = \
 		1600001302f6f0a3134a26f03ef2e0dec512342f3408
+endif
+ifeq ($(CONFIG_CDK2_NATIVE_BL_SUPPORT),y)
+	@test "$$(wc -c < "$(CDK2_NATIVE_BL_SUPPORT_FFS)")" -eq $$((0x4062))
+	@test "$$(od -An -tx1 "$(CDK2_NATIVE_BL_SUPPORT_DEPEX)" | tr -d ' \n')" = 060000130608
 endif
 ifeq ($(CONFIG_CDK2_NATIVE_PARTITION),y)
 	@test "$$(wc -c < "$(CDK2_NATIVE_PARTITION_FFS)")" -eq $$((0xa04a))
@@ -792,6 +806,7 @@ native-partition-test: $(CDK2_NATIVE_PARTITION_GPT_TEST) \
 native-partition-fv: $(CDK2_NATIVE_PARTITION_FV)
 	@printf '%s\n' "native partition FV: $(CDK2_NATIVE_PARTITION_FV)"
 
+ifeq ($(CONFIG_CDK2_NATIVE_BL_SUPPORT),y)
 native-bl-support-test: $(CDK2_NATIVE_BL_SUPPORT_TEST)
 	@"$<"
 
@@ -799,6 +814,10 @@ native-bl-support-package: $(CDK2_NATIVE_BL_SUPPORT_FFS)
 	@test "$$(wc -c < "$(CDK2_NATIVE_BL_SUPPORT_FFS)")" -eq $$((0x4062))
 	@test "$$(od -An -tx1 "$(CDK2_NATIVE_BL_SUPPORT_DEPEX)" | tr -d ' \n')" = \
 		060000130608
+else
+native-bl-support-test native-bl-support-package:
+	@printf '%s\n' 'native BlSupportDxe: disabled by Kconfig'
+endif
 
 native-pch-smi-dispatch-fv: $(CDK2_NATIVE_PCH_SMI_DISPATCH_FV)
 	@printf '%s\n' "native PCH SMI dispatch FV: $(CDK2_NATIVE_PCH_SMI_DISPATCH_FV)"
@@ -1782,6 +1801,8 @@ $(CDK2_NATIVE_BL_SUPPORT_TEST): $(CDK2_DIR)/tests/bl_support_test.c \
 		$(CDK2_DIR)/src/modules/bl_support/bl_support.c \
 		$(CDK2_DIR)/src/modules/bl_support/entry.c \
 		$(CDK2_DIR)/include/cdk2/bl_support.h $(CDK2_DIR)/include/cdk2/pcd.h \
+		$(CDK2_DIR)/include/guid/graphics_info_hob.h \
+		$(CDK2_DIR)/include/guid/acpi_board_info.h \
 		$(CDK2_CONFIG_HEADER) | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) \
 		-o "$@" "$(CDK2_DIR)/tests/bl_support_test.c" \

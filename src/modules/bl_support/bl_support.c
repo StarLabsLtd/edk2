@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: BSD-2-Clause-Patent */
 
 #include <cdk2/bl_support.h>
+#include <guid/acpi_board_info.h>
+#include <guid/graphics_info_hob.h>
 #include <pi/hob.h>
 
 #define TOKEN_SETUP_HORIZONTAL 23U
@@ -24,20 +26,10 @@ static const EFI_GUID tpm20_guid = {
 	0x286bf25a, 0xc2c3, 0x408c, { 0xb3, 0xb4, 0x25, 0xe6, 0x75, 0x8b, 0x73, 0x17 }
 };
 
-struct graphics_info {
-	uint64_t framebuffer_base;
-	uint32_t framebuffer_size;
-	uint32_t version;
-	uint32_t horizontal;
-	uint32_t vertical;
-};
-
-struct board_info {
-	uint8_t revision, reserved[2], reset_value;
-	uint64_t pm_evt_base, pm_gpe_en_base, pm_ctrl_reg_base, pm_timer_reg_base;
-	uint64_t reset_reg_address, pcie_base, pcie_size;
-	uint8_t tpm20_present, tpm12_present;
-};
+typedef char graphics_hob_abi_assert[
+	offsetof(EFI_PEI_GRAPHICS_INFO_HOB, graphics_mode.horizontal_resolution) == 16 ? 1 : -1];
+typedef char board_hob_abi_assert[offsetof(ACPI_BOARD_INFO, pcie_base_address) == 48 ? 1 : -1];
+typedef char board_hob_size_assert[sizeof(ACPI_BOARD_INFO) == 72 ? 1 : -1];
 
 static int same_guid(const EFI_GUID *left, const EFI_GUID *right)
 {
@@ -50,30 +42,38 @@ static int same_guid(const EFI_GUID *left, const EFI_GUID *right)
 	return 1;
 }
 
-static EFI_STATUS find_guid_hob(const void *list, size_t size,
-	const EFI_GUID *guid, const void **data, size_t *data_size)
+static EFI_STATUS validate_hobs(const void *list, size_t size, const void **graphics,
+	size_t *graphics_size, const void **board, size_t *board_size)
 {
 	const uint8_t *bytes = list;
 	size_t walked = 0;
 
-	if (list == NULL || guid == NULL || data == NULL || data_size == NULL)
+	if (list == NULL || graphics == NULL || graphics_size == NULL || board == NULL ||
+	    board_size == NULL || ((uintptr_t)list & 7U) != 0)
 		return EFI_INVALID_PARAMETER;
+	*graphics = NULL; *board = NULL;
 	while (walked + sizeof(EFI_HOB_GENERIC_HEADER) <= size) {
 		const EFI_HOB_GENERIC_HEADER *header = (const void *)(bytes + walked);
 
-		if (header->hob_type == EFI_HOB_TYPE_END_OF_HOB_LIST)
-			return EFI_NOT_FOUND;
-		if (header->hob_length < sizeof(*header) || header->hob_length > size - walked)
+		if (header->reserved != 0 || header->hob_length < sizeof(*header) ||
+		    (header->hob_length & 7U) != 0 || header->hob_length > size - walked)
 			return EFI_COMPROMISED_DATA;
+		if (header->hob_type == EFI_HOB_TYPE_END_OF_HOB_LIST)
+			return header->hob_length == sizeof(*header) && walked + sizeof(*header) == size ?
+				EFI_SUCCESS : EFI_COMPROMISED_DATA;
 		if (header->hob_type == EFI_HOB_TYPE_GUID_EXTENSION) {
 			const EFI_HOB_GUID_TYPE *hob = (const void *)header;
 
 			if (header->hob_length < sizeof(*hob))
 				return EFI_COMPROMISED_DATA;
-			if (same_guid(&hob->name, guid)) {
-				*data = hob + 1;
-				*data_size = header->hob_length - sizeof(*hob);
-				return EFI_SUCCESS;
+			if (same_guid(&hob->name, &graphics_info_guid) && *graphics == NULL) {
+				*graphics = hob + 1; *graphics_size = header->hob_length - sizeof(*hob);
+			} else if (same_guid(&hob->name, &graphics_info_guid)) {
+				return EFI_COMPROMISED_DATA;
+			} else if (same_guid(&hob->name, &board_info_guid) && *board == NULL) {
+				*board = hob + 1; *board_size = header->hob_length - sizeof(*hob);
+			} else if (same_guid(&hob->name, &board_info_guid)) {
+				return EFI_COMPROMISED_DATA;
 			}
 		}
 		walked += header->hob_length;
@@ -92,8 +92,8 @@ BOOLEAN cdk2_bl_support_viewport(uint32_t horizontal, uint32_t vertical,
 		return FALSE;
 	*viewport_horizontal = horizontal;
 	*viewport_vertical = vertical;
-	if (!policy->hidpi || horizontal < policy->threshold_horizontal ||
-	    vertical < policy->threshold_vertical || (horizontal & 1U) != 0 ||
+	if (!policy->hidpi || horizontal <= policy->threshold_horizontal ||
+	    vertical <= policy->threshold_vertical || (horizontal & 1U) != 0 ||
 	    (vertical & 1U) != 0)
 		return FALSE;
 	if (policy->wide_cap && policy->cap_width != 0 && policy->cap_height != 0 &&
@@ -113,52 +113,122 @@ EFI_STATUS cdk2_bl_support_apply(const void *hob_list, size_t hob_size,
 	const struct cdk2_bl_support_policy *policy,
 	const struct cdk2_bl_support_ops *ops)
 {
-	const struct graphics_info *graphics;
-	const struct board_info *board;
-	const void *data;
-	size_t size;
-	uint32_t horizontal, vertical;
+	const EFI_PEI_GRAPHICS_INFO_HOB *graphics;
+	const ACPI_BOARD_INFO *board;
+	const void *graphics_data, *board_data, *old_ptr;
+	size_t graphics_size = 0, board_size = 0, old_ptr_size = 0;
+	uint32_t physical_horizontal = 0, physical_vertical = 0;
+	uint32_t setup_horizontal = 0, setup_vertical = 0;
+	uint32_t old32[4]; uint64_t old64[2]; EFI_GUID old_guid;
+	unsigned int committed = 0;
+	unsigned int board_index;
+	size_t index;
 	EFI_STATUS status;
 
-	if (policy == NULL || ops == NULL || ops->set32 == NULL || ops->set64 == NULL ||
-	    ops->set_ptr == NULL)
+	if (policy == NULL || ops == NULL || ops->get32 == NULL || ops->get64 == NULL ||
+	    ops->get_ptr == NULL || ops->get_size == NULL || ops->set32 == NULL ||
+	    ops->set64 == NULL || ops->set_ptr == NULL)
 		return EFI_INVALID_PARAMETER;
-	status = find_guid_hob(hob_list, hob_size, &graphics_info_guid, &data, &size);
-	if (status == EFI_SUCCESS) {
-		if (size < sizeof(*graphics))
-			return EFI_COMPROMISED_DATA;
-		graphics = data;
-		horizontal = graphics->horizontal;
-		vertical = graphics->vertical;
-		(void)cdk2_bl_support_viewport(horizontal, vertical, policy,
-			&horizontal, &vertical);
-		status = ops->set32(ops->context, TOKEN_VIDEO_HORIZONTAL, horizontal);
-		if (!EFI_ERROR(status))
-			status = ops->set32(ops->context, TOKEN_VIDEO_VERTICAL, vertical);
-		if (!EFI_ERROR(status))
-			status = ops->set32(ops->context, TOKEN_SETUP_HORIZONTAL, horizontal);
-		if (!EFI_ERROR(status))
-			status = ops->set32(ops->context, TOKEN_SETUP_VERTICAL, vertical);
-		if (EFI_ERROR(status))
-			return status;
-	} else if (status != EFI_NOT_FOUND) {
+	status = validate_hobs(hob_list, hob_size, &graphics_data, &graphics_size,
+		&board_data, &board_size);
+	if (EFI_ERROR(status))
 		return status;
-	}
-	status = find_guid_hob(hob_list, hob_size, &board_info_guid, &data, &size);
-	if (status == EFI_SUCCESS) {
-		if (size < sizeof(*board))
+	graphics = graphics_data; board = board_data;
+	if (graphics != NULL) {
+		if (graphics_size < sizeof(*graphics) ||
+		    graphics->frame_buffer_size == 0 ||
+		    graphics->frame_buffer_base + graphics->frame_buffer_size <
+		    graphics->frame_buffer_base || graphics->graphics_mode.version != 0 ||
+		    graphics->graphics_mode.horizontal_resolution == 0 ||
+		    graphics->graphics_mode.vertical_resolution == 0 ||
+		    graphics->graphics_mode.pixel_format >= pixel_format_max ||
+		    graphics->graphics_mode.pixels_per_scan_line <
+		    graphics->graphics_mode.horizontal_resolution)
 			return EFI_COMPROMISED_DATA;
-		board = data;
-		status = ops->set64(ops->context, TOKEN_PCIE_BASE, board->pcie_base);
-		if (!EFI_ERROR(status))
-			status = ops->set64(ops->context, TOKEN_PCIE_SIZE, board->pcie_size);
-		if (!EFI_ERROR(status) && board->tpm12_present)
+		physical_horizontal = graphics->graphics_mode.horizontal_resolution;
+		physical_vertical = graphics->graphics_mode.vertical_resolution;
+		(void)cdk2_bl_support_viewport(physical_horizontal, physical_vertical, policy,
+			&setup_horizontal, &setup_vertical);
+	}
+	if (board != NULL) {
+		if (board_size < sizeof(*board) || board->reserved0[0] != 0 ||
+		    board->reserved0[1] != 0 || board->tpm12_present > 1 ||
+		    board->tpm20_present > 1 || board->pcie_base_address + board->pcie_base_size <
+		    board->pcie_base_address)
+			return EFI_COMPROMISED_DATA;
+	}
+	if (graphics != NULL) {
+		old32[0] = ops->get32(ops->context, TOKEN_VIDEO_HORIZONTAL);
+		old32[1] = ops->get32(ops->context, TOKEN_VIDEO_VERTICAL);
+		old32[2] = ops->get32(ops->context, TOKEN_SETUP_HORIZONTAL);
+		old32[3] = ops->get32(ops->context, TOKEN_SETUP_VERTICAL);
+	}
+	if (board != NULL) {
+		const uint8_t *source;
+		uint8_t *destination = (uint8_t *)&old_guid;
+
+		old64[0] = ops->get64(ops->context, TOKEN_PCIE_BASE);
+		old64[1] = ops->get64(ops->context, TOKEN_PCIE_SIZE);
+		old_ptr_size = ops->get_size(ops->context, TOKEN_TPM_INSTANCE);
+		old_ptr = ops->get_ptr(ops->context, TOKEN_TPM_INSTANCE);
+		if (old_ptr_size > sizeof(old_guid))
+			return EFI_BAD_BUFFER_SIZE;
+		if (old_ptr_size != 0 && old_ptr == NULL)
+			return EFI_COMPROMISED_DATA;
+		source = old_ptr;
+		for (index = 0; index < old_ptr_size; index++)
+			destination[index] = source[index];
+	}
+	if (graphics != NULL) {
+		status = ops->set32(ops->context, TOKEN_VIDEO_HORIZONTAL, physical_horizontal);
+		if (EFI_ERROR(status))
+			goto rollback;
+		committed++;
+		status = ops->set32(ops->context, TOKEN_VIDEO_VERTICAL, physical_vertical);
+		if (EFI_ERROR(status))
+			goto rollback;
+		committed++;
+		status = ops->set32(ops->context, TOKEN_SETUP_HORIZONTAL, setup_horizontal);
+		if (EFI_ERROR(status))
+			goto rollback;
+		committed++;
+		status = ops->set32(ops->context, TOKEN_SETUP_VERTICAL, setup_vertical);
+		if (EFI_ERROR(status))
+			goto rollback;
+		committed++;
+	}
+	if (board != NULL) {
+		status = ops->set64(ops->context, TOKEN_PCIE_BASE, board->pcie_base_address);
+		if (EFI_ERROR(status))
+			goto rollback;
+		committed++;
+		status = ops->set64(ops->context, TOKEN_PCIE_SIZE, board->pcie_base_size);
+		if (EFI_ERROR(status))
+			goto rollback;
+		committed++;
+		if (board->tpm12_present)
 			status = ops->set_ptr(ops->context, TOKEN_TPM_INSTANCE,
 				&tpm12_guid, sizeof(tpm12_guid));
-		else if (!EFI_ERROR(status) && board->tpm20_present)
+		else if (board->tpm20_present)
 			status = ops->set_ptr(ops->context, TOKEN_TPM_INSTANCE,
 				&tpm20_guid, sizeof(tpm20_guid));
-		return status;
+		if (EFI_ERROR(status))
+			goto rollback;
 	}
-	return status == EFI_NOT_FOUND ? EFI_SUCCESS : status;
+	return EFI_SUCCESS;
+rollback:
+	/* Best-effort reverse rollback; preserve the original setter failure. */
+	while (committed != 0) {
+		committed--;
+		if (graphics != NULL && committed < 4) {
+			static const uint32_t tokens[] = { TOKEN_VIDEO_HORIZONTAL,
+				TOKEN_VIDEO_VERTICAL, TOKEN_SETUP_HORIZONTAL, TOKEN_SETUP_VERTICAL };
+			(void)ops->set32(ops->context, tokens[committed], old32[committed]);
+		} else if (board != NULL && committed < (graphics != NULL ? 6U : 2U)) {
+			static const uint32_t tokens[] = { TOKEN_PCIE_BASE, TOKEN_PCIE_SIZE };
+			board_index = committed - (graphics != NULL ? 4U : 0U);
+			(void)ops->set64(ops->context, tokens[board_index], old64[board_index]);
+		}
+	}
+	return status;
 }
