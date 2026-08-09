@@ -16,9 +16,9 @@ struct fixture {
 	unsigned int submitted_mask;
 	UINT64 now;
 };
-struct combined { struct fixture fixture; struct cdk2_ide_init_protocol ide; };
+struct combined { struct fixture state; struct cdk2_ide_init_protocol ide; };
 static struct fixture *from_ide(struct cdk2_ide_init_protocol *ide)
-{ return &((struct combined *)((UINT8 *)ide - offsetof(struct combined, ide)))->fixture; }
+{ return &((struct combined *)((UINT8 *)ide - offsetof(struct combined, ide)))->state; }
 static UINT8 read8(void *opaque, UINT16 port)
 { struct fixture *fixture = opaque;
 	if ((port & 7U) == 7U) {
@@ -117,16 +117,16 @@ static EFI_STATUS run(struct combined *combined, unsigned int fail_notify,
 	struct cdk2_ata_controller_backend backend = { 0 };
 	struct cdk2_ata_controller controller = { .ide = &combined->ide,
 		.ide_engine = &backend.ide, .backend = &backend };
-	struct cdk2_ide_services services = { &combined->fixture, read8, read16,
+	struct cdk2_ide_services services = { &combined->state, read8, read16,
 		write8, write16, write32, map, unmap, flush, engine_timing,
 		get_time, delay };
 	struct cdk2_ide_channel channel = { 0x1f0U, 0x3f6U, 0U };
 
-	memset(&combined->fixture, 0, sizeof(combined->fixture));
-	combined->fixture.fail_notify = fail_notify;
-	combined->fixture.fail_submit = fail_submit;
-	combined->fixture.fail_calculate = fail_calculate;
-	combined->fixture.fail_timing = fail_timing;
+	memset(&combined->state, 0, sizeof(combined->state));
+	combined->state.fail_notify = fail_notify;
+	combined->state.fail_submit = fail_submit;
+	combined->state.fail_calculate = fail_calculate;
+	combined->state.fail_timing = fail_timing;
 	CHECK(cdk2_ide_engine_init(&backend.ide, &services, &channel, 1U) == EFI_SUCCESS);
 	CHECK(cdk2_ata_topology_init(topology, CDK2_ATA_IDE) == EFI_SUCCESS);
 	return cdk2_ata_backend_discover_ide(&controller, topology);

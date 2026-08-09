@@ -12,7 +12,10 @@ int main(int argc, char **argv)
 	static const uint8_t guid[16] = { 0xb4, 0x3c, 0x52, 0x5e, 0x97, 0xd3,
 		0x86, 0x49, 0x87, 0xbd, 0xa6, 0xdd, 0x8b, 0x22, 0xf4, 0x55 };
 	static const uint8_t types[] = { 0x10, 0x15, 0x14 };
-	uint8_t *data; FILE *file; long length; size_t offset = 24;
+	uint8_t *data;
+	FILE *file;
+	long length;
+	size_t offset = 24;
 	unsigned int sum = 0;
 
 	if (argc != 2 || (file = fopen(argv[1], "rb")) == NULL)

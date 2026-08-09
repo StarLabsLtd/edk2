@@ -89,6 +89,7 @@ CDK2_CONFIG_TARGETS := build check manifest modules native-stage \
 	native-ata-protocol-test \
 	native-ata-backend-ide-test \
 	native-ata-atapi-package \
+	native-ata-atapi-oracle \
 	manifest-check print
 
 CDK2_RECURSIVE_ARGS := \

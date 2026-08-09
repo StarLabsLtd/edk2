@@ -4,17 +4,19 @@
 
 #include <cdk2/ata_atapi_pci_adapter.h>
 
+typedef EFI_STATUS cdk2_ata_backend_allocate_fn(void *, size_t, void **);
+typedef void cdk2_ata_backend_release_fn(void *, void *, size_t);
 struct cdk2_ata_backend_pool {
 	void *context;
-	EFI_STATUS (*allocate)(void *context, size_t size, void **buffer);
-	void (*release)(void *context, void *buffer, size_t size);
+	cdk2_ata_backend_allocate_fn *allocate;
+	cdk2_ata_backend_release_fn *release;
 };
 struct cdk2_ata_controller_backend {
 	struct cdk2_ata_pci_adapter adapter;
 	struct cdk2_ahci_engine ahci;
 	struct cdk2_ide_engine ide;
 	struct cdk2_ata_backend_pool pool;
-	UINT8 identify[512] __attribute__((aligned(8)));
+	UINT8 identify[512] __aligned(8);
 	UINT8 ahci_initialized, ide_initialized;
 };
 

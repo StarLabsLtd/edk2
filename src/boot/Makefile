@@ -39,6 +39,8 @@ CDK2_NATIVE_ATA_MODULES := model binding ahci ide pci_adapter backend ata_protoc
 CDK2_NATIVE_ATA_OBJS := $(addprefix $(CDK2_NATIVE_BUILD_DIR)/ata-atapi-,$(addsuffix .o,$(CDK2_NATIVE_ATA_MODULES)))
 CDK2_NATIVE_ATA_PE ?= $(CDK2_NATIVE_BUILD_DIR)/AtaAtapiPassThruDxe.efi
 CDK2_NATIVE_ATA_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/AtaAtapiPassThruDxe.ffs
+CDK2_NATIVE_ATA_QEMU_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/ata-atapi-qemu.o
+CDK2_NATIVE_ATA_QEMU_PE ?= $(CDK2_NATIVE_BUILD_DIR)/ata-atapi-qemu.efi
 CDK2_NATIVE_SATA_ENTRY_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-sata-entry-test
 CDK2_NATIVE_SATA_PACKAGE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-sata-package-test
 CDK2_NATIVE_SATA_DEPENDENCY_TEST := $(CDK2_DIR)/tests/sata_dependency_test.sh
@@ -382,6 +384,7 @@ CDK2_NATIVE_HOST_TOOLS := \
 	$(CDK2_NATIVE_ATA_PROTOCOL_TEST) \
 	$(CDK2_NATIVE_ATA_BACKEND_IDE_TEST) \
 	$(CDK2_NATIVE_ATA_FFS) \
+	$(CDK2_NATIVE_ATA_QEMU_PE) \
 	$(CDK2_NATIVE_SATA_ENTRY_TEST) \
 	$(CDK2_NATIVE_SATA_PACKAGE_TEST) \
 	$(CDK2_NATIVE_SATA_FFS) \
@@ -2357,6 +2360,24 @@ $(CDK2_NATIVE_ATA_FFS): $(CDK2_NATIVE_ATA_PE) $(CDK2_NATIVE_FFSBUILD)
 .PHONY: native-ata-atapi-package
 native-ata-atapi-package: $(CDK2_NATIVE_ATA_FFS) $(CDK2_NATIVE_ATA_PACKAGE_TEST)
 	@"$(CDK2_NATIVE_ATA_PACKAGE_TEST)" "$(CDK2_NATIVE_ATA_FFS)"
+
+$(CDK2_NATIVE_ATA_QEMU_OBJ): $(CDK2_DIR)/tests/ata_atapi_qemu.c \
+		$(CDK2_DIR)/include/cdk2/ata_atapi_pass_thru.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
+		-mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args \
+		$(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+
+$(CDK2_NATIVE_ATA_QEMU_PE): $(CDK2_NATIVE_ATA_QEMU_OBJ) \
+		$(CDK2_DIR)/tests/ata_atapi_qemu.ld $(CDK2_NATIVE_PERELOCCHECK)
+	@$(CDK2_NATIVE_LD) -mi386pep --subsystem 10 --entry ata_atapi_qemu_entry \
+		--image-base 0 --section-alignment 0x1000 --file-alignment 0x1000 \
+		--build-id=none --no-insert-timestamp -s --nxcompat \
+		-T "$(CDK2_DIR)/tests/ata_atapi_qemu.ld" -o "$@" "$<"
+	@"$(CDK2_NATIVE_PERELOCCHECK)" --subsystem 10 "$@"
+
+.PHONY: native-ata-atapi-oracle
+native-ata-atapi-oracle: $(CDK2_NATIVE_ATA_QEMU_PE)
+	@printf '%s\n' "native ATA/ATAPI oracle: $<"
 
 $(CDK2_NATIVE_SATA_ENTRY_TEST): $(CDK2_DIR)/tests/sata_entry_test.c $(CDK2_DIR)/src/modules/sata_controller/entry.c $(CDK2_DIR)/src/modules/sata_controller/model.c $(CDK2_DIR)/include/cdk2/sata_controller.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" $(CDK2_DIR)/tests/sata_entry_test.c $(CDK2_DIR)/src/modules/sata_controller/model.c

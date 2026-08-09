@@ -12,9 +12,12 @@
 	__FILE__, __LINE__, #x); exit(EXIT_FAILURE); } } while (0)
 typedef UINTN native_uintn_t;
 typedef UINT64 native_uint64_t;
+typedef BOOLEAN native_boolean_t;
+typedef UINT8 native_uint8_t;
 struct fixture { unsigned int allocs, frees, maps, unmaps, flushes, mem, io, timings;
-	UINTN attribute_operations[4]; unsigned int attribute_calls, pool_allocs,
-	pool_frees, channel_calls; };
+	UINTN attribute_operations[4];
+	unsigned int attribute_calls, pool_allocs, pool_frees, channel_calls;
+};
 static struct fixture fixture;
 static EFI_STATUS CDK2_MS_ABI access(struct cdk2_efi_pci_io_protocol *pci,
 	UINTN width, UINT8 bar, UINT64 offset, UINTN count, void *buffer)
@@ -66,14 +69,15 @@ static EFI_STATUS CDK2_MS_ABI timing(struct cdk2_ide_init_protocol *ide,
 { (void)ide; (void)channel; (void)device; CHECK(mode == &fixture); fixture.timings++;
 	return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI channel_info(struct cdk2_ide_init_protocol *ide,
-	UINT8 channel, BOOLEAN *enabled, UINT8 *devices)
+	native_uint8_t channel, native_boolean_t *enabled, native_uint8_t *devices)
 { (void)ide; CHECK(channel < 2U); fixture.channel_calls++; *enabled = FALSE;
 	*devices = 0; return EFI_SUCCESS; }
 static EFI_STATUS pool_allocate(void *opaque, size_t size, void **buffer)
 { struct fixture *state = opaque; state->pool_allocs++; *buffer = calloc(1, size);
 	return *buffer == NULL ? EFI_OUT_OF_RESOURCES : EFI_SUCCESS; }
 static void pool_release(void *opaque, void *buffer, size_t size)
-{ struct fixture *state = opaque; const UINT8 *bytes = buffer;
+{ struct fixture *state = opaque;
+	const UINT8 *bytes = buffer;
 	CHECK(size != 0U && bytes[0] == 0xa5U); state->pool_frees++; free(buffer); }
 
 int main(void)
