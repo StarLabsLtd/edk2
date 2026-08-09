@@ -770,8 +770,9 @@ native-status-code-handler-test: $(CDK2_NATIVE_STATUS_CODE_HANDLER_TEST)
 native-disk-io-test: $(CDK2_NATIVE_DISK_IO_TEST)
 	@"$<"
 
-native-fat-test: $(CDK2_NATIVE_FAT_TEST)
+native-fat-test: $(CDK2_NATIVE_FAT_TEST) $(CDK2_NATIVE_BUILD_DIR)/cdk2-fat-binding-test
 	@"$<"
+	@"$(CDK2_NATIVE_BUILD_DIR)/cdk2-fat-binding-test"
 
 native-disk-io-fv: $(CDK2_NATIVE_DISK_IO_FV)
 	@printf '%s\n' "native DiskIo FV: $(CDK2_NATIVE_DISK_IO_FV)"
@@ -1791,6 +1792,11 @@ $(CDK2_NATIVE_FAT_TEST): $(CDK2_DIR)/tests/fat_test.c $(CDK2_DIR)/src/modules/fa
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) \
 		-o "$@" "$(CDK2_DIR)/tests/fat_test.c" \
 		"$(CDK2_DIR)/src/modules/fat/fat.c"
+
+$(CDK2_NATIVE_BUILD_DIR)/cdk2-fat-binding-test: $(CDK2_DIR)/tests/fat_binding_test.c $(CDK2_DIR)/src/modules/fat/binding.c $(CDK2_DIR)/src/modules/fat/fat.c $(CDK2_DIR)/include/cdk2/fat_binding.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) \
+		-o "$@" "$(CDK2_DIR)/tests/fat_binding_test.c" \
+		"$(CDK2_DIR)/src/modules/fat/binding.c" "$(CDK2_DIR)/src/modules/fat/fat.c"
 
 $(CDK2_NATIVE_SERIAL_IO_TEST): $(CDK2_DIR)/tests/serial_io_test.c $(CDK2_DIR)/src/modules/serial_io/serial_io.c $(CDK2_DIR)/include/cdk2/serial_io.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$<"
