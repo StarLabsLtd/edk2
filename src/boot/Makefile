@@ -25,6 +25,7 @@ CDK2_NATIVE_FVREPLACE ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-fvreplace
 CDK2_NATIVE_PERELOCCHECK ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-pereloccheck
 CDK2_NATIVE_METRONOME_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-metronome-test
 CDK2_NATIVE_PCD_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-pcd-test
+CDK2_NATIVE_PCI_HOST_BRIDGE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-pci-host-bridge-test
 CDK2_NATIVE_PCD_GENERATED_DATABASE ?= $(CDK2_NATIVE_BUILD_DIR)/PcdDxe.database
 CDK2_NATIVE_PCD_DATABASE ?= $(CDK2_NATIVE_PCD_GENERATED_DATABASE)
 CDK2_NATIVE_PCD_MODEL_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/pcd-model.o
@@ -303,6 +304,7 @@ CDK2_NATIVE_HOST_TOOLS := \
 	$(CDK2_NATIVE_PERELOCCHECK) \
 	$(CDK2_NATIVE_METRONOME_TEST) \
 	$(CDK2_NATIVE_PCD_TEST) \
+	$(CDK2_NATIVE_PCI_HOST_BRIDGE_TEST) \
 	$(CDK2_NATIVE_WATCHDOG_TEST) \
 	$(CDK2_NATIVE_STATUS_CODE_ROUTER_TEST) \
 	$(CDK2_NATIVE_STATUS_CODE_HANDLER_TEST) \
@@ -571,9 +573,14 @@ native-check: $(CDK2_CONFIG_HEADER) $(CDK2_NATIVE_ELF) $(CDK2_NATIVE_OVERRIDE_EL
 	@"$(CDK2_NATIVE_FFSBUILD_TEST)" "$(CDK2_NATIVE_FFSBUILD)" "$(CDK2_NATIVE_BUILD_DIR)"
 	@"$(CDK2_NATIVE_METRONOME_TEST)"
 	@"$(CDK2_NATIVE_PCD_TEST)"
-	@"$(CDK2_DIR)/tests/pcd_database_override_test.sh" "$(MAKE)" \
-		"$(CDK2_DIR)/src/boot/Makefile" "$(CDK2_DIR)" "$(CDK2_BUILD_DIR)" \
-		"$(CDK2_NATIVE_PCD_DATABASE)" "$(CDK2_NATIVE_PRE_PCD_FV)"
+	@"$(CDK2_NATIVE_PCI_HOST_BRIDGE_TEST)"
+	@if test -f "$(CDK2_NATIVE_PCD_DATABASE)" && \
+	    test -f "$(CDK2_NATIVE_PRE_PCD_FV)"; then \
+		"$(CDK2_DIR)/tests/pcd_database_override_test.sh" "$(MAKE)" \
+			"$(CDK2_DIR)/src/boot/Makefile" "$(CDK2_DIR)" \
+			"$(CDK2_BUILD_DIR)" "$(CDK2_NATIVE_PCD_DATABASE)" \
+			"$(CDK2_NATIVE_PRE_PCD_FV)"; \
+	fi
 	@"$(CDK2_NATIVE_WATCHDOG_TEST)"
 	@"$(CDK2_NATIVE_STATUS_CODE_ROUTER_TEST)"
 	@"$(CDK2_NATIVE_STATUS_CODE_HANDLER_TEST)"
@@ -1865,6 +1872,13 @@ $(CDK2_NATIVE_METRONOME_TEST): $(CDK2_DIR)/tests/metronome_test.c $(CDK2_DIR)/sr
 
 $(CDK2_NATIVE_PCD_TEST): $(CDK2_DIR)/tests/pcd_test.c $(CDK2_DIR)/src/modules/pcd/pcd.c $(CDK2_DIR)/src/modules/pcd/entry.c $(CDK2_DIR)/include/cdk2/pcd.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" $(CDK2_DIR)/tests/pcd_test.c $(CDK2_DIR)/src/modules/pcd/pcd.c $(CDK2_DIR)/src/modules/pcd/entry.c
+
+$(CDK2_NATIVE_PCI_HOST_BRIDGE_TEST): $(CDK2_DIR)/tests/pci_host_bridge_test.c \
+		$(CDK2_DIR)/src/modules/pci_host_bridge/model.c \
+		$(CDK2_DIR)/include/cdk2/pci_host_bridge.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) \
+		-o "$@" $(CDK2_DIR)/tests/pci_host_bridge_test.c \
+		$(CDK2_DIR)/src/modules/pci_host_bridge/model.c
 
 native-pcd-package: $(CDK2_NATIVE_PCD_FFS)
 
