@@ -134,6 +134,15 @@ static uint64_t allocate_request(struct cdk2_pci_host_model *host, size_t root,
 
 	if (!request->submitted || request->length == 0)
 		return EFI_SUCCESS;
+	if (host->resource_assigned) {
+		if (aperture->base > aperture->limit)
+			return EFI_OUT_OF_RESOURCES;
+		request->base = aperture->base;
+		request->length = aperture->limit - aperture->base + 1U;
+		request->alignment = 0;
+		request->allocated = 1;
+		return EFI_SUCCESS;
+	}
 	if (aperture->base > aperture->limit || request->length - 1U >
 		aperture->limit - aperture->base)
 		return EFI_OUT_OF_RESOURCES;
@@ -142,7 +151,7 @@ static uint64_t allocate_request(struct cdk2_pci_host_model *host, size_t root,
 	    (aperture->translation & mask) != 0)
 		return EFI_OUT_OF_RESOURCES;
 	request->base = base;
-	if (host->reserve != NULL) {
+	if (host->reserve != NULL && !host->resource_assigned) {
 		uint64_t allocated = base;
 		uint64_t status = host->reserve(host->allocator_context, type != 0,
 			base - aperture->translation, request->length, mask, &allocated);
@@ -167,7 +176,7 @@ static void release_request(struct cdk2_pci_host_model *host, size_t root,
 	const struct cdk2_pci_aperture *aperture =
 		&host->root[root].aperture[aperture_index[type]];
 
-	if (request->allocated && host->release != NULL)
+	if (request->allocated && host->release != NULL && !host->resource_assigned)
 		(void)host->release(host->allocator_context, type != 0,
 			request->base - aperture->translation, request->length);
 	request->allocated = 0;

@@ -90,6 +90,9 @@ int main(void)
 		"enumeration restart gate was not enforced");
 	failures += expect(cdk2_pci_host_notify(&host, CDK2_PCI_FREE_RESOURCES) ==
 		EFI_SUCCESS && host.can_restart, "free phase did not permit restart");
+	reservations = releases = 0;
+	failures += expect(cdk2_pci_host_set_allocator(&host, NULL, reserve, release) ==
+		EFI_SUCCESS, "assigned-root allocator fixture was not configured");
 	failures += expect(cdk2_pci_host_submit(&host, 0, 1, 0x1000, 0xfff) ==
 		EFI_SUCCESS, "aligned memory request rejected");
 	for (size_t type = 0; type < CDK2_PCI_RESOURCE_TYPES; type++)
@@ -105,12 +108,14 @@ int main(void)
 	host.resource_submitted[1] = 1;
 	failures += expect(cdk2_pci_host_notify(&host, CDK2_PCI_ALLOCATE_RESOURCES) ==
 		EFI_SUCCESS && host.request[0][1].allocated &&
-		host.request[0][1].base == 0x80000000,
+		host.request[0][1].base == 0x80000000 && reservations == 0,
 		"memory request was not allocated inside its admitted aperture");
 	failures += expect(cdk2_pci_host_notify(&host, CDK2_PCI_FREE_RESOURCES) ==
-		EFI_SUCCESS, "allocated resources were not released");
+		EFI_SUCCESS && releases == 0,
+		"assigned resources were incorrectly released through GCD");
 	reservations = releases = 0;
 	make_fixture(&fixture);
+	fixture.header.resource_assigned = 0;
 	fixture.bridge[0].aperture[1] =
 		(struct cdk2_pci_aperture){ 0x1000, 0x1fff, 0 };
 	failures += expect(cdk2_pci_host_init(&host, &fixture, sizeof(fixture)) ==

@@ -345,6 +345,13 @@ int main(void)
 	failures += expect(gcd_io_adds == 1 && gcd_memory_adds == 1,
 		"root apertures were not registered in the GCD maps before publication");
 	protocol = installed;
+	hob.payload.header.resource_assigned = 1;
+	installed = NULL;
+	failures += expect(cdk2_pci_host_bridge_entry((void *)0x44, &system) ==
+		EFI_SUCCESS && installed != NULL,
+		"assigned roots did not retain the host resource protocol");
+	hob.payload.header.resource_assigned = 0;
+	protocol = installed;
 	{
 		unsigned int before_removes = gcd_removes;
 
@@ -354,9 +361,15 @@ int main(void)
 			"partial GCD additions were not removed in reverse rollback");
 		fail_gcd_add_on = 0;
 	}
+	hob.payload.header.resource_assigned = 1;
+	installed = NULL;
+	failures += expect(cdk2_pci_host_bridge_entry((void *)0x44, &system) ==
+		EFI_SUCCESS && installed != NULL,
+		"assigned host protocol was not restored after rollback fixture");
+	protocol = installed;
 	failures += expect(protocol->next(protocol, &root) == EFI_SUCCESS && root != NULL &&
-		protocol->attributes(protocol, root, &attributes) == EFI_SUCCESS &&
-		attributes == 0x1234 && protocol->next(protocol, &root) == EFI_NOT_FOUND,
+	protocol->attributes(protocol, root, &attributes) == EFI_SUCCESS &&
+		attributes == 0x1235 && protocol->next(protocol, &root) == EFI_NOT_FOUND,
 		"published host-bridge enumeration ABI failed");
 	failures += expect(protocol->notify(protocol, CDK2_PCI_BEGIN_BUS_ALLOCATION) ==
 		EFI_SUCCESS && protocol->notify(protocol, CDK2_PCI_BEGIN_ENUMERATION) ==
@@ -370,6 +383,8 @@ int main(void)
 	(void)release(configuration);
 	{
 		struct { struct resource_view resource; struct end_view end; } request;
+		unsigned int before_allocations = allocations;
+		unsigned int before_frees = frees;
 
 		memset(&request, 0, sizeof(request));
 		request.resource.descriptor = 0x8a;
@@ -381,8 +396,9 @@ int main(void)
 		request.end.descriptor = 0x79;
 		failures += expect(protocol->submit(protocol, root, &request) ==
 			EFI_SUCCESS && protocol->notify(protocol,
-			CDK2_PCI_ALLOCATE_RESOURCES) == EFI_SUCCESS && allocations == 1,
-			"descriptor submission did not reserve through GCD");
+			CDK2_PCI_ALLOCATE_RESOURCES) == EFI_SUCCESS &&
+			allocations == before_allocations,
+			"assigned descriptor submission re-reserved through GCD");
 		failures += expect(protocol->proposed(protocol, root,
 			&configuration) == EFI_SUCCESS &&
 			((struct resource_view *)configuration)[0].type == 0 &&
@@ -392,7 +408,8 @@ int main(void)
 			"allocated proposal did not report EFI_RESOURCE_SATISFIED");
 		(void)release(configuration);
 		failures += expect(protocol->notify(protocol, CDK2_PCI_FREE_RESOURCES) ==
-			EFI_SUCCESS && frees == 1, "GCD allocation was not released");
+			EFI_SUCCESS && frees == before_frees,
+			"assigned GCD ownership was incorrectly released");
 	}
 	hob.payload.header.header.revision++;
 	failures += expect(cdk2_pci_host_bridge_entry((void *)0x44, &system) ==

@@ -565,6 +565,12 @@ static uint64_t CDK2_MS_ABI attributes(void *self, void *handle, uint64_t *value
 	if (value == NULL || root_index(handle, &index) != EFI_SUCCESS)
 		return EFI_INVALID_PARAMETER;
 	*value = host.root[index].allocation_attributes;
+	if (host.root[index].aperture[4].base > host.root[index].aperture[4].limit &&
+	    host.root[index].aperture[5].base > host.root[index].aperture[5].limit)
+		*value |= 1U;
+	if (host.root[index].aperture[3].base > host.root[index].aperture[3].limit &&
+	    host.root[index].aperture[5].base > host.root[index].aperture[5].limit)
+		*value &= ~2U;
 	return EFI_SUCCESS;
 }
 
@@ -853,15 +859,11 @@ static uint64_t publish_protocols(struct boot_services_view *boot)
 	memset(root_handles, 0, sizeof(root_handles));
 	host_handle = NULL;
 	resource_protocol_installed = 0;
-	if (!host.resource_assigned) {
-		status = boot->install_multiple_protocols(&host_handle,
-			&resource_protocol_guid, &protocol, NULL);
-		if (status != EFI_SUCCESS)
-			return status;
-		resource_protocol_installed = 1;
-	} else {
-		host_handle = gcd.image;
-	}
+	status = boot->install_multiple_protocols(&host_handle,
+		&resource_protocol_guid, &protocol, NULL);
+	if (status != EFI_SUCCESS)
+		return status;
+	resource_protocol_installed = 1;
 	for (index = 0; index < host.count; index++) {
 		status = cdk2_pci_root_io_init(&root_io[index], &host.root[index],
 			pci_express_base, &services, host_handle, host.resource_assigned);
