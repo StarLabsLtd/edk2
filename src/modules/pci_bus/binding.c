@@ -95,7 +95,7 @@ static EFI_STATUS CDK2_MS_ABI load_file2(
 		(call_status == 1 ? EFI_BUFFER_TOO_SMALL : EFI_NOT_FOUND);
 }
 
-static int make_path(struct cdk2_pci_bus_binding *binding, const void *parent,
+int cdk2_pci_bus_make_path(struct cdk2_pci_bus_binding *binding, const void *parent,
 	size_t parent_size, const struct cdk2_pci_topology *topology, size_t index,
 	void **path, size_t *path_size)
 {
@@ -182,7 +182,7 @@ static int create_child(struct cdk2_pci_bus_binding *binding, void *parent,
 		return -1;
 	memset(child, 0, sizeof(*child));
 	child->parent = parent; child->function = *function;
-	if (make_path(binding, parent_path, parent_path_size, topology, index,
+	if (cdk2_pci_bus_make_path(binding, parent_path, parent_path_size, topology, index,
 		&child->device_path, &child->device_path_size) != 0 ||
 	    binding->services.initialize_io(binding->services.context, function,
 		&child->io_model) != 0)

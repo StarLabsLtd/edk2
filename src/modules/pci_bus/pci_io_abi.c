@@ -175,7 +175,7 @@ static EFI_STATUS CDK2_MS_ABI get_bar_attributes(
 		descriptor[38 + byte] = (uint8_t)(io->bar_size[bar] >> (byte * 8U));
 	}
 	descriptor[46] = 0x79;
-	*supports = io->supported_attributes;
+	*supports = io->bar_supported_attributes[bar];
 	*resources = descriptor;
 	return EFI_SUCCESS;
 }
@@ -187,7 +187,7 @@ static EFI_STATUS CDK2_MS_ABI set_bar_attributes(
 	struct cdk2_pci_io_model *io = model(this);
 	if (bar >= CDK2_PCI_IO_MAX_BARS || offset == NULL || length == NULL ||
 	    *offset > io->bar_size[bar] || *length > io->bar_size[bar] - *offset ||
-	    (attributes_value & ~io->supported_attributes) != 0U)
+	    (attributes_value & ~io->bar_supported_attributes[bar]) != 0U)
 		return EFI_UNSUPPORTED;
 	if (io->backend.set_bar_attributes == NULL)
 		return EFI_UNSUPPORTED;

@@ -151,7 +151,10 @@ int cdk2_pci_prepare_option_rom(const struct cdk2_pci_cfg *cfg,
 			payload = staged.option_rom[i].decompressed;
 			payload_size = staged.option_rom[i].decompressed_size;
 		}
-		if (ops->load_image(ops->context, payload, payload_size, &handle) != 0)
+		if (ops->load_image(ops->context, payload, payload_size,
+			staged.option_rom[i].offset + staged.option_rom[i].payload_offset,
+			staged.option_rom[i].offset + staged.option_rom[i].size - 1U,
+			&handle) != 0)
 			goto rollback;
 		staged.option_rom[i].image_handle = handle;
 		if (ops->start_image(ops->context, handle) != 0)

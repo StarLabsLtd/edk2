@@ -340,6 +340,18 @@ int cdk2_pci_probe_function(const struct cdk2_pci_cfg *cfg,
 	fn->class_code = (uint8_t)(value >> 24);
 	fn->header_type = (uint8_t)(id >> 16);
 	fn->command = (uint16_t)command;
+	if (write_cfg(cfg, fn->bus, fn->device, fn->function, PCI_COMMAND, 2,
+		command | 7U) != 0)
+		return -1;
+	{
+		int probe_status = read_cfg(cfg, fn->bus, fn->device, fn->function,
+			PCI_COMMAND, 2, &value);
+		int restore_status = restore_cfg(cfg, fn->bus, fn->device, fn->function,
+			PCI_COMMAND, 2, command);
+		if (probe_status != 0 || restore_status != 0)
+			return -1;
+	}
+	fn->supported_command = (uint16_t)value;
 	fn->bar_count = 0;
 	/* Stable enumeration disables decoding while BARs are sized. */
 	if (write_cfg(cfg, fn->bus, fn->device, fn->function, PCI_COMMAND, 2,

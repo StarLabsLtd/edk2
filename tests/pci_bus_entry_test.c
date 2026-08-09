@@ -48,7 +48,7 @@ struct fixture {
 	unsigned int fail_proposed;
 	unsigned int enable_hotplug, hpc_lists, hpc_inits, hpc_paddings;
 	unsigned int fail_hpc_padding;
-	unsigned int visible_devices, fail_install_number;
+	unsigned int visible_devices, fail_install_number, fail_uninstall_number;
 	unsigned int extended_config_reads;
 	unsigned int fail_late_config;
 	UINTN phases[16];
@@ -89,7 +89,8 @@ static EFI_STATUS CDK2_MS_ABI close_protocol(void *handle, const EFI_GUID * guid
 static EFI_STATUS CDK2_MS_ABI install(void **handle, const EFI_GUID * guid,
 	void *interface, ...)
 { __builtin_ms_va_list arguments; const EFI_GUID * next;
-	active->installs++; *handle = active;
+	active->installs++;
+	*handle = (void *)(UINTN)(0x1000U + active->installs);
 	if (active->fail_install_number == active->installs)
 		return EFI_DEVICE_ERROR;
 	if (active->installs == 1)
@@ -108,7 +109,9 @@ static EFI_STATUS CDK2_MS_ABI install(void **handle, const EFI_GUID * guid,
 	return active->install_status; }
 static EFI_STATUS CDK2_MS_ABI uninstall(void *handle, const EFI_GUID * guid,
 	void *interface, ...)
-{ (void)handle; (void)guid; (void)interface; active->uninstalls++; return 0; }
+{ (void)handle; (void)guid; (void)interface; active->uninstalls++;
+	return active->fail_uninstall_number == active->uninstalls ?
+		EFI_DEVICE_ERROR : EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI old_unload(void *image)
 { (void)image; return 0; }
 static EFI_STATUS CDK2_MS_ABI config_read(void *root, UINTN width,
@@ -317,6 +320,23 @@ int main(void)
 		CHECK(notify_request(fixture.hotplug_request, 1U, (void *)1, NULL,
 			&children, NULL) == EFI_SUCCESS);
 		CHECK(children == 0 && fixture.closes == 3);
+	}
+	CHECK(fixture.loaded.unload(&fixture) == EFI_SUCCESS);
+	initialize(&fixture); fixture.enable_hotplug = 1; fixture.root_limit = 1;
+	CHECK(cdk2_pci_bus_entry(&fixture, &fixture.system) == EFI_SUCCESS);
+	CHECK(fixture.driver->start(fixture.driver, (void *)1, NULL) == EFI_SUCCESS);
+	{
+		UINT8 children = 2; void *new_children[2];
+		request_notify_fn *notify_request = fixture.hotplug_request->notify;
+		fixture.visible_devices = 2;
+		CHECK(notify_request(fixture.hotplug_request, 0U, (void *)1, NULL,
+			&children, new_children) == EFI_SUCCESS);
+		fixture.fail_uninstall_number = 2; children = 0;
+		CHECK(notify_request(fixture.hotplug_request, 1U, (void *)1, NULL,
+			&children, NULL) == EFI_DEVICE_ERROR);
+		fixture.fail_uninstall_number = 0;
+		CHECK(notify_request(fixture.hotplug_request, 1U, (void *)1, NULL,
+			&children, NULL) == EFI_SUCCESS);
 	}
 	CHECK(fixture.loaded.unload(&fixture) == EFI_SUCCESS);
 	initialize(&fixture); fixture.enable_hotplug = 1; fixture.root_limit = 1;

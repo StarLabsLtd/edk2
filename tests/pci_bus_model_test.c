@@ -23,6 +23,7 @@ struct fixture {
 	unsigned int crs_reads;
 	uint8_t rom[1024];
 	unsigned int allocations, frees, loads, starts, unloads, hotplug_inits, hotplug_deinits;
+	uint64_t rom_start, rom_end;
 	unsigned int socket_power, socket_reset, socket_notify;
 	int fail_load, fail_start, fail_hotplug;
 };
@@ -136,11 +137,13 @@ static int rom_decompress(void *context, const void *source, size_t source_size,
 	return 0;
 }
 
-static int rom_load(void *context, const void *image, size_t size, void **handle)
+static int rom_load(void *context, const void *image, size_t size,
+	uint64_t start, uint64_t end, void **handle)
 {
 	struct fixture *fixture = context;
 	(void)image; (void)size;
 	fixture->loads++;
+	fixture->rom_start = start; fixture->rom_end = end;
 	if (fixture->fail_load)
 		return -1;
 	*handle = fixture;
@@ -265,6 +268,7 @@ static int topology_test(void)
 	CHECK(cdk2_pci_enumerate(&cfg, 0, 4, &topology) == 0);
 	CHECK(topology.count == 5); CHECK(topology.functions[0].bar_count == 1);
 	CHECK(topology.functions[0].command == 7);
+	CHECK(topology.functions[0].supported_command == 7);
 	CHECK(topology.functions[0].bars[0].size == 0x1000);
 	CHECK(topology.functions[1].pcie_cap == 0x40);
 	CHECK(topology.functions[1].ari_cap == 0x100);
@@ -287,7 +291,7 @@ static int topology_test(void)
 	CHECK(topology.requests[4].alignment == 0xfff);
 	CHECK(get(f.devices[0].data + 4, 2) == 7);
 	CHECK(get(f.devices[0].data + 0x10, 4) == 0x80000008);
-	before = topology; f.fail_write = f.writes + 2;
+	before = topology; f.fail_write = f.writes + 1;
 	CHECK(cdk2_pci_enumerate(&cfg, 0, 4, &topology) != 0);
 	CHECK(memcmp(&before, &topology, sizeof(before)) == 0);
 	CHECK(get(f.devices[0].data + 4, 2) == 7);
@@ -445,6 +449,7 @@ static int host_and_rom_test(void)
 	CHECK(cdk2_pci_prepare_option_rom(&cfg, &rom_ops, &function) == 0);
 	CHECK(function.option_rom_shadow != NULL);
 	CHECK(function.option_rom_image_handle == &f);
+	CHECK(f.rom_start == 0x40 && f.rom_end == 0x1ff);
 	CHECK(f.starts == 1);
 	CHECK(function.option_rom[0].machine == 0x8664);
 	CHECK(function.option_rom[0].compression == 1);
@@ -600,6 +605,7 @@ static int pci_io_core_test(void)
 			.allocate_pool = io_allocate_pool },
 		.bar_base = { 0x80000000 }, .bar_size = { 0x1000 },
 		.bar_64 = { 1 }, .bar_prefetchable = { 1 },
+		.bar_supported_attributes = { 0x880 },
 		.supported_attributes = 0x700, .segment = 1, .bus = 2, .device = 3,
 		.function = 4,
 	};
@@ -637,6 +643,7 @@ static int pci_io_core_test(void)
 	CHECK(instance.protocol.rom_size == io.rom_size);
 	CHECK(instance.protocol.get_bar_attributes(&instance.protocol, 0, &bar_supports,
 		&bar_resources) == EFI_SUCCESS);
+	CHECK(bar_supports == 0x880);
 	CHECK(((uint8_t *)bar_resources)[0] == 0x8a);
 	CHECK(((uint8_t *)bar_resources)[5] == 0x06);
 	CHECK(((uint8_t *)bar_resources)[6] == 64);

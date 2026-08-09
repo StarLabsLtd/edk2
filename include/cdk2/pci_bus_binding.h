@@ -117,6 +117,10 @@ struct cdk2_pci_bus_driver {
 int cdk2_pci_bus_start(struct cdk2_pci_bus_binding *binding, void *parent,
 	const void *parent_path, size_t parent_path_size,
 	const struct cdk2_pci_topology *topology);
+int cdk2_pci_bus_make_path(struct cdk2_pci_bus_binding *binding,
+	const void *parent, size_t parent_size,
+	const struct cdk2_pci_topology *topology, size_t index,
+	void **path, size_t *path_size);
 int cdk2_pci_bus_start_new(struct cdk2_pci_bus_binding *binding, void *parent,
 	const void *parent_path, size_t parent_path_size,
 	const struct cdk2_pci_topology *retained,

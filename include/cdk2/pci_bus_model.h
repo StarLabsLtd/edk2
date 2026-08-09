@@ -47,6 +47,7 @@ struct cdk2_pci_function {
 	uint8_t secondary_bus, subordinate_bus;
 	uint16_t vendor_id, device_id;
 	uint16_t command;
+	uint16_t supported_command;
 	uint16_t pcie_cap, ari_cap, sriov_cap, resizable_bar_cap;
 	uint16_t total_vfs, initial_vfs, vf_offset, vf_stride;
 	uint16_t vf_device_id;
@@ -160,7 +161,8 @@ struct cdk2_pci_rom_ops {
 	int (*decompress)(void *context, const void *source, size_t source_size,
 		void *destination, size_t destination_size, void *scratch,
 		size_t scratch_size);
-	int (*load_image)(void *context, const void *image, size_t size, void **handle);
+	int (*load_image)(void *context, const void *image, size_t size,
+		uint64_t start, uint64_t end, void **handle);
 	int (*start_image)(void *context, void *handle);
 	void (*unload_image)(void *context, void *handle);
 };

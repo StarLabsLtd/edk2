@@ -167,6 +167,8 @@ struct entry_context {
 		struct cdk2_pci_allocation_policy policy;
 	} roots[CDK2_PCI_MAX_ROOTS];
 	UINTN building_root;
+	void *rom_path;
+	size_t rom_path_size;
 	UINT8 global_started;
 	struct hotplug_request_protocol hotplug_request;
 };
@@ -650,13 +652,32 @@ static int rom_decompress(void *opaque, const void *source, size_t source_size,
 	return EFI_ERROR(protocol->decompress(protocol, (void *)source, source_size,
 		destination, destination_size, scratch, scratch_size)) ? -1 : 0;
 }
-static int rom_load(void *opaque, const void *image, size_t size, void **handle)
+static int rom_load(void *opaque, const void *image, size_t size,
+	uint64_t start, uint64_t end, void **handle)
 {
 	struct entry_context *entry = opaque;
-	if (entry->boot->load_image == NULL)
+	UINT8 *path;
+	EFI_STATUS status;
+	if (entry->boot->load_image == NULL || entry->rom_path == NULL ||
+	    entry->rom_path_size < 4U || entry->rom_path_size > SIZE_MAX - 24U)
 		return -1;
-	return EFI_ERROR(entry->boot->load_image(FALSE, entry->image, NULL,
-		(void *)image, size, handle)) ? -1 : 0;
+	path = allocate(entry, entry->rom_path_size + 24U);
+	if (path == NULL)
+		return -1;
+	memcpy(path, entry->rom_path, entry->rom_path_size - 4U);
+	memset(path + entry->rom_path_size - 4U, 0, 28U);
+	path[entry->rom_path_size - 4U] = 4U;
+	path[entry->rom_path_size - 3U] = 8U;
+	path[entry->rom_path_size - 2U] = 24U;
+	memcpy(path + entry->rom_path_size + 4U, &start, sizeof(start));
+	memcpy(path + entry->rom_path_size + 12U, &end, sizeof(end));
+	path[entry->rom_path_size + 20U] = 0x7fU;
+	path[entry->rom_path_size + 21U] = 0xffU;
+	path[entry->rom_path_size + 22U] = 4U;
+	status = entry->boot->load_image(FALSE, entry->image, path,
+		(void *)image, size, handle);
+	release(entry, path);
+	return EFI_ERROR(status) ? -1 : 0;
 }
 static int rom_start(void *opaque, void *handle)
 {
@@ -724,8 +745,15 @@ static int publish_hot_add(void *opaque, const struct cdk2_pci_topology *topolog
 			    function->bars[bar].base != 0U && function->bars[bar].size != 0U)
 				has_rom = 1;
 		/* A broken option ROM must not suppress the PCI function itself. */
-		if (has_rom)
+		if (has_rom && cdk2_pci_bus_make_path(&entry->driver.binding,
+			entry->roots[publish->root].path,
+			entry->roots[publish->root].path_size, mutable, index,
+			&entry->rom_path, &entry->rom_path_size) == 0) {
 			(void)cdk2_pci_prepare_option_rom(&cfg, &rom_ops, function);
+			release(entry, entry->rom_path);
+			entry->rom_path = NULL;
+			entry->rom_path_size = 0;
+		}
 	}
 	entry->driver.binding.services.release_function = NULL;
 	publish->handle_count = CDK2_PCI_MAX_FUNCTIONS;
@@ -888,6 +916,26 @@ static int function_below(const struct cdk2_pci_topology *topology,
 	return 0;
 }
 
+static void compact_removed(struct cdk2_pci_topology *topology,
+	const UINT8 removed[CDK2_PCI_MAX_FUNCTIONS])
+{
+	UINT16 remap[CDK2_PCI_MAX_FUNCTIONS];
+	UINTN output = 0;
+	for (UINTN index = 0; index < topology->count; index++) {
+		if (removed[index]) {
+			remap[index] = CDK2_PCI_ROOT_PARENT;
+			continue;
+		}
+		remap[index] = output;
+		topology->functions[output++] = topology->functions[index];
+	}
+	topology->count = output;
+	for (UINTN index = 0; index < topology->count; index++)
+		if (topology->functions[index].parent_index != CDK2_PCI_ROOT_PARENT)
+			topology->functions[index].parent_index =
+				remap[topology->functions[index].parent_index];
+}
+
 static EFI_STATUS hotplug_remove(struct entry_context *entry, UINTN root,
 	void *controller, UINT8 *number, void **handles)
 {
@@ -896,7 +944,7 @@ static EFI_STATUS hotplug_remove(struct entry_context *entry, UINTN root,
 	struct cdk2_pci_topology *topology = entry->roots[root].topology;
 	UINT16 controller_index = CDK2_PCI_ROOT_PARENT;
 	UINT8 removed[CDK2_PCI_MAX_FUNCTIONS] = { 0 };
-	UINT16 remap[CDK2_PCI_MAX_FUNCTIONS];
+	UINT8 stopped[CDK2_PCI_MAX_FUNCTIONS] = { 0 };
 	for (UINTN child = 0; child < entry->driver.binding.child_count; child++)
 		if (entry->driver.binding.children[child]->handle == controller)
 			controller_index = child_function_index(entry, topology, child);
@@ -963,25 +1011,24 @@ static EFI_STATUS hotplug_remove(struct entry_context *entry, UINTN root,
 					selected[count++] = entry->driver.binding.children[child]->handle;
 					break;
 				}
-	if (cdk2_pci_bus_stop(&entry->driver.binding,
-		entry->roots[root].controller, selected, count) != 0)
-		return EFI_DEVICE_ERROR;
-	{
-		UINTN output = 0;
-		for (UINTN index = 0; index < topology->count; index++) {
-			if (removed[index]) {
-				remap[index] = CDK2_PCI_ROOT_PARENT;
-				continue;
-			}
-			remap[index] = output;
-			topology->functions[output++] = topology->functions[index];
+	for (UINTN chosen = 0; chosen < count; chosen++) {
+		UINTN function;
+		for (function = 0; function < topology->count; function++)
+			for (UINTN child = 0; child < entry->driver.binding.child_count; child++)
+				if (entry->driver.binding.children[child]->handle == selected[chosen] &&
+				    function_same_bdf(&entry->driver.binding.children[child]->function,
+					&topology->functions[function]))
+					goto matched;
+matched:
+		if (cdk2_pci_bus_stop(&entry->driver.binding,
+			entry->roots[root].controller, &selected[chosen], 1) != 0) {
+			compact_removed(topology, stopped);
+			return EFI_DEVICE_ERROR;
 		}
-		topology->count = output;
-		for (UINTN index = 0; index < topology->count; index++)
-			if (topology->functions[index].parent_index != CDK2_PCI_ROOT_PARENT)
-				topology->functions[index].parent_index =
-					remap[topology->functions[index].parent_index];
+		if (function < topology->count)
+			stopped[function] = 1;
 	}
+	compact_removed(topology, stopped);
 	*number = 0;
 	if (requested == 0U && controller == entry->roots[root].controller)
 		finish_stop(entry, controller, 1);
@@ -1181,8 +1228,15 @@ static EFI_STATUS global_start(void *opaque, void *controller, void *remaining)
 				    device->bars[bar].base != 0U && device->bars[bar].size != 0U)
 					has_rom = 1;
 			/* ROM dispatch is best effort; PCI I/O publication is independent. */
-			if (has_rom)
+			if (has_rom && cdk2_pci_bus_make_path(&entry->driver.binding,
+				roots[root].path, roots[root].path_size,
+				roots[root].topology, function, &entry->rom_path,
+				&entry->rom_path_size) == 0) {
 				(void)cdk2_pci_prepare_option_rom(&cfg, &rom_ops, device);
+				release(entry, entry->rom_path);
+				entry->rom_path = NULL;
+				entry->rom_path_size = 0;
+			}
 		}
 	}
 	status = host->notify_phase(host, 5U);
@@ -1399,16 +1453,16 @@ static int initialize_io(void *opaque, const struct cdk2_pci_function *function,
 		io->bar_64[index] = function->bars[bar].kind == CDK2_PCI_BAR_MEM64;
 		io->bar_prefetchable[index] = function->bars[bar].prefetchable;
 	}
-	io->supported_attributes = 0x400U;
-	for (UINTN bar = 0; bar < 6U; bar++)
-		if (io->bar_size[bar] != 0U)
-			io->supported_attributes |= io->bar_space[bar] == CDK2_PCI_IO_PORT ?
-				0x100U : 0x200U;
+	io->supported_attributes = ((function->supported_command & 1U) ? 0x100U : 0U) |
+		((function->supported_command & 2U) ? 0x200U : 0U) |
+		((function->supported_command & 4U) ? 0x400U : 0U);
 	if (root->get_attributes != NULL) {
 		UINT64 supports = 0, current = 0;
 		if (!EFI_ERROR(root->get_attributes(root, &supports, &current))) {
-			io->supported_attributes &= supports | 0x700U;
 			io->supported_attributes |= supports & 0x8000U;
+			for (UINTN bar = 0; bar < 6U; bar++)
+				if (io->bar_space[bar] == CDK2_PCI_IO_MEM)
+					io->bar_supported_attributes[bar] = supports & 0x880U;
 		}
 	}
 	io->attributes = ((function->command & 1U) ? 0x100U : 0U) |

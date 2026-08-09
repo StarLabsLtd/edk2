@@ -34,6 +34,7 @@ struct cdk2_pci_io_model {
 	uint8_t bar_64[CDK2_PCI_IO_MAX_BARS];
 	uint8_t bar_prefetchable[CDK2_PCI_IO_MAX_BARS];
 	uint64_t supported_attributes;
+	uint64_t bar_supported_attributes[CDK2_PCI_IO_MAX_BARS];
 	uint64_t attributes;
 	uint16_t segment;
 	uint8_t bus, device, function;
