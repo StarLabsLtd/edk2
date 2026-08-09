@@ -14,6 +14,20 @@ struct narrow_glyph { CHAR16 unicode; UINT8 attributes; UINT8 bitmap[NARROW_HEIG
 struct wide_glyph { CHAR16 unicode; UINT8 attributes; UINT8 bitmap[NARROW_HEIGHT * 2U]; }
 	__packed;
 
+static void simple_glyph_pixels(struct cdk2_hii_pixel *pixels,
+	const UINT8 *bitmap, UINTN width)
+{
+	UINTN row, column;
+
+	for (row = 0; row < NARROW_HEIGHT; row++)
+		for (column = 0; column < width; column++)
+			pixels[row * width + column] =
+				(bitmap[row * (width / 8U) + column / 8U] &
+				 (0x80U >> (column % 8U))) != 0U ?
+				(struct cdk2_hii_pixel) { 0xffU, 0xffU, 0xffU, 0U } :
+				(struct cdk2_hii_pixel) { 0U, 0U, 0U, 0U };
+}
+
 static UINT32 package_length(const struct cdk2_hii_package_header *package)
 { return package->length_and_type & 0x00ffffffU; }
 static UINT8 package_type(const struct cdk2_hii_package_header *package)
@@ -686,7 +700,7 @@ EFI_STATUS cdk2_hii_ingest_package_list(struct cdk2_hii_database *database,
 	const struct narrow_glyph *glyph;
 	struct cdk2_hii_pixel pixels[16U * NARROW_HEIGHT];
 	EFI_STATUS status;
-	UINTN offset = sizeof(*header), index, row, column;
+	UINTN offset = sizeof(*header), index;
 
 	while (offset < list->size) {
 		package = (const void *)((const UINT8 *)list->data + offset);
@@ -712,33 +726,26 @@ EFI_STATUS cdk2_hii_ingest_package_list(struct cdk2_hii_database *database,
 					return EFI_INVALID_PARAMETER;
 				glyph = (const void *)(font + 1);
 				for (index = 0; index < font->narrow_count; index++) {
-				for (row = 0; row < NARROW_HEIGHT; row++)
-					for (column = 0; column < 8U; column++)
-						pixels[row * 8U + column] =
-							(glyph[index].bitmap[row] & (0x80U >> column)) != 0U ?
-							(struct cdk2_hii_pixel) { 0xffU, 0xffU, 0xffU, 0U } :
-							(struct cdk2_hii_pixel) { 0U, 0U, 0U, 0U };
-				status = cdk2_hii_register_package_glyph(database, list,
-					glyph[index].unicode, 8U, NARROW_HEIGHT,
-					NARROW_HEIGHT - 1U, pixels);
-				if (EFI_ERROR(status)) {
-					cdk2_hii_remove_glyphs(database, list);
-					return status;
+					simple_glyph_pixels(pixels, glyph[index].bitmap, 8U);
+					status = cdk2_hii_register_package_glyph(database, list,
+						glyph[index].unicode, 8U, NARROW_HEIGHT,
+						NARROW_HEIGHT - 1U, pixels);
+					if (EFI_ERROR(status)) {
+						cdk2_hii_remove_glyphs(database, list);
+						return status;
 					}
 				}
 				for (index = 0; index < font->wide_count; index++) {
-					const struct wide_glyph *wide = (const void *)(glyph + font->narrow_count);
-					for (row = 0; row < NARROW_HEIGHT; row++)
-						for (column = 0; column < 16U; column++)
-							pixels[row * 16U + column] =
-								(wide[index].bitmap[row * 2U + column / 8U] &
-								 (0x80U >> (column % 8U))) != 0U ?
-								(struct cdk2_hii_pixel){ 0xffU, 0xffU, 0xffU, 0U } :
-								(struct cdk2_hii_pixel){ 0U, 0U, 0U, 0U };
+					const struct wide_glyph *wide =
+						(const void *)(glyph + font->narrow_count);
+					simple_glyph_pixels(pixels, wide[index].bitmap, 16U);
 					status = cdk2_hii_register_package_glyph(database, list,
 						wide[index].unicode, 16U, NARROW_HEIGHT,
 						NARROW_HEIGHT - 1U, pixels);
-					if (EFI_ERROR(status)) { cdk2_hii_remove_glyphs(database, list); return status; }
+				if (EFI_ERROR(status)) {
+					cdk2_hii_remove_glyphs(database, list);
+					return status;
+				}
 				}
 		} else if (package_type(package) == HII_KEYBOARD_LAYOUT) {
 			const UINT8 *bytes = (const UINT8 *)package;

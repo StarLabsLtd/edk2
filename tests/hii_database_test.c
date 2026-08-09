@@ -14,7 +14,10 @@ static BOOLEAN fail_allocation;
 static EFI_STATUS allocate(void *context, UINTN size, void **buffer)
 {
 	(void)context;
-	if (fail_allocation) { fail_allocation = FALSE; return EFI_OUT_OF_RESOURCES; }
+	if (fail_allocation) {
+		fail_allocation = FALSE;
+		return EFI_OUT_OF_RESOURCES;
+	}
 	*buffer = malloc(size);
 	return *buffer == NULL ? EFI_OUT_OF_RESOURCES : EFI_SUCCESS;
 }

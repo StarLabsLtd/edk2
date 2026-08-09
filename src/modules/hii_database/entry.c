@@ -203,10 +203,12 @@ static EFI_STATUS screen_blt(void *screen, struct cdk2_hii_pixel *bitmap,
 static UINTN device_path_size(const UINT8 *path)
 {
 	UINTN offset = 0U, length;
-	if (path == NULL) return 0U;
+	if (path == NULL)
+		return 0U;
 	while (offset < 0x10000U) {
 		length = (UINTN)path[offset + 2U] | ((UINTN)path[offset + 3U] << 8);
-		if (length < 4U || offset + length > 0x10000U) return 0U;
+		if (length < 4U || offset + length > 0x10000U)
+			return 0U;
 		offset += length;
 		if (path[offset - length] == 0x7fU && path[offset - length + 1U] == 0xffU)
 			return offset;
@@ -223,7 +225,8 @@ static EFI_STATUS CDK2_MS_ABI new_package(const void *self, const void *raw,
 	UINTN path_size, old_end, total;
 	EFI_STATUS status;
 	(void)self;
-	if (raw == NULL || handle == NULL) return EFI_INVALID_PARAMETER;
+	if (raw == NULL || handle == NULL)
+		return EFI_INVALID_PARAMETER;
 	if (driver == NULL || context.boot->handle_protocol == NULL ||
 	    EFI_ERROR(context.boot->handle_protocol(driver, &device_path_guid, (void **)&path)))
 		return cdk2_hii_new_package_list(&context.database, raw, driver, handle);
@@ -233,7 +236,8 @@ static EFI_STATUS CDK2_MS_ABI new_package(const void *self, const void *raw,
 	old_end = list->length - sizeof(*package);
 	total = list->length + sizeof(*package) + path_size;
 	status = allocate(&context, total, (void **)&augmented);
-	if (EFI_ERROR(status)) return status;
+	if (EFI_ERROR(status))
+		return status;
 	__builtin_memcpy(augmented, raw, old_end);
 	package = (void *)((UINT8 *)augmented + old_end);
 	package->length_and_type = (UINT32)(sizeof(*package) + path_size) | (0x08U << 24);
@@ -653,7 +657,8 @@ static EFI_STATUS CDK2_MS_ABI extract_config(const void *self, const CHAR16 *req
 	void *path;
 	EFI_STATUS status;
 	(void)self;
-	if (progress == NULL || results == NULL) return EFI_INVALID_PARAMETER;
+	if (progress == NULL || results == NULL)
+		return EFI_INVALID_PARAMETER;
 	status = cdk2_hii_extract_config(&context.database, request, &core_progress,
 		results);
 	if (status != EFI_NOT_FOUND) {
@@ -679,7 +684,8 @@ static EFI_STATUS CDK2_MS_ABI route_config(const void *self, const CHAR16 *confi
 	void *path;
 	EFI_STATUS status;
 	(void)self;
-	if (progress == NULL) return EFI_INVALID_PARAMETER;
+	if (progress == NULL)
+		return EFI_INVALID_PARAMETER;
 	status = cdk2_hii_route_config(&context.database, configuration, &core_progress);
 	if (status != EFI_NOT_FOUND) {
 		*progress = (CHAR16 *)core_progress;
@@ -714,7 +720,8 @@ static EFI_STATUS CDK2_MS_ABI config_to_block(const void *self,
 	EFI_STATUS status;
 	(void)self;
 	if (configuration == NULL || size == NULL || progress == NULL ||
-	    (*size != 0U && block == NULL)) return EFI_INVALID_PARAMETER;
+	    (*size != 0U && block == NULL))
+		return EFI_INVALID_PARAMETER;
 	status = cdk2_hii_config_to_block(configuration, block, size, &core_progress);
 	*progress = (CHAR16 *)core_progress;
 	return status;
@@ -728,7 +735,8 @@ EFI_STATUS CDK2_MS_ABI cdk2_hii_database_unload(void *image)
 		return EFI_NOT_STARTED;
 	if (pending_keyboard_event != NULL) {
 		status = context.boot->close_event(pending_keyboard_event);
-		if (EFI_ERROR(status)) return status;
+		if (EFI_ERROR(status))
+			return status;
 		pending_keyboard_event = NULL;
 	}
 	if (context.boot->uninstall_multiple == NULL)
@@ -740,7 +748,8 @@ EFI_STATUS CDK2_MS_ABI cdk2_hii_database_unload(void *image)
 		&font_guid, &context.font_protocol,
 		&config_guid, &context.config_protocol,
 		&keyword_guid, &context.keyword_protocol, NULL);
-	if (EFI_ERROR(status)) return status;
+	if (EFI_ERROR(status))
+		return status;
 	if (context.loaded_image != NULL)
 		context.loaded_image->unload = context.original_unload;
 	cdk2_hii_database_destroy(&context.database);

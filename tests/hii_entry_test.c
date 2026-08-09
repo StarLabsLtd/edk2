@@ -158,8 +158,10 @@ int main(void)
 		for (offset = sizeof(input.list); offset + 4U <= output_size;) {
 			UINT32 header = (UINT32)output[offset] | ((UINT32)output[offset + 1U] << 8) |
 				((UINT32)output[offset + 2U] << 16) | ((UINT32)output[offset + 3U] << 24);
-			if ((header >> 24) == 0x08U) found_path = TRUE;
-			if ((header & 0x00ffffffU) < 4U) break;
+			if ((header >> 24) == 0x08U)
+				found_path = TRUE;
+			if ((header & 0x00ffffffU) < 4U)
+				break;
 			offset += header & 0x00ffffffU;
 		}
 		failures += expect(found_path, "export omitted synthesized DevicePath package");

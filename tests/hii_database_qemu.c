@@ -32,7 +32,8 @@ static EFI_STATUS CDK2_MS_ABI package_notify(UINT8 type, const EFI_GUID *guid,
 	const void *package, void *handle, UINTN operation)
 {
 	(void)guid; (void)package; (void)handle;
-	if (type == 0xe0U && operation != 0U) notify_count++;
+	if (type == 0xe0U && operation != 0U)
+		notify_count++;
 	return EFI_SUCCESS;
 }
 
