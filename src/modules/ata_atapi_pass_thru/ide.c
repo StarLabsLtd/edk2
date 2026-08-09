@@ -310,6 +310,11 @@ EFI_STATUS cdk2_ide_atapi_execute(struct cdk2_ide_engine *engine, UINT8 channel,
 			status = EFI_DEVICE_ERROR;
 			goto complete;
 		}
+	if (packet->protocol == 6U || packet->protocol == 0x0aU ||
+	    packet->protocol == 0x0bU) {
+		status = dma_transfer(engine, channel, packet, timeout);
+		goto complete;
+	}
 	in_buffer = packet->in_data;
 	out_buffer = packet->out_data;
 	in_remaining = packet->in_length;

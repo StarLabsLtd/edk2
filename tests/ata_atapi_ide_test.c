@@ -14,12 +14,12 @@ struct fixture {
 	unsigned int writes8, writes16, writes32, maps, unmaps, flushes, timings;
 	unsigned int data_reads;
 	unsigned int fail_map, hold_busy, bm_reads;
-	unsigned int atapi;
+	unsigned int atapi, resets;
 	UINT64 now; enum cdk2_ahci_dma_operation operations[8];
 };
 static UINT8 read8(void *opaque, UINT16 port)
 { struct fixture *f = opaque;
-	if (f->atapi == 2U) {
+	if (f->atapi == 2U && port < 0x400U) {
 		if ((port & 7U) == 7U)
 			return f->data_reads < 2U ? 0x08U : 0U;
 		if ((port & 7U) == 2U)
@@ -47,6 +47,8 @@ static EFI_STATUS write8(void *opaque, UINT16 port, UINT8 value)
 { struct fixture *f = opaque; (void)value; f->writes8++;
 	if ((port & 7U) == 7U && value == 0xa0U)
 		f->atapi = 2;
+	if ((port == 0x3f6U || port == 0x376U) && value == 0x04U)
+		f->resets++;
 	if (port == 0x1f7U || port == 0x177U)
 		f->status = 0x08;
 	return EFI_SUCCESS; }
@@ -133,6 +135,18 @@ int main(void)
 		CHECK(atapi_packet.in_length == 3 && odd[0] == 0x34 &&
 			odd[1] == 0x12 && odd[2] == 0x35);
 		CHECK(fixture.writes16 >= 6U && packet_asb.status == 0);
+		fixture.atapi = 1; fixture.data_reads = 0; fixture.bm_reads = 0;
+		fixture.status = 0; fixture.bm_status = 0x04;
+		atapi_packet.in_data = data; atapi_packet.in_length = 512;
+		atapi_packet.protocol = 0x0a;
+		CHECK(cdk2_ide_atapi_execute(&engine, 0, 0, &atapi_packet, cdb,
+			sizeof(cdb), 100) == EFI_SUCCESS);
+		CHECK(fixture.maps >= 2U && fixture.unmaps >= 2U);
+		fixture.atapi = 1; fixture.bm_reads = 0;
+		fixture.fail_map = fixture.maps + 1U;
+		CHECK(cdk2_ide_atapi_execute(&engine, 0, 0, &atapi_packet, cdb,
+			sizeof(cdb), 100) == EFI_DEVICE_ERROR);
+		CHECK(fixture.resets != 0U);
 	}
 	puts("ata atapi IDE tests: PASS");
 	return 0;
