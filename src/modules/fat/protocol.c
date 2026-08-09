@@ -357,30 +357,50 @@ static uint64_t async_cached_read(void *opaque, uint64_t offset, size_t size,
 	void *buffer)
 {
 	struct async_task *task = opaque;
-	UINTN item;
-	/* Transaction preparation must observe its own staged FAT/directory writes. */
-	for (item = task->write_count; item != 0U; item--)
-		if (offset >= task->writes[item - 1U].offset &&
-		    offset - task->writes[item - 1U].offset <= task->writes[item - 1U].size &&
-		    size <= task->writes[item - 1U].size -
-			(UINTN)(offset - task->writes[item - 1U].offset)) {
-			__builtin_memcpy(buffer, task->writes[item - 1U].data +
-				(UINTN)(offset - task->writes[item - 1U].offset), size);
-			return EFI_SUCCESS;
+	UINT8 *output = buffer;
+	UINT64 cursor = offset;
+	UINTN remaining = size;
+	if (size > UINT64_MAX - offset)
+		return EFI_INVALID_PARAMETER;
+	while (remaining != 0U) {
+		const UINT8 *source = NULL;
+		UINTN available = 0U, item;
+		/* Newest staged data takes precedence over the original cache. */
+		for (item = task->write_count; item != 0U; item--)
+			if (cursor >= task->writes[item - 1U].offset &&
+			    cursor - task->writes[item - 1U].offset <
+			    task->writes[item - 1U].size) {
+				available = task->writes[item - 1U].size -
+					(UINTN)(cursor - task->writes[item - 1U].offset);
+				source = task->writes[item - 1U].data +
+					(UINTN)(cursor - task->writes[item - 1U].offset);
+				break;
+			}
+		if (source == NULL)
+			for (item = 0U; item < task->cache_count; item++)
+				if (cursor >= task->cache[item].offset &&
+				    cursor - task->cache[item].offset < task->cache[item].size) {
+					available = task->cache[item].size -
+						(UINTN)(cursor - task->cache[item].offset);
+					source = task->cache[item].data +
+						(UINTN)(cursor - task->cache[item].offset);
+					break;
+				}
+		if (source == NULL) {
+			if (task->cache_count == ASYNC_CACHE_SLOTS)
+				return EFI_OUT_OF_RESOURCES;
+			task->wanted_offset = cursor;
+			task->wanted_size = 1U;
+			return EFI_NOT_READY;
 		}
-	for (item = 0U; item < task->cache_count; item++)
-		if (offset >= task->cache[item].offset &&
-		    offset - task->cache[item].offset <= task->cache[item].size &&
-		    size <= task->cache[item].size - (UINTN)(offset - task->cache[item].offset)) {
-			__builtin_memcpy(buffer, task->cache[item].data +
-				(UINTN)(offset - task->cache[item].offset), size);
-			return EFI_SUCCESS;
-		}
-	if (size > ASYNC_CACHE_BYTES || task->cache_count == ASYNC_CACHE_SLOTS)
-		return EFI_OUT_OF_RESOURCES;
-	task->wanted_offset = offset;
-	task->wanted_size = size;
-	return EFI_NOT_READY;
+		if (available > remaining)
+			available = remaining;
+		__builtin_memcpy(output, source, available);
+		output += available;
+		cursor += available;
+		remaining -= available;
+	}
+	return EFI_SUCCESS;
 }
 static uint64_t async_cached_write(void *opaque, uint64_t offset, size_t size,
 	const void *buffer)
@@ -475,6 +495,8 @@ static EFI_STATUS submit_transaction_flush(struct async_task *task)
 static EFI_STATUS resume_prepare(struct async_task *task)
 {
 	EFI_STATUS status;
+	/* Each cache miss restarts preparation from the committed snapshot. */
+	task->write_count = 0U;
 	if (task->kind == ASYNC_OPEN) {
 		task->async_parent = task->handle->file;
 		task->async_parent.volume = &task->async_volume;

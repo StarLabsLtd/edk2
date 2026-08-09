@@ -31,6 +31,7 @@ static UINT64 disk2_offset; static UINTN disk2_size; static void *disk2_buffer;
 static unsigned disk2_calls, disk2_operation, disk2_writes;
 static struct cdk2_fat_file_protocol *close_on_signal;
 static EFI_STATUS reentrant_close_status;
+static void complete_disk(EFI_STATUS status, int apply_failed_write);
 struct test_time { UINT16 year; UINT8 month, day, hour, minute, second, pad1;
 	UINT32 nanosecond; INT16 timezone; UINT8 daylight, pad2; };
 struct test_file_info { UINT64 size, file_size, physical_size; struct test_time create,
@@ -134,7 +135,13 @@ static EFI_STATUS create_event(void *context,
 static EFI_STATUS close_event(void *context, void *event)
 { (void)context; (void)event; return EFI_SUCCESS; }
 static EFI_STATUS wait_event(void *context, void *event)
-{ (void)context; (void)event; return EFI_SUCCESS; }
+{
+	(void)context;
+	(void)event;
+	if (disk_token != NULL)
+		complete_disk(EFI_SUCCESS, 0);
+	return EFI_SUCCESS;
+}
 static int expect(int ok, const char *message)
 { if (!ok) fprintf(stderr, "FAT binding test: %s\n", message); return !ok; }
 
