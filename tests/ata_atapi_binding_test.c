@@ -68,7 +68,7 @@ static EFI_STATUS install(void *opaque, void *handle,
 { struct fixture *f = opaque; (void)handle; CHECK(protocols != NULL);
 	f->installs++; return fault(f); }
 static EFI_STATUS prepare_engines(void *opaque, struct cdk2_ata_controller *controller)
-{ struct fixture *f = opaque; CHECK(controller->topology.count != 0U); f->prepares++;
+{ struct fixture *f = opaque; CHECK(controller->topology.count == 0U); f->prepares++;
 	return fault(f); }
 static void release_engines(void *opaque, struct cdk2_ata_controller *controller)
 { struct fixture *f = opaque; (void)controller; f->engine_releases++; }

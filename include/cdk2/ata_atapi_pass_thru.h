@@ -24,6 +24,7 @@ enum cdk2_ata_device_type { CDK2_ATA_DISK, CDK2_ATAPI_DEVICE, CDK2_PORT_MULTIPLI
 struct cdk2_ata_device {
 	UINT16 port, multiplier;
 	enum cdk2_ata_device_type type;
+	UINT32 block_size, alignment;
 };
 struct cdk2_ata_topology {
 	enum cdk2_ata_mode mode;
@@ -149,6 +150,7 @@ struct cdk2_ata_controller {
 	struct cdk2_ahci_engine *ahci;
 	struct cdk2_ide_engine *ide_engine;
 	struct cdk2_ata_protocol_bundle *protocols;
+	void *backend;
 };
 struct cdk2_ata_binding {
 	struct cdk2_ata_binding_services services;

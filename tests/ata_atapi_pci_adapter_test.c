@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 
 #include <cdk2/ata_atapi_pci_adapter.h>
+#include <cdk2/ata_atapi_backend.h>
 
 #include <stddef.h>
 #include <stdio.h>
@@ -12,7 +13,8 @@
 typedef UINTN native_uintn_t;
 typedef UINT64 native_uint64_t;
 struct fixture { unsigned int allocs, frees, maps, unmaps, flushes, mem, io, timings;
-	UINTN attribute_operations[4]; unsigned int attribute_calls; };
+	UINTN attribute_operations[4]; unsigned int attribute_calls, pool_allocs,
+	pool_frees; };
 static struct fixture fixture;
 static EFI_STATUS CDK2_MS_ABI access(struct cdk2_efi_pci_io_protocol *pci,
 	UINTN width, UINT8 bar, UINT64 offset, UINTN count, void *buffer)
@@ -63,6 +65,12 @@ static EFI_STATUS CDK2_MS_ABI timing(struct cdk2_ide_init_protocol *ide,
 	UINT8 channel, UINT8 device, void *mode)
 { (void)ide; (void)channel; (void)device; CHECK(mode == &fixture); fixture.timings++;
 	return EFI_SUCCESS; }
+static EFI_STATUS pool_allocate(void *opaque, size_t size, void **buffer)
+{ struct fixture *state = opaque; state->pool_allocs++; *buffer = calloc(1, size);
+	return *buffer == NULL ? EFI_OUT_OF_RESOURCES : EFI_SUCCESS; }
+static void pool_release(void *opaque, void *buffer, size_t size)
+{ struct fixture *state = opaque; const UINT8 *bytes = buffer;
+	CHECK(size != 0U && bytes[0] == 0xa5U); state->pool_frees++; free(buffer); }
 
 int main(void)
 {
@@ -75,6 +83,8 @@ int main(void)
 	struct cdk2_ata_pci_adapter adapter; struct cdk2_ahci_dma_services ahci;
 	struct cdk2_ide_services ide_services; void *host; UINT64 device;
 	UINT8 class_code[3]; UINT32 capability, ports; UINT64 current, supported;
+	struct cdk2_ata_backend_pool pool = { &fixture, pool_allocate, pool_release };
+	struct cdk2_ata_controller controller = { .pci = &pci, .ide = &ide };
 	CHECK(sizeof(struct cdk2_efi_pci_io_protocol) == 160);
 	CHECK(offsetof(struct cdk2_efi_pci_io_protocol, map) == 72);
 	CHECK(offsetof(struct cdk2_efi_pci_io_protocol, attributes) == 120);
@@ -104,6 +114,12 @@ int main(void)
 	CHECK(cdk2_ata_pci_read_ahci_capability(&pci, 5, &capability, &ports) ==
 		EFI_SUCCESS);
 	CHECK(capability == 0x12345678U && ports == 5U);
+	controller.topology.mode = CDK2_ATA_AHCI;
+	CHECK(cdk2_ata_backend_prepare(&pool, &controller) == EFI_SUCCESS);
+	CHECK(controller.backend != NULL && controller.ahci != NULL);
+	cdk2_ata_backend_release(&controller);
+	CHECK(controller.backend == NULL && controller.ahci == NULL &&
+		fixture.pool_allocs == fixture.pool_frees);
 	puts("ata atapi PCI adapter tests: PASS");
 	return 0;
 }

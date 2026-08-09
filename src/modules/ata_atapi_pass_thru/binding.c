@@ -121,16 +121,16 @@ EFI_STATUS cdk2_ata_binding_start(struct cdk2_ata_binding *binding, void *contro
 	status = cdk2_ata_topology_init(&staged.topology, staged.topology.mode);
 	if (EFI_ERROR(status))
 		goto restore;
+	status = services->prepare_engines(services->context, &staged);
+	if (EFI_ERROR(status))
+		goto restore;
 	status = staged.topology.mode == CDK2_ATA_IDE ?
 		services->discover_ide(services->context, staged.pci, staged.ide,
 			&staged.topology) :
 		services->discover_ahci(services->context, staged.pci,
 			&staged.ahci_capability, &staged.ports_implemented, &staged.topology);
 	if (EFI_ERROR(status))
-		goto restore;
-	status = services->prepare_engines(services->context, &staged);
-	if (EFI_ERROR(status))
-		goto restore;
+		goto release_engines;
 	status = services->create_protocols(services->context, &staged,
 		&staged.protocols);
 	if (EFI_ERROR(status) || staged.protocols == NULL) {
