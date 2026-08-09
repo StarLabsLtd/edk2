@@ -37,5 +37,16 @@ void cdk2_ata_pci_ahci_services(struct cdk2_ata_pci_adapter *adapter,
 void cdk2_ata_pci_ide_services(struct cdk2_ata_pci_adapter *adapter,
 	struct cdk2_ide_services *services);
 EFI_STATUS cdk2_ata_pci_adapter_release(struct cdk2_ata_pci_adapter *adapter);
+EFI_STATUS cdk2_ata_pci_read_class(struct cdk2_efi_pci_io_protocol *pci,
+	UINT8 class_code[3]);
+EFI_STATUS cdk2_ata_pci_get_attributes(struct cdk2_efi_pci_io_protocol *pci,
+	UINT64 *current, UINT64 *supported);
+EFI_STATUS cdk2_ata_pci_enable_attributes(struct cdk2_efi_pci_io_protocol *pci,
+	UINT64 attributes);
+EFI_STATUS cdk2_ata_pci_restore_attributes(struct cdk2_efi_pci_io_protocol *pci,
+	UINT64 attributes);
+EFI_STATUS cdk2_ata_pci_read_ahci_capability(
+	struct cdk2_efi_pci_io_protocol *pci, UINT8 bar, UINT32 *capability,
+	UINT32 *ports_implemented);
 
 #endif

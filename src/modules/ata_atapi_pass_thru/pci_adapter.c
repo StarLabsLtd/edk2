@@ -8,6 +8,9 @@
 #define EFI_PCI_IO_WIDTH_UINT16 1U
 #define EFI_PCI_IO_WIDTH_UINT32 2U
 #define EFI_PCI_IO_ATTRIBUTE_OPERATION_SET 4U
+#define EFI_PCI_IO_ATTRIBUTE_OPERATION_GET 0U
+#define EFI_PCI_IO_ATTRIBUTE_OPERATION_SUPPORTED 1U
+#define EFI_PCI_IO_ATTRIBUTE_OPERATION_ENABLE 2U
 #define EFI_PCI_IO_MAP_COMMON_BUFFER 2U
 
 static struct cdk2_ata_adapter_allocation *find_allocation(
@@ -171,4 +174,57 @@ EFI_STATUS cdk2_ata_pci_adapter_release(struct cdk2_ata_pci_adapter *adapter)
 				first = status;
 		}
 	return first;
+}
+
+EFI_STATUS cdk2_ata_pci_read_class(struct cdk2_efi_pci_io_protocol *pci,
+	UINT8 class_code[3])
+{
+	if (pci == NULL || pci->pci.read == NULL || class_code == NULL)
+		return EFI_INVALID_PARAMETER;
+	return pci->pci.read(pci, EFI_PCI_IO_WIDTH_UINT8, 9U, 3U, class_code);
+}
+
+EFI_STATUS cdk2_ata_pci_get_attributes(struct cdk2_efi_pci_io_protocol *pci,
+	UINT64 *current, UINT64 *supported)
+{
+	EFI_STATUS status;
+
+	if (pci == NULL || pci->attributes == NULL || current == NULL ||
+	    supported == NULL)
+		return EFI_INVALID_PARAMETER;
+	status = pci->attributes(pci, EFI_PCI_IO_ATTRIBUTE_OPERATION_GET, 0,
+		current);
+	return EFI_ERROR(status) ? status : pci->attributes(pci,
+		EFI_PCI_IO_ATTRIBUTE_OPERATION_SUPPORTED, 0, supported);
+}
+
+EFI_STATUS cdk2_ata_pci_enable_attributes(struct cdk2_efi_pci_io_protocol *pci,
+	UINT64 attributes)
+{
+	return pci == NULL || pci->attributes == NULL ? EFI_INVALID_PARAMETER :
+		pci->attributes(pci, EFI_PCI_IO_ATTRIBUTE_OPERATION_ENABLE,
+			attributes, NULL);
+}
+
+EFI_STATUS cdk2_ata_pci_restore_attributes(struct cdk2_efi_pci_io_protocol *pci,
+	UINT64 attributes)
+{
+	return pci == NULL || pci->attributes == NULL ? EFI_INVALID_PARAMETER :
+		pci->attributes(pci, EFI_PCI_IO_ATTRIBUTE_OPERATION_SET, attributes,
+			NULL);
+}
+
+EFI_STATUS cdk2_ata_pci_read_ahci_capability(
+	struct cdk2_efi_pci_io_protocol *pci, UINT8 bar, UINT32 *capability,
+	UINT32 *ports_implemented)
+{
+	EFI_STATUS status;
+
+	if (pci == NULL || pci->mem.read == NULL || bar >= 6U ||
+	    capability == NULL || ports_implemented == NULL)
+		return EFI_INVALID_PARAMETER;
+	status = pci->mem.read(pci, EFI_PCI_IO_WIDTH_UINT32, bar, 0U, 1U,
+		capability);
+	return EFI_ERROR(status) ? status : pci->mem.read(pci,
+		EFI_PCI_IO_WIDTH_UINT32, bar, 0x0cU, 1U, ports_implemented);
 }

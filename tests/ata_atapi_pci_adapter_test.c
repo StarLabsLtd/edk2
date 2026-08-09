@@ -11,12 +11,25 @@
 	__FILE__, __LINE__, #x); exit(EXIT_FAILURE); } } while (0)
 typedef UINTN native_uintn_t;
 typedef UINT64 native_uint64_t;
-struct fixture { unsigned int allocs, frees, maps, unmaps, flushes, mem, io, timings; };
+struct fixture { unsigned int allocs, frees, maps, unmaps, flushes, mem, io, timings;
+	UINTN attribute_operations[4]; unsigned int attribute_calls; };
 static struct fixture fixture;
 static EFI_STATUS CDK2_MS_ABI access(struct cdk2_efi_pci_io_protocol *pci,
 	UINTN width, UINT8 bar, UINT64 offset, UINTN count, void *buffer)
 { (void)pci; (void)count; CHECK(bar < 6); CHECK(offset < 0x1000);
-	fixture.mem++; memset(buffer, 0, (size_t)1U << width); return EFI_SUCCESS; }
+	fixture.mem++;
+	if (width == 2U && offset == 0U)
+		*(UINT32 *)buffer = 0x12345678U;
+	else if (width == 2U && offset == 0x0cU)
+		*(UINT32 *)buffer = 5U;
+	else
+		memset(buffer, 0, (size_t)1U << width);
+	return EFI_SUCCESS; }
+static EFI_STATUS CDK2_MS_ABI config(struct cdk2_efi_pci_io_protocol *pci,
+	UINTN width, UINT32 offset, UINTN count, void *buffer)
+{ UINT8 expected[3] = { 1, 6, 1 }; (void)pci; CHECK(width == 0U);
+	CHECK(offset == 9 && count == 3); memcpy(buffer, expected, sizeof(expected));
+	return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI io_access(struct cdk2_efi_pci_io_protocol *pci,
 	UINTN width, UINT8 bar, UINT64 offset, UINTN count, void *buffer)
 { (void)pci; (void)count; CHECK(bar < 6); CHECK(offset < 0x1000);
@@ -40,7 +53,8 @@ static EFI_STATUS CDK2_MS_ABI flush(struct cdk2_efi_pci_io_protocol *pci)
 { (void)pci; fixture.flushes++; return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI pci_attributes(struct cdk2_efi_pci_io_protocol *pci,
 	UINTN operation, UINT64 value, native_uint64_t *result)
-{ (void)pci; (void)operation; (void)value; if (result != NULL) *result = 7;
+{ (void)pci; (void)value; fixture.attribute_operations[fixture.attribute_calls++] =
+	operation; if (result != NULL) *result = operation == 0 ? 3 : 7;
 	return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI calculate(struct cdk2_ide_init_protocol *ide,
 	UINT8 channel, UINT8 device, void **mode)
@@ -53,12 +67,14 @@ static EFI_STATUS CDK2_MS_ABI timing(struct cdk2_ide_init_protocol *ide,
 int main(void)
 {
 	struct cdk2_efi_pci_io_protocol pci = { .mem = { access, access },
-		.io = { io_access, io_access }, .map = pci_map, .unmap = unmap,
+		.io = { io_access, io_access }, .pci = { config, config },
+		.map = pci_map, .unmap = unmap,
 		.allocate_buffer = allocate, .free_buffer = release, .flush = flush,
 		.attributes = pci_attributes };
 	struct cdk2_ide_init_protocol ide = { .calculate = calculate, .timing = timing };
 	struct cdk2_ata_pci_adapter adapter; struct cdk2_ahci_dma_services ahci;
 	struct cdk2_ide_services ide_services; void *host; UINT64 device;
+	UINT8 class_code[3]; UINT32 capability, ports; UINT64 current, supported;
 	CHECK(sizeof(struct cdk2_efi_pci_io_protocol) == 160);
 	CHECK(offsetof(struct cdk2_efi_pci_io_protocol, map) == 72);
 	CHECK(offsetof(struct cdk2_efi_pci_io_protocol, attributes) == 120);
@@ -75,6 +91,19 @@ int main(void)
 	CHECK(ide_services.set_timing(ide_services.context, 1, 1) == EFI_SUCCESS);
 	CHECK(fixture.timings == 1);
 	CHECK(cdk2_ata_pci_adapter_release(&adapter) == EFI_SUCCESS);
+	CHECK(cdk2_ata_pci_read_class(&pci, class_code) == EFI_SUCCESS);
+	CHECK(class_code[0] == 1 && class_code[1] == 6 && class_code[2] == 1);
+	CHECK(cdk2_ata_pci_get_attributes(&pci, &current, &supported) == EFI_SUCCESS);
+	CHECK(current == 3 && supported == 7);
+	CHECK(cdk2_ata_pci_enable_attributes(&pci, 7) == EFI_SUCCESS);
+	CHECK(cdk2_ata_pci_restore_attributes(&pci, 3) == EFI_SUCCESS);
+	CHECK(fixture.attribute_operations[0] == 0 &&
+		fixture.attribute_operations[1] == 1 &&
+		fixture.attribute_operations[2] == 2 &&
+		fixture.attribute_operations[3] == 4);
+	CHECK(cdk2_ata_pci_read_ahci_capability(&pci, 5, &capability, &ports) ==
+		EFI_SUCCESS);
+	CHECK(capability == 0x12345678U && ports == 5U);
 	puts("ata atapi PCI adapter tests: PASS");
 	return 0;
 }
