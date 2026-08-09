@@ -720,12 +720,11 @@ uint64_t cdk2_pcd_lock_read_only(struct cdk2_pcd_context *context,
 
 	if (context == NULL || context->header == NULL || lock_variable == NULL)
 		return PCD_INVALID_PARAMETER;
+	/* Validate the complete policy set before making any external mutation. */
 	for (i = 0; i < context->header->local_token_count; i++) {
 		uint32_t entry = local_table(context)[i];
 		uint32_t offset = entry & PCD_OFFSET_MASK;
 		struct variable_head *head;
-		uint16_t *name;
-		uint64_t status;
 
 		if ((entry & PCD_TYPE_HII) == 0)
 			continue;
@@ -737,8 +736,49 @@ uint64_t cdk2_pcd_lock_read_only(struct cdk2_pcd_context *context,
 		if (head->guid_index >= context->header->guid_count ||
 		    !valid_variable_name(context, head->string_index))
 			return PCD_INVALID_PARAMETER;
+	}
+	for (i = 0; i < context->header->local_token_count; i++) {
+		uint32_t entry = local_table(context)[i];
+		struct variable_head *head;
+		uint16_t *name;
+		size_t prior;
+		uint64_t status;
+		int duplicate = 0;
+
+		if ((entry & PCD_TYPE_HII) == 0)
+			continue;
+		head = (struct variable_head *)(context->database +
+			(entry & PCD_OFFSET_MASK));
+		if ((head->property & 1U) == 0)
+			continue;
 		name = (uint16_t *)(context->database + context->header->string_offset +
 			head->string_index);
+		for (prior = 0; prior < i; prior++) {
+			uint32_t earlier = local_table(context)[prior];
+			struct variable_head *earlier_head;
+			uint16_t *earlier_name;
+			size_t character = 0;
+
+			if ((earlier & PCD_TYPE_HII) == 0)
+				continue;
+			earlier_head = (struct variable_head *)(context->database +
+				(earlier & PCD_OFFSET_MASK));
+			if ((earlier_head->property & 1U) == 0 ||
+			    memcmp(&guid_table(context)[earlier_head->guid_index],
+				&guid_table(context)[head->guid_index], sizeof(EFI_GUID)) != 0)
+				continue;
+			earlier_name = (uint16_t *)(context->database +
+				context->header->string_offset + earlier_head->string_index);
+			while (earlier_name[character] == name[character] &&
+			       name[character] != 0)
+				character++;
+			if (earlier_name[character] == name[character]) {
+				duplicate = 1;
+				break;
+			}
+		}
+		if (duplicate)
+			continue;
 		status = lock_variable(name, &guid_table(context)[head->guid_index]);
 		if (status != EFI_SUCCESS)
 			return status;

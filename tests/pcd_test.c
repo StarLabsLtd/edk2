@@ -37,12 +37,14 @@ static unsigned int allocations, frees;
 static uint32_t section_authentication;
 static unsigned int policy_registrations;
 static int expose_policy;
+static int expose_policy_on_notify;
 static cdk2_pcd_event_notify_fn *policy_notify;
 static void *policy_notify_context;
 static unsigned int event_closes;
 static unsigned int timer_arms;
 static unsigned int policy_failures;
 static uint64_t event_close_status;
+static uint64_t timer_status;
 
 static uint64_t CDK2_MS_ABI mock_create_event(uint32_t type, size_t tpl,
 	cdk2_pcd_event_notify_fn *notify, void *context, void **event)
@@ -69,7 +71,7 @@ static uint64_t CDK2_MS_ABI mock_set_timer(void *event, uint32_t type,
 	if (type != 2U || trigger == 0)
 		return EFI_INVALID_PARAMETER;
 	timer_arms++;
-	return EFI_SUCCESS;
+	return timer_status;
 }
 
 static uint64_t CDK2_MS_ABI mock_register_notify(const EFI_GUID *guid,
@@ -77,6 +79,8 @@ static uint64_t CDK2_MS_ABI mock_register_notify(const EFI_GUID *guid,
 {
 	(void)guid;
 	(void)event;
+	if (expose_policy_on_notify)
+		expose_policy = 1;
 	*registration = (void *)4;
 	return EFI_SUCCESS;
 }
@@ -325,6 +329,47 @@ struct hii_pointer_fixture {
 	uint16_t sizes[2];
 };
 
+struct hii_policy_fixture {
+	struct cdk2_pcd_database_header header;
+	uint32_t local[3];
+	EFI_GUID guid[2];
+	struct { uint32_t string_index, default_offset; uint16_t guid_index,
+		variable_offset; uint32_t attributes; uint16_t property, reserved; } head[3];
+	uint32_t defaults[3];
+	uint16_t names[6];
+};
+
+static void make_hii_policies(struct hii_policy_fixture *fixture)
+{
+	size_t i;
+
+	memset(fixture, 0, sizeof(*fixture));
+	fixture->header.signature = signature;
+	fixture->header.build_version = CDK2_PCD_SERVICE_VERSION;
+	fixture->header.length = fixture->header.length_all_skus = sizeof(*fixture);
+	fixture->header.local_tokens_offset = offsetof(struct hii_policy_fixture, local);
+	fixture->header.ex_map_offset = fixture->header.guid_offset =
+		offsetof(struct hii_policy_fixture, guid);
+	fixture->header.string_offset = offsetof(struct hii_policy_fixture, names);
+	fixture->header.size_offset = fixture->header.name_offset = sizeof(*fixture);
+	fixture->header.sku_offset = fixture->header.local_tokens_offset;
+	fixture->header.local_token_count = 3;
+	fixture->header.guid_count = 2;
+	fixture->guid[0] = space;
+	fixture->guid[1] = module_space;
+	fixture->names[0] = fixture->names[2] = 'X';
+	fixture->names[4] = 'Y';
+	for (i = 0; i < 3; i++) {
+		fixture->local[i] = 0x84000000U |
+			(uint32_t)(offsetof(struct hii_policy_fixture, head) +
+			i * sizeof(fixture->head[0]));
+		fixture->head[i].string_index = (uint32_t)(i * 2 * sizeof(uint16_t));
+		fixture->head[i].default_offset = (uint32_t)(
+			offsetof(struct hii_policy_fixture, defaults) + i * sizeof(uint32_t));
+		fixture->head[i].property = 1;
+	}
+}
+
 struct name_fixture {
 	struct cdk2_pcd_database_header header;
 	uint32_t local, value;
@@ -474,6 +519,7 @@ int main(void)
 	struct delta_fixture delta_fixture;
 	struct delta_two_fixture delta_two;
 	struct hii_fixture hii;
+	struct hii_policy_fixture hii_policies;
 	struct hii_pointer_fixture hii_pointer;
 	struct pointer_fixture pointer;
 	struct ex_fixture ex;
@@ -491,6 +537,7 @@ int main(void)
 	const EFI_GUID *next_space;
 	EFI_GUID copied_space;
 	uint8_t vpd[16] = { 0 };
+	uint64_t test_status;
 	int failures = 0;
 
 	make_fixture(&fixture);
@@ -772,6 +819,38 @@ int main(void)
 	failures += expect(policy_registrations == 1 && event_closes == 1,
 		"timer retry completes policy locking and event cleanup");
 	expose_policy = 0;
+	expose_policy_on_notify = 1;
+	policy_registrations = event_closes = timer_arms = installs = 0;
+	policy_failures = 1;
+	timer_status = EFI_DEVICE_ERROR;
+	event_close_status = EFI_SUCCESS;
+	allocations = frees = 0;
+	make_hii(&hii);
+	raw_fixture = (struct fixture *)&hii;
+	raw_fixture_size = sizeof(hii);
+	test_status = cdk2_pcd_driver_entry((void *)1, &system);
+	failures += expect(test_status == EFI_DEVICE_ERROR && installs == 0 && timer_arms == 1 &&
+		event_closes == 1 && frees == allocations + 1,
+		"synchronous retry-arm failure closes notification and unwinds entry");
+	expose_policy = 0;
+	policy_registrations = event_closes = timer_arms = installs = 0;
+	policy_failures = 1;
+	event_close_status = EFI_NOT_READY;
+	allocations = frees = 0;
+	make_hii(&hii);
+	raw_fixture = (struct fixture *)&hii;
+	raw_fixture_size = sizeof(hii);
+	test_status = cdk2_pcd_driver_entry((void *)1, &system);
+	failures += expect(test_status == EFI_NOT_READY && installs == 0 && timer_arms == 1 &&
+		event_closes == 2 && allocations == frees,
+		"failed close preserves live event context and expanded database");
+	timer_status = EFI_SUCCESS;
+	event_close_status = EFI_SUCCESS;
+	policy_notify((void *)3, policy_notify_context);
+	failures += expect(policy_registrations == 1 && event_closes == 3,
+		"resident notification remains a safe trigger after timer-arm failure");
+	expose_policy_on_notify = 0;
+	expose_policy = 0;
 	policy_registrations = event_closes = timer_arms = 0;
 	event_close_status = EFI_DEVICE_ERROR;
 	make_hii(&hii);
@@ -831,6 +910,29 @@ int main(void)
 		"HII write preserves a variable envelope larger than 4 KiB");
 	failures += expect(cdk2_pcd_lock_read_only(&context, mock_lock_variable) ==
 		EFI_SUCCESS && variable_locks == 1, "read-only HII variable policy locked");
+	make_hii_policies(&hii_policies);
+	failures += expect(cdk2_pcd_init(&context, &hii_policies,
+		sizeof(hii_policies)) == EFI_SUCCESS, "multi-policy HII fixture initialized");
+	variable_locks = 0;
+	failures += expect(cdk2_pcd_lock_read_only(&context, mock_lock_variable) ==
+		EFI_SUCCESS && variable_locks == 2,
+		"identical GUID/name policies deduplicated while distinct name remains");
+	make_hii_policies(&hii_policies);
+	hii_policies.head[1].guid_index = 1;
+	failures += expect(cdk2_pcd_init(&context, &hii_policies,
+		sizeof(hii_policies)) == EFI_SUCCESS, "multi-GUID HII fixture initialized");
+	variable_locks = 0;
+	failures += expect(cdk2_pcd_lock_read_only(&context, mock_lock_variable) ==
+		EFI_SUCCESS && variable_locks == 3,
+		"same name with different GUID remains a distinct policy");
+	make_hii_policies(&hii_policies);
+	hii_policies.head[1].string_index = sizeof(hii_policies.names);
+	failures += expect(cdk2_pcd_init(&context, &hii_policies,
+		sizeof(hii_policies)) == EFI_SUCCESS, "malformed-later HII fixture initialized");
+	variable_locks = 0;
+	failures += expect(cdk2_pcd_lock_read_only(&context, mock_lock_variable) ==
+		EFI_INVALID_PARAMETER && variable_locks == 0,
+		"entire HII policy set validates before the first registration");
 	make_hii_pointer(&hii_pointer);
 	memset(variable_data, 0, sizeof(variable_data));
 	memcpy(variable_data + hii_pointer.head.variable_offset, &space, sizeof(space));

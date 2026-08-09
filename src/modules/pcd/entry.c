@@ -28,6 +28,7 @@ static void *policy_event;
 static void *policy_registration;
 static unsigned int policy_retries;
 static int policy_locked;
+static uint64_t policy_callback_status;
 
 #define POLICY_RETRY_LIMIT 3U
 #define EVT_TIMER 0x80000000U
@@ -210,6 +211,7 @@ static void CDK2_MS_ABI variable_policy_available(void *event, void *context)
 	uint64_t status;
 
 	(void)event;
+	policy_callback_status = EFI_SUCCESS;
 	if (policy_boot_services == NULL ||
 	    policy_boot_services->locate_protocol == NULL)
 		return;
@@ -223,10 +225,15 @@ static void CDK2_MS_ABI variable_policy_available(void *event, void *context)
 		locking_context = NULL;
 		active_variable_policy = NULL;
 		if (status != EFI_SUCCESS) {
-			if (policy_retries++ < POLICY_RETRY_LIMIT &&
-			    policy_boot_services->set_timer != NULL)
-				(void)policy_boot_services->set_timer(policy_event,
-					TIMER_RELATIVE, POLICY_RETRY_100NS);
+			if (policy_retries >= POLICY_RETRY_LIMIT ||
+			    policy_boot_services->set_timer == NULL) {
+				policy_callback_status = status;
+				return;
+			}
+			policy_callback_status = policy_boot_services->set_timer(policy_event,
+				TIMER_RELATIVE, POLICY_RETRY_100NS);
+			if (policy_callback_status == EFI_SUCCESS)
+				policy_retries++;
 			return;
 		}
 		policy_locked = 1;
@@ -236,12 +243,18 @@ static void CDK2_MS_ABI variable_policy_available(void *event, void *context)
 		policy_event = NULL;
 		policy_registration = NULL;
 		policy_boot_services = NULL;
-	} else if (policy_retries++ < POLICY_RETRY_LIMIT &&
+	} else if (policy_retries < POLICY_RETRY_LIMIT &&
 		policy_boot_services->set_timer != NULL) {
-		(void)policy_boot_services->set_timer(policy_event, TIMER_RELATIVE,
-			POLICY_RETRY_100NS);
+		policy_callback_status = policy_boot_services->set_timer(policy_event,
+			TIMER_RELATIVE, POLICY_RETRY_100NS);
+		if (policy_callback_status == EFI_SUCCESS)
+			policy_retries++;
+	} else {
+		policy_callback_status = status;
 	}
 }
+
+static uint64_t cancel_variable_policy_notification(void);
 
 static uint64_t defer_variable_policy(struct cdk2_pcd_context *context,
 	struct cdk2_pcd_boot_services *boot_services)
@@ -255,6 +268,7 @@ static uint64_t defer_variable_policy(struct cdk2_pcd_context *context,
 	policy_boot_services = boot_services;
 	policy_retries = 0;
 	policy_locked = 0;
+	policy_callback_status = EFI_SUCCESS;
 	status = boot_services->create_event(EVT_TIMER | EVT_NOTIFY_SIGNAL, 8U,
 		variable_policy_available,
 		context, &policy_event);
@@ -275,6 +289,16 @@ static uint64_t defer_variable_policy(struct cdk2_pcd_context *context,
 		return status;
 	}
 	variable_policy_available(policy_event, context);
+	if (policy_callback_status != EFI_SUCCESS) {
+		status = policy_callback_status;
+		{
+			uint64_t cleanup = cancel_variable_policy_notification();
+
+			if (cleanup != EFI_SUCCESS)
+				return cleanup;
+		}
+		return status;
+	}
 	return EFI_SUCCESS;
 }
 
