@@ -9,6 +9,33 @@ struct fixture {
 	struct cdk2_pci_root_bridges_hob header;
 	struct cdk2_pci_root_bridge_record bridge[2];
 };
+static unsigned int reservations, releases;
+static unsigned int fail_reservation;
+
+static uint64_t CDK2_MS_ABI reserve(void *context, uint8_t memory,
+	uint64_t base, uint64_t length, uint64_t alignment, uint64_t *allocated)
+{
+	(void)context;
+	(void)memory;
+	(void)length;
+	(void)alignment;
+	reservations++;
+	if (reservations == fail_reservation)
+		return EFI_OUT_OF_RESOURCES;
+	*allocated = base;
+	return EFI_SUCCESS;
+}
+
+static uint64_t CDK2_MS_ABI release(void *context, uint8_t memory,
+	uint64_t base, uint64_t length)
+{
+	(void)context;
+	(void)memory;
+	(void)base;
+	(void)length;
+	releases++;
+	return EFI_SUCCESS;
+}
 
 static int expect(int condition, const char *message)
 {
@@ -78,6 +105,26 @@ int main(void)
 		EFI_SUCCESS && host.request[0][1].allocated &&
 		host.request[0][1].base == 0x80000000,
 		"memory request was not allocated inside its admitted aperture");
+	failures += expect(cdk2_pci_host_notify(&host, CDK2_PCI_FREE_RESOURCES) ==
+		EFI_SUCCESS, "allocated resources were not released");
+	reservations = releases = 0;
+	make_fixture(&fixture);
+	fixture.bridge[0].aperture[1] =
+		(struct cdk2_pci_aperture){ 0x1000, 0x1fff, 0 };
+	failures += expect(cdk2_pci_host_init(&host, &fixture, sizeof(fixture)) ==
+		EFI_SUCCESS && cdk2_pci_host_set_allocator(&host, NULL, reserve, release) ==
+		EFI_SUCCESS, "gcd allocator callbacks were not configured");
+	for (size_t root_index = 0; root_index < host.count; root_index++)
+		for (size_t type = 0; type < CDK2_PCI_RESOURCE_TYPES; type++)
+			failures += expect(cdk2_pci_host_submit(&host, root_index, type,
+				root_index == 0 && type < 2 ? 0x100 : 0, 0) == EFI_SUCCESS,
+				"rollback fixture resource submission failed");
+	fail_reservation = 2;
+	failures += expect(cdk2_pci_host_notify(&host, CDK2_PCI_ALLOCATE_RESOURCES) ==
+		EFI_OUT_OF_RESOURCES && reservations == 2 && releases == 1 &&
+		!host.request[0][0].allocated && !host.request[0][1].allocated,
+		"failed gcd reservation was not rolled back");
+	fail_reservation = 0;
 	failures += expect(cdk2_pci_host_submit(&host, 0, 1, 0x1000, 0x123) ==
 		EFI_INVALID_PARAMETER, "non power-of-two alignment mask accepted");
 	fixture.header.header.length--;

@@ -4,6 +4,8 @@
 
 #include <string.h>
 
+static const uint8_t aperture_index[CDK2_PCI_RESOURCE_TYPES] = { 1, 2, 4, 3, 5 };
+
 static uint64_t validate_apertures(const struct cdk2_pci_root_bridge_record *bridge)
 {
 	if (bridge->dma_above_4g > 1U || bridge->no_extended_config > 1U)
@@ -111,10 +113,20 @@ uint64_t cdk2_pci_host_submit(struct cdk2_pci_host_model *host, size_t root,
 	return EFI_SUCCESS;
 }
 
+uint64_t cdk2_pci_host_set_allocator(struct cdk2_pci_host_model *host,
+	void *context, cdk2_pci_reserve_fn *reserve, cdk2_pci_release_fn *release)
+{
+	if (host == NULL || (reserve == NULL) != (release == NULL))
+		return EFI_INVALID_PARAMETER;
+	host->allocator_context = context;
+	host->reserve = reserve;
+	host->release = release;
+	return EFI_SUCCESS;
+}
+
 static uint64_t allocate_request(struct cdk2_pci_host_model *host, size_t root,
 	size_t type)
 {
-	static const uint8_t aperture_index[CDK2_PCI_RESOURCE_TYPES] = { 1, 2, 4, 3, 5 };
 	struct cdk2_pci_resource_request *request = &host->request[root][type];
 	const struct cdk2_pci_aperture *aperture =
 		&host->root[root].aperture[aperture_index[type]];
@@ -130,8 +142,35 @@ static uint64_t allocate_request(struct cdk2_pci_host_model *host, size_t root,
 	    (aperture->translation & mask) != 0)
 		return EFI_OUT_OF_RESOURCES;
 	request->base = base;
+	if (host->reserve != NULL) {
+		uint64_t allocated = base;
+		uint64_t status = host->reserve(host->allocator_context, type != 0,
+			base - aperture->translation, request->length, mask, &allocated);
+
+		if (status != EFI_SUCCESS)
+			return status;
+		if (allocated > UINT64_MAX - aperture->translation) {
+			(void)host->release(host->allocator_context, type != 0, allocated,
+				request->length);
+			return EFI_OUT_OF_RESOURCES;
+		}
+		request->base = allocated + aperture->translation;
+	}
 	request->allocated = 1;
 	return EFI_SUCCESS;
+}
+
+static void release_request(struct cdk2_pci_host_model *host, size_t root,
+	size_t type)
+{
+	struct cdk2_pci_resource_request *request = &host->request[root][type];
+	const struct cdk2_pci_aperture *aperture =
+		&host->root[root].aperture[aperture_index[type]];
+
+	if (request->allocated && host->release != NULL)
+		(void)host->release(host->allocator_context, type != 0,
+			request->base - aperture->translation, request->length);
+	request->allocated = 0;
 }
 
 uint64_t cdk2_pci_host_notify(struct cdk2_pci_host_model *host,
@@ -153,6 +192,9 @@ uint64_t cdk2_pci_host_notify(struct cdk2_pci_host_model *host,
 		return EFI_SUCCESS;
 	}
 	if (phase == CDK2_PCI_FREE_RESOURCES) {
+		for (root = 0; root < host->count; root++)
+			for (type = 0; type < CDK2_PCI_RESOURCE_TYPES; type++)
+				release_request(host, root, type);
 		memset(host->request, 0, sizeof(host->request));
 		host->can_restart = 1;
 		return EFI_SUCCESS;
@@ -178,8 +220,15 @@ uint64_t cdk2_pci_host_notify(struct cdk2_pci_host_model *host,
 				}
 			handled[candidate] = 1;
 			status = allocate_request(host, root, candidate);
-			if (status != EFI_SUCCESS)
+			if (status != EFI_SUCCESS) {
+				size_t undo_root, undo_type;
+
+				for (undo_root = 0; undo_root <= root; undo_root++)
+					for (undo_type = 0; undo_type < CDK2_PCI_RESOURCE_TYPES;
+					     undo_type++)
+						release_request(host, undo_root, undo_type);
 				return status;
+			}
 		}
 	}
 	return EFI_SUCCESS;

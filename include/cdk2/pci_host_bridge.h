@@ -60,12 +60,20 @@ struct cdk2_pci_resource_request {
 	uint8_t submitted, allocated;
 };
 
+typedef uint64_t CDK2_MS_ABI cdk2_pci_reserve_fn(void *, uint8_t, uint64_t,
+	uint64_t, uint64_t, uint64_t *);
+typedef uint64_t CDK2_MS_ABI cdk2_pci_release_fn(void *, uint8_t, uint64_t,
+	uint64_t);
+
 struct cdk2_pci_host_model {
 	struct cdk2_pci_root_bridge_view root[CDK2_PCI_HOST_MAX_ROOTS];
 	struct cdk2_pci_resource_request
 		request[CDK2_PCI_HOST_MAX_ROOTS][CDK2_PCI_RESOURCE_TYPES];
 	size_t count;
 	uint8_t can_restart, resource_assigned;
+	void *allocator_context;
+	cdk2_pci_reserve_fn *reserve;
+	cdk2_pci_release_fn *release;
 };
 
 uint64_t cdk2_pci_root_bridges_validate(const void *hob, size_t hob_size,
@@ -78,5 +86,7 @@ uint64_t cdk2_pci_host_notify(struct cdk2_pci_host_model *host,
 	enum cdk2_pci_host_phase phase);
 uint64_t cdk2_pci_host_submit(struct cdk2_pci_host_model *host, size_t root,
 	size_t type, uint64_t length, uint64_t alignment);
+uint64_t cdk2_pci_host_set_allocator(struct cdk2_pci_host_model *host,
+	void *context, cdk2_pci_reserve_fn *reserve, cdk2_pci_release_fn *release);
 
 #endif
