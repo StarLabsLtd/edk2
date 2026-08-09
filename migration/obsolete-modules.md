@@ -24,11 +24,11 @@ payload contract.
 
 ## Dynamic PCD driver
 
-`PcdDxe`, file GUID `80cf7257-87ab-47f9-a3fe-d50b76d89541`, remains retained.
-Although its DEPEX is `TRUE`, removing it from the current baseline stops the
-payload before DXE logging and BDS. The retained binaries therefore still have
-an implicit runtime dependency on the dynamic-PCD protocols or database. It
-must not be removed until those consumers are identified and migrated.
+`PcdDxe`, file GUID `80cf7257-87ab-47f9-a3fe-d50b76d89541`, was retained until
+the native replacement supplied its generated version-seven database and all
+four dynamic-PCD protocol surfaces.  The replacement preserves the admitted
+RAW database section and exact FFS envelope, and its native and PI Get/Set,
+GetInfo, and token-iteration paths are exercised in both IA32 and x86_64 QEMU.
 
 ## TPM 1.2 driver
 
