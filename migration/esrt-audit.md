@@ -14,5 +14,6 @@ AND; AND; END`:
   (`EFI_VARIABLE_WRITE_ARCH_PROTOCOL`).
 - `13a3f0f6-264a-3ef0-f2e0-dec512342f34` (dynamic PCD protocol).
 
-The native FFS replaces that exact admitted envelope at `0x519ca8`; the final
-composition consumes the TPM2 ACPI FV and reduces retained inventory to 45.
+The native FFS replaces that exact admitted envelope at `0x519ca8`. Later
+native PCD and Device Path layers preserve it; the composed inventory now has
+43 retained modules.

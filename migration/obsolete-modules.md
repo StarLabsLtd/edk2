@@ -49,9 +49,10 @@ candidate reached BDS, booted the USB UEFI shell, completed `startup.nsh`
 through `CDK2_NATIVE_DONE`, and invoked shutdown. Neither removed driver's load
 name appears in the serial log.
 
-The three-module negative candidate, which also removed `PcdDxe`, stopped
-immediately after coreboot transferred control to the payload. This is the
-reason the retained count decreases by two, not three.
+The early three-module negative candidate, which removed `PcdDxe` before its
+native service existed, stopped immediately after coreboot transferred control
+to the payload. Native PCD now supplies the required protocols and database;
+the current composed inventory contains 43 retained modules.
 
 The later TPM-1.2-free candidate replaced `TcgDxe` with a valid pad while
 leaving `Tcg2Dxe` at its admitted offset. On the paired coreboot local-APIC

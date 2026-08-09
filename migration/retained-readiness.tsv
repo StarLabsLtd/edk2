@@ -30,7 +30,6 @@ subsystem-sized	MdeModulePkg/Universal/BdsDxe/BdsDxe
 subsystem-sized	MdeModulePkg/Universal/Console/ConPlatformDxe/ConPlatformDxe
 subsystem-sized	MdeModulePkg/Universal/Console/ConSplitterDxe/ConSplitterDxe
 subsystem-sized	MdeModulePkg/Universal/Console/TerminalDxe/TerminalDxe
-intentional-dependency	MdeModulePkg/Universal/DevicePathDxe/DevicePathDxe
 subsystem-sized	MdeModulePkg/Universal/Disk/PartitionDxe/PartitionDxe
 subsystem-sized	MdeModulePkg/Universal/FaultTolerantWriteDxe/FaultTolerantWriteDxe
 subsystem-sized	MdeModulePkg/Universal/HiiDatabaseDxe/HiiDatabaseDxe
