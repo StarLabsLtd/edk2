@@ -89,7 +89,7 @@ int cdk2_pci_prepare_option_rom(const struct cdk2_pci_cfg *cfg,
 		return -1;
 	staged = *function;
 	if (cdk2_pci_discover_option_rom(cfg, &staged) != 0)
-		return -1;
+		return 1;
 	for (uint8_t i = 0; i < function->bar_count; i++)
 		if (function->bars[i].kind == CDK2_PCI_BAR_ROM)
 			rom = &function->bars[i];

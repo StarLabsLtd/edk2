@@ -49,8 +49,10 @@ struct fixture {
 	unsigned int enable_hotplug, hpc_lists, hpc_inits, hpc_paddings;
 	unsigned int fail_hpc_padding;
 	unsigned int visible_devices, fail_install_number;
+	unsigned int extended_config_reads;
 	UINTN phases[16];
 	struct cdk2_driver_binding_protocol *driver;
+	struct cdk2_efi_pci_io_protocol *pci_io;
 	struct { void *notify; } *hotplug_request;
 	uint8_t path[4], resources[48];
 	struct {
@@ -98,6 +100,8 @@ static EFI_STATUS CDK2_MS_ABI install(void **handle, const EFI_GUID * guid,
 		void *next_interface = __builtin_va_arg(arguments, void *);
 		if (next->data1 == 0x19cb87abU)
 			active->hotplug_request = next_interface;
+		if (next->data1 == 0x4cf5b200U)
+			active->pci_io = next_interface;
 	}
 	__builtin_ms_va_end(arguments);
 	return active->install_status; }
@@ -108,10 +112,14 @@ static EFI_STATUS CDK2_MS_ABI old_unload(void *image)
 { (void)image; return 0; }
 static EFI_STATUS CDK2_MS_ABI config_read(void *root, UINTN width,
 	uint64_t address, UINTN count, void *buffer)
-{ (void)root; (void)width; (void)count;
+{ uint64_t reg = address >> 32; (void)root; (void)width; (void)count;
+	if (reg != 0U)
+		active->extended_config_reads++;
+	else
+		reg = address & 0xffU;
 	if (active->enable_hotplug && ((address >> 16) & 0x1fU) != 0U &&
 	    ((address >> 16) & 0x1fU) <= active->visible_devices)
-		*(uint32_t *)buffer = (address & 0xfffU) == 0U ?
+		*(uint32_t *)buffer = reg == 0U ?
 			(0x56780000U | (uint32_t)((address >> 16) & 0x1fU)) : 0U;
 	else
 		*(uint32_t *)buffer = 0xffffffffU;
@@ -120,9 +128,17 @@ static EFI_STATUS CDK2_MS_ABI configuration(void *root, void **resources)
 { (void)root; *resources = active->resources; return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI notify(void *host, UINTN phase)
 { (void)host; active->phases[active->phase_count++] = phase; return EFI_SUCCESS; }
+static EFI_STATUS CDK2_MS_ABI host_attributes(void *host, void *root,
+	UINT64 * attributes)
+{ (void)host; (void)root; *attributes = 1U; return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI next_root(void *host, void **root)
-{ (void)host; if (active->next_root == active->root_limit) return EFI_NOT_FOUND;
-	*root = (void *)(uintptr_t)(++active->next_root); return EFI_SUCCESS; }
+{ uintptr_t current = (uintptr_t)*root; (void)host;
+	if (current > active->root_limit)
+		return EFI_INVALID_PARAMETER;
+	if (current == active->root_limit)
+		return EFI_NOT_FOUND;
+	current++; active->next_root = current; *root = (void *)current;
+	return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI start_bus(void *host, void *root, void **resources)
 { (void)host; (void)root; *resources = calloc(1, 48); if (*resources == NULL) return 9;
 	((uint8_t *)*resources)[0] = 0x8a; ((uint8_t *)*resources)[1] = 43;
@@ -214,6 +230,7 @@ static void initialize(struct fixture *fixture)
 	fixture->root.flush = config_read; fixture->root.set_attributes = config_read;
 	fixture->root.configuration = configuration;
 	fixture->host.notify = notify; fixture->host.next = next_root;
+	fixture->host.attributes = host_attributes;
 	fixture->host.start_bus = start_bus; fixture->host.set_bus = set_bus;
 	fixture->host.submit = submit; fixture->host.get_proposed = get_proposed;
 	fixture->hotplug.list = hpc_list; fixture->hotplug.initialize = hpc_initialize;
@@ -276,6 +293,14 @@ int main(void)
 		CHECK(notify_request(fixture.hotplug_request, 0U, (void *)1,
 			remaining, &children, new_children) == EFI_SUCCESS);
 		CHECK(children == 1);
+		CHECK(fixture.extended_config_reads != 0U);
+		{
+			UINTN segment, bus, device, function;
+			CHECK(fixture.pci_io != NULL);
+			CHECK(fixture.pci_io->get_location(fixture.pci_io, &segment, &bus,
+				&device, &function) == EFI_SUCCESS);
+			CHECK(segment == 0U && bus == 0U && device <= 31U && function <= 7U);
+		}
 		children = 0;
 		CHECK(notify_request(fixture.hotplug_request, 1U, (void *)1, NULL,
 			&children, NULL) == EFI_SUCCESS);

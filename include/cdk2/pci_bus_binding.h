@@ -23,7 +23,6 @@ struct cdk2_efi_load_file2_protocol {
 struct cdk2_pci_bus_child;
 struct cdk2_pci_load_file_instance {
 	struct cdk2_efi_load_file2_protocol protocol;
-	struct cdk2_pci_bus_child *child;
 };
 
 struct cdk2_component_name_protocol;

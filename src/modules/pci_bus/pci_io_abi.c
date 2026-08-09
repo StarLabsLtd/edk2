@@ -5,7 +5,7 @@
 
 static struct cdk2_pci_io_model *model(struct cdk2_efi_pci_io_protocol *protocol)
 {
-	return ((struct cdk2_pci_io_instance *)protocol)->model;
+	return &((struct cdk2_pci_io_instance *)protocol)->owned_model;
 }
 
 static EFI_STATUS status(struct cdk2_pci_io_model *io, int call_result)
@@ -128,9 +128,11 @@ static EFI_STATUS CDK2_MS_ABI flush(struct cdk2_efi_pci_io_protocol *this)
 static EFI_STATUS CDK2_MS_ABI get_location(struct cdk2_efi_pci_io_protocol *this,
 	UINTN *segment, UINTN *bus, UINTN *device, UINTN *function)
 {
+	struct cdk2_pci_io_model *io = model(this);
 	uint16_t segment16; uint8_t bus8, device8, function8;
-	if (segment == NULL || bus == NULL || device == NULL || function == NULL ||
-	    cdk2_pci_io_get_location(model(this), &segment16, &bus8, &device8,
+	if (segment == NULL || bus == NULL || device == NULL || function == NULL)
+		return EFI_INVALID_PARAMETER;
+	if (cdk2_pci_io_get_location(io, &segment16, &bus8, &device8,
 		&function8) != 0)
 		return EFI_INVALID_PARAMETER;
 	*segment = segment16; *bus = bus8; *device = device8; *function = function8;
@@ -195,8 +197,7 @@ void cdk2_pci_io_initialize_protocol(struct cdk2_pci_io_instance *instance,
 	struct cdk2_pci_io_model *io)
 {
 	memset(instance, 0, sizeof(*instance));
-	instance->model = io;
-	instance->protocol.revision = 0x00010000U;
+	instance->owned_model = *io;
 	instance->protocol.poll_mem = poll_mem; instance->protocol.poll_io = poll_io;
 	instance->protocol.mem = (struct cdk2_pci_io_access_pair) { mem_read, mem_write };
 	instance->protocol.io = (struct cdk2_pci_io_access_pair) { io_read, io_write };

@@ -43,7 +43,6 @@ struct cdk2_pci_io_config_pair {
 	cdk2_pci_io_config_fn *write;
 };
 struct cdk2_efi_pci_io_protocol {
-	UINT64 revision;
 	cdk2_pci_io_poll_fn *poll_mem, *poll_io;
 	struct cdk2_pci_io_access_pair mem, io;
 	struct cdk2_pci_io_config_pair pci;
@@ -63,7 +62,7 @@ struct cdk2_efi_pci_io_protocol {
 
 struct cdk2_pci_io_instance {
 	struct cdk2_efi_pci_io_protocol protocol;
-	struct cdk2_pci_io_model *model;
+	struct cdk2_pci_io_model owned_model;
 };
 
 void cdk2_pci_io_initialize_protocol(struct cdk2_pci_io_instance *instance,

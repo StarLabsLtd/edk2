@@ -550,6 +550,8 @@ static int pci_io_core_test(void)
 	uint64_t device_address; void *mapping, *allocated;
 	void *bar_resources; UINT64 bar_supports;
 	uint16_t segment; uint8_t bus, device, function;
+	UINTN moved_segment, moved_bus, moved_device, moved_function;
+	struct cdk2_pci_io_instance *original, *moved;
 	struct cdk2_pci_io_model io = {
 		.backend = { .context = &fixture, .access = io_access, .delay = io_delay,
 			.allocate = io_allocate, .free = io_free,
@@ -573,10 +575,17 @@ static int pci_io_core_test(void)
 	CHECK(attributes == 0x300);
 	CHECK(cdk2_pci_io_attributes(&io, 1, 8, NULL) != 0);
 	cdk2_pci_io_initialize_protocol(&instance, &io);
-	CHECK(sizeof(instance.protocol) == 168);
-	CHECK(offsetof(struct cdk2_efi_pci_io_protocol, map) == 80);
-	CHECK(offsetof(struct cdk2_efi_pci_io_protocol, attributes) == 128);
-	CHECK(offsetof(struct cdk2_efi_pci_io_protocol, rom_image) == 160);
+	CHECK(sizeof(instance.protocol) == 20U * sizeof(void *));
+	CHECK(offsetof(struct cdk2_efi_pci_io_protocol, map) ==
+		9U * sizeof(void *));
+	CHECK(offsetof(struct cdk2_efi_pci_io_protocol, get_location) ==
+		14U * sizeof(void *));
+	CHECK(offsetof(struct cdk2_efi_pci_io_protocol, attributes) ==
+		15U * sizeof(void *));
+	CHECK(offsetof(struct cdk2_efi_pci_io_protocol, rom_size) ==
+		18U * sizeof(void *));
+	CHECK(offsetof(struct cdk2_efi_pci_io_protocol, rom_image) ==
+		19U * sizeof(void *));
 	CHECK(instance.protocol.mem.read(&instance.protocol, 2, 0, 0, 1,
 		&value) == EFI_SUCCESS);
 	CHECK(instance.protocol.rom_size == io.rom_size);
@@ -584,6 +593,16 @@ static int pci_io_core_test(void)
 		&bar_resources) == EFI_SUCCESS);
 	CHECK(((uint8_t *)bar_resources)[0] == 0x8a);
 	free(bar_resources);
+	original = malloc(sizeof(*original)); moved = malloc(sizeof(*moved));
+	CHECK(original != NULL && moved != NULL);
+	cdk2_pci_io_initialize_protocol(original, &io);
+	memcpy(moved, original, sizeof(*moved));
+	memset(original, 0xa5, sizeof(*original)); free(original);
+	CHECK(moved->protocol.get_location(&moved->protocol, &moved_segment, &moved_bus,
+		&moved_device, &moved_function) == EFI_SUCCESS);
+	CHECK(moved_segment == 1 && moved_bus == 2 && moved_device == 3 &&
+		moved_function == 4);
+	free(moved);
 	CHECK(cdk2_pci_io_map(&io, 0, dma, &dma_size, &device_address, &mapping) == 0);
 	CHECK(mapping != NULL && *(uint8_t *)(uintptr_t)device_address == 1);
 	CHECK(cdk2_pci_io_unmap(&io, mapping) == 0);

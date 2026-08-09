@@ -76,8 +76,10 @@ static EFI_STATUS CDK2_MS_ABI load_file2(
 	BOOLEAN boot_policy,
 	cdk2_uintn_pointer buffer_size, void *buffer)
 {
-	struct cdk2_pci_bus_child *child =
-		((struct cdk2_pci_load_file_instance *)protocol)->child;
+	struct cdk2_pci_load_file_instance *instance =
+		(struct cdk2_pci_load_file_instance *)protocol;
+	struct cdk2_pci_bus_child *child = (struct cdk2_pci_bus_child *)
+		((uint8_t *)instance - offsetof(struct cdk2_pci_bus_child, load_file));
 	size_t native_size;
 	int call_status;
 	const uint8_t *bytes = path;
@@ -191,7 +193,6 @@ static int create_child(struct cdk2_pci_bus_binding *binding, void *parent,
 	if (function->option_rom_load_file) {
 		protocols |= CDK2_PCI_CHILD_LOAD_FILE;
 		child->load_file.protocol.load_file = load_file2;
-		child->load_file.child = child;
 	}
 	if (binding->services.install(binding->services.context, &child->handle,
 		child, protocols) != 0)
