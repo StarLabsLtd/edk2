@@ -1,5 +1,5 @@
 # baseline-retained=72
-# retained=40
+# retained=39
 # status	wave	module
 retain	boot	FatPkg/EnhancedFatDxe/Fat
 retain	storage	MdeModulePkg/Bus/Ata/AtaAtapiPassThru/AtaAtapiPassThru
@@ -39,7 +39,6 @@ native	storage	MdeModulePkg/Universal/Disk/UnicodeCollation/EnglishDxe/EnglishDx
 remove	remove	MdeModulePkg/Universal/EbcDxe/EbcDxe
 native	update	MdeModulePkg/Universal/EsrtDxe/EsrtDxe
 retain	variables	MdeModulePkg/Universal/FaultTolerantWriteDxe/FaultTolerantWriteDxe
-retain	ui	MdeModulePkg/Universal/HiiDatabaseDxe/HiiDatabaseDxe
 native	boot	MdeModulePkg/Universal/MemoryTest/NullMemoryTestDxe/NullMemoryTestDxe
 native	foundation	MdeModulePkg/Universal/Metronome/Metronome
 native	runtime	MdeModulePkg/Universal/MonotonicCounterRuntimeDxe/MonotonicCounterRuntimeDxe

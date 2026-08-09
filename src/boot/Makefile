@@ -274,6 +274,11 @@ CDK2_NATIVE_HII_DATABASE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-hii-database-test
 CDK2_NATIVE_HII_DATABASE_OBJS := $(patsubst %.c,$(CDK2_NATIVE_BUILD_DIR)/hii-database-%.o,database.c string.c image.c font.c keyboard.c config.c keyword.c package_parse.c entry.c)
 CDK2_NATIVE_HII_DATABASE_PE ?= $(CDK2_NATIVE_BUILD_DIR)/HiiDatabase.efi
 CDK2_NATIVE_HII_DATABASE_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/HiiDatabase.ffs
+CDK2_NATIVE_HII_DATABASE_DEPEX_GEN ?= $(CDK2_NATIVE_BUILD_DIR)/hii-database-depex-gen
+CDK2_NATIVE_HII_DATABASE_DEPEX ?= $(CDK2_NATIVE_BUILD_DIR)/HiiDatabase.depex
+CDK2_NATIVE_HII_DATABASE_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-hii-database.fv
+CDK2_NATIVE_HII_DATABASE_QEMU_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/hii-database-qemu.o
+CDK2_NATIVE_HII_DATABASE_QEMU_PE ?= $(CDK2_NATIVE_BUILD_DIR)/hii-database-qemu.efi
 HOSTCC ?= cc
 CDK2_NATIVE_CC ?= $(CC)
 CDK2_NATIVE_HOST_CC ?= $(HOSTCC)
@@ -391,7 +396,8 @@ CDK2_NATIVE_LINK_POST_MAP_FLAGS := -Wl,--gc-sections -Wl,--build-id=none
 .PHONY: native-partition-test native-partition-fv
 .PHONY: native-bl-support-test native-bl-support-package native-bl-support-fv \
 	native-bl-support-oracle
-.PHONY: native-hii-database-test native-hii-database-ffs
+.PHONY: native-hii-database-test native-hii-database-ffs native-hii-database-fv \
+	native-hii-database-oracle
 
 ifeq ($(CONFIG_CDK2_NATIVE_STAGE),y)
 CDK2_NATIVE_STAGE_DEPS := $(CDK2_NATIVE_ELF)
@@ -890,6 +896,9 @@ native-hii-database-test: $(CDK2_NATIVE_HII_DATABASE_TEST)
 
 native-hii-database-ffs: $(CDK2_NATIVE_HII_DATABASE_FFS)
 	@printf '%s\n' "native HII database FFS: $(CDK2_NATIVE_HII_DATABASE_FFS)"
+
+native-hii-database-oracle: $(CDK2_NATIVE_HII_DATABASE_QEMU_PE)
+	@printf '%s\n' "native HII database oracle: $(CDK2_NATIVE_HII_DATABASE_QEMU_PE)"
 
 native-capsule-runtime-test: $(CDK2_NATIVE_CAPSULE_RUNTIME_TEST) \
 		$(CDK2_NATIVE_CAPSULE_RUNTIME_ABI_TEST) $(CDK2_NATIVE_CAPSULE_RUNTIME_ENTRY_TEST) \
@@ -1693,6 +1702,22 @@ native-pci-host-bridge-fv:
 	@printf '%s\n' 'native PciHostBridgeDxe: disabled by Kconfig'
 endif
 
+ifeq ($(CONFIG_CDK2_NATIVE_HII_DATABASE),y)
+CDK2_NATIVE_PRE_HII_DATABASE_FV := $(CDK2_NATIVE_FINAL_FV)
+CDK2_NATIVE_FINAL_FV := $(CDK2_NATIVE_HII_DATABASE_FV)
+
+native-hii-database-fv: $(CDK2_NATIVE_HII_DATABASE_FV)
+	@printf '%s\n' "native HII database FV: $(CDK2_NATIVE_HII_DATABASE_FV)"
+
+$(CDK2_NATIVE_HII_DATABASE_FV): $(CDK2_NATIVE_PRE_HII_DATABASE_FV) \
+		$(CDK2_NATIVE_HII_DATABASE_FFS) $(CDK2_NATIVE_FVREPLACE)
+	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_PRE_HII_DATABASE_FV)" \
+		0x135298 "$(CDK2_NATIVE_HII_DATABASE_FFS)" "$@"
+else
+native-hii-database-fv:
+	@printf '%s\n' 'native HiiDatabaseDxe: disabled by Kconfig'
+endif
+
 ifeq ($(CONFIG_CDK2_NATIVE_ENGLISH),y)
 $(CDK2_NATIVE_ENGLISH_OBJ): $(CDK2_DIR)/src/modules/english/english.c $(CDK2_DIR)/include/cdk2/english.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
@@ -1795,12 +1820,14 @@ $(CDK2_NATIVE_GRAPHICS_ENTRY_TEST): $(CDK2_DIR)/tests/graphics_console_entry_tes
 		"$(CDK2_DIR)/src/modules/graphics_console/font_data.c"
 
 $(CDK2_NATIVE_HII_DATABASE_TEST): $(CDK2_DIR)/tests/hii_entry_test.c \
-	$(filter-out $(CDK2_DIR)/src/modules/hii_database/entry.c,$(wildcard $(CDK2_DIR)/src/modules/hii_database/*.c)) \
+	$(filter-out $(CDK2_DIR)/src/modules/hii_database/entry.c \
+		$(CDK2_DIR)/src/modules/hii_database/depex.c,$(wildcard $(CDK2_DIR)/src/modules/hii_database/*.c)) \
 	$(CDK2_DIR)/include/cdk2/hii_database.h \
 	$(CDK2_DIR)/include/cdk2/hii_database_abi.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -fshort-wchar \
 		$(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_DIR)/tests/hii_entry_test.c" \
-		$(filter-out $(CDK2_DIR)/src/modules/hii_database/entry.c,$(wildcard $(CDK2_DIR)/src/modules/hii_database/*.c))
+		$(filter-out $(CDK2_DIR)/src/modules/hii_database/entry.c \
+		$(CDK2_DIR)/src/modules/hii_database/depex.c,$(wildcard $(CDK2_DIR)/src/modules/hii_database/*.c))
 
 $(CDK2_NATIVE_CAPSULE_RUNTIME_TEST): $(CDK2_DIR)/tests/capsule_runtime_test.c $(CDK2_DIR)/src/modules/capsule_runtime/capsule_runtime.c $(CDK2_DIR)/include/cdk2/capsule_runtime.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_DIR)/tests/capsule_runtime_test.c" "$(CDK2_DIR)/src/modules/capsule_runtime/capsule_runtime.c"
@@ -2182,8 +2209,30 @@ $(CDK2_NATIVE_HII_DATABASE_PE): $(CDK2_NATIVE_HII_DATABASE_OBJS) \
 		-o "$@" $(CDK2_NATIVE_HII_DATABASE_OBJS)
 	@"$(CDK2_NATIVE_PERELOCCHECK)" --subsystem 11 "$@"
 
-$(CDK2_NATIVE_HII_DATABASE_FFS): $(CDK2_NATIVE_HII_DATABASE_PE) $(CDK2_NATIVE_FFSBUILD)
+$(CDK2_NATIVE_HII_DATABASE_DEPEX_GEN): \
+		$(CDK2_DIR)/src/modules/hii_database/depex.c | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -o "$@" "$<"
+
+$(CDK2_NATIVE_HII_DATABASE_DEPEX): $(CDK2_NATIVE_HII_DATABASE_DEPEX_GEN)
+	@"$<" "$@"
+
+$(CDK2_NATIVE_HII_DATABASE_FFS): $(CDK2_NATIVE_HII_DATABASE_PE) \
+		$(CDK2_NATIVE_HII_DATABASE_DEPEX) $(CDK2_NATIVE_FFSBUILD)
 	@"$(CDK2_NATIVE_FFSBUILD)" 348c4d62-bfbd-4882-9ece-c80bb1c4783b \
-		HiiDatabase 1.0 0x2405e "$<" "$@" -
+		HiiDatabase 1.0 0x2405e "$<" "$@" "$(CDK2_NATIVE_HII_DATABASE_DEPEX)"
+
+$(CDK2_NATIVE_HII_DATABASE_QEMU_OBJ): $(CDK2_DIR)/tests/hii_database_qemu.c \
+		$(CDK2_DIR)/include/cdk2/hii_database_abi.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
+		-mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args \
+		$(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+
+$(CDK2_NATIVE_HII_DATABASE_QEMU_PE): $(CDK2_NATIVE_HII_DATABASE_QEMU_OBJ) \
+		$(CDK2_DIR)/tests/hii_database_qemu.ld $(CDK2_NATIVE_PERELOCCHECK)
+	@$(CDK2_NATIVE_LD) -mi386pep --subsystem 10 --entry hii_database_qemu_entry \
+		--image-base 0 --section-alignment 0x1000 --file-alignment 0x1000 \
+		--build-id=none --no-insert-timestamp -s --nxcompat \
+		-T "$(CDK2_DIR)/tests/hii_database_qemu.ld" -o "$@" "$<"
+	@"$(CDK2_NATIVE_PERELOCCHECK)" --subsystem 10 "$@"
 
 -include $(CDK2_NATIVE_DEPFILES)

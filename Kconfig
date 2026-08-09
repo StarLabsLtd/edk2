@@ -235,6 +235,14 @@ config CDK2_NATIVE_PCI_HOST_BRIDGE
 	  Consume Universal Payload root-bridge handoff data and publish the PCI
 	  Host Bridge Resource Allocation and per-root Bridge I/O protocols.
 
+config CDK2_NATIVE_HII_DATABASE
+	bool "Build native HII database services"
+	default y
+	depends on CDK2_NATIVE_STAGE && CDK2_NATIVE_PCI_HOST_BRIDGE
+	help
+	  Publish the HII database, string, image, font, configuration-routing,
+	  and keyword protocols from the native package database.
+
 config CDK2_NATIVE_STATUS_CODE_HANDLER
 	bool "Build the native release status-code handler"
 	default y
