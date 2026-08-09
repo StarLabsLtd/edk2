@@ -34,7 +34,10 @@ struct fixture {
 	struct fake_boot boot; struct fake_system system; struct loaded_image loaded;
 	unsigned int installs, uninstalls, opens, closes; EFI_STATUS install_status;
 	unsigned int next_root, submits, proposed, phase_count;
+	unsigned int root_limit;
 	unsigned int fail_proposed;
+	unsigned int enable_hotplug, hpc_lists, hpc_inits, hpc_paddings;
+	unsigned int fail_hpc_padding;
 	UINTN phases[16];
 	struct cdk2_driver_binding_protocol *driver;
 	uint8_t path[4], resources[48];
@@ -49,6 +52,8 @@ struct fixture {
 		void *notify, *next, *attributes, *start_bus, *set_bus, *submit;
 		void *get_proposed, *preprocess;
 	} host;
+	struct { void *list, *initialize, *padding; } hotplug;
+	uint8_t hpc_path[10];
 };
 static struct fixture *active;
 
@@ -79,14 +84,18 @@ static EFI_STATUS CDK2_MS_ABI old_unload(void *image)
 { (void)image; return 0; }
 static EFI_STATUS CDK2_MS_ABI config_read(void *root, UINTN width,
 	uint64_t address, UINTN count, void *buffer)
-{ (void)root; (void)width; (void)address; (void)count;
-	*(uint32_t *)buffer = 0xffffffffU; return EFI_SUCCESS; }
+{ (void)root; (void)width; (void)count;
+	if (active->enable_hotplug && ((address >> 16) & 0x1fU) == 1U)
+		*(uint32_t *)buffer = (address & 0xfffU) == 0U ? 0x56781234U : 0U;
+	else
+		*(uint32_t *)buffer = 0xffffffffU;
+	return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI configuration(void *root, void **resources)
 { (void)root; *resources = active->resources; return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI notify(void *host, UINTN phase)
 { (void)host; active->phases[active->phase_count++] = phase; return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI next_root(void *host, void **root)
-{ (void)host; if (active->next_root == 2U) return EFI_NOT_FOUND;
+{ (void)host; if (active->next_root == active->root_limit) return EFI_NOT_FOUND;
 	*root = (void *)(uintptr_t)(++active->next_root); return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI start_bus(void *host, void *root, void **resources)
 { (void)host; (void)root; *resources = calloc(1, 48); if (*resources == NULL) return 9;
@@ -121,11 +130,40 @@ static EFI_STATUS CDK2_MS_ABI get_proposed(void *host, void *root, void **resour
 }
 static EFI_STATUS CDK2_MS_ABI locate(const EFI_GUID *guid, void *registration,
 	void **interface)
-{ (void)guid; (void)registration; *interface = &active->host; return EFI_SUCCESS; }
+{ (void)registration; if (guid->data1 == 0xaa0e8bc1U) {
+		if (!active->enable_hotplug) return EFI_NOT_FOUND;
+		*interface = &active->hotplug; return EFI_SUCCESS;
+	}
+	*interface = &active->host; return EFI_SUCCESS; }
+struct test_hpc_location { void *hpc_path, *hpb_path; };
+static EFI_STATUS CDK2_MS_ABI hpc_list(void *protocol, UINTN *count,
+	struct test_hpc_location **locations)
+{ (void)protocol; *locations = calloc(1, sizeof(**locations));
+	if (*locations == NULL)
+		return 9;
+	(*locations)[0].hpc_path = active->hpc_path;
+	(*locations)[0].hpb_path = active->hpc_path; *count = 1; active->hpc_lists++;
+	return EFI_SUCCESS; }
+static EFI_STATUS CDK2_MS_ABI hpc_initialize(void *protocol, void *path,
+	uint64_t address, void *event, uint16_t *state)
+{ (void)protocol; (void)path; (void)event;
+	if (address != 0x10000U) return EFI_DEVICE_ERROR;
+	*state = 3; active->hpc_inits++; return EFI_SUCCESS; }
+static EFI_STATUS CDK2_MS_ABI hpc_padding(void *protocol, void *path,
+	uint64_t address, uint16_t *state, void **padding, UINTN *attributes)
+{ uint8_t *bytes = calloc(1, 48); (void)protocol; (void)path; (void)address; (void)state;
+	if (active->fail_hpc_padding)
+		return EFI_DEVICE_ERROR;
+	if (bytes == NULL)
+		return 9;
+	bytes[0] = 0x8a; bytes[1] = 43;
+	bytes[6] = 32; bytes[38] = 0x10; bytes[46] = 0x79; *padding = bytes;
+	*attributes = 0; active->hpc_paddings++; return EFI_SUCCESS; }
 
 static void initialize(struct fixture *fixture)
 {
 	memset(fixture, 0, sizeof(*fixture)); active = fixture;
+	fixture->root_limit = 2;
 	fixture->boot.allocate_pool = pool; fixture->boot.free_pool = release;
 	fixture->boot.handle_protocol = handle;
 	fixture->boot.open_protocol = open_protocol;
@@ -139,10 +177,21 @@ static void initialize(struct fixture *fixture)
 	fixture->resources[3] = 2; fixture->resources[14] = 0;
 	fixture->resources[22] = 0; fixture->resources[46] = 0x79;
 	fixture->root.pci.read = config_read; fixture->root.pci.write = config_read;
+	fixture->root.mem.read = config_read; fixture->root.mem.write = config_read;
+	fixture->root.io.read = config_read; fixture->root.io.write = config_read;
+	fixture->root.map = config_read; fixture->root.unmap = config_read;
+	fixture->root.allocate = config_read; fixture->root.free = config_read;
+	fixture->root.flush = config_read; fixture->root.set_attributes = config_read;
 	fixture->root.configuration = configuration;
 	fixture->host.notify = notify; fixture->host.next = next_root;
 	fixture->host.start_bus = start_bus; fixture->host.set_bus = set_bus;
 	fixture->host.submit = submit; fixture->host.get_proposed = get_proposed;
+	fixture->hotplug.list = hpc_list; fixture->hotplug.initialize = hpc_initialize;
+	fixture->hotplug.padding = hpc_padding;
+	fixture->hpc_path[0] = 1; fixture->hpc_path[1] = 1;
+	fixture->hpc_path[2] = 6; fixture->hpc_path[4] = 0;
+	fixture->hpc_path[5] = 1; fixture->hpc_path[6] = 0x7f;
+	fixture->hpc_path[7] = 0xff; fixture->hpc_path[8] = 4;
 }
 
 int main(void)
@@ -176,6 +225,20 @@ int main(void)
 	CHECK(fixture.closes == 3);
 	CHECK(fixture.loaded.unload(&fixture) == EFI_SUCCESS);
 	CHECK(fixture.uninstalls == 1 && fixture.loaded.unload == old_unload);
+	initialize(&fixture); fixture.enable_hotplug = 1; fixture.root_limit = 1;
+	CHECK(cdk2_pci_bus_entry(&fixture, &fixture.system) == EFI_SUCCESS);
+	CHECK(fixture.driver->start(fixture.driver, (void *)1, NULL) == EFI_SUCCESS);
+	CHECK(fixture.hpc_lists == 1 && fixture.hpc_inits == 1 &&
+		fixture.hpc_paddings == 1);
+	CHECK(fixture.loaded.unload(&fixture) == EFI_SUCCESS);
+	initialize(&fixture); fixture.enable_hotplug = 1; fixture.root_limit = 1;
+	fixture.fail_hpc_padding = 1;
+	CHECK(cdk2_pci_bus_entry(&fixture, &fixture.system) == EFI_SUCCESS);
+	CHECK(fixture.driver->start(fixture.driver, (void *)1, NULL) ==
+		EFI_DEVICE_ERROR);
+	CHECK(fixture.hpc_lists == 1 && fixture.hpc_inits == 1 &&
+		fixture.hpc_paddings == 0 && fixture.opens == fixture.closes);
+	CHECK(fixture.loaded.unload(&fixture) == EFI_SUCCESS);
 	initialize(&fixture); fixture.install_status = EFI_OUT_OF_RESOURCES;
 	CHECK(cdk2_pci_bus_entry(&fixture, &fixture.system) == EFI_DEVICE_ERROR);
 	CHECK(fixture.loaded.unload == old_unload && fixture.uninstalls == 0);

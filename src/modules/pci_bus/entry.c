@@ -103,6 +103,8 @@ static const EFI_GUID host_resource_guid = { 0xcf8034be, 0x6768, 0x4d8b,
 	{ 0xb7, 0x39, 0x7c, 0xce, 0x68, 0x3a, 0x9f, 0xbe } };
 static const EFI_GUID decompress_guid = { 0xd8117cfe, 0x94a6, 0x11d4,
 	{ 0x9a, 0x3a, 0x00, 0x90, 0x27, 0x3f, 0xc1, 0x4d } };
+static const EFI_GUID hotplug_init_guid = { 0xaa0e8bc1, 0xdabc, 0x46b0,
+	{ 0xa8, 0x44, 0x37, 0xb8, 0x16, 0x9b, 0x2b, 0xea } };
 
 typedef EFI_STATUS CDK2_MS_ABI host_notify_fn(void *, UINTN);
 typedef EFI_STATUS CDK2_MS_ABI host_next_fn(void *, void **);
@@ -122,6 +124,16 @@ typedef EFI_STATUS CDK2_MS_ABI decompress_info_fn(void *, void *, UINT32,
 typedef EFI_STATUS CDK2_MS_ABI decompress_fn(void *, void *, UINT32, void *,
 	UINT32, void *, UINT32);
 struct decompress_protocol { decompress_info_fn *get_info; decompress_fn *decompress; };
+struct hpc_location { void *hpc_path, *hpb_path; };
+typedef EFI_STATUS CDK2_MS_ABI hpc_list_fn(void *, UINTN *, struct hpc_location **);
+typedef EFI_STATUS CDK2_MS_ABI hpc_initialize_fn(void *, void *, UINT64, void *,
+	UINT16 *);
+typedef EFI_STATUS CDK2_MS_ABI hpc_padding_fn(void *, void *, UINT64, UINT16 *,
+	void **, UINTN *);
+struct hotplug_init_protocol {
+	hpc_list_fn *get_root_hpc_list; hpc_initialize_fn *initialize_root_hpc;
+	hpc_padding_fn *get_resource_padding;
+};
 
 #pragma pack(push, 1)
 struct address_descriptor {
@@ -171,7 +183,9 @@ static int cfg_read(void *opaque, uint8_t bus, uint8_t device, uint8_t function,
 		}
 	if (root == NULL)
 		return -1;
-	return EFI_ERROR(root->pci.read(root, width,
+	UINTN root_width = width == 1U ? 0U : (width == 2U ? 1U : 2U);
+	return (width != 1U && width != 2U && width != 4U) ||
+		EFI_ERROR(root->pci.read(root, root_width,
 		address, 1, value)) ? -1 : 0;
 }
 static int cfg_write(void *opaque, uint8_t bus, uint8_t device, uint8_t function,
@@ -190,7 +204,9 @@ static int cfg_write(void *opaque, uint8_t bus, uint8_t device, uint8_t function
 		}
 	if (root == NULL)
 		return -1;
-	return EFI_ERROR(root->pci.write(root, width,
+	UINTN root_width = width == 1U ? 0U : (width == 2U ? 1U : 2U);
+	return (width != 1U && width != 2U && width != 4U) ||
+		EFI_ERROR(root->pci.write(root, root_width,
 		address, 1, &value)) ? -1 : 0;
 }
 
@@ -320,6 +336,151 @@ struct global_root {
 	size_t path_size;
 	struct cdk2_pci_topology *topology;
 };
+
+static int device_path_size(const void *path, size_t *size)
+{
+	const UINT8 *bytes = path; size_t offset = 0;
+	if (path == NULL || size == NULL)
+		return -1;
+	while (offset < 4096U) {
+		size_t node = (size_t)bytes[offset + 2U] |
+			((size_t)bytes[offset + 3U] << 8);
+		if (node < 4U || offset > 4096U - node)
+			return -1;
+		if (bytes[offset] == 0x7fU) {
+			*size = offset + node;
+			return node == 4U ? 0 : -1;
+		}
+		offset += node;
+	}
+	return -1;
+}
+
+static int hpc_address(const struct global_root *root, const void *path,
+	UINT64 *address, UINTN *bridge_index)
+{
+	const UINT8 *hpc = path, *base = root->path;
+	size_t hpc_size, offset; UINT16 parent = CDK2_PCI_ROOT_PARENT;
+	if (device_path_size(path, &hpc_size) != 0 || root->path_size < 4U ||
+	    hpc_size < root->path_size ||
+	    memcmp(hpc, base, root->path_size - 4U) != 0)
+		return -1;
+	offset = root->path_size - 4U;
+	while (offset + 4U < hpc_size) {
+		UINTN found;
+		if (hpc[offset] != 1U || hpc[offset + 1U] != 1U ||
+		    hpc[offset + 2U] != 6U || hpc[offset + 3U] != 0U)
+			return -1;
+		for (found = 0; found < root->topology->count; found++)
+			if (root->topology->functions[found].parent_index == parent &&
+			    root->topology->functions[found].function == hpc[offset + 4U] &&
+			    root->topology->functions[found].device == hpc[offset + 5U])
+				break;
+		if (found == root->topology->count)
+			return -1;
+		parent = found; offset += 6U;
+	}
+	if (parent == CDK2_PCI_ROOT_PARENT || offset + 4U != hpc_size)
+		return -1;
+	*address = ((UINT64)root->topology->functions[parent].bus << 24) |
+		((UINT64)root->topology->functions[parent].device << 16) |
+		((UINT64)root->topology->functions[parent].function << 8);
+	*bridge_index = parent;
+	return 0;
+}
+
+static int add_padding(struct cdk2_pci_topology *topology, UINTN bridge,
+	const void *configuration, UINTN attributes)
+{
+	const UINT8 *bytes = configuration; UINTN offset = 0;
+	UINT64 padding[CDK2_PCI_RESOURCE_CLASSES] = { 0 };
+	while (offset < 5U * sizeof(struct address_descriptor) && bytes[offset] != 0x79U) {
+		const struct address_descriptor *descriptor =
+			(const struct address_descriptor *)(bytes + offset);
+		UINTN resource;
+		if (descriptor->descriptor != 0x8aU ||
+		    descriptor->length != sizeof(*descriptor) - 3U)
+			return -1;
+		if (descriptor->resource_type == 1U)
+			resource = 0;
+		else if (descriptor->resource_type != 0U)
+			return -1;
+		else if ((descriptor->specific & 6U) == 6U)
+			resource = 3;
+		else
+			resource = descriptor->granularity == 64U ? 2U : 1U;
+		if (UINT64_MAX - padding[resource] < descriptor->address_length)
+			return -1;
+		padding[resource] += descriptor->address_length;
+		offset += sizeof(*descriptor);
+	}
+	if (bytes[offset] != 0x79U || attributes > 1U)
+		return -1;
+	for (UINTN resource = 0; resource < CDK2_PCI_RESOURCE_CLASSES; resource++) {
+		if (UINT64_MAX - topology->requests[resource].length < padding[resource])
+			return -1;
+		topology->requests[resource].length += padding[resource];
+		if (attributes == 0U)
+			topology->functions[bridge].hotplug_padding[resource] +=
+				padding[resource];
+	}
+	topology->functions[bridge].hotplug_bridge = 1;
+	return 0;
+}
+
+static EFI_STATUS initialize_hotplug(struct entry_context *entry,
+	struct global_root roots[], UINTN root_count)
+{
+	struct hotplug_init_protocol *protocol; struct hpc_location *locations = NULL;
+	UINTN count = 0; EFI_STATUS status;
+	status = entry->boot->locate_protocol(&hotplug_init_guid, NULL,
+		(void **)&protocol);
+	if (status == EFI_NOT_FOUND || status == EFI_UNSUPPORTED)
+		return EFI_SUCCESS;
+	if (EFI_ERROR(status) || protocol == NULL ||
+	    protocol->get_root_hpc_list == NULL ||
+	    protocol->initialize_root_hpc == NULL ||
+	    protocol->get_resource_padding == NULL)
+		return EFI_UNSUPPORTED;
+	status = protocol->get_root_hpc_list(protocol, &count, &locations);
+	if (EFI_ERROR(status) || (count != 0U && locations == NULL))
+		return EFI_ERROR(status) ? status : EFI_DEVICE_ERROR;
+	for (UINTN hpc = 0; hpc < count; hpc++) {
+		UINTN root, bridge = 0; UINT64 address = 0; UINT16 state = 0;
+		void *padding = NULL; UINTN attributes;
+		for (root = 0; root < root_count; root++) {
+			size_t hpb_size;
+			if (device_path_size(locations[hpc].hpb_path, &hpb_size) == 0 &&
+			    hpb_size >= roots[root].path_size &&
+			    memcmp(locations[hpc].hpb_path, roots[root].path,
+				roots[root].path_size - 4U) == 0 &&
+			    hpc_address(&roots[root], locations[hpc].hpc_path,
+				&address, &bridge) == 0)
+				break;
+		}
+		if (root == root_count) { status = EFI_NOT_FOUND; goto out; }
+		status = protocol->initialize_root_hpc(protocol,
+			locations[hpc].hpc_path, address, NULL, &state);
+		if (EFI_ERROR(status) || (state & 1U) == 0U)
+			goto out;
+		if ((state & 2U) == 0U)
+			continue;
+		status = protocol->get_resource_padding(protocol,
+			locations[hpc].hpc_path, address, &state, &padding, &attributes);
+		if (EFI_ERROR(status) || padding == NULL ||
+		    add_padding(roots[root].topology, bridge, padding, attributes) != 0) {
+			if (!EFI_ERROR(status)) status = EFI_DEVICE_ERROR;
+			if (padding != NULL) (void)entry->boot->free_pool(padding);
+			goto out;
+		}
+		(void)entry->boot->free_pool(padding);
+	}
+	status = EFI_SUCCESS;
+out:
+	if (locations != NULL)
+		(void)entry->boot->free_pool(locations);
+	return status;
+}
 
 static void make_submission(const struct cdk2_pci_topology *topology,
 	UINT8 output[4 * sizeof(struct address_descriptor) + 2])
@@ -490,6 +651,9 @@ static EFI_STATUS global_start(void *opaque, void *controller, void *remaining)
 		status = EFI_NOT_FOUND;
 		goto rollback;
 	}
+	status = initialize_hotplug(entry, roots, count);
+	if (EFI_ERROR(status))
+		goto rollback;
 	status = host->notify_phase(host, 1U);
 	if (EFI_ERROR(status))
 		goto rollback;
