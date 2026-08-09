@@ -23,5 +23,7 @@ EFI_STATUS cdk2_ata_backend_prepare(struct cdk2_ata_backend_pool *pool,
 void cdk2_ata_backend_release(struct cdk2_ata_controller *controller);
 EFI_STATUS cdk2_ata_backend_discover_ahci(struct cdk2_ata_controller *controller,
 	struct cdk2_ata_topology *topology);
+EFI_STATUS cdk2_ata_backend_discover_ide(struct cdk2_ata_controller *controller,
+	struct cdk2_ata_topology *topology);
 
 #endif

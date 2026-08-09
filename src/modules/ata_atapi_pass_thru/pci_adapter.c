@@ -131,9 +131,16 @@ static EFI_STATUS ide_write32(void *opaque, UINT16 port, UINT32 value)
 static EFI_STATUS ide_timing(void *opaque, UINT8 channel, UINT8 device)
 {
 	struct cdk2_ata_pci_adapter *adapter = opaque; void *mode = NULL; EFI_STATUS status;
+	if (!adapter->timing_ready)
+		return EFI_SUCCESS;
 	status = adapter->ide->calculate(adapter->ide, channel, device, &mode);
 	return EFI_ERROR(status) ? status : adapter->ide->timing(adapter->ide,
 		channel, device, mode);
+}
+void cdk2_ata_pci_adapter_enable_timing(struct cdk2_ata_pci_adapter *adapter)
+{
+	if (adapter != NULL)
+		adapter->timing_ready = 1;
 }
 
 EFI_STATUS cdk2_ata_pci_adapter_init(struct cdk2_ata_pci_adapter *adapter,

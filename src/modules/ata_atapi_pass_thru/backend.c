@@ -19,6 +19,11 @@ EFI_STATUS cdk2_ata_backend_prepare(struct cdk2_ata_backend_pool *pool,
 {
 	struct cdk2_ata_controller_backend *backend;
 	struct cdk2_ahci_dma_services services;
+	struct cdk2_ide_services ide_services;
+	struct cdk2_ide_channel channels[2] = {
+		{ 0x0000U, 0x1002U, 0x4000U },
+		{ 0x2000U, 0x3002U, 0x4008U }
+	};
 	UINT32 capability, ports;
 	EFI_STATUS status;
 
@@ -51,6 +56,13 @@ EFI_STATUS cdk2_ata_backend_prepare(struct cdk2_ata_backend_pool *pool,
 		controller->ahci = &backend->ahci;
 		controller->ahci_capability = capability;
 		controller->ports_implemented = ports;
+	} else {
+		cdk2_ata_pci_ide_services(&backend->adapter, &ide_services);
+		status = cdk2_ide_engine_init(&backend->ide, &ide_services, channels, 2U);
+		if (EFI_ERROR(status))
+			goto fail_adapter;
+		backend->ide_initialized = 1;
+		controller->ide_engine = &backend->ide;
 	}
 	controller->backend = backend;
 	return EFI_SUCCESS;
@@ -146,5 +158,81 @@ EFI_STATUS cdk2_ata_backend_discover_ahci(struct cdk2_ata_controller *controller
 			(get16(backend->identify, 209U) & 0x4000U) != 0U ?
 			get16(backend->identify, 209U) & 0x3fffU : 0U;
 	}
+	return EFI_SUCCESS;
+}
+
+EFI_STATUS cdk2_ata_backend_discover_ide(struct cdk2_ata_controller *controller,
+	struct cdk2_ata_topology *topology)
+{
+	struct cdk2_ata_controller_backend *backend;
+	struct cdk2_ata_topology original;
+	EFI_STATUS status;
+
+	if (controller == NULL || topology == NULL || controller->backend == NULL ||
+	    controller->ide_engine == NULL || topology->mode != CDK2_ATA_IDE)
+		return EFI_INVALID_PARAMETER;
+	backend = controller->backend;
+	original = *topology;
+	for (UINT8 channel = 0; channel < 2U; channel++) {
+		BOOLEAN enabled = FALSE;
+		UINT8 devices = 0;
+
+		status = ((struct cdk2_ide_init_protocol *)controller->ide)->get_channel(
+			controller->ide, channel, &enabled, &devices);
+		if (EFI_ERROR(status)) {
+			*topology = original;
+			return status;
+		}
+		if (!enabled)
+			continue;
+		if (devices > 2U) {
+			*topology = original;
+			return EFI_DEVICE_ERROR;
+		}
+		if (((struct cdk2_ide_init_protocol *)controller->ide)->notify != NULL)
+			(void)((struct cdk2_ide_init_protocol *)controller->ide)->notify(
+				controller->ide, 0U, channel);
+		(void)cdk2_ide_reset(controller->ide_engine, channel, 5000000U);
+		for (UINT8 device = 0; device < devices; device++) {
+			struct cdk2_ata_command_block acb = { .command = 0xecU };
+			struct cdk2_ata_status_block asb;
+			struct cdk2_ata_command_packet packet = { .asb = &asb,
+				.acb = &acb, .timeout = 5000000U,
+				.in_data = backend->identify,
+				.in_length = sizeof(backend->identify), .protocol = 4U,
+				.length = 0x20U };
+			enum cdk2_ata_device_type type = CDK2_ATA_DISK;
+
+			memset(backend->identify, 0, sizeof(backend->identify));
+			status = cdk2_ide_execute(controller->ide_engine, channel, device,
+				&packet, packet.timeout);
+			if (EFI_ERROR(status)) {
+				acb.command = 0xa1U;
+				status = cdk2_ide_execute(controller->ide_engine, channel,
+					device, &packet, packet.timeout);
+				type = CDK2_ATAPI_DEVICE;
+			}
+			if (EFI_ERROR(status))
+				continue;
+			if (((struct cdk2_ide_init_protocol *)controller->ide)->submit != NULL) {
+				status = ((struct cdk2_ide_init_protocol *)controller->ide)->submit(
+					controller->ide, channel, device, backend->identify);
+				if (EFI_ERROR(status)) {
+					*topology = original;
+					return status;
+				}
+			}
+			status = cdk2_ata_add_device(topology, channel, device, type);
+			if (EFI_ERROR(status)) {
+				*topology = original;
+				return status;
+			}
+			topology->devices[topology->count - 1U].block_size = 512U;
+		}
+		if (((struct cdk2_ide_init_protocol *)controller->ide)->notify != NULL)
+			(void)((struct cdk2_ide_init_protocol *)controller->ide)->notify(
+				controller->ide, 1U, channel);
+	}
+	cdk2_ata_pci_adapter_enable_timing(&backend->adapter);
 	return EFI_SUCCESS;
 }
