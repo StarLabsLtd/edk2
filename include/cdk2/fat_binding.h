@@ -130,6 +130,7 @@ extern const EFI_GUID cdk2_fat_volume_label_info_guid;
 void cdk2_fat_protocol_init(struct cdk2_fat_protocol_volume *volume,
 			    struct cdk2_fat_binding *binding, struct cdk2_fat_mount *mount);
 EFI_STATUS CDK2_MS_ABI cdk2_fat_entry(void *image, void *system_table);
+UINT32 cdk2_fat_open_attributes(const EFI_GUID *protocol);
 EFI_STATUS cdk2_fat_driver_name(BOOLEAN component_name2, CHAR8 *language, CHAR16 **name);
 
 #endif

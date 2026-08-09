@@ -3,6 +3,7 @@
 #include <cdk2/fat_binding.h>
 
 #define OPEN_BY_DRIVER 0x10U
+#define OPEN_GET_PROTOCOL 0x02U
 typedef EFI_STATUS CDK2_MS_ABI alloc_fn(UINT32, UINTN, void **);
 typedef EFI_STATUS CDK2_MS_ABI free_fn(void *);
 typedef EFI_STATUS CDK2_MS_ABI signal_fn(void *);
@@ -94,15 +95,24 @@ static struct entry_context *entry_of(struct driver_view *d)
 {
 	return (struct entry_context *)((UINT8 *)d - offsetof(struct entry_context, driver));
 }
+UINT32 cdk2_fat_open_attributes(const EFI_GUID *protocol)
+{
+	return protocol != NULL &&
+	       __builtin_memcmp(protocol, &cdk2_fat_block_io_guid, sizeof(*protocol)) == 0
+		       ? OPEN_GET_PROTOCOL
+		       : OPEN_BY_DRIVER;
+}
 static EFI_STATUS op_open(void *c, void *controller, const EFI_GUID *g, void **interface)
 {
 	struct entry_context *e = c;
 	return e->boot->open_protocol(controller, g, interface, e->image, controller,
-				      OPEN_BY_DRIVER);
+				      cdk2_fat_open_attributes(g));
 }
 static EFI_STATUS op_close(void *c, void *controller, const EFI_GUID *g)
 {
 	struct entry_context *e = c;
+	if (__builtin_memcmp(g, &cdk2_fat_block_io_guid, sizeof(*g)) == 0)
+		return EFI_SUCCESS;
 	return e->boot->close_protocol(controller, g, e->image, controller);
 }
 static EFI_STATUS op_publish(void *c, void *controller, const EFI_GUID *g, void *interface)

@@ -49,6 +49,10 @@ int main(void)
 		return 1;
 	if (cdk2_fat_entry((void *)1, &system) != EFI_SUCCESS || protocols != 3U)
 		return 1;
+	if (cdk2_fat_open_attributes(&cdk2_fat_block_io_guid) != 2U ||
+	    cdk2_fat_open_attributes(&cdk2_fat_disk_io_guid) != 0x10U ||
+	    cdk2_fat_open_attributes(&cdk2_fat_disk_io2_guid) != 0x10U)
+		return 1;
 	{
 		CHAR16 *name;
 		if (cdk2_fat_driver_name(0U, "eng", &name) != EFI_SUCCESS ||
