@@ -74,6 +74,7 @@ static UINTN child_uninstalls;
 static UINTN fail_allocation;
 static BOOLEAN fail_child_install;
 static BOOLEAN fail_child_open;
+static EFI_STATUS close_status;
 static void *installed_path;
 static UINTN misaligned_reads;
 
@@ -231,7 +232,7 @@ static EFI_STATUS CDK2_MS_ABI close_event(void *event)
 	return EFI_SUCCESS;
 }
 
-static EFI_STATUS CDK2_MS_ABI open_protocol(void *handle, const EFI_GUID * guid,
+static EFI_STATUS CDK2_MS_ABI open_protocol(void *handle, const EFI_GUID *guid,
 	void **interface, void *agent, void *controller, UINT32 attributes)
 {
 	(void)handle;
@@ -254,7 +255,7 @@ static EFI_STATUS CDK2_MS_ABI open_protocol(void *handle, const EFI_GUID * guid,
 	return EFI_NOT_FOUND;
 }
 
-static EFI_STATUS CDK2_MS_ABI close_protocol(void *handle, const EFI_GUID * guid,
+static EFI_STATUS CDK2_MS_ABI close_protocol(void *handle, const EFI_GUID *guid,
 	void *agent, void *controller)
 {
 	(void)handle;
@@ -262,7 +263,7 @@ static EFI_STATUS CDK2_MS_ABI close_protocol(void *handle, const EFI_GUID * guid
 	(void)agent;
 	(void)controller;
 	closes++;
-	return EFI_SUCCESS;
+	return close_status;
 }
 
 static EFI_STATUS CDK2_MS_ABI install_multiple(void **handle, ...)
@@ -317,6 +318,7 @@ static void clear_faults(void)
 	fail_allocation = 0;
 	fail_child_install = FALSE;
 	fail_child_open = FALSE;
+	close_status = EFI_SUCCESS;
 	installed_path = NULL;
 	misaligned_reads = 0;
 }
@@ -361,6 +363,8 @@ int main(void)
 		EFI_SUCCESS);
 	EXPECT(installed_binding->start(installed_binding, controller, remaining) ==
 		EFI_SUCCESS && child_installs == 1U && misaligned_reads == 0);
+	EXPECT(installed_binding->start(installed_binding, controller, remaining) ==
+		EFI_SUCCESS && child_installs == 1U);
 	add_second_gpt();
 	write32(remaining + 4, 2U);
 	write64(remaining + 8, 60U);
@@ -372,6 +376,10 @@ int main(void)
 		EXPECT(installed_binding->stop(installed_binding, controller, 2U,
 			children) == EFI_SUCCESS);
 	}
+	close_status = EFI_DEVICE_ERROR;
+	EXPECT(installed_binding->stop(installed_binding, controller, 0, NULL) ==
+		EFI_DEVICE_ERROR);
+	close_status = EFI_SUCCESS;
 	EXPECT(installed_binding->stop(installed_binding, controller, 0, NULL) ==
 		EFI_SUCCESS);
 	media.io_align = 0;

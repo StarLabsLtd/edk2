@@ -314,7 +314,7 @@ static BOOLEAN catalog_checksum_valid(const UINT8 *entry)
 }
 
 static EFI_STATUS add_boot_entry(const struct cdk2_partition_media *media,
-	const UINT8 *entry, UINT32 boot_entry,
+	const UINT8 *entry, UINT32 boot_entry, UINT32 volume_blocks,
 	struct cdk2_partition *partitions, UINTN capacity, UINTN *count)
 {
 	struct cdk2_partition *partition;
@@ -326,8 +326,7 @@ static EFI_STATUS add_boot_entry(const struct cdk2_partition_media *media,
 
 	if (entry[0] == 0)
 		return EFI_SUCCESS;
-	if (entry[0] != 0x88U || entry[1] > 4U || read32(entry + 8) == 0 ||
-	    ((UINT16)entry[6] | (UINT16)entry[7] << 8) == 0)
+	if (entry[0] != 0x88U || entry[1] > 4U || read32(entry + 8) == 0)
 		return EFI_COMPROMISED_DATA;
 	start = (UINT64)read32(entry + 8) * ISO_SECTOR_SIZE / media->block_size;
 	sectors = (UINT16)entry[6] | (UINT16)entry[7] << 8;
@@ -337,8 +336,20 @@ static EFI_STATUS add_boot_entry(const struct cdk2_partition_media *media,
 		sectors = 2880U;
 	else if (entry[1] == 3U)
 		sectors = 5760U;
-	byte_size = sectors * 512ULL;
-	blocks = (byte_size + media->block_size - 1U) / media->block_size;
+	if (sectors < 2U) {
+		UINT64 volume_end = (UINT64)volume_blocks * ISO_SECTOR_SIZE /
+			media->block_size;
+
+		if (volume_end == 0 || volume_end > media->last_block + 1U)
+			volume_end = media->last_block + 1U;
+		if (start >= volume_end)
+			return EFI_COMPROMISED_DATA;
+		blocks = volume_end - start;
+	} else {
+		byte_size = sectors * (entry[1] == 0 ?
+			(UINT64)media->block_size : 512ULL);
+		blocks = (byte_size + media->block_size - 1U) / media->block_size;
+	}
 	if (start > media->last_block || blocks == 0 ||
 	    blocks - 1U > media->last_block - start)
 		return EFI_COMPROMISED_DATA;
@@ -369,6 +380,7 @@ EFI_STATUS cdk2_partition_parse_el_torito(
 {
 	UINT8 *sector = sector_buffer;
 	UINT32 catalog_lba = 0;
+	UINT32 volume_blocks = 0;
 	UINT32 descriptor;
 	UINT32 boot_entry = 0;
 	UINTN count = 0;
@@ -392,6 +404,8 @@ EFI_STATUS cdk2_partition_parse_el_torito(
 		    sector[6] != 1U)
 			return saw_iso ? EFI_COMPROMISED_DATA : EFI_NOT_FOUND;
 		saw_iso = TRUE;
+		if (sector[0] == 1U)
+			volume_blocks = read32(sector + 80);
 		if (sector[0] == 0 &&
 		    bytes_equal(sector + 7,
 			    (const UINT8 *)"EL TORITO SPECIFICATION", 23)) {
@@ -409,7 +423,7 @@ EFI_STATUS cdk2_partition_parse_el_torito(
 	    sector[30] != 0x55U || sector[31] != 0xaaU ||
 	    !catalog_checksum_valid(sector))
 		return EFI_COMPROMISED_DATA;
-	status = add_boot_entry(media, sector + 32, boot_entry++, partitions,
+	status = add_boot_entry(media, sector + 32, boot_entry++, volume_blocks, partitions,
 		partition_capacity, &count);
 	if (EFI_ERROR(status))
 		return status;
@@ -450,7 +464,7 @@ EFI_STATUS cdk2_partition_parse_el_torito(
 			copy(entry, sector + (record % 64U) * 32U, sizeof(entry));
 			if (entry[0] == 0x44U)
 				continue;
-			status = add_boot_entry(media, entry, boot_entry++,
+			status = add_boot_entry(media, entry, boot_entry++, volume_blocks,
 				partitions, partition_capacity, &count);
 			if (EFI_ERROR(status))
 				return status;

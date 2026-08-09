@@ -99,6 +99,29 @@ static EFI_STATUS parse(struct cdk2_partition *partitions, UINTN capacity,
 		partitions, capacity, count);
 }
 
+static EFI_STATUS read_optical(void *context, UINT64 lba, UINTN blocks,
+	void *buffer)
+{
+	struct fixture *disk = context;
+
+	if (lba >= DISK_BLOCKS / ISO_BLOCKS || blocks > DISK_BLOCKS / ISO_BLOCKS - lba)
+		return EFI_DEVICE_ERROR;
+	memcpy(buffer, &disk->disk[lba * ISO_BLOCKS], blocks * 2048U);
+	return EFI_SUCCESS;
+}
+
+static EFI_STATUS parse_optical(struct cdk2_partition *partitions, UINTN *count)
+{
+	struct cdk2_partition_media media = {
+		.context = &fixture, .read = read_optical, .block_size = 2048U,
+		.last_block = DISK_BLOCKS / ISO_BLOCKS - 1U,
+	};
+	UINT8 sector[2048];
+
+	return cdk2_partition_parse_el_torito(&media, sector, sizeof(sector),
+		partitions, 3U, count);
+}
+
 static int expect(BOOLEAN condition, const char *expression, int line)
 {
 	if (condition)
@@ -122,6 +145,12 @@ int main(void)
 	EXPECT(partitions[0].boot_entry == 0 && partitions[0].attributes == 0);
 	EXPECT(partitions[1].start_lba == 160U && partitions[1].end_lba == 2559U);
 	EXPECT(partitions[1].boot_entry == 1 && partitions[1].attributes == 1U);
+	EXPECT(parse_optical(partitions, &count) == EFI_SUCCESS && count == 2U &&
+		partitions[0].start_lba == 30U && partitions[0].end_lba == 33U);
+	make_fixture();
+	write16(iso_sector(20U) + 32 + 6, 0U);
+	EXPECT(parse(partitions, 3U, &count) == EFI_SUCCESS &&
+		partitions[0].start_lba == 120U && partitions[0].end_lba == DISK_BLOCKS - 1U);
 
 	make_fixture();
 	catalog = iso_sector(20U);

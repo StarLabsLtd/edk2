@@ -18,6 +18,7 @@ struct cdk2_partition_async_request {
 	void *event;
 	BOOLEAN write;
 	BOOLEAN flush;
+	BOOLEAN cancel_pending;
 };
 
 struct cdk2_partition_child {
@@ -250,7 +251,8 @@ static void CDK2_MS_ABI async_complete(void *event, void *context)
 	struct cdk2_partition_async_scheduler *scheduler = request->child->scheduler;
 
 	(void)event;
-	request->caller_token->transaction_status = request->parent_token.transaction_status;
+	request->caller_token->transaction_status = request->cancel_pending ? ABORTED :
+		request->parent_token.transaction_status;
 	(void)request->child->services->signal_event(request->caller_token->event);
 	scheduler->active = NULL;
 	(void)request->child->services->close_event(request->event);
@@ -404,10 +406,8 @@ static uint64_t CDK2_MS_ABI child_cancel(struct cdk2_disk_io2 *disk)
 		scheduler->tail = request;
 	request = scheduler->active;
 	if (request != NULL && request->child == child) {
-		scheduler->canceling = TRUE;
-		status = scheduler->parent->cancel(scheduler->parent);
-		scheduler->canceling = FALSE;
-		dispatch_async(scheduler);
+		request->cancel_pending = TRUE;
+		status = EFI_NOT_READY;
 	}
 	return status;
 }
@@ -555,13 +555,18 @@ EFI_STATUS cdk2_partition_child_destroy(struct cdk2_partition_child *child)
 		status = child->services->close_parent(child->parent, child->handle);
 		if (EFI_ERROR(status))
 			return status;
+		child->parent_open = FALSE;
 	}
 	status = child->services->uninstall(child->handle, &child->block,
 		&child->block2, &child->disk, &child->disk2, child->device_path,
 		&child->info);
 	if (EFI_ERROR(status)) {
-		if (child->parent_open)
-			(void)child->services->open_parent(child->parent, child->handle);
+		EFI_STATUS reopen = child->services->open_parent(child->parent, child->handle);
+
+		if (!EFI_ERROR(reopen))
+			child->parent_open = TRUE;
+		else
+			return reopen;
 		return status;
 	}
 	child->services->free(child);

@@ -444,12 +444,14 @@ static EFI_STATUS CDK2_MS_ABI start(struct driver_binding *driver,
 	UINTN created = 0;
 	BOOLEAN retained = FALSE;
 	BOOLEAN existing = FALSE;
+	BOOLEAN matched_existing = FALSE;
 	EFI_STATUS status;
 
 	if (!remaining_valid(remaining))
 		return EFI_UNSUPPORTED;
 	for (record = controllers; record != NULL && record->controller != controller;
-	     record = record->next) { }
+	     record = record->next)
+		;
 	if (record != NULL) {
 		existing = TRUE;
 		block = record->block;
@@ -518,8 +520,10 @@ allocate_discovery:
 			if (child->partition.scheme == partitions[index].scheme &&
 			    child->partition.index == partitions[index].index)
 				break;
-		if (child != NULL)
+		if (child != NULL) {
+			matched_existing = TRUE;
 			continue;
+		}
 
 		status = allocate(sizeof(*child), (void **)&child);
 		if (EFI_ERROR(status))
@@ -543,7 +547,13 @@ allocate_discovery:
 		created++;
 	}
 	if (created == 0) {
-		status = EFI_NOT_FOUND;
+		status = matched_existing ? EFI_SUCCESS : EFI_NOT_FOUND;
+		if (!EFI_ERROR(status)) {
+			release(partitions);
+			release(entries_allocation);
+			release(scratch_allocation);
+			return status;
+		}
 		goto fail;
 	}
 	if (!existing) {
@@ -555,6 +565,21 @@ allocate_discovery:
 	release(scratch_allocation);
 	return EFI_SUCCESS;
 fail:
+	if (record != NULL && existing) {
+		while (created != 0) {
+			struct child_record *child = record->children;
+			EFI_STATUS cleanup = cdk2_partition_child_destroy(child->child);
+
+			if (EFI_ERROR(cleanup)) {
+				status = EFI_SUCCESS;
+				break;
+			}
+			record->children = child->next;
+			release(child->device_path);
+			release(child);
+			created--;
+		}
+	}
 	if (record != NULL && !existing) {
 		EFI_STATUS cleanup = destroy_records(record);
 
@@ -618,9 +643,14 @@ static EFI_STATUS CDK2_MS_ABI stop(struct driver_binding *driver,
 	}
 	if (record->children != NULL)
 		return EFI_DEVICE_ERROR;
-	*link = record->next;
-	(void)boot->close_protocol(controller, &disk_io_guid,
+	{
+		EFI_STATUS status = boot->close_protocol(controller, &disk_io_guid,
 		driver->driver_binding_handle, controller);
+
+		if (EFI_ERROR(status))
+			return status;
+	}
+	*link = record->next;
 	release(record);
 	return EFI_SUCCESS;
 }
