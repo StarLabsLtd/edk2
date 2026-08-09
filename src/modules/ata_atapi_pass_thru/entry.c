@@ -9,9 +9,13 @@ struct guid { UINT32 data1; UINT16 data2, data3; UINT8 data4[8]; };
 typedef EFI_STATUS CDK2_MS_ABI handle_t(void *, const struct guid *, void **);
 typedef EFI_STATUS CDK2_MS_ABI install_t(void **, const struct guid *, void *, ...);
 typedef EFI_STATUS CDK2_MS_ABI uninstall_t(void *, const struct guid *, void *, ...);
+typedef EFI_STATUS CDK2_MS_ABI open_t(void *, const struct guid *, void **,
+	void *, void *, UINT32);
+typedef EFI_STATUS CDK2_MS_ABI close_t(void *, const struct guid *, void *, void *);
 struct cdk2_ata_boot_services {
 	UINT8 before_handle[152]; handle_t *handle_protocol;
-	UINT8 before_install[168]; install_t *install_multiple;
+	UINT8 before_open[120]; open_t *open_protocol; close_t *close_protocol;
+	UINT8 before_install[32]; install_t *install_multiple;
 	uninstall_t *uninstall_multiple;
 };
 struct system_table_view {
@@ -24,6 +28,10 @@ typedef char install_offset_check[offsetof(struct cdk2_ata_boot_services,
 	install_multiple) == 328 ? 1 : -1];
 typedef char uninstall_offset_check[offsetof(struct cdk2_ata_boot_services,
 	uninstall_multiple) == 336 ? 1 : -1];
+typedef char open_offset_check[offsetof(struct cdk2_ata_boot_services,
+	open_protocol) == 280 ? 1 : -1];
+typedef char close_offset_check[offsetof(struct cdk2_ata_boot_services,
+	close_protocol) == 288 ? 1 : -1];
 
 static const struct guid loaded_image_guid = { 0x5b1b31a1, 0x9562, 0x11d2,
 	{ 0x8e, 0x3f, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b } };
@@ -33,9 +41,64 @@ static const struct guid component_name_guid = { 0x107a772c, 0xd5e1, 0x11d4,
 	{ 0x9a, 0x46, 0x00, 0x90, 0x27, 0x3f, 0xc1, 0x4d } };
 static const struct guid component_name2_guid = { 0x6a7a5cff, 0xe8d9, 0x4f70,
 	{ 0xba, 0xda, 0x75, 0xab, 0x30, 0x25, 0xce, 0x14 } };
+static const struct guid device_path_guid = { 0x09576e91, 0x6d3f, 0x11d2,
+	{ 0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b } };
+static const struct guid pci_io_guid = { 0x4cf5b200, 0x68b8, 0x4ca5,
+	{ 0x9e, 0xec, 0xb2, 0x3e, 0x3f, 0x50, 0x02, 0x9a } };
+static const struct guid ide_init_guid = { 0xa1e37052, 0x80d9, 0x4e65,
+	{ 0xa3, 0x17, 0x3e, 0x9a, 0x55, 0xc4, 0x3e, 0xc9 } };
 static CHAR16 driver_name[] = L"ATA/ATAPI Pass Thru Driver";
 static CHAR16 controller_name[] = L"ATA/ATAPI Controller";
 static struct cdk2_ata_entry *active_entry;
+
+static EFI_STATUS open_protocol(struct cdk2_ata_entry *entry, void *controller,
+	const struct guid *guid, void **interface, UINT32 attributes)
+{
+	return entry->boot->open_protocol(controller, guid, interface, entry->image,
+		controller, attributes);
+}
+static EFI_STATUS service_open_path(void *opaque, void *controller)
+{
+	struct cdk2_ata_entry *entry = active_entry;
+	void *path = NULL;
+
+	(void)opaque;
+	if (entry == NULL)
+		return EFI_NOT_READY;
+	return open_protocol(entry, controller, &device_path_guid, &path, 0x10U);
+}
+static EFI_STATUS service_close_path(void *opaque, void *controller)
+{
+	struct cdk2_ata_entry *entry = active_entry;
+
+	(void)opaque;
+	if (entry == NULL)
+		return EFI_NOT_READY;
+	return entry->boot->close_protocol(controller,
+		&device_path_guid, entry->image, controller);
+}
+static EFI_STATUS service_open_ide(void *opaque, void *controller, void **ide)
+{
+	(void)opaque;
+	return active_entry == NULL ? EFI_NOT_READY :
+		open_protocol(active_entry, controller, &ide_init_guid, ide, 0x10U);
+}
+static EFI_STATUS service_close_ide(void *opaque, void *controller)
+{
+	struct cdk2_ata_entry *entry = active_entry;
+
+	(void)opaque;
+	if (entry == NULL)
+		return EFI_NOT_READY;
+	return entry->boot->close_protocol(controller,
+		&ide_init_guid, entry->image, controller);
+}
+static EFI_STATUS service_get_pci(void *opaque, void *controller, void **pci)
+{
+	(void)opaque;
+	return active_entry == NULL ? EFI_NOT_READY :
+		open_protocol(active_entry, controller, &pci_io_guid, pci, 0x02U);
+}
 
 static struct cdk2_ata_entry *from_driver(struct cdk2_ata_driver_binding *driver)
 { return (struct cdk2_ata_entry *)((UINT8 *)driver - offsetof(struct cdk2_ata_entry, driver)); }
@@ -123,6 +186,31 @@ EFI_STATUS cdk2_ata_entry_publish(struct cdk2_ata_entry *entry,
 	entry->loaded->unload = cdk2_ata_entry_unload;
 	entry->published = 1; active_entry = entry;
 	return EFI_SUCCESS;
+}
+
+EFI_STATUS cdk2_ata_entry_publish_with_services(struct cdk2_ata_entry *entry,
+	struct cdk2_ata_binding *binding,
+	const struct cdk2_ata_binding_services *hardware_services,
+	void *image, void *system_table)
+{
+	struct cdk2_ata_binding_services services;
+	EFI_STATUS status;
+
+	if (binding == NULL || hardware_services == NULL)
+		return EFI_INVALID_PARAMETER;
+	services = *hardware_services;
+	services.open_path = service_open_path;
+	services.close_path = service_close_path;
+	services.open_ide = service_open_ide;
+	services.close_ide = service_close_ide;
+	services.get_pci = service_get_pci;
+	status = cdk2_ata_binding_init(binding, &services);
+	if (EFI_ERROR(status))
+		return status;
+	status = cdk2_ata_entry_publish(entry, binding, image, system_table);
+	if (EFI_ERROR(status))
+		memset(binding, 0, sizeof(*binding));
+	return status;
 }
 
 EFI_STATUS CDK2_MS_ABI cdk2_ata_entry_unload(void *image)

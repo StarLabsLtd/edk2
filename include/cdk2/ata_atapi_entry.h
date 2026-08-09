@@ -53,6 +53,10 @@ struct cdk2_ata_entry {
 
 EFI_STATUS cdk2_ata_entry_publish(struct cdk2_ata_entry *entry,
 	struct cdk2_ata_binding *binding, void *image, void *system_table);
+EFI_STATUS cdk2_ata_entry_publish_with_services(struct cdk2_ata_entry *entry,
+	struct cdk2_ata_binding *binding,
+	const struct cdk2_ata_binding_services *hardware_services,
+	void *image, void *system_table);
 EFI_STATUS CDK2_MS_ABI cdk2_ata_entry_unload(void *image);
 
 #endif
