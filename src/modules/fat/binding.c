@@ -43,7 +43,8 @@ static uint64_t write_disk(void *context, uint64_t offset, size_t size,
 	const void *buffer)
 {
 	struct cdk2_fat_mount *mount = context;
-	if (mount->disk->write_disk == NULL) return EFI_UNSUPPORTED;
+	if (mount->disk->write_disk == NULL)
+		return EFI_UNSUPPORTED;
 	return mount->disk->write_disk(mount->disk, mount->media_id, offset, size,
 		(void *)buffer);
 }
@@ -179,7 +180,8 @@ EFI_STATUS cdk2_fat_binding_stop(struct cdk2_fat_binding *binding,
 	if (mount->published) {
 		status = binding->ops->unpublish(binding->context, controller,
 			&cdk2_fat_simple_fs_guid, &mount->simple_fs->protocol);
-		if (EFI_ERROR(status)) return status;
+		if (EFI_ERROR(status))
+			return status;
 		mount->published = 0U;
 	}
 	status = mount->disk2_open ? binding->ops->close(binding->context, controller,
@@ -198,7 +200,8 @@ EFI_STATUS cdk2_fat_binding_stop(struct cdk2_fat_binding *binding,
 			controller, &cdk2_fat_disk_io2_guid, (void **)&mount->disk2)))
 			mount->disk2_open = 1U;
 		if (!EFI_ERROR(binding->ops->publish(binding->context, controller,
-			&cdk2_fat_simple_fs_guid, &mount->simple_fs->protocol))) mount->published = 1U;
+			&cdk2_fat_simple_fs_guid, &mount->simple_fs->protocol)))
+			mount->published = 1U;
 		return status;
 	}
 	mount->disk_open = 0U;
@@ -206,7 +209,8 @@ EFI_STATUS cdk2_fat_binding_stop(struct cdk2_fat_binding *binding,
 		&cdk2_fat_block_io_guid) : EFI_SUCCESS;
 	if (EFI_ERROR(status)) {
 		if (!EFI_ERROR(binding->ops->open(binding->context, controller,
-			&cdk2_fat_disk_io_guid, (void **)&mount->disk))) mount->disk_open = 1U;
+			&cdk2_fat_disk_io_guid, (void **)&mount->disk)))
+			mount->disk_open = 1U;
 		if (mount->disk2 != NULL && !EFI_ERROR(binding->ops->open(binding->context,
 			controller, &cdk2_fat_disk_io2_guid, (void **)&mount->disk2)))
 			mount->disk2_open = 1U;
