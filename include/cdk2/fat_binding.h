@@ -14,6 +14,8 @@ struct cdk2_fat_binding_ops {
 	EFI_STATUS (*allocate)(void *, UINTN, void **);
 	void (*release)(void *, void *);
 	EFI_STATUS (*signal)(void *, void *);
+	EFI_STATUS (*queue)(void *, void (*)(void *), void *, void **);
+	void (*drain)(void *, void *);
 };
 struct cdk2_fat_io_token { void *event; EFI_STATUS transaction_status; };
 struct cdk2_fat_binding;
@@ -30,7 +32,7 @@ struct cdk2_fat_mount {
 	struct cdk2_fat_protocol_volume *simple_fs;
 	UINT32 media_id;
 	UINTN open_handles;
-	BOOLEAN published;
+	BOOLEAN published, block_open, disk_open;
 };
 
 struct cdk2_fat_binding {
@@ -102,7 +104,7 @@ struct cdk2_fat_file_protocol {
 
 struct cdk2_fat_simple_fs_protocol {
 	UINT64 revision;
-	EFI_STATUS (CDK2_MS_ABI *open_volume)(struct cdk2_fat_simple_fs_protocol *,
+	EFI_STATUS CDK2_MS_ABI (*open_volume)(struct cdk2_fat_simple_fs_protocol *,
 		struct cdk2_fat_file_protocol **);
 };
 
@@ -118,5 +120,7 @@ extern const EFI_GUID cdk2_fat_volume_label_info_guid;
 void cdk2_fat_protocol_init(struct cdk2_fat_protocol_volume *volume,
 	struct cdk2_fat_binding *binding, struct cdk2_fat_mount *mount);
 EFI_STATUS CDK2_MS_ABI cdk2_fat_entry(void *image, void *system_table);
+EFI_STATUS cdk2_fat_driver_name(BOOLEAN component_name2, CHAR8 *language,
+	CHAR16 **name);
 
 #endif

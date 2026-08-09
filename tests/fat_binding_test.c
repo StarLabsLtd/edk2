@@ -18,6 +18,7 @@ struct fixture {
 	unsigned signals;
 };
 static struct fixture *active;
+static void (*queued_function)(void *); static void *queued_context;
 
 static void put16(uint8_t *p, uint16_t v) { p[0] = v; p[1] = (uint8_t)(v >> 8); }
 static void format(struct fixture *f, unsigned id)
@@ -62,13 +63,17 @@ static void release(void *context, void *buffer)
 { struct fixture *f = context; f->releases++; free(buffer); }
 static EFI_STATUS signal(void *context, void *event)
 { struct fixture *f = context; if (event == NULL) return EFI_INVALID_PARAMETER; f->signals++; return EFI_SUCCESS; }
+static EFI_STATUS queue(void *context, void (*function)(void *), void *opaque, void **cookie)
+{ (void)context; queued_function = function; queued_context = opaque; *cookie = opaque; return EFI_SUCCESS; }
+static void drain(void *context, void *cookie)
+{ (void)context; (void)cookie; queued_function(queued_context); queued_function = NULL; }
 static int expect(int ok, const char *message)
 { if (!ok) fprintf(stderr, "FAT binding test: %s\n", message); return !ok; }
 
 int main(void)
 {
 	static const struct cdk2_fat_binding_ops ops = {
-		open_protocol, close_protocol, publish, unpublish, allocate, release, signal
+		open_protocol, close_protocol, publish, unpublish, allocate, release, signal, queue, drain
 	};
 	struct fixture f = { 0 };
 	struct cdk2_fat_binding binding = { &ops, &f, NULL };
@@ -90,6 +95,18 @@ int main(void)
 		cdk2_fat_binding_start(&binding, (void *)2) == EFI_SUCCESS &&
 		binding.mounts != NULL && binding.mounts->next != NULL,
 		"independent controllers did not publish independent volumes");
+	{
+		struct cdk2_fat_file_protocol *root;
+		struct cdk2_fat_file_io_token async = { (void *)9, EFI_NOT_READY, 0U, NULL };
+		failures += expect(binding.mounts->simple_fs->protocol.open_volume(
+			&binding.mounts->simple_fs->protocol, &root) == EFI_SUCCESS &&
+			root->flush_ex(root, &async) == EFI_SUCCESS && queued_function != NULL &&
+			async.status == EFI_NOT_READY && f.signals == 1U,
+			"revision-2 request was not queued with handle residency");
+		failures += expect(root->close(root) == EFI_SUCCESS && async.status == EFI_SUCCESS &&
+			f.signals == 2U && queued_function == NULL,
+			"Close did not drain queued completion before releasing residency");
+	}
 	failures += expect(cdk2_fat_binding_start(&binding, (void *)1) ==
 		FAT_ALREADY_STARTED, "repeated Start was not idempotently rejected");
 	first = binding.mounts;
@@ -117,5 +134,15 @@ int main(void)
 	failures += expect(cdk2_fat_binding_start(&binding, (void *)1) ==
 		EFI_DEVICE_ERROR && binding.mounts == NULL && f.allocations == f.releases,
 		"Start publication failure did not unwind allocation and opens");
+	f.fail_publish = 0U;
+	failures += expect(cdk2_fat_binding_start(&binding, (void *)1) == EFI_SUCCESS,
+		"rollback fixture could not start volume");
+	first = binding.mounts; f.fail_close = f.closes + 2U;
+	failures += expect(cdk2_fat_binding_stop(&binding, (void *)1) == EFI_DEVICE_ERROR &&
+		first->published && first->disk_open && first->block_open,
+		"Stop close failure did not restore a retryable published volume");
+	f.fail_close = 0U;
+	failures += expect(cdk2_fat_binding_stop(&binding, (void *)1) == EFI_SUCCESS &&
+		binding.mounts == NULL, "Stop rollback state was not retryable");
 	return failures == 0 ? 0 : 1;
 }

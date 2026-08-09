@@ -14,15 +14,15 @@ short filename lookup, directory enumeration, file and volume information,
 read/write growth and truncation, flush ordering, media-change handling, and
 transactional Driver Binding Start/Stop ownership.
 
-The first inventory-neutral slice implements only BPB admission and checked
-cluster geometry.  It deliberately publishes no production protocol yet.
-Standalone ABI entry, filesystem mutation, asynchronous I/O, and exact FFS
-packaging remain blocked on later tested slices; the retained inventory and FV
-are unchanged.
+The inventory-neutral implementation now provides the production Driver
+Binding, Simple File System and revision-two File protocols without changing
+the retained inventory or FV.  It validates legal open modes and access,
+creates files and initialized directories, resolves absolute and relative
+paths, maintains long and short names, and queues event-backed revision-two
+operations while retaining their handles until completion.
 
 The mutation core uses caller-provided rollback storage so allocation never
 depends on hidden global memory.  It mirrors FAT changes, invalidates valid
-FAT32 FSInfo hints, flushes, and restores FAT entries after write or flush
-failure.  Directory-entry/LFN creation and deletion are not yet connected to
-this allocator, so no writable file-handle or production protocol claim is
-made by this slice.
+FAT32 FSInfo hints, flushes, and restores FAT and directory metadata after
+write or flush failure.  The standalone package check validates the admitted
+GUID, envelope, driver type, PE32/UI/version ordering and absence of DEPEX.

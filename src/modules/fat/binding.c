@@ -110,10 +110,12 @@ EFI_STATUS cdk2_fat_binding_start(struct cdk2_fat_binding *binding,
 		&cdk2_fat_block_io_guid, (void **)&mount->block);
 	if (EFI_ERROR(status))
 		goto release;
+	mount->block_open = 1U;
 	status = binding->ops->open(binding->context, controller,
 		&cdk2_fat_disk_io_guid, (void **)&mount->disk);
 	if (EFI_ERROR(status))
 		goto close_retained_block;
+	mount->disk_open = 1U;
 	status = cdk2_fat_binding_refresh(mount);
 	if (EFI_ERROR(status))
 		goto close_disk;
@@ -134,9 +136,11 @@ release_protocol:
 close_disk:
 	(void)binding->ops->close(binding->context, controller,
 		&cdk2_fat_disk_io_guid);
+	mount->disk_open = 0U;
 close_retained_block:
 	(void)binding->ops->close(binding->context, controller,
 		&cdk2_fat_block_io_guid);
+	mount->block_open = 0U;
 release:
 	binding->ops->release(binding->context, mount);
 	return status;
@@ -157,26 +161,31 @@ EFI_STATUS cdk2_fat_binding_stop(struct cdk2_fat_binding *binding,
 	mount = *link;
 	if (mount->open_handles != 0U)
 		return FAT_ACCESS_DENIED;
-	status = binding->ops->unpublish(binding->context, controller,
-		&cdk2_fat_simple_fs_guid, &mount->simple_fs->protocol);
-	if (EFI_ERROR(status))
-		return status;
-	status = binding->ops->close(binding->context, controller,
-		&cdk2_fat_disk_io_guid);
-	if (EFI_ERROR(status)) {
-		(void)binding->ops->publish(binding->context, controller,
+	if (mount->published) {
+		status = binding->ops->unpublish(binding->context, controller,
 			&cdk2_fat_simple_fs_guid, &mount->simple_fs->protocol);
+		if (EFI_ERROR(status)) return status;
+		mount->published = 0U;
+	}
+	status = mount->disk_open ? binding->ops->close(binding->context, controller,
+		&cdk2_fat_disk_io_guid) : EFI_SUCCESS;
+	if (EFI_ERROR(status)) {
+		if (!EFI_ERROR(binding->ops->publish(binding->context, controller,
+			&cdk2_fat_simple_fs_guid, &mount->simple_fs->protocol))) mount->published = 1U;
 		return status;
 	}
-	status = binding->ops->close(binding->context, controller,
-		&cdk2_fat_block_io_guid);
+	mount->disk_open = 0U;
+	status = mount->block_open ? binding->ops->close(binding->context, controller,
+		&cdk2_fat_block_io_guid) : EFI_SUCCESS;
 	if (EFI_ERROR(status)) {
-		(void)binding->ops->open(binding->context, controller,
-			&cdk2_fat_disk_io_guid, (void **)&mount->disk);
-		(void)binding->ops->publish(binding->context, controller,
-			&cdk2_fat_simple_fs_guid, &mount->simple_fs->protocol);
+		if (!EFI_ERROR(binding->ops->open(binding->context, controller,
+			&cdk2_fat_disk_io_guid, (void **)&mount->disk))) mount->disk_open = 1U;
+		if (mount->disk_open && !EFI_ERROR(binding->ops->publish(binding->context,
+			controller, &cdk2_fat_simple_fs_guid, &mount->simple_fs->protocol)))
+			mount->published = 1U;
 		return status;
 	}
+	mount->block_open = 0U;
 	*link = mount->next; binding->ops->release(binding->context, mount->simple_fs);
 	binding->ops->release(binding->context, mount);
 	return EFI_SUCCESS;

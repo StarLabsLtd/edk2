@@ -6,14 +6,19 @@
 typedef EFI_STATUS CDK2_MS_ABI alloc_fn(UINT32, UINTN, void **);
 typedef EFI_STATUS CDK2_MS_ABI free_fn(void *);
 typedef EFI_STATUS CDK2_MS_ABI signal_fn(void *);
+typedef EFI_STATUS CDK2_MS_ABI create_event_fn(UINT32, UINTN,
+	void (CDK2_MS_ABI *)(void *, void *), void *, void **);
+typedef EFI_STATUS CDK2_MS_ABI set_timer_fn(void *, UINT32, UINT64);
+typedef EFI_STATUS CDK2_MS_ABI close_event_fn(void *);
 typedef EFI_STATUS CDK2_MS_ABI open_fn(void *, const EFI_GUID *, void **, void *, void *, UINT32);
 typedef EFI_STATUS CDK2_MS_ABI close_fn(void *, const EFI_GUID *, void *, void *);
 typedef EFI_STATUS CDK2_MS_ABI install_fn(void **, ...);
 typedef EFI_STATUS CDK2_MS_ABI uninstall_fn(void *, ...);
 struct boot_view { UINT8 hdr[24]; void *raise_tpl, *restore_tpl, *allocate_pages,
 	*free_pages, *get_memory_map; alloc_fn *allocate_pool; free_fn *free_pool;
-	void *create_event, *set_timer, *wait_for_event; signal_fn *signal_event;
-	void *close_event, *check_event, *install_protocol, *reinstall_protocol,
+	create_event_fn *create_event; set_timer_fn *set_timer; void *wait_for_event;
+	signal_fn *signal_event; close_event_fn *close_event;
+	void *check_event, *install_protocol, *reinstall_protocol,
 	*uninstall_protocol, *handle_protocol, *reserved, *register_protocol_notify,
 	*locate_handle, *locate_device_path, *install_configuration_table, *load_image,
 	*start_image, *exit, *unload_image, *exit_boot_services,
@@ -35,6 +40,8 @@ struct component_view { name_fn *driver_name; controller_name_fn *controller_nam
 struct entry_context { struct boot_view *boot; void *image; struct cdk2_fat_binding binding;
 	struct driver_view driver; struct component_view component, component2; };
 static struct entry_context entry;
+struct queued_call { struct entry_context *entry; void (*function)(void *); void *context;
+	void *event; };
 static const EFI_GUID driver_guid = { 0x18a031abU, 0xb443U, 0x4d1aU,
 	{ 0xa5U, 0xc0U, 0x0cU, 0x09U, 0x26U, 0x1eU, 0x9fU, 0x71U } };
 static const EFI_GUID component_guid = { 0x107a772cU, 0xd5e1U, 0x11d4U,
@@ -59,6 +66,35 @@ static void op_release(void *c, void *buffer)
 { (void)((struct entry_context *)c)->boot->free_pool(buffer); }
 static EFI_STATUS op_signal(void *c, void *event)
 { return ((struct entry_context *)c)->boot->signal_event(event); }
+static void CDK2_MS_ABI queued_notify(void *event, void *opaque)
+{
+	struct queued_call *call = opaque;
+	call->function(call->context);
+	(void)call->entry->boot->close_event(event);
+	op_release(call->entry, call);
+}
+static EFI_STATUS op_queue(void *c, void (*function)(void *), void *context, void **cookie)
+{
+	struct entry_context *e = c; struct queued_call *call; EFI_STATUS status;
+	if (function == NULL || cookie == NULL || e->boot->create_event == NULL || e->boot->set_timer == NULL ||
+	    e->boot->close_event == NULL) return EFI_UNSUPPORTED;
+	status = op_allocate(e, sizeof(*call), (void **)&call); if (EFI_ERROR(status)) return status;
+	*call = (struct queued_call) { e, function, context, NULL };
+	status = e->boot->create_event(0x80000200U, 8U, queued_notify, call, &call->event);
+	if (!EFI_ERROR(status)) status = e->boot->set_timer(call->event, 2U, 10000U);
+	if (EFI_ERROR(status)) { if (call->event != NULL) (void)e->boot->close_event(call->event);
+		op_release(e, call); }
+	if (!EFI_ERROR(status)) *cookie = call;
+	return status;
+}
+static void op_drain(void *c, void *cookie)
+{
+	struct entry_context *e = c; struct queued_call *call = cookie;
+	if (call == NULL) return;
+	(void)e->boot->set_timer(call->event, 0U, 0U);
+	(void)e->boot->close_event(call->event);
+	call->function(call->context); op_release(e, call);
+}
 static EFI_STATUS CDK2_MS_ABI supported(struct driver_view *d, void *controller, void *remaining)
 {
 	struct entry_context *e = entry_of(d); void *interface; EFI_STATUS status;
@@ -74,8 +110,15 @@ static EFI_STATUS CDK2_MS_ABI stop(struct driver_view *d, void *controller, UINT
 { (void)buffer; if (children != 0U) return EFI_INVALID_PARAMETER;
 	return cdk2_fat_binding_stop(&entry_of(d)->binding, controller); }
 static EFI_STATUS CDK2_MS_ABI driver_name(struct component_view *c, CHAR8 *language, CHAR16 **name)
-{ (void)c; if (language == NULL || name == NULL) return EFI_INVALID_PARAMETER;
-	if (language[0] != 'e' || language[1] != 'n' || language[2] == 0) return EFI_UNSUPPORTED;
+{ return cdk2_fat_driver_name(c != &entry.component, language, name); }
+EFI_STATUS cdk2_fat_driver_name(BOOLEAN component_name2, CHAR8 *language, CHAR16 **name)
+{ if (language == NULL || name == NULL) return EFI_INVALID_PARAMETER;
+	if (!component_name2) {
+		if (language[0] != 'e' || language[1] != 'n' || language[2] != 'g' || language[3] != 0)
+			return EFI_UNSUPPORTED;
+	} else if (language[0] != 'e' || language[1] != 'n' || language[2] != 0) {
+		return EFI_UNSUPPORTED;
+	}
 	*name = fat_name; return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI controller_name(struct component_view *c, void *controller,
 	void *child, CHAR8 *language, CHAR16 **name)
@@ -83,7 +126,7 @@ static EFI_STATUS CDK2_MS_ABI controller_name(struct component_view *c, void *co
 EFI_STATUS CDK2_MS_ABI cdk2_fat_entry(void *image, void *table)
 {
 	static const struct cdk2_fat_binding_ops ops = { op_open, op_close, op_publish,
-		op_unpublish, op_allocate, op_release, op_signal };
+		op_unpublish, op_allocate, op_release, op_signal, op_queue, op_drain };
 	struct system_view *system = table; EFI_STATUS status;
 	if (image == NULL || system == NULL || system->boot == NULL) return EFI_INVALID_PARAMETER;
 	__builtin_memset(&entry, 0, sizeof(entry)); entry.boot = system->boot; entry.image = image;

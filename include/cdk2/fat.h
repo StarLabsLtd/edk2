@@ -84,6 +84,9 @@ uint64_t cdk2_fat_open_root(const struct cdk2_fat_volume *volume,
 	struct cdk2_fat_file *file);
 uint64_t cdk2_fat_open(struct cdk2_fat_file *directory, const uint16_t *path,
 	struct cdk2_fat_file *file);
+uint64_t cdk2_fat_create(struct cdk2_fat_file *directory, const uint16_t *name,
+	uint8_t attributes, struct cdk2_fat_file *file,
+	struct cdk2_fat_change *changes, size_t *change_count);
 uint64_t cdk2_fat_file_read(struct cdk2_fat_file *file, size_t *size,
 	void *buffer);
 uint64_t cdk2_fat_file_get_position(const struct cdk2_fat_file *file,
@@ -123,6 +126,8 @@ uint64_t cdk2_fat_file_delete(struct cdk2_fat_file *file,
 	struct cdk2_fat_change *changes, size_t *change_count);
 uint64_t cdk2_fat_get_volume_info(const struct cdk2_fat_volume *volume,
 	struct cdk2_fat_volume_info *info);
+uint64_t cdk2_fat_set_volume_label(struct cdk2_fat_volume *volume,
+	const uint16_t *label);
 uint64_t cdk2_fat_update_metadata(struct cdk2_fat_file *file,
 	uint8_t attributes, uint16_t creation_date, uint16_t creation_time,
 	uint16_t write_date, uint16_t write_time);
@@ -132,5 +137,8 @@ uint64_t cdk2_fat_file_set_info(struct cdk2_fat_file *file,
 	const uint16_t *new_name, uint32_t new_size, uint8_t attributes,
 	uint16_t creation_date, uint16_t creation_time, uint16_t write_date,
 	uint16_t write_time, struct cdk2_fat_change *changes, size_t *change_count);
+void cdk2_fat_file_rollback_resize(struct cdk2_fat_file *file,
+	uint32_t old_first_cluster, uint32_t old_size, uint64_t old_position,
+	struct cdk2_fat_change *changes, size_t change_count);
 
 #endif

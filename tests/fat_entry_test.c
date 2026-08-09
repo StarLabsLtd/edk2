@@ -23,6 +23,14 @@ int main(void)
 	boot.allocate = allocate; boot.release = release; boot.install = install;
 	if (cdk2_fat_entry(NULL, &system) != EFI_INVALID_PARAMETER) return 1;
 	if (cdk2_fat_entry((void *)1, &system) != EFI_SUCCESS || protocols != 3U) return 1;
+	{
+		CHAR16 *name;
+		if (cdk2_fat_driver_name(0U, "eng", &name) != EFI_SUCCESS ||
+		    cdk2_fat_driver_name(0U, "eng-US", &name) != EFI_UNSUPPORTED ||
+		    cdk2_fat_driver_name(1U, "en", &name) != EFI_SUCCESS ||
+		    cdk2_fat_driver_name(1U, "eng", &name) != EFI_UNSUPPORTED)
+			return 1;
+	}
 	failure = EFI_DEVICE_ERROR;
 	return cdk2_fat_entry((void *)1, &system) == EFI_DEVICE_ERROR ? 0 : 1;
 }

@@ -232,7 +232,20 @@ int main(void)
 		18U, "file info sizing contract is wrong");
 	size = sizeof(info);
 	failures += expect(cdk2_fat_file_get_info(&file, &size, &info) == EFI_SUCCESS &&
-		info.size == 5U && info.name[0] == 'N', "file info content is wrong");
+		info.size == 5U && info.physical_size == 32U && info.name[0] == 'N',
+		"file info content or allocated PhysicalSize is wrong");
+	{
+		struct cdk2_fat_file dir, absolute;
+		failures += expect(cdk2_fat_open(&root, (const uint16_t[]){ 'd','i','r',0 },
+			&dir) == EFI_SUCCESS && cdk2_fat_open(&dir,
+			(const uint16_t[]){ '\\','d','i','r','\\','n','e','s','t','.','t','x','t',0 },
+			&absolute) == EFI_SUCCESS && absolute.entry.size == 5U,
+			"absolute path did not restart at the volume root");
+		failures += expect(cdk2_fat_open(&dir, (const uint16_t[]){ '.',0 },
+			&absolute) == EFI_SUCCESS && absolute.is_directory &&
+			absolute.directory_cluster == dir.directory_cluster,
+			"dot component did not preserve the current directory");
+	}
 	size = 2U;
 	failures += expect(cdk2_fat_file_read(&file, &size, output) == EFI_SUCCESS &&
 		size == 2U && memcmp(output, "HE", 2U) == 0 &&
@@ -355,6 +368,22 @@ int main(void)
 		.fat_count = 1U, .fat_type = CDK2_FAT32, .root_cluster = 2U
 	};
 	cdk2_fat_set_write_ops(&volume, mutation_write, mutation_flush);
+	write32(mutation.bytes + 1024U + 8U, 0x0fffffffU);
+	{
+		struct cdk2_fat_file created; size_t change_count = 8U;
+		(void)cdk2_fat_open_root(&volume, &root);
+		failures += expect(cdk2_fat_create(&root,
+			(const uint16_t[]){ 'N','e','w','.','t','x','t',0 }, 0x20U,
+			&created, changes, &change_count) == EFI_SUCCESS &&
+			created.entry.name[0] == 'N' && created.entry.first_cluster == 0U,
+			"zero-length file creation failed");
+		change_count = 8U;
+		failures += expect(cdk2_fat_create(&root,
+			(const uint16_t[]){ 'S','u','b',0 }, 0x10U, &created, changes,
+			&change_count) == EFI_SUCCESS && created.entry.first_cluster >= 3U,
+			"directory creation did not allocate and initialize a cluster");
+	}
+	memset(mutation.bytes, 0, sizeof(mutation.bytes)); mutation.writes = 0U;
 	write32(mutation.bytes + 1024U + 8U, 3U);
 	write32(mutation.bytes + 1024U + 12U, 0x0fffffffU);
 	for (size = 0U; size < 15U; size++)
@@ -431,6 +460,20 @@ int main(void)
 			first == 3U && mutation.bytes[1536U] == 'S',
 			"non-empty directory deletion was admitted");
 	}
+	/* Empty directories release their complete allocation chain. */
+	memset(mutation.bytes + 2048U, 0, 1024U);
+	write32(mutation.bytes + 1024U + 12U, 4U);
+	write32(mutation.bytes + 1024U + 16U, 0x0fffffffU);
+	{
+		struct cdk2_fat_file directory = { .volume = &volume,
+			.parent_directory_cluster = 2U, .record_index = 0U, .record_count = 1U,
+			.is_directory = 1U };
+		size_t change_count = 8U; directory.entry.first_cluster = 3U;
+		failures += expect(cdk2_fat_file_delete(&directory, changes, &change_count) == EFI_SUCCESS &&
+			test_read32(mutation.bytes + 1024U + 12U) == 0U &&
+			test_read32(mutation.bytes + 1024U + 16U) == 0U,
+			"multi-cluster directory deletion leaked tail clusters");
+	}
 
 	/* Metadata failure after FAT mutation restores both allocation and entry. */
 	memset(mutation.bytes + 1536U, 0, 1024U);
@@ -501,6 +544,10 @@ int main(void)
 			volume_info.free_space == 1024U && volume_info.block_size == 512U &&
 			volume_info.label[0] == 'M' && volume_info.label[2] == 'V',
 			"volume size/free-space/label information is wrong");
+		failures += expect(cdk2_fat_set_volume_label(&volume,
+			(const uint16_t[]){ 'N','e','w',' ','L','a','b','e','l',0 }) == EFI_SUCCESS &&
+			mutation.bytes[1536U] == 'N' && mutation.bytes[1536U + 4U] == 'L',
+			"volume label SetInfo core did not update the root label record");
 	}
 	memcpy(mutation.bytes + 1536U + 32U, "META    TXT", 11U);
 	mutation.bytes[1536U + 32U + 11U] = 0x20U;

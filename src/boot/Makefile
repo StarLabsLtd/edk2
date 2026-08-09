@@ -122,6 +122,7 @@ CDK2_NATIVE_FAT_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-fat-test
 CDK2_NATIVE_FAT_OBJS := $(addprefix $(CDK2_NATIVE_BUILD_DIR)/fat-,fat.o binding.o protocol.o entry.o)
 CDK2_NATIVE_FAT_PE ?= $(CDK2_NATIVE_BUILD_DIR)/Fat.efi
 CDK2_NATIVE_FAT_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/Fat.ffs
+CDK2_NATIVE_FAT_PACKAGE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-fat-package-test
 CDK2_NATIVE_DISK_IO_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/disk-io.o
 CDK2_NATIVE_DISK_IO_PE ?= $(CDK2_NATIVE_BUILD_DIR)/DiskIoDxe.efi
 CDK2_NATIVE_DISK_IO_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/DiskIoDxe.ffs
@@ -779,8 +780,9 @@ native-fat-test: $(CDK2_NATIVE_FAT_TEST) $(CDK2_NATIVE_BUILD_DIR)/cdk2-fat-bindi
 	@"$(CDK2_NATIVE_BUILD_DIR)/cdk2-fat-protocol-abi-test"
 	@"$(CDK2_NATIVE_BUILD_DIR)/cdk2-fat-entry-test"
 
-native-fat-package: $(CDK2_NATIVE_FAT_FFS)
+native-fat-package: $(CDK2_NATIVE_FAT_FFS) $(CDK2_NATIVE_FAT_PACKAGE_TEST)
 	@test "$$(stat -c %s "$<")" = 57398
+	@"$(CDK2_NATIVE_FAT_PACKAGE_TEST)" "$<"
 	@printf '%s\n' "native Fat FFS: $<"
 
 $(CDK2_NATIVE_BUILD_DIR)/fat-%.o: $(CDK2_DIR)/src/modules/fat/%.c $(CDK2_DIR)/include/cdk2/fat_binding.h | $(CDK2_NATIVE_BUILD_DIR)
@@ -1833,6 +1835,9 @@ $(CDK2_NATIVE_BUILD_DIR)/cdk2-fat-protocol-abi-test: $(CDK2_DIR)/tests/fat_proto
 $(CDK2_NATIVE_BUILD_DIR)/cdk2-fat-entry-test: $(CDK2_DIR)/tests/fat_entry_test.c $(CDK2_DIR)/src/modules/fat/entry.c $(CDK2_DIR)/src/modules/fat/binding.c $(CDK2_DIR)/src/modules/fat/protocol.c $(CDK2_DIR)/src/modules/fat/fat.c | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) \
 		-o "$@" $^
+
+$(CDK2_NATIVE_FAT_PACKAGE_TEST): $(CDK2_DIR)/tests/fat_package_test.c | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -o "$@" "$<"
 
 $(CDK2_NATIVE_SERIAL_IO_TEST): $(CDK2_DIR)/tests/serial_io_test.c $(CDK2_DIR)/src/modules/serial_io/serial_io.c $(CDK2_DIR)/include/cdk2/serial_io.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$<"
