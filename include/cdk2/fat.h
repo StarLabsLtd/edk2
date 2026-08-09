@@ -90,5 +90,20 @@ uint64_t cdk2_fat_generate_short_name(const struct cdk2_fat_volume *volume,
 uint64_t cdk2_fat_build_directory_records(const uint16_t *name,
 	const uint8_t short_name[11], uint8_t attributes, uint32_t first_cluster,
 	uint32_t file_size, uint8_t *records, size_t *record_count);
+uint64_t cdk2_fat_place_directory_records(struct cdk2_fat_volume *volume,
+	uint32_t directory_cluster, const uint8_t *records, size_t record_count,
+	uint64_t *record_index, uint8_t *rollback_records, size_t *rollback_count);
+uint64_t cdk2_fat_resize_file(struct cdk2_fat_volume *volume,
+	uint32_t directory_cluster, uint64_t record_index, size_t record_count,
+	uint32_t *first_cluster, uint32_t old_size, uint32_t new_size,
+	struct cdk2_fat_change *changes, size_t *change_count);
+uint64_t cdk2_fat_delete_entry(struct cdk2_fat_volume *volume,
+	uint32_t directory_cluster, uint64_t record_index, size_t record_count,
+	uint32_t *first_cluster, uint32_t old_size, int is_directory,
+	struct cdk2_fat_change *changes, size_t *change_count);
+uint64_t cdk2_fat_rename_entry(struct cdk2_fat_volume *volume,
+	uint32_t directory_cluster, uint64_t old_index, size_t old_count,
+	const uint16_t *new_name, uint8_t attributes, uint32_t first_cluster,
+	uint32_t file_size, uint64_t *new_index);
 
 #endif

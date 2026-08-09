@@ -6,11 +6,12 @@
 #include <string.h>
 
 #define FAT_VOLUME_CORRUPTED EFIERR(10)
+#define FAT_ACCESS_DENIED EFIERR(15)
 
 struct medium { uint8_t boot[512]; uint64_t size; uint64_t status; };
 struct chain_medium { uint8_t fat[32], data[128]; };
 struct mutation_medium {
-	uint8_t bytes[2048];
+	uint8_t bytes[3072];
 	unsigned int writes, fail_write, flushes;
 	uint64_t flush_status;
 };
@@ -343,5 +344,97 @@ int main(void)
 				0x0fffffffU && test_read32(mutation.bytes + 1024U + 12U) == 0U,
 			"flush failure did not roll back FAT allocation");
 	}
+	memset(&mutation, 0, sizeof(mutation));
+	volume = (struct cdk2_fat_volume) {
+		.read = mutation_read, .context = &mutation, .media_size = 3072U,
+		.fat_offset = 1024U, .data_offset = 1536U, .cluster_count = 4U,
+		.fat_sectors = 1U, .bytes_per_sector = 512U, .sectors_per_cluster = 1U,
+		.fat_count = 1U, .fat_type = CDK2_FAT32, .root_cluster = 2U
+	};
+	cdk2_fat_set_write_ops(&volume, mutation_write, mutation_flush);
+	write32(mutation.bytes + 1024U + 8U, 3U);
+	write32(mutation.bytes + 1024U + 12U, 0x0fffffffU);
+	for (size = 0U; size < 15U; size++)
+		mutation.bytes[1536U + size * 32U] = 'A';
+	size = 2U;
+	(void)cdk2_fat_build_directory_records(
+		(const uint16_t[]){ 'C', 'r', 'o', 's', 's', '.', 't', 'x', 't', 0 },
+		(const uint8_t *)"CROSS~1 TXT", 0x20U, 4U, 7U, built_records, &size);
+	{
+		uint8_t rollback[64]; uint64_t placed; size_t rollback_count = 2U;
+		failures += expect(cdk2_fat_place_directory_records(&volume, 2U,
+			built_records, 2U, &placed, rollback, &rollback_count) == EFI_SUCCESS &&
+			placed == 15U && mutation.bytes[1536U + 15U * 32U] == 0x41U &&
+			mutation.bytes[2048U] != 0U,
+			"directory records were not placed across a cluster boundary");
+		memset(mutation.bytes + 1536U + 15U * 32U, 0, 32U);
+		memset(mutation.bytes + 2048U, 0, 32U);
+		mutation.writes = 0U; mutation.fail_write = 2U; rollback_count = 2U;
+		failures += expect(cdk2_fat_place_directory_records(&volume, 2U,
+			built_records, 2U, &placed, rollback, &rollback_count) ==
+			EFI_DEVICE_ERROR && mutation.bytes[1536U + 15U * 32U] == 0U,
+			"partial directory placement was not rolled back");
+	}
+	/* Short aliases must advance past an existing collision. */
+	memset(mutation.bytes + 1536U, 0, 1024U);
+	memcpy(mutation.bytes + 1536U, "LONGFI~1TXT", 11U);
+	mutation.bytes[1536U + 11U] = 0x20U;
+	failures += expect(cdk2_fat_generate_short_name(&volume, 2U,
+		(const uint16_t[]){ 'L','o','n','g',' ','f','i','l','e','.','t','x','t',0 },
+		short_name) == EFI_SUCCESS && memcmp(short_name, "LONGFI~2TXT", 11U) == 0,
+		"short-name collision did not advance the numeric tail");
+
+	/* A directory containing a real child cannot be deleted. */
+	memset(mutation.bytes + 1536U, 0, 1024U);
+	memcpy(mutation.bytes + 1536U, "SUBDIR     ", 11U);
+	mutation.bytes[1536U + 11U] = 0x10U;
+	write16(mutation.bytes + 1536U + 26U, 3U);
+	memcpy(mutation.bytes + 2048U, "CHILD   TXT", 11U);
+	mutation.bytes[2048U + 11U] = 0x20U;
+	write32(mutation.bytes + 1024U + 8U, 0x0fffffffU);
+	write32(mutation.bytes + 1024U + 12U, 0x0fffffffU);
+	{
+		uint32_t first = 3U; size_t change_count = 8U;
+		failures += expect(cdk2_fat_delete_entry(&volume, 2U, 0U, 1U,
+			&first, 512U, 1, changes, &change_count) == FAT_ACCESS_DENIED &&
+			first == 3U && mutation.bytes[1536U] == 'S',
+			"non-empty directory deletion was admitted");
+	}
+
+	/* Metadata failure after FAT mutation restores both allocation and entry. */
+	memset(mutation.bytes + 1536U, 0, 1024U);
+	memcpy(mutation.bytes + 1536U, "FILE    BIN", 11U);
+	mutation.bytes[1536U + 11U] = 0x20U;
+	write16(mutation.bytes + 1536U + 26U, 3U);
+	write32(mutation.bytes + 1536U + 28U, 512U);
+	write32(mutation.bytes + 1024U + 12U, 0x0fffffffU);
+	mutation.writes = 0U; mutation.fail_write = 2U;
+	{
+		uint32_t first = 3U; size_t change_count = 8U;
+		failures += expect(cdk2_fat_resize_file(&volume, 2U, 0U, 1U,
+			&first, 512U, 0U, changes, &change_count) == EFI_DEVICE_ERROR &&
+			first == 3U && (test_read32(mutation.bytes + 1024U + 12U) &
+			0x0fffffffU) == 0x0fffffffU &&
+			test_read32(mutation.bytes + 1536U + 28U) == 512U,
+			"allocator and directory metadata did not roll back together");
+	}
+
+	/* Rename publishes the replacement transactionally and tombstones the old. */
+	mutation.fail_write = 0U; mutation.writes = 0U;
+	failures += expect(cdk2_fat_rename_entry(&volume, 2U, 0U, 1U,
+		(const uint16_t[]){ 'R','e','n','a','m','e','d','.','b','i','n',0 },
+		0x20U, 3U, 512U, &offset) == EFI_SUCCESS && offset == 1U &&
+		mutation.bytes[1536U] == 0xe5U && mutation.bytes[1536U + 32U] == 0x41U,
+		"transactional rename did not publish replacement records");
+	/* Failed deletion of the old name restores both record ranges. */
+	memset(mutation.bytes + 1536U, 0, 512U);
+	memcpy(mutation.bytes + 1536U, "FILE    BIN", 11U);
+	mutation.bytes[1536U + 11U] = 0x20U;
+	mutation.writes = 0U; mutation.fail_write = 3U;
+	failures += expect(cdk2_fat_rename_entry(&volume, 2U, 0U, 1U,
+		(const uint16_t[]){ 'R','e','n','a','m','e','d','.','b','i','n',0 },
+		0x20U, 3U, 512U, &offset) == EFI_DEVICE_ERROR &&
+		mutation.bytes[1536U] == 'F' && mutation.bytes[1536U + 32U] == 0U,
+		"failed rename did not restore old and replacement directory slots");
 	return failures == 0 ? 0 : 1;
 }
