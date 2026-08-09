@@ -66,6 +66,7 @@ CDK2_CONFIG_TARGETS := build check manifest modules native-stage \
 	native-tcg2-measure-test native-tcg2-service-test native-tcg2-entry-test native-tcg2-fv \
 	native-tpm2-acpi-table-test native-tpm2-acpi-table-fv \
 	native-esrt-test native-esrt-ffs native-esrt-fv \
+	native-pcd-fv \
 	manifest-check print
 
 CDK2_RECURSIVE_ARGS := \
@@ -77,7 +78,7 @@ CDK2_RECURSIVE_ARGS := \
 	CDK2_KCONFIG="$(CDK2_KCONFIG)" \
 	CDK2_KCONFIG_TOOL="$(CDK2_KCONFIG_TOOL)" \
 	CDK2_PAYLOAD_FV="$(CDK2_PAYLOAD_FV)" \
-	CDK2_NATIVE_PCD_DATABASE="$(CDK2_NATIVE_PCD_DATABASE)" \
+	$(if $(CDK2_NATIVE_PCD_DATABASE),CDK2_NATIVE_PCD_DATABASE="$(CDK2_NATIVE_PCD_DATABASE)") \
 	CDK2_NATIVE_DIR="$(CDK2_NATIVE_DIR)" \
 	$(if $(HOSTCC),HOSTCC="$(HOSTCC)") \
 	$(if $(CC),CC="$(CC)") \
@@ -89,7 +90,7 @@ CDK2_RECURSIVE_ARGS := \
 .PHONY: all build build-image config defconfig olddefconfig menuconfig \
 	prepare-kconfig check manifest modules native-stage native-coreboot-stage \
 	native-coreboot-image native-check native-pack native-service-test native-coreboot-test \
-	native-pcd-package \
+	native-pcd-package native-pcd-fv \
 	native-fv-test native-fvpack-test native-pe-test native-module-test \
 	native-fvinfo native-fvinfo-test native-ffsbuild-test native-security-stub-test \
 	native-security-stub-fv native-null-memory-test-fv native-null-memory-test-test \

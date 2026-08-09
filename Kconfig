@@ -125,6 +125,14 @@ config CDK2_ESRT
 	default y
 	depends on CDK2_PAYLOAD
 
+config CDK2_NATIVE_PCD
+	bool "Build the native dynamic pcd service"
+	default y
+	depends on CDK2_NATIVE_STAGE
+	help
+	  Replace the retained PcdDxe service while preserving the platform's
+	  generated version-seven pcd database.
+
 config CDK2_LATE_LINK
 	bool "Use cdk2 late-link policy"
 	default y
