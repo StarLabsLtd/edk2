@@ -103,7 +103,7 @@ int main(void)
 	CHECK(fixture.unmaps == 1 && fixture.frees == 1);
 	cdk2_ata_pci_ide_services(&adapter, &ide_services);
 	CHECK(ide_services.read8(ide_services.context, 0x2007) == 0 && fixture.io == 1);
-	cdk2_ata_pci_adapter_enable_timing(&adapter);
+	cdk2_ata_pci_adapter_enable_timing(&adapter, 1, 1);
 	CHECK(ide_services.set_timing(ide_services.context, 1, 1) == EFI_SUCCESS);
 	CHECK(fixture.timings == 1);
 	CHECK(cdk2_ata_pci_adapter_release(&adapter) == EFI_SUCCESS);

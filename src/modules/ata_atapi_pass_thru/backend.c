@@ -153,7 +153,8 @@ EFI_STATUS cdk2_ata_backend_discover_ahci(struct cdk2_ata_controller *controller
 		topology->devices[topology->count - 1U].block_size =
 			(get16(backend->identify, 106U) & 0x5000U) == 0x5000U ?
 			((UINT32)get16(backend->identify, 118U) << 16) |
-			get16(backend->identify, 117U) : 512U;
+			get16(backend->identify, 117U) : 256U;
+		topology->devices[topology->count - 1U].block_size *= 2U;
 		topology->devices[topology->count - 1U].alignment =
 			(get16(backend->identify, 209U) & 0x4000U) != 0U ?
 			get16(backend->identify, 209U) & 0x3fffU : 0U;
@@ -174,11 +175,11 @@ EFI_STATUS cdk2_ata_backend_discover_ide(struct cdk2_ata_controller *controller,
 	backend = controller->backend;
 	original = *topology;
 	for (UINT8 channel = 0; channel < 2U; channel++) {
+		struct cdk2_ide_init_protocol *ide = controller->ide;
 		BOOLEAN enabled = FALSE;
 		UINT8 devices = 0;
 
-		status = ((struct cdk2_ide_init_protocol *)controller->ide)->get_channel(
-			controller->ide, channel, &enabled, &devices);
+		status = ide->get_channel(ide, channel, &enabled, &devices);
 		if (EFI_ERROR(status)) {
 			*topology = original;
 			return status;
@@ -189,10 +190,25 @@ EFI_STATUS cdk2_ata_backend_discover_ide(struct cdk2_ata_controller *controller,
 			*topology = original;
 			return EFI_DEVICE_ERROR;
 		}
-		if (((struct cdk2_ide_init_protocol *)controller->ide)->notify != NULL)
-			(void)((struct cdk2_ide_init_protocol *)controller->ide)->notify(
-				controller->ide, 0U, channel);
-		(void)cdk2_ide_reset(controller->ide_engine, channel, 5000000U);
+		if (ide->notify != NULL) {
+			status = ide->notify(ide, 0U, channel);
+			if (EFI_ERROR(status))
+				goto channel_error;
+			status = ide->notify(ide, 2U, channel);
+			if (EFI_ERROR(status))
+				goto channel_error;
+		}
+		status = cdk2_ide_reset(controller->ide_engine, channel, 5000000U);
+		if (EFI_ERROR(status))
+			goto channel_error;
+		if (ide->notify != NULL) {
+			status = ide->notify(ide, 3U, channel);
+			if (EFI_ERROR(status))
+				goto channel_error;
+			status = ide->notify(ide, 4U, channel);
+			if (EFI_ERROR(status))
+				goto channel_error;
+		}
 		for (UINT8 device = 0; device < devices; device++) {
 			struct cdk2_ata_command_block acb = { .command = 0xecU };
 			struct cdk2_ata_status_block asb;
@@ -214,25 +230,43 @@ EFI_STATUS cdk2_ata_backend_discover_ide(struct cdk2_ata_controller *controller,
 			}
 			if (EFI_ERROR(status))
 				continue;
-			if (((struct cdk2_ide_init_protocol *)controller->ide)->submit != NULL) {
-				status = ((struct cdk2_ide_init_protocol *)controller->ide)->submit(
-					controller->ide, channel, device, backend->identify);
+			if (ide->submit != NULL) {
+				status = ide->submit(ide, channel, device, backend->identify);
 				if (EFI_ERROR(status)) {
-					*topology = original;
-					return status;
+					goto channel_error;
 				}
 			}
+			cdk2_ata_pci_adapter_enable_timing(&backend->adapter, channel,
+				device);
+			status = backend->ide.services.set_timing(
+				backend->ide.services.context, channel, device);
+			if (EFI_ERROR(status))
+				goto channel_error;
 			status = cdk2_ata_add_device(topology, channel, device, type);
 			if (EFI_ERROR(status)) {
 				*topology = original;
 				return status;
 			}
-			topology->devices[topology->count - 1U].block_size = 512U;
+			topology->devices[topology->count - 1U].block_size =
+				(get16(backend->identify, 106U) & 0x5000U) == 0x5000U ?
+				((((UINT32)get16(backend->identify, 118U) << 16) |
+				  get16(backend->identify, 117U)) * 2U) : 512U;
+			topology->devices[topology->count - 1U].alignment =
+				(get16(backend->identify, 209U) & 0x4000U) != 0U ?
+				get16(backend->identify, 209U) & 0x3fffU : 0U;
 		}
-		if (((struct cdk2_ide_init_protocol *)controller->ide)->notify != NULL)
-			(void)((struct cdk2_ide_init_protocol *)controller->ide)->notify(
-				controller->ide, 1U, channel);
+		if (ide->notify != NULL) {
+			status = ide->notify(ide, 5U, channel);
+			if (EFI_ERROR(status))
+				goto channel_error;
+			status = ide->notify(ide, 1U, channel);
+			if (EFI_ERROR(status))
+				goto channel_error;
+		}
+		continue;
+channel_error:
+		*topology = original;
+		return status;
 	}
-	cdk2_ata_pci_adapter_enable_timing(&backend->adapter);
 	return EFI_SUCCESS;
 }

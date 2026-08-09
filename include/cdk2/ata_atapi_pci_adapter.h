@@ -47,7 +47,8 @@ void cdk2_ata_pci_ahci_services(struct cdk2_ata_pci_adapter *adapter,
 void cdk2_ata_pci_ide_services(struct cdk2_ata_pci_adapter *adapter,
 	struct cdk2_ide_services *services);
 EFI_STATUS cdk2_ata_pci_adapter_release(struct cdk2_ata_pci_adapter *adapter);
-void cdk2_ata_pci_adapter_enable_timing(struct cdk2_ata_pci_adapter *adapter);
+void cdk2_ata_pci_adapter_enable_timing(struct cdk2_ata_pci_adapter *adapter,
+	UINT8 channel, UINT8 device);
 EFI_STATUS cdk2_ata_pci_read_class(struct cdk2_efi_pci_io_protocol *pci,
 	UINT8 class_code[3]);
 EFI_STATUS cdk2_ata_pci_get_attributes(struct cdk2_efi_pci_io_protocol *pci,
