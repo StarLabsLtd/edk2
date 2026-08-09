@@ -40,6 +40,9 @@ static int expose_policy;
 static cdk2_pcd_event_notify_fn *policy_notify;
 static void *policy_notify_context;
 static unsigned int event_closes;
+static unsigned int timer_arms;
+static unsigned int policy_failures;
+static uint64_t event_close_status;
 
 static uint64_t CDK2_MS_ABI mock_create_event(uint32_t type, size_t tpl,
 	cdk2_pcd_event_notify_fn *notify, void *context, void **event)
@@ -56,6 +59,16 @@ static uint64_t CDK2_MS_ABI mock_close_event(void *event)
 {
 	(void)event;
 	event_closes++;
+	return event_close_status;
+}
+
+static uint64_t CDK2_MS_ABI mock_set_timer(void *event, uint32_t type,
+	uint64_t trigger)
+{
+	(void)event;
+	if (type != 2U || trigger == 0)
+		return EFI_INVALID_PARAMETER;
+	timer_arms++;
 	return EFI_SUCCESS;
 }
 
@@ -77,6 +90,10 @@ static uint64_t CDK2_MS_ABI mock_register_policy(const void *policy)
 	memcpy(&name_offset, bytes + 6, sizeof(name_offset));
 	if (size <= name_offset || bytes[40] != 1U)
 		return EFI_INVALID_PARAMETER;
+	if (policy_failures != 0) {
+		policy_failures--;
+		return EFI_NOT_READY;
+	}
 	policy_registrations++;
 	return EFI_SUCCESS;
 }
@@ -261,6 +278,12 @@ struct delta_fixture {
 	struct fixture base;
 	uint64_t sku, compared;
 	uint32_t length, delta;
+};
+
+struct delta_two_fixture {
+	struct fixture base;
+	uint64_t sku, compared;
+	uint32_t length, delta[2];
 };
 
 struct hii_fixture {
@@ -449,6 +472,7 @@ int main(void)
 	struct fixture fixture, bad;
 	struct fixture pei;
 	struct delta_fixture delta_fixture;
+	struct delta_two_fixture delta_two;
 	struct hii_fixture hii;
 	struct hii_pointer_fixture hii_pointer;
 	struct pointer_fixture pointer;
@@ -478,6 +502,7 @@ int main(void)
 	boot_services.allocate_pool = mock_allocate;
 	boot_services.free_pool = mock_free;
 	boot_services.create_event = mock_create_event;
+	boot_services.set_timer = mock_set_timer;
 	boot_services.close_event = mock_close_event;
 	boot_services.register_protocol_notify = mock_register_notify;
 	memset(&system, 0, sizeof(system));
@@ -593,6 +618,19 @@ int main(void)
 		cdk2_pcd_apply_sku_delta(&context, 7) == EFI_SUCCESS &&
 		(delta_fixture.base.value & 0xff) == 0x5a,
 		"bounded generated SKU delta applied");
+	memset(&delta_two, 0, sizeof(delta_two));
+	make_fixture(&delta_two.base);
+	delta_two.base.header.length_all_skus = sizeof(delta_two);
+	delta_two.sku = 8;
+	delta_two.length = 28;
+	delta_two.delta[0] = ((uint32_t)0x5c << 24) |
+		offsetof(struct fixture, value);
+	delta_two.delta[1] = ((uint32_t)0x6d << 24) | 0x00ffffffU;
+	failures += expect(cdk2_pcd_init(&context, &delta_two, sizeof(delta_two)) ==
+		EFI_SUCCESS && cdk2_pcd_apply_sku_delta(&context, 8) ==
+		EFI_INVALID_PARAMETER && delta_two.base.value == 0xaabbccddU &&
+		delta_two.base.header.system_sku_id == 0,
+		"SKU delta validates every record before mutating the database");
 	make_fixture(&delta_fixture.base);
 	delta_fixture.base.header.length_all_skus = sizeof(delta_fixture);
 	delta_fixture.sku = 7;
@@ -719,6 +757,37 @@ int main(void)
 	failures += expect(policy_registrations == 1 && event_closes == 1,
 		"VariablePolicy notification locks HII variables and closes itself");
 	expose_policy = 0;
+	policy_registrations = event_closes = timer_arms = 0;
+	policy_failures = 1;
+	make_hii(&hii);
+	raw_fixture = (struct fixture *)&hii;
+	raw_fixture_size = sizeof(hii);
+	failures += expect(cdk2_pcd_driver_entry((void *)1, &system) == EFI_SUCCESS,
+		"transient policy fixture enters with deferred notification");
+	expose_policy = 1;
+	policy_notify((void *)3, policy_notify_context);
+	failures += expect(policy_registrations == 0 && timer_arms == 1 &&
+		event_closes == 0, "transient policy failure arms bounded timer retry");
+	policy_notify((void *)3, policy_notify_context);
+	failures += expect(policy_registrations == 1 && event_closes == 1,
+		"timer retry completes policy locking and event cleanup");
+	expose_policy = 0;
+	policy_registrations = event_closes = timer_arms = 0;
+	event_close_status = EFI_DEVICE_ERROR;
+	make_hii(&hii);
+	raw_fixture = (struct fixture *)&hii;
+	raw_fixture_size = sizeof(hii);
+	failures += expect(cdk2_pcd_driver_entry((void *)1, &system) == EFI_SUCCESS,
+		"close-failure policy fixture enters with deferred notification");
+	expose_policy = 1;
+	policy_notify((void *)3, policy_notify_context);
+	failures += expect(policy_registrations == 1 && event_closes == 1 &&
+		timer_arms == 1, "failed event close preserves resident retry state");
+	event_close_status = EFI_SUCCESS;
+	policy_notify((void *)3, policy_notify_context);
+	failures += expect(policy_registrations == 1 && event_closes == 2,
+		"close retry does not duplicate variable policies");
+	expose_policy = 0;
 	make_fixture(&fixture);
 	fixture.map.external_token = 0x00030006U;
 	fixture.map.local_token = 1;
@@ -823,6 +892,11 @@ int main(void)
 		sizeof(hii_pointer)) == EFI_SUCCESS &&
 		cdk2_pcd_get(&context, NULL, 1, &value, &size) == EFI_INVALID_PARAMETER,
 		"misaligned HII variable name is rejected");
+	make_hii(&hii);
+	hii.header.string_offset++;
+	failures += expect(cdk2_pcd_init(&context, &hii, sizeof(hii)) == EFI_SUCCESS &&
+		cdk2_pcd_get(&context, NULL, 1, &value, &size) == EFI_INVALID_PARAMETER,
+		"absolute HII variable-name address must be CHAR16 aligned");
 	make_hii(&hii);
 	hii.name[0] = 'X';
 	hii.name[1] = 'Y';

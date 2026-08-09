@@ -26,6 +26,14 @@ static struct cdk2_pcd_context *locking_context;
 static struct cdk2_pcd_boot_services *policy_boot_services;
 static void *policy_event;
 static void *policy_registration;
+static unsigned int policy_retries;
+static int policy_locked;
+
+#define POLICY_RETRY_LIMIT 3U
+#define EVT_TIMER 0x80000000U
+#define EVT_NOTIFY_SIGNAL 0x00000200U
+#define TIMER_RELATIVE 2U
+#define POLICY_RETRY_100NS 10000000ULL
 
 typedef uint64_t CDK2_MS_ABI read_section_fn(void *, const EFI_GUID *, uint8_t,
 	size_t, void **, size_t *, uint32_t *);
@@ -205,19 +213,33 @@ static void CDK2_MS_ABI variable_policy_available(void *event, void *context)
 	if (policy_boot_services == NULL ||
 	    policy_boot_services->locate_protocol == NULL)
 		return;
-	status = policy_boot_services->locate_protocol(&variable_policy_guid, NULL,
-		(void **)&active_variable_policy);
-	if (status != EFI_SUCCESS)
-		return;
-	locking_context = pcd;
-	status = cdk2_pcd_lock_read_only(pcd, register_read_only_variable);
-	locking_context = NULL;
-	active_variable_policy = NULL;
-	if (status == EFI_SUCCESS && policy_event != NULL &&
-	    policy_boot_services->close_event != NULL) {
-		(void)policy_boot_services->close_event(policy_event);
+	if (!policy_locked) {
+		status = policy_boot_services->locate_protocol(&variable_policy_guid, NULL,
+			(void **)&active_variable_policy);
+		if (status != EFI_SUCCESS)
+			return;
+		locking_context = pcd;
+		status = cdk2_pcd_lock_read_only(pcd, register_read_only_variable);
+		locking_context = NULL;
+		active_variable_policy = NULL;
+		if (status != EFI_SUCCESS) {
+			if (policy_retries++ < POLICY_RETRY_LIMIT &&
+			    policy_boot_services->set_timer != NULL)
+				(void)policy_boot_services->set_timer(policy_event,
+					TIMER_RELATIVE, POLICY_RETRY_100NS);
+			return;
+		}
+		policy_locked = 1;
+	}
+	status = policy_boot_services->close_event(policy_event);
+	if (status == EFI_SUCCESS) {
 		policy_event = NULL;
 		policy_registration = NULL;
+		policy_boot_services = NULL;
+	} else if (policy_retries++ < POLICY_RETRY_LIMIT &&
+		policy_boot_services->set_timer != NULL) {
+		(void)policy_boot_services->set_timer(policy_event, TIMER_RELATIVE,
+			POLICY_RETRY_100NS);
 	}
 }
 
@@ -231,30 +253,44 @@ static uint64_t defer_variable_policy(struct cdk2_pcd_context *context,
 	    boot_services->close_event == NULL)
 		return EFI_UNSUPPORTED;
 	policy_boot_services = boot_services;
-	status = boot_services->create_event(0x200U, 8U, variable_policy_available,
+	policy_retries = 0;
+	policy_locked = 0;
+	status = boot_services->create_event(EVT_TIMER | EVT_NOTIFY_SIGNAL, 8U,
+		variable_policy_available,
 		context, &policy_event);
 	if (status != EFI_SUCCESS)
 		return status;
 	status = boot_services->register_protocol_notify(&variable_policy_guid,
 		policy_event, &policy_registration);
 	if (status != EFI_SUCCESS) {
-		(void)boot_services->close_event(policy_event);
-		policy_event = NULL;
-		policy_registration = NULL;
+		uint64_t cleanup = boot_services->close_event(policy_event);
+
+		if (cleanup == EFI_SUCCESS) {
+			policy_event = NULL;
+			policy_registration = NULL;
+			policy_boot_services = NULL;
+		} else {
+			return cleanup;
+		}
 		return status;
 	}
 	variable_policy_available(policy_event, context);
 	return EFI_SUCCESS;
 }
 
-static void cancel_variable_policy_notification(void)
+static uint64_t cancel_variable_policy_notification(void)
 {
+	uint64_t status = EFI_SUCCESS;
+
 	if (policy_event != NULL && policy_boot_services != NULL &&
 	    policy_boot_services->close_event != NULL)
-		(void)policy_boot_services->close_event(policy_event);
+		status = policy_boot_services->close_event(policy_event);
+	if (status != EFI_SUCCESS)
+		return status;
 	policy_event = NULL;
 	policy_registration = NULL;
 	policy_boot_services = NULL;
+	return EFI_SUCCESS;
 }
 
 static void *get_value(const EFI_GUID *space, size_t token, size_t *size)
@@ -696,7 +732,12 @@ free_database:
 	if (status == EFI_SUCCESS)
 		return status;
 free_expanded:
-	cancel_variable_policy_notification();
+	{
+		uint64_t cleanup = cancel_variable_policy_notification();
+
+		if (cleanup != EFI_SUCCESS)
+			return cleanup;
+	}
 	if (table->boot_services->free_pool != NULL)
 		(void)table->boot_services->free_pool(expanded);
 	return status;

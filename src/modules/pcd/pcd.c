@@ -89,7 +89,7 @@ static int valid_variable_name(struct cdk2_pcd_context *context,
 	size_t offset, available, index;
 	uint16_t character;
 
-	if ((string_index & 1U) != 0 ||
+	if ((((size_t)context->header->string_offset + string_index) & 1U) != 0 ||
 	    string_index > context->header->length - context->header->string_offset)
 		return 0;
 	offset = context->header->string_offset + string_index;
@@ -641,6 +641,13 @@ uint64_t cdk2_pcd_apply_sku_delta(struct cdk2_pcd_context *context,
 				offset = item & 0x00ffffffU;
 				if (offset >= context->header->length)
 					return PCD_INVALID_PARAMETER;
+			}
+			for (delta = cursor + 20; delta < cursor + length; delta += 4) {
+				uint32_t item;
+				uint32_t offset;
+
+				memcpy(&item, context->database + delta, sizeof(item));
+				offset = item & 0x00ffffffU;
 				context->database[offset] = (uint8_t)(item >> 24);
 			}
 			context->header->system_sku_id = sku;

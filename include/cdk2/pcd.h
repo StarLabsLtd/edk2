@@ -49,6 +49,7 @@ typedef void CDK2_MS_ABI cdk2_pcd_event_notify_fn(void *, void *);
 typedef uint64_t CDK2_MS_ABI cdk2_pcd_create_event_fn(uint32_t, size_t,
 	cdk2_pcd_event_notify_fn *, void *, void **);
 typedef uint64_t CDK2_MS_ABI cdk2_pcd_close_event_fn(void *);
+typedef uint64_t CDK2_MS_ABI cdk2_pcd_set_timer_fn(void *, uint32_t, uint64_t);
 typedef uint64_t CDK2_MS_ABI cdk2_pcd_register_notify_fn(const EFI_GUID *,
 	void *, void **);
 
@@ -154,7 +155,8 @@ struct cdk2_pcd_boot_services {
 	cdk2_pcd_allocate_fn *allocate_pool;
 	cdk2_pcd_free_fn *free_pool;
 	cdk2_pcd_create_event_fn *create_event;
-	uint8_t before_close_event[24];
+	cdk2_pcd_set_timer_fn *set_timer;
+	uint8_t before_close_event[16];
 	cdk2_pcd_close_event_fn *close_event;
 	uint8_t before_handle[32];
 	cdk2_pcd_handle_fn *handle_protocol;
