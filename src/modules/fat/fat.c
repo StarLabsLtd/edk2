@@ -1453,3 +1453,32 @@ uint64_t cdk2_fat_update_metadata(struct cdk2_fat_file *file,
 	file->entry.write_date = write_date; file->entry.write_time = write_time;
 	return EFI_SUCCESS;
 }
+
+uint64_t cdk2_fat_file_rename(struct cdk2_fat_file *file,
+	const uint16_t *new_name)
+{
+	uint8_t short_name[11];
+	uint64_t index, status;
+	size_t count = 0U, length;
+	if (file == NULL || file->volume == NULL || file->is_root ||
+	    new_name == NULL)
+		return EFI_INVALID_PARAMETER;
+	status = cdk2_fat_generate_short_name(file->volume,
+		file->parent_directory_cluster, new_name, short_name);
+	if (status != EFI_SUCCESS) return status;
+	status = cdk2_fat_build_directory_records(new_name, short_name,
+		file->entry.attributes, file->entry.first_cluster, file->entry.size,
+		NULL, &count);
+	if (status != EFI_BUFFER_TOO_SMALL) return status;
+	status = cdk2_fat_rename_entry((struct cdk2_fat_volume *)file->volume,
+		file->parent_directory_cluster, file->record_index, file->record_count,
+		new_name, file->entry.attributes, file->entry.first_cluster,
+		file->entry.size, &index);
+	if (status != EFI_SUCCESS) return status;
+	for (length = 0U; new_name[length] != 0U; length++)
+		if (length == 255U) return FAT_VOLUME_CORRUPTED;
+	__builtin_memcpy(file->entry.name, new_name,
+		(length + 1U) * sizeof(*new_name));
+	file->record_index = index; file->record_count = count;
+	return EFI_SUCCESS;
+}

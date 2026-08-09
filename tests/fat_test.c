@@ -520,5 +520,10 @@ int main(void)
 		file.entry.attributes == 0x21U,
 		"metadata flush failure did not restore disk and handle state");
 	mutation.flush_status = EFI_SUCCESS;
+	failures += expect(cdk2_fat_file_rename(&file,
+		(const uint16_t[]){ 'N','e','w',' ','M','e','t','a','.','t','x','t',0 }) ==
+		EFI_SUCCESS && file.entry.name[0] == 'N' && file.record_index == 2U &&
+		file.record_count == 2U && mutation.bytes[1536U + 32U] == 0xe5U,
+		"file-handle rename did not move ownership to replacement records");
 	return failures == 0 ? 0 : 1;
 }

@@ -126,5 +126,7 @@ uint64_t cdk2_fat_get_volume_info(const struct cdk2_fat_volume *volume,
 uint64_t cdk2_fat_update_metadata(struct cdk2_fat_file *file,
 	uint8_t attributes, uint16_t creation_date, uint16_t creation_time,
 	uint16_t write_date, uint16_t write_time);
+uint64_t cdk2_fat_file_rename(struct cdk2_fat_file *file,
+	const uint16_t *new_name);
 
 #endif
