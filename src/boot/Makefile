@@ -25,7 +25,9 @@ CDK2_NATIVE_FVREPLACE ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-fvreplace
 CDK2_NATIVE_PERELOCCHECK ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-pereloccheck
 CDK2_NATIVE_METRONOME_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-metronome-test
 CDK2_NATIVE_SATA_CONTROLLER_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-sata-controller-test
+CDK2_NATIVE_SATA_ENTRY_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-sata-entry-test
 CDK2_NATIVE_SATA_PACKAGE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-sata-package-test
+CDK2_NATIVE_SATA_DEPENDENCY_TEST := $(CDK2_DIR)/tests/sata_dependency_test.sh
 CDK2_NATIVE_SATA_OBJS := $(CDK2_NATIVE_BUILD_DIR)/sata-model.o \
 	$(CDK2_NATIVE_BUILD_DIR)/sata-entry.o
 CDK2_NATIVE_SATA_PE ?= $(CDK2_NATIVE_BUILD_DIR)/SataController.efi
@@ -354,6 +356,7 @@ CDK2_NATIVE_HOST_TOOLS := \
 	$(CDK2_NATIVE_PERELOCCHECK) \
 	$(CDK2_NATIVE_METRONOME_TEST) \
 	$(CDK2_NATIVE_SATA_CONTROLLER_TEST) \
+	$(CDK2_NATIVE_SATA_ENTRY_TEST) \
 	$(CDK2_NATIVE_SATA_PACKAGE_TEST) \
 	$(CDK2_NATIVE_SATA_FFS) \
 	$(CDK2_NATIVE_PCD_TEST) \
@@ -640,7 +643,9 @@ native-check: $(CDK2_CONFIG_HEADER) $(CDK2_NATIVE_ELF) $(CDK2_NATIVE_OVERRIDE_EL
 	@"$(CDK2_NATIVE_FFSBUILD_TEST)" "$(CDK2_NATIVE_FFSBUILD)" "$(CDK2_NATIVE_BUILD_DIR)"
 	@"$(CDK2_NATIVE_METRONOME_TEST)"
 	@"$(CDK2_NATIVE_SATA_CONTROLLER_TEST)"
+	@"$(CDK2_NATIVE_SATA_ENTRY_TEST)"
 	@"$(CDK2_NATIVE_SATA_PACKAGE_TEST)" "$(CDK2_NATIVE_SATA_FFS)"
+	@"$(CDK2_NATIVE_SATA_DEPENDENCY_TEST)" "$(MAKE)" "$(CDK2_DIR)" "$(CDK2_BUILD_DIR)"
 	@"$(CDK2_NATIVE_PCD_TEST)"
 	@"$(CDK2_NATIVE_PCI_HOST_BRIDGE_TEST)"
 	@"$(CDK2_NATIVE_PCI_HOST_BRIDGE_ENTRY_TEST)"
@@ -2147,14 +2152,17 @@ $(CDK2_NATIVE_METRONOME_TEST): $(CDK2_DIR)/tests/metronome_test.c $(CDK2_DIR)/sr
 $(CDK2_NATIVE_SATA_CONTROLLER_TEST): $(CDK2_DIR)/tests/sata_controller_test.c $(CDK2_DIR)/src/modules/sata_controller/model.c $(CDK2_DIR)/include/cdk2/sata_controller.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" $(CDK2_DIR)/tests/sata_controller_test.c $(CDK2_DIR)/src/modules/sata_controller/model.c
 
+$(CDK2_NATIVE_SATA_ENTRY_TEST): $(CDK2_DIR)/tests/sata_entry_test.c $(CDK2_DIR)/src/modules/sata_controller/entry.c $(CDK2_DIR)/src/modules/sata_controller/model.c $(CDK2_DIR)/include/cdk2/sata_controller.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" $(CDK2_DIR)/tests/sata_entry_test.c $(CDK2_DIR)/src/modules/sata_controller/model.c
+
 $(CDK2_NATIVE_SATA_PACKAGE_TEST): $(CDK2_DIR)/tests/sata_package_test.c | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -o "$@" "$<"
 
-$(CDK2_NATIVE_BUILD_DIR)/sata-model.o: $(CDK2_DIR)/src/modules/sata_controller/model.c | $(CDK2_NATIVE_BUILD_DIR)
-	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) -mcmodel=large -maccumulate-outgoing-args $(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+$(CDK2_NATIVE_BUILD_DIR)/sata-model.o: $(CDK2_DIR)/src/modules/sata_controller/model.c $(CDK2_DIR)/include/cdk2/sata_controller.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) -mcmodel=large -maccumulate-outgoing-args -MMD -MP -MF "$(CDK2_NATIVE_BUILD_DIR)/sata-model.d" -MT "$@" $(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
 
-$(CDK2_NATIVE_BUILD_DIR)/sata-entry.o: $(CDK2_DIR)/src/modules/sata_controller/entry.c | $(CDK2_NATIVE_BUILD_DIR)
-	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) -mcmodel=large -maccumulate-outgoing-args $(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+$(CDK2_NATIVE_BUILD_DIR)/sata-entry.o: $(CDK2_DIR)/src/modules/sata_controller/entry.c $(CDK2_DIR)/include/cdk2/sata_controller.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) -mcmodel=large -maccumulate-outgoing-args -MMD -MP -MF "$(CDK2_NATIVE_BUILD_DIR)/sata-entry.d" -MT "$@" $(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
 
 $(CDK2_NATIVE_SATA_PE): $(CDK2_NATIVE_SATA_OBJS) $(CDK2_DIR)/src/modules/sata_controller/sata_controller.ld $(CDK2_NATIVE_PERELOCCHECK)
 	@$(LD) -mi386pep --subsystem 11 --entry cdk2_sata_controller_entry --image-base 0 --section-alignment 0x1000 --file-alignment 0x1000 --build-id=none --no-insert-timestamp -s --nxcompat -T "$(CDK2_DIR)/src/modules/sata_controller/sata_controller.ld" -o "$@" $(CDK2_NATIVE_SATA_OBJS)
@@ -2162,6 +2170,9 @@ $(CDK2_NATIVE_SATA_PE): $(CDK2_NATIVE_SATA_OBJS) $(CDK2_DIR)/src/modules/sata_co
 
 $(CDK2_NATIVE_SATA_FFS): $(CDK2_NATIVE_SATA_PE) $(CDK2_NATIVE_FFSBUILD)
 	@"$(CDK2_NATIVE_FFSBUILD)" 820c59bb-274c-43b2-83ea-dac673035a59 SataController 1.0 0x604e "$<" "$@" -
+
+.PHONY: native-sata-controller-package
+native-sata-controller-package: $(CDK2_NATIVE_SATA_FFS)
 
 $(CDK2_NATIVE_PCD_TEST): $(CDK2_DIR)/tests/pcd_test.c $(CDK2_DIR)/src/modules/pcd/pcd.c $(CDK2_DIR)/src/modules/pcd/entry.c $(CDK2_DIR)/include/cdk2/pcd.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" $(CDK2_DIR)/tests/pcd_test.c $(CDK2_DIR)/src/modules/pcd/pcd.c $(CDK2_DIR)/src/modules/pcd/entry.c

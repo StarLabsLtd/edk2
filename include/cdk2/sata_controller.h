@@ -16,12 +16,16 @@ struct cdk2_ata_identify {
 	uint16_t min_pio_cycle_time;
 	uint16_t ultra_dma_mode;
 };
-struct cdk2_ata_mode { uint16_t pio_mode, udma_mode; BOOLEAN udma_valid; };
+struct cdk2_ata_mode {
+	uint16_t pio_mode, udma_mode;
+	BOOLEAN pio_valid, udma_valid;
+};
 struct cdk2_sata_geometry { uint8_t channels, devices; BOOLEAN ahci; };
 struct cdk2_sata_controller {
 	struct cdk2_sata_geometry geometry;
 	struct cdk2_ata_identify identify[CDK2_SATA_MAX_CHANNELS * CDK2_SATA_MAX_DEVICES];
 	struct cdk2_ata_mode bad[CDK2_SATA_MAX_CHANNELS * CDK2_SATA_MAX_DEVICES];
+	BOOLEAN bad_valid[CDK2_SATA_MAX_CHANNELS * CDK2_SATA_MAX_DEVICES];
 	BOOLEAN identify_valid[CDK2_SATA_MAX_CHANNELS * CDK2_SATA_MAX_DEVICES];
 };
 

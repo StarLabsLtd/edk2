@@ -39,11 +39,15 @@ EFI_STATUS cdk2_sata_best_pio(const struct cdk2_ata_identify *identify,
 		for (bit = 0; bit < 8U; bit++)
 			if ((advanced & (1U << bit)) != 0U)
 				mode = (UINT16)(bit + 3U);
-		if (mode > 4U) mode = 4U;
+		if (mode > 4U)
+			mode = 4U;
 		minimum = identify->min_pio_cycle_time;
-		if (minimum > 240U) mode = 0U;
-		else if (minimum > 180U && mode > 2U) mode = 2U;
-		else if (minimum > 120U && mode > 3U) mode = 3U;
+		if (minimum > 240U)
+			mode = 0U;
+		else if (minimum > 180U && mode > 2U)
+			mode = 2U;
+		else if (minimum > 120U && mode > 3U)
+			mode = 3U;
 		if (disqualified != NULL && *disqualified < 2U)
 			return EFI_UNSUPPORTED;
 		if (disqualified != NULL && mode >= *disqualified)
@@ -52,7 +56,8 @@ EFI_STATUS cdk2_sata_best_pio(const struct cdk2_ata_identify *identify,
 	} else {
 		if (disqualified != NULL && *disqualified < 2U)
 			return EFI_UNSUPPORTED;
-		if (disqualified != NULL && mode == *disqualified) mode--;
+		if (disqualified != NULL && mode == *disqualified)
+			mode--;
 		*selected = mode < 2U ? 1U : 2U;
 	}
 	return EFI_SUCCESS;
@@ -62,10 +67,13 @@ EFI_STATUS cdk2_sata_best_udma(const struct cdk2_ata_identify *identify,
 	const UINT16 *disqualified, UINT16 *selected)
 {
 	UINT16 mask, mode = 0;
-	if (identify == NULL || selected == NULL) return EFI_INVALID_PARAMETER;
-	if ((identify->field_validity & 4U) == 0U) return EFI_UNSUPPORTED;
+	if (identify == NULL || selected == NULL)
+		return EFI_INVALID_PARAMETER;
+	if ((identify->field_validity & 4U) == 0U)
+		return EFI_UNSUPPORTED;
 	mask = identify->ultra_dma_mode & 0x3fU;
-	while ((mask >>= 1) != 0U) mode++;
+	while ((mask >>= 1) != 0U)
+		mode++;
 	if (disqualified != NULL && *disqualified == 0U) {
 		*selected = 0; return EFI_UNSUPPORTED;
 	}
@@ -78,15 +86,17 @@ EFI_STATUS cdk2_sata_calculate_mode(const struct cdk2_ata_identify *identify,
 	const struct cdk2_ata_mode *bad, struct cdk2_ata_mode *selected)
 {
 	EFI_STATUS status;
-	if (selected == NULL) return EFI_INVALID_PARAMETER;
-	status = cdk2_sata_best_pio(identify, bad == NULL ? NULL : &bad->pio_mode,
+	if (selected == NULL)
+		return EFI_INVALID_PARAMETER;
+	status = cdk2_sata_best_pio(identify,
+		bad == NULL || !bad->pio_valid ? NULL : &bad->pio_mode,
 		&selected->pio_mode);
-	if (EFI_ERROR(status)) return status;
+	selected->pio_valid = !EFI_ERROR(status);
 	status = cdk2_sata_best_udma(identify,
 		bad == NULL || !bad->udma_valid ? NULL : &bad->udma_mode,
 		&selected->udma_mode);
 	selected->udma_valid = !EFI_ERROR(status);
-	return EFI_SUCCESS;
+	return selected->pio_valid || selected->udma_valid ? EFI_SUCCESS : EFI_UNSUPPORTED;
 }
 
 static EFI_STATUS index_of(const struct cdk2_sata_controller *controller,
@@ -126,9 +136,11 @@ EFI_STATUS cdk2_sata_submit(struct cdk2_sata_controller *controller, UINT8 chann
 	UINT8 device, const struct cdk2_ata_identify *identify)
 {
 	UINTN index = 0; EFI_STATUS status = index_of(controller, channel, device, &index);
-	if (EFI_ERROR(status)) return status;
+	if (EFI_ERROR(status))
+		return status;
 	controller->identify_valid[index] = identify != NULL;
-	if (identify != NULL) controller->identify[index] = *identify;
+	if (identify != NULL)
+		controller->identify[index] = *identify;
 	return EFI_SUCCESS;
 }
 
@@ -136,9 +148,13 @@ EFI_STATUS cdk2_sata_disqualify(struct cdk2_sata_controller *controller, UINT8 c
 	UINT8 device, const struct cdk2_ata_mode *bad)
 {
 	UINTN index; EFI_STATUS status;
-	if (bad == NULL) return EFI_INVALID_PARAMETER;
+	if (bad == NULL)
+		return EFI_INVALID_PARAMETER;
 	status = index_of(controller, channel, device, &index);
-	if (!EFI_ERROR(status)) controller->bad[index] = *bad;
+	if (!EFI_ERROR(status)) {
+		controller->bad[index] = *bad;
+		controller->bad_valid[index] = TRUE;
+	}
 	return status;
 }
 
@@ -146,8 +162,10 @@ EFI_STATUS cdk2_sata_mode(struct cdk2_sata_controller *controller, UINT8 channel
 	UINT8 device, struct cdk2_ata_mode *selected)
 {
 	UINTN index = 0; EFI_STATUS status = index_of(controller, channel, device, &index);
-	if (EFI_ERROR(status) || selected == NULL) return EFI_INVALID_PARAMETER;
-	if (!controller->identify_valid[index]) return EFI_NOT_READY;
+	if (EFI_ERROR(status) || selected == NULL)
+		return EFI_INVALID_PARAMETER;
+	if (!controller->identify_valid[index])
+		return EFI_NOT_READY;
 	return cdk2_sata_calculate_mode(&controller->identify[index],
-		&controller->bad[index], selected);
+		controller->bad_valid[index] ? &controller->bad[index] : NULL, selected);
 }
