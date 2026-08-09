@@ -29,6 +29,7 @@ CDK2_NATIVE_PCI_HOST_BRIDGE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-pci-host-bridg
 CDK2_NATIVE_PCI_HOST_BRIDGE_ENTRY_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-pci-host-bridge-entry-test
 CDK2_NATIVE_PCI_HOST_BRIDGE_SCAN_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-pci-host-bridge-scan-test
 CDK2_NATIVE_PCI_ROOT_IO_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-pci-root-io-test
+CDK2_NATIVE_PCI_BUS_MODEL_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-pci-bus-model-test
 CDK2_NATIVE_PCI_HOST_BRIDGE_MODEL_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/pci-host-bridge-model.o
 CDK2_NATIVE_PCI_HOST_BRIDGE_SCAN_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/pci-host-bridge-scan.o
 CDK2_NATIVE_PCI_HOST_BRIDGE_ENTRY_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/pci-host-bridge-entry.o
@@ -346,6 +347,7 @@ CDK2_NATIVE_HOST_TOOLS := \
 	$(CDK2_NATIVE_PCI_HOST_BRIDGE_ENTRY_TEST) \
 	$(CDK2_NATIVE_PCI_HOST_BRIDGE_SCAN_TEST) \
 	$(CDK2_NATIVE_PCI_ROOT_IO_TEST) \
+	$(CDK2_NATIVE_PCI_BUS_MODEL_TEST) \
 	$(CDK2_NATIVE_WATCHDOG_TEST) \
 	$(CDK2_NATIVE_STATUS_CODE_ROUTER_TEST) \
 	$(CDK2_NATIVE_STATUS_CODE_HANDLER_TEST) \
@@ -628,6 +630,7 @@ native-check: $(CDK2_CONFIG_HEADER) $(CDK2_NATIVE_ELF) $(CDK2_NATIVE_OVERRIDE_EL
 	@"$(CDK2_NATIVE_PCI_HOST_BRIDGE_ENTRY_TEST)"
 	@"$(CDK2_NATIVE_PCI_HOST_BRIDGE_SCAN_TEST)"
 	@"$(CDK2_NATIVE_PCI_ROOT_IO_TEST)"
+	@"$(CDK2_NATIVE_PCI_BUS_MODEL_TEST)"
 	@if test -f "$(CDK2_NATIVE_PCD_DATABASE)" && \
 	    test -f "$(CDK2_NATIVE_PRE_PCD_FV)"; then \
 		"$(CDK2_DIR)/tests/pcd_database_override_test.sh" "$(MAKE)" \
@@ -2140,6 +2143,13 @@ $(CDK2_NATIVE_PCI_ROOT_IO_TEST): $(CDK2_DIR)/tests/pci_root_io_test.c \
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) \
 		-o "$@" $(CDK2_DIR)/tests/pci_root_io_test.c \
 		$(CDK2_DIR)/src/modules/pci_host_bridge/root_io.c
+
+$(CDK2_NATIVE_PCI_BUS_MODEL_TEST): $(CDK2_DIR)/tests/pci_bus_model_test.c \
+		$(CDK2_DIR)/src/modules/pci_bus/model.c \
+		$(CDK2_DIR)/include/cdk2/pci_bus_model.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) \
+		-o "$@" $(CDK2_DIR)/tests/pci_bus_model_test.c \
+		$(CDK2_DIR)/src/modules/pci_bus/model.c
 
 .PHONY: native-pci-host-bridge-package
 native-pci-host-bridge-package: $(CDK2_NATIVE_PCI_HOST_BRIDGE_FFS)
