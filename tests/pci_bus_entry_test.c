@@ -17,7 +17,7 @@ typedef EFI_STATUS CDK2_MS_ABI request_notify_fn(void *, UINTN, void *, void *,
 struct loaded_image {
 	uint32_t revision; void *parent, *system, *device, *path, *reserved;
 	uint32_t option_size; void *options, *base; uint64_t size;
-	uint32_t code, data; unload_fn *unload;
+	uint32_t code, data; unload_fn * unload;
 };
 struct fake_boot {
 	uint8_t before_pool[64]; void *allocate_pool, *free_pool;
@@ -65,19 +65,19 @@ static EFI_STATUS CDK2_MS_ABI pool(uint32_t type, UINTN size, void **buffer)
 { (void)type; *buffer = calloc(1, size); return *buffer == NULL ? 9 : 0; }
 static EFI_STATUS CDK2_MS_ABI release(void *buffer)
 { free(buffer); return 0; }
-static EFI_STATUS CDK2_MS_ABI handle(void *object, const EFI_GUID *guid, void **interface)
+static EFI_STATUS CDK2_MS_ABI handle(void *object, const EFI_GUID * guid, void **interface)
 { (void)guid; *interface = object == active ? (void *)&active->loaded : active->path;
 	return 0; }
-static EFI_STATUS CDK2_MS_ABI open_protocol(void *handle, const EFI_GUID *guid,
+static EFI_STATUS CDK2_MS_ABI open_protocol(void *handle, const EFI_GUID * guid,
 	void **interface, void *agent, void *controller, uint32_t attributes)
 { (void)handle; (void)guid; (void)agent; (void)controller; (void)attributes;
 	active->opens++; *interface = &active->root; return 0; }
-static EFI_STATUS CDK2_MS_ABI close_protocol(void *handle, const EFI_GUID *guid,
+static EFI_STATUS CDK2_MS_ABI close_protocol(void *handle, const EFI_GUID * guid,
 	void *agent, void *controller)
 { (void)handle; (void)guid; (void)agent; (void)controller; active->closes++; return 0; }
-static EFI_STATUS CDK2_MS_ABI install(void **handle, const EFI_GUID *guid,
+static EFI_STATUS CDK2_MS_ABI install(void **handle, const EFI_GUID * guid,
 	void *interface, ...)
-{ __builtin_ms_va_list arguments; const EFI_GUID *next;
+{ __builtin_ms_va_list arguments; const EFI_GUID * next;
 	active->installs++; *handle = active;
 	if (active->fail_install_number == active->installs)
 		return EFI_DEVICE_ERROR;
@@ -93,7 +93,7 @@ static EFI_STATUS CDK2_MS_ABI install(void **handle, const EFI_GUID *guid,
 	}
 	__builtin_ms_va_end(arguments);
 	return active->install_status; }
-static EFI_STATUS CDK2_MS_ABI uninstall(void *handle, const EFI_GUID *guid,
+static EFI_STATUS CDK2_MS_ABI uninstall(void *handle, const EFI_GUID * guid,
 	void *interface, ...)
 { (void)handle; (void)guid; (void)interface; active->uninstalls++; return 0; }
 static EFI_STATUS CDK2_MS_ABI old_unload(void *image)
@@ -146,15 +146,16 @@ static EFI_STATUS CDK2_MS_ABI get_proposed(void *host, void *root, void **resour
 		active->proposed++;
 	return EFI_SUCCESS;
 }
-static EFI_STATUS CDK2_MS_ABI locate(const EFI_GUID *guid, void *registration,
+static EFI_STATUS CDK2_MS_ABI locate(const EFI_GUID * guid, void *registration,
 	void **interface)
 { (void)registration; if (guid->data1 == 0xaa0e8bc1U) {
-		if (!active->enable_hotplug) return EFI_NOT_FOUND;
+		if (!active->enable_hotplug)
+			return EFI_NOT_FOUND;
 		*interface = &active->hotplug; return EFI_SUCCESS;
 	}
 	*interface = &active->host; return EFI_SUCCESS; }
 struct test_hpc_location { void *hpc_path, *hpb_path; };
-static EFI_STATUS CDK2_MS_ABI hpc_list(void *protocol, UINTN *count,
+static EFI_STATUS CDK2_MS_ABI hpc_list(void *protocol, UINTN * count,
 	struct test_hpc_location **locations)
 { (void)protocol; *locations = calloc(1, sizeof(**locations));
 	if (*locations == NULL)
@@ -165,10 +166,11 @@ static EFI_STATUS CDK2_MS_ABI hpc_list(void *protocol, UINTN *count,
 static EFI_STATUS CDK2_MS_ABI hpc_initialize(void *protocol, void *path,
 	uint64_t address, void *event, uint16_t *state)
 { (void)protocol; (void)path; (void)event;
-	if (address != 0x10000U) return EFI_DEVICE_ERROR;
+	if (address != 0x10000U)
+		return EFI_DEVICE_ERROR;
 	*state = 3; active->hpc_inits++; return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI hpc_padding(void *protocol, void *path,
-	uint64_t address, uint16_t *state, void **padding, UINTN *attributes)
+	uint64_t address, uint16_t *state, void **padding, UINTN * attributes)
 { uint8_t *bytes = calloc(1, 48); (void)protocol; (void)path; (void)address; (void)state;
 	if (active->fail_hpc_padding)
 		return EFI_DEVICE_ERROR;

@@ -31,6 +31,9 @@ CDK2_NATIVE_PCI_HOST_BRIDGE_SCAN_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-pci-host-
 CDK2_NATIVE_PCI_ROOT_IO_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-pci-root-io-test
 CDK2_NATIVE_PCI_BUS_MODEL_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-pci-bus-model-test
 CDK2_NATIVE_PCI_BUS_ENTRY_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-pci-bus-entry-test
+CDK2_NATIVE_PCI_BUS_OBJS ?= $(addprefix $(CDK2_NATIVE_BUILD_DIR)/pci-bus-,model.o allocator.o host.o rom.o cardbus.o pci_io.o pci_io_abi.o binding.o adapter.o driver.o entry.o)
+CDK2_NATIVE_PCI_BUS_PE ?= $(CDK2_NATIVE_BUILD_DIR)/PciBusDxe.efi
+CDK2_NATIVE_PCI_BUS_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/PciBusDxe.ffs
 CDK2_NATIVE_PCI_HOST_BRIDGE_MODEL_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/pci-host-bridge-model.o
 CDK2_NATIVE_PCI_HOST_BRIDGE_SCAN_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/pci-host-bridge-scan.o
 CDK2_NATIVE_PCI_HOST_BRIDGE_ENTRY_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/pci-host-bridge-entry.o
@@ -2190,6 +2193,34 @@ $(CDK2_NATIVE_PCI_BUS_ENTRY_TEST): $(CDK2_DIR)/tests/pci_bus_entry_test.c \
 		$(CDK2_DIR)/src/modules/pci_bus/entry.c | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) \
 		-o "$@" $(filter %.c,$^)
+
+$(CDK2_NATIVE_BUILD_DIR)/pci-bus-%.o: $(CDK2_DIR)/src/modules/pci_bus/%.c | \
+		$(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
+		-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 -fno-builtin \
+		-mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args \
+		$(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+
+$(CDK2_NATIVE_PCI_BUS_PE): $(CDK2_NATIVE_PCI_BUS_OBJS) \
+		$(CDK2_NATIVE_BUILD_DIR)/mem.o \
+		$(CDK2_DIR)/src/modules/pci_bus/pci_bus.ld $(CDK2_NATIVE_PERELOCCHECK)
+	@$(CDK2_NATIVE_LD) -mi386pep --subsystem 11 --entry cdk2_pci_bus_entry \
+		--image-base 0 --section-alignment 0x1000 --file-alignment 0x1000 \
+		--build-id=none --no-insert-timestamp -s --nxcompat \
+		-T "$(CDK2_DIR)/src/modules/pci_bus/pci_bus.ld" -o "$@" \
+		$(CDK2_NATIVE_PCI_BUS_OBJS) $(CDK2_NATIVE_BUILD_DIR)/mem.o
+	@"$(CDK2_NATIVE_PERELOCCHECK)" --subsystem 11 "$@"
+
+$(CDK2_NATIVE_PCI_BUS_FFS): $(CDK2_NATIVE_PCI_BUS_PE) $(CDK2_NATIVE_FFSBUILD)
+	@"$(CDK2_NATIVE_FFSBUILD)" 93b80004-9fb3-11d4-9a3a-0090273fc14d \
+		PciBusDxe 1.0 0x18042 "$(CDK2_NATIVE_PCI_BUS_PE)" "$@" -
+
+.PHONY: native-pci-bus-package
+native-pci-bus-package: $(CDK2_NATIVE_PCI_BUS_FFS)
+	@test "$$(wc -c < "$(CDK2_NATIVE_PCI_BUS_FFS)")" -eq $$((0x18042))
+	@test "$$(od -An -tx1 -N16 "$(CDK2_NATIVE_PCI_BUS_FFS)" | tr -d ' \n')" = \
+		"0400b893b39fd4119a3a0090273fc14d"
+	@test "$$(od -An -tu1 -j18 -N1 "$(CDK2_NATIVE_PCI_BUS_FFS)" | tr -d ' ')" = 7
 
 .PHONY: native-pci-host-bridge-package
 native-pci-host-bridge-package: $(CDK2_NATIVE_PCI_HOST_BRIDGE_FFS)

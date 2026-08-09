@@ -3,10 +3,19 @@
 
 #include <string.h>
 
+static int string_equal(const char *left, const char *right)
+{
+	while (*left != 0 && *left == *right) {
+		left++;
+		right++;
+	}
+	return *left == *right;
+}
+
 static int language_supported(const char *language)
 {
 	return language != NULL &&
-		(strcmp(language, "eng") == 0 || strcmp(language, "en") == 0);
+		(string_equal(language, "eng") || string_equal(language, "en"));
 }
 
 static CHAR16 driver_name[] = { 'P', 'C', 'I', ' ', 'B', 'u', 's', ' ',
@@ -18,8 +27,8 @@ static CHAR8 english2[] = "en";
 static int component_language(struct cdk2_component_name_instance *instance,
 	const CHAR8 *language)
 {
-	return language != NULL && strcmp((const char *)language,
-		instance->iso639 ? "eng" : "en") == 0;
+	return language != NULL && string_equal((const char *)language,
+		instance->iso639 ? "eng" : "en");
 }
 
 static EFI_STATUS CDK2_MS_ABI get_driver_name(

@@ -38,23 +38,23 @@ typedef EFI_STATUS CDK2_MS_ABI root_get_attributes_fn(struct root_io_protocol *,
 typedef EFI_STATUS CDK2_MS_ABI root_set_attributes_fn(struct root_io_protocol *,
 	UINT64, UINT64 *, UINT64 *);
 struct root_io_protocol {
-	void *parent; root_poll_fn *poll_mem, *poll_io;
-	struct { root_access_fn *read, *write; } mem, io, pci;
-	root_copy_fn *copy_mem; root_map_fn *map; root_unmap_fn *unmap;
-	root_allocate_fn *allocate_buffer; root_free_fn *free_buffer;
-	root_flush_fn *flush; root_get_attributes_fn *get_attributes;
+	void *parent; root_poll_fn * poll_mem, *poll_io;
+	struct { root_access_fn * read, *write; } mem, io, pci;
+	root_copy_fn *copy_mem; root_map_fn * map; root_unmap_fn * unmap;
+	root_allocate_fn *allocate_buffer; root_free_fn * free_buffer;
+	root_flush_fn *flush; root_get_attributes_fn * get_attributes;
 	root_set_attributes_fn *set_attributes;
 	root_configuration_fn *configuration;
 	UINT32 segment;
 };
 
 struct boot_services_view {
-	UINT8 before_pool[64]; pool_fn *allocate_pool; free_fn *free_pool;
-	UINT8 before_handle[72]; handle_fn *handle_protocol;
-	UINT8 before_load[40]; load_image_fn *load_image;
-	UINT8 before_unload[16]; image_unload_fn *unload_image;
-	UINT8 before_open[48]; open_fn *open_protocol; close_fn *close_protocol;
-	UINT8 before_locate[24]; locate_fn *locate_protocol;
+	UINT8 before_pool[64]; pool_fn * allocate_pool; free_fn * free_pool;
+	UINT8 before_handle[72]; handle_fn * handle_protocol;
+	UINT8 before_load[40]; load_image_fn * load_image;
+	UINT8 before_unload[16]; image_unload_fn * unload_image;
+	UINT8 before_open[48]; open_fn * open_protocol; close_fn * close_protocol;
+	UINT8 before_locate[24]; locate_fn * locate_protocol;
 	install_fn *install_multiple;
 	uninstall_fn *uninstall_multiple;
 };
@@ -74,13 +74,13 @@ typedef char locate_offset_check[offsetof(struct boot_services_view,
 	locate_protocol) == 320 ? 1 : -1];
 
 struct system_table_view {
-	UINT8 header[24]; CHAR16 *vendor; UINT32 revision, pad;
+	UINT8 header[24]; CHAR16 * vendor; UINT32 revision, pad;
 	void *console[6], *runtime; struct boot_services_view *boot;
 };
 struct loaded_image_protocol {
 	UINT32 revision; void *parent, *system, *device, *file_path, *reserved;
 	UINT32 load_options_size; void *load_options, *image_base;
-	UINT64 image_size; UINT32 code_type, data_type; image_unload_fn *unload;
+	UINT64 image_size; UINT32 code_type, data_type; image_unload_fn * unload;
 };
 
 static const EFI_GUID root_io_guid = { 0x2f707ebb, 0x4a1a, 0x11d4,
@@ -116,16 +116,16 @@ typedef EFI_STATUS CDK2_MS_ABI host_set_bus_fn(void *, void *, void *);
 typedef EFI_STATUS CDK2_MS_ABI host_submit_fn(void *, void *, void *);
 typedef EFI_STATUS CDK2_MS_ABI host_proposed_fn(void *, void *, void **);
 struct host_resource_protocol {
-	host_notify_fn *notify_phase; host_next_fn *get_next_root;
-	host_attributes_fn *get_attributes; host_start_bus_fn *start_bus_enumeration;
-	host_set_bus_fn *set_bus_numbers; host_submit_fn *submit_resources;
+	host_notify_fn *notify_phase; host_next_fn * get_next_root;
+	host_attributes_fn *get_attributes; host_start_bus_fn * start_bus_enumeration;
+	host_set_bus_fn *set_bus_numbers; host_submit_fn * submit_resources;
 	host_proposed_fn *get_proposed_resources; void *preprocess_controller;
 };
 typedef EFI_STATUS CDK2_MS_ABI decompress_info_fn(void *, void *, UINT32,
 	UINT32 *, UINT32 *);
 typedef EFI_STATUS CDK2_MS_ABI decompress_fn(void *, void *, UINT32, void *,
 	UINT32, void *, UINT32);
-struct decompress_protocol { decompress_info_fn *get_info; decompress_fn *decompress; };
+struct decompress_protocol { decompress_info_fn * get_info; decompress_fn * decompress; };
 struct hpc_location { void *hpc_path, *hpb_path; };
 typedef EFI_STATUS CDK2_MS_ABI hpc_list_fn(void *, UINTN *, struct hpc_location **);
 typedef EFI_STATUS CDK2_MS_ABI hpc_initialize_fn(void *, void *, UINT64, void *,
@@ -133,13 +133,13 @@ typedef EFI_STATUS CDK2_MS_ABI hpc_initialize_fn(void *, void *, UINT64, void *,
 typedef EFI_STATUS CDK2_MS_ABI hpc_padding_fn(void *, void *, UINT64, UINT16 *,
 	void **, UINTN *);
 struct hotplug_init_protocol {
-	hpc_list_fn *get_root_hpc_list; hpc_initialize_fn *initialize_root_hpc;
+	hpc_list_fn *get_root_hpc_list; hpc_initialize_fn * initialize_root_hpc;
 	hpc_padding_fn *get_resource_padding;
 };
 struct hotplug_request_protocol;
 typedef EFI_STATUS CDK2_MS_ABI hotplug_notify_fn(
 	struct hotplug_request_protocol *, UINTN, void *, void *, UINT8 *, void **);
-struct hotplug_request_protocol { hotplug_notify_fn *notify; };
+struct hotplug_request_protocol { hotplug_notify_fn * notify; };
 
 #pragma pack(push, 1)
 struct address_descriptor {
@@ -474,7 +474,10 @@ static EFI_STATUS initialize_hotplug(struct entry_context *entry,
 				&address, &bridge) == 0)
 				break;
 		}
-		if (root == root_count) { status = EFI_NOT_FOUND; goto out; }
+		if (root == root_count) {
+			status = EFI_NOT_FOUND;
+			goto out;
+		}
 		status = protocol->initialize_root_hpc(protocol,
 			locations[hpc].hpc_path, address, NULL, &state);
 		if (EFI_ERROR(status) || (state & 1U) == 0U)
@@ -485,8 +488,10 @@ static EFI_STATUS initialize_hotplug(struct entry_context *entry,
 			locations[hpc].hpc_path, address, &state, &padding, &attributes);
 		if (EFI_ERROR(status) || padding == NULL ||
 		    add_padding(roots[root].topology, bridge, padding, attributes) != 0) {
-			if (!EFI_ERROR(status)) status = EFI_DEVICE_ERROR;
-			if (padding != NULL) (void)entry->boot->free_pool(padding);
+			if (!EFI_ERROR(status))
+				status = EFI_DEVICE_ERROR;
+			if (padding != NULL)
+				(void)entry->boot->free_pool(padding);
 			goto out;
 		}
 		(void)entry->boot->free_pool(padding);
@@ -752,8 +757,10 @@ static EFI_STATUS hotplug_add(struct entry_context *entry, UINTN root,
 	discovered = allocate(entry, sizeof(*discovered));
 	filtered = allocate(entry, sizeof(*filtered));
 	if (discovered == NULL || filtered == NULL) {
-		if (discovered != NULL) release(entry, discovered);
-		if (filtered != NULL) release(entry, filtered);
+		if (discovered != NULL)
+			release(entry, discovered);
+		if (filtered != NULL)
+			release(entry, filtered);
 		return EFI_OUT_OF_RESOURCES;
 	}
 	memset(discovered, 0, sizeof(*discovered)); entry->building_root = root;
@@ -802,7 +809,8 @@ static EFI_STATUS hotplug_remove(struct entry_context *entry, UINTN root,
 							&topology->functions[function]))
 							candidate = function;
 					while (!allowed && candidate != CDK2_PCI_ROOT_PARENT) {
-						if (candidate == controller_index) allowed = 1;
+						if (candidate == controller_index)
+							allowed = 1;
 						candidate = topology->functions[candidate].parent_index;
 					}
 				}
@@ -821,7 +829,8 @@ static EFI_STATUS hotplug_remove(struct entry_context *entry, UINTN root,
 						&topology->functions[function]))
 						candidate = function;
 				while (!allowed && candidate != CDK2_PCI_ROOT_PARENT) {
-					if (candidate == controller_index) allowed = 1;
+					if (candidate == controller_index)
+						allowed = 1;
 					candidate = topology->functions[candidate].parent_index;
 				}
 				if (allowed)
@@ -842,7 +851,10 @@ static EFI_STATUS hotplug_remove(struct entry_context *entry, UINTN root,
 	{
 		UINTN output = 0;
 		for (UINTN index = 0; index < topology->count; index++) {
-			if (removed[index]) { remap[index] = CDK2_PCI_ROOT_PARENT; continue; }
+			if (removed[index]) {
+				remap[index] = CDK2_PCI_ROOT_PARENT;
+				continue;
+			}
 			remap[index] = output;
 			topology->functions[output++] = topology->functions[index];
 		}
