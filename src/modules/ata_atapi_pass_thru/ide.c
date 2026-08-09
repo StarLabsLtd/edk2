@@ -155,66 +155,122 @@ static EFI_STATUS pio_transfer(struct cdk2_ide_engine *engine, UINT8 channel,
 	return wait_status(engine, channel, ATA_ST_BSY | ATA_ST_DRQ, 0, timeout);
 }
 
-static EFI_STATUS dma_transfer(struct cdk2_ide_engine *engine, UINT8 channel,
-	struct cdk2_ata_command_packet *packet, UINT64 timeout)
+struct ide_dma_transaction {
+	void *mappings[CDK2_IDE_MAX_PRD], *prd_mapping;
+	UINT16 mapping_count, entries;
+	UINT8 command, prepared, started;
+};
+
+static EFI_STATUS dma_release(struct cdk2_ide_engine *engine, UINT8 channel,
+	struct ide_dma_transaction *transaction, EFI_STATUS status)
+{
+	struct cdk2_ide_channel *ide = &engine->channels[channel];
+
+	if (transaction->started)
+		(void)engine->services.write8(engine->services.context,
+			ide->bus_master + BM_COMMAND, 0);
+	if (transaction->prd_mapping != NULL && EFI_ERROR(engine->services.unmap(
+		engine->services.context, transaction->prd_mapping)) && !EFI_ERROR(status))
+		status = EFI_DEVICE_ERROR;
+	while (transaction->mapping_count != 0U) {
+		transaction->mapping_count--;
+		if (EFI_ERROR(engine->services.unmap(engine->services.context,
+			transaction->mappings[transaction->mapping_count])) &&
+		    !EFI_ERROR(status))
+			status = EFI_DEVICE_ERROR;
+	}
+	if (EFI_ERROR(engine->services.flush(engine->services.context)) &&
+	    !EFI_ERROR(status))
+		status = EFI_DEVICE_ERROR;
+	memset(transaction, 0, sizeof(*transaction));
+	return status;
+}
+
+static EFI_STATUS dma_prepare(struct cdk2_ide_engine *engine, UINT8 channel,
+	struct cdk2_ata_command_packet *packet,
+	struct ide_dma_transaction *transaction)
 {
 	struct cdk2_ide_channel *ide = &engine->channels[channel];
 	void *buffer = packet->out_length != 0U ? packet->out_data : packet->in_data;
-	size_t remaining = packet->out_length != 0U ? packet->out_length : packet->in_length;
-	void *mappings[CDK2_IDE_MAX_PRD], *prd_mapping = NULL;
-	UINT16 mapping_count = 0; UINT64 device, prd_device; UINT16 entries = 0;
+	size_t remaining = packet->out_length != 0U ? packet->out_length :
+		packet->in_length;
+	UINT64 device, prd_device;
 	EFI_STATUS status;
 	enum cdk2_ahci_dma_operation operation = packet->out_length != 0U ?
 		CDK2_AHCI_BUS_MASTER_READ : CDK2_AHCI_BUS_MASTER_WRITE;
+
+	memset(transaction, 0, sizeof(*transaction));
+	transaction->command = (UINT8)(BM_START |
+		(packet->in_length != 0U ? BM_READ : 0U));
 	while (remaining != 0U) {
 		size_t mapped = remaining;
-		if (mapping_count == CDK2_IDE_MAX_PRD) {
+		if (transaction->mapping_count == CDK2_IDE_MAX_PRD) {
 			status = EFI_BAD_BUFFER_SIZE;
-			goto cleanup;
+			goto fail;
 		}
 		status = engine->services.map(engine->services.context, operation, buffer,
-			&mapped, &device, &mappings[mapping_count]);
+			&mapped, &device,
+			&transaction->mappings[transaction->mapping_count]);
 		if (EFI_ERROR(status) || mapped == 0U || device > 0xffffffffU) {
 			status = EFI_DEVICE_ERROR;
-			goto cleanup;
+			goto fail;
 		}
-		mapping_count++;
+		transaction->mapping_count++;
 		while (mapped != 0U) {
 			size_t boundary = 0x10000U - ((UINT32)device & 0xffffU);
 			size_t chunk = mapped < boundary ? mapped : boundary;
-			if (entries == CDK2_IDE_MAX_PRD) {
+			if (transaction->entries == CDK2_IDE_MAX_PRD) {
 				status = EFI_BAD_BUFFER_SIZE;
-				goto cleanup;
+				goto fail;
 			}
-			engine->prd[entries++] = (struct cdk2_ide_prd) {
+			engine->prd[transaction->entries++] = (struct cdk2_ide_prd) {
 				.address = (UINT32)device, .count = chunk == 0x10000U ? 0U : (UINT16)chunk };
 			device += chunk; mapped -= chunk; remaining -= chunk;
 			buffer = (UINT8 *)buffer + chunk;
 		}
 	}
-	engine->prd[entries - 1U].end = 0x8000U;
+	if (transaction->entries == 0U)
+		return EFI_INVALID_PARAMETER;
+	engine->prd[transaction->entries - 1U].end = 0x8000U;
 	{
-		size_t prd_size = entries * sizeof(engine->prd[0]);
+		size_t prd_size = transaction->entries * sizeof(engine->prd[0]);
 		status = engine->services.map(engine->services.context,
 			CDK2_AHCI_BUS_MASTER_READ, engine->prd, &prd_size, &prd_device,
-			&prd_mapping);
-		if (EFI_ERROR(status) || prd_size != entries * sizeof(engine->prd[0]) ||
+			&transaction->prd_mapping);
+		if (EFI_ERROR(status) ||
+		    prd_size != transaction->entries * sizeof(engine->prd[0]) ||
 		    prd_device > 0xffffffffU) {
 			status = EFI_DEVICE_ERROR;
-			goto cleanup;
+			goto fail;
 		}
 	}
 	if (EFI_ERROR(engine->services.flush(engine->services.context)) ||
 	    EFI_ERROR(engine->services.write32(engine->services.context,
 		ide->bus_master + BM_PRDT, (UINT32)prd_device)) ||
 	    EFI_ERROR(engine->services.write8(engine->services.context,
-		ide->bus_master + BM_STATUS, BM_ERROR | BM_INTERRUPT)) ||
-	    EFI_ERROR(engine->services.write8(engine->services.context,
-		ide->bus_master + BM_COMMAND,
-		(UINT8)(BM_START | (packet->in_length != 0U ? BM_READ : 0U))))) {
+		ide->bus_master + BM_STATUS, BM_ERROR | BM_INTERRUPT))) {
 		status = EFI_DEVICE_ERROR;
-		goto cleanup;
+		goto fail;
 	}
+	transaction->prepared = 1;
+	return EFI_SUCCESS;
+fail:
+	return dma_release(engine, channel, transaction, status);
+}
+
+static EFI_STATUS dma_start_finish(struct cdk2_ide_engine *engine, UINT8 channel,
+	struct ide_dma_transaction *transaction, UINT64 timeout)
+{
+	struct cdk2_ide_channel *ide = &engine->channels[channel];
+	EFI_STATUS status;
+
+	if (!transaction->prepared)
+		return EFI_INVALID_PARAMETER;
+	status = engine->services.write8(engine->services.context,
+		ide->bus_master + BM_COMMAND, transaction->command);
+	if (EFI_ERROR(status))
+		return dma_release(engine, channel, transaction, EFI_DEVICE_ERROR);
+	transaction->started = 1;
 	{
 		UINT64 start = engine->services.time(engine->services.context);
 		for (;;) {
@@ -236,21 +292,17 @@ static EFI_STATUS dma_transfer(struct cdk2_ide_engine *engine, UINT8 channel,
 			engine->services.delay(engine->services.context, 10);
 		}
 	}
-cleanup:
-	(void)engine->services.write8(engine->services.context,
-		ide->bus_master + BM_COMMAND, 0);
-	if (prd_mapping != NULL && EFI_ERROR(engine->services.unmap(
-		engine->services.context, prd_mapping)) && !EFI_ERROR(status))
-		status = EFI_DEVICE_ERROR;
-	while (mapping_count != 0U) {
-		mapping_count--;
-		if (EFI_ERROR(engine->services.unmap(engine->services.context,
-			mappings[mapping_count])) && !EFI_ERROR(status))
-			status = EFI_DEVICE_ERROR;
-	}
-	if (EFI_ERROR(engine->services.flush(engine->services.context)) && !EFI_ERROR(status))
-		status = EFI_DEVICE_ERROR;
-	return status;
+	return dma_release(engine, channel, transaction, status);
+}
+
+static EFI_STATUS dma_transfer(struct cdk2_ide_engine *engine, UINT8 channel,
+	struct cdk2_ata_command_packet *packet, UINT64 timeout)
+{
+	struct ide_dma_transaction transaction;
+	EFI_STATUS status = dma_prepare(engine, channel, packet, &transaction);
+
+	return EFI_ERROR(status) ? status :
+		dma_start_finish(engine, channel, &transaction, timeout);
 }
 
 EFI_STATUS cdk2_ide_execute(struct cdk2_ide_engine *engine, UINT8 channel,
@@ -281,6 +333,7 @@ EFI_STATUS cdk2_ide_atapi_execute(struct cdk2_ide_engine *engine, UINT8 channel,
 	size_t cdb_size, UINT64 timeout)
 {
 	struct cdk2_ata_command_block acb = { 0 };
+	struct ide_dma_transaction transaction = { 0 };
 	UINT8 *in_buffer, *out_buffer;
 	UINT32 in_remaining, out_remaining;
 	UINT16 base, data;
@@ -296,6 +349,11 @@ EFI_STATUS cdk2_ide_atapi_execute(struct cdk2_ide_engine *engine, UINT8 channel,
 		packet->protocol == 0x0bU) ? 1U : 0U;
 	acb.cylinder_low = 0xfeU;
 	acb.cylinder_high = 0xffU;
+	if (acb.features != 0U) {
+		status = dma_prepare(engine, channel, packet, &transaction);
+		if (EFI_ERROR(status))
+			goto complete;
+	}
 	status = issue_task_file(engine, channel, device, &acb, timeout);
 	if (EFI_ERROR(status))
 		goto complete;
@@ -312,7 +370,7 @@ EFI_STATUS cdk2_ide_atapi_execute(struct cdk2_ide_engine *engine, UINT8 channel,
 		}
 	if (packet->protocol == 6U || packet->protocol == 0x0aU ||
 	    packet->protocol == 0x0bU) {
-		status = dma_transfer(engine, channel, packet, timeout);
+		status = dma_start_finish(engine, channel, &transaction, timeout);
 		goto complete;
 	}
 	in_buffer = packet->in_data;
@@ -391,6 +449,8 @@ EFI_STATUS cdk2_ide_atapi_execute(struct cdk2_ide_engine *engine, UINT8 channel,
 	packet->in_length -= in_remaining;
 	packet->out_length -= out_remaining;
 complete:
+	if (transaction.prepared)
+		status = dma_release(engine, channel, &transaction, status);
 	capture_status(engine, channel, packet->asb);
 	if (EFI_ERROR(status))
 		(void)cdk2_ide_reset(engine, channel, timeout);

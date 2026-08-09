@@ -14,7 +14,8 @@ struct fixture {
 	unsigned int writes8, writes16, writes32, maps, unmaps, flushes, timings;
 	unsigned int data_reads;
 	unsigned int fail_map, hold_busy, bm_reads;
-	unsigned int atapi, resets;
+	unsigned int atapi, resets, prdt_ready, packet_issued, bm_starts;
+	unsigned int ordering_bad, fail_cdb;
 	UINT64 now; enum cdk2_ahci_dma_operation operations[8];
 };
 static UINT8 read8(void *opaque, UINT16 port)
@@ -45,8 +46,18 @@ static UINT16 read16(void *opaque, UINT16 port)
 	return value; }
 static EFI_STATUS write8(void *opaque, UINT16 port, UINT8 value)
 { struct fixture *f = opaque; (void)value; f->writes8++;
-	if ((port & 7U) == 7U && value == 0xa0U)
+	if ((port & 7U) == 7U && value == 0xa0U) {
+		if (!f->prdt_ready || f->bm_starts != 0U)
+			f->ordering_bad++;
+		f->packet_issued++;
 		f->atapi = 2;
+	}
+	if (port >= 0xc000U && (port & 7U) == 0U && (value & 1U) != 0U) {
+		if (f->atapi != 0U && !f->packet_issued)
+			f->ordering_bad++;
+		if (f->atapi != 0U)
+			f->bm_starts++;
+	}
 	if ((port == 0x3f6U || port == 0x376U) && value == 0x04U)
 		f->resets++;
 	if (port == 0x1f7U || port == 0x177U)
@@ -54,11 +65,16 @@ static EFI_STATUS write8(void *opaque, UINT16 port, UINT8 value)
 	return EFI_SUCCESS; }
 static EFI_STATUS write16(void *opaque, UINT16 port, UINT16 value)
 { struct fixture *f = opaque; (void)port; (void)value; f->writes16++;
+	if (f->atapi == 2U && f->fail_cdb)
+		return EFI_DEVICE_ERROR;
 	if (f->writes16 == 256U)
 		f->status = 0;
 	return EFI_SUCCESS; }
 static EFI_STATUS write32(void *opaque, UINT16 port, UINT32 value)
-{ struct fixture *f = opaque; (void)port; (void)value; f->writes32++; return EFI_SUCCESS; }
+{ struct fixture *f = opaque; (void)value; f->writes32++;
+	if (port >= 0xc000U && (port & 7U) == 4U)
+		f->prdt_ready++;
+	return EFI_SUCCESS; }
 static EFI_STATUS map(void *opaque, enum cdk2_ahci_dma_operation operation,
 	void *host, size_t *size, UINT64 *device, void **mapping)
 { struct fixture *f = opaque; (void)host; f->maps++;
@@ -136,12 +152,26 @@ int main(void)
 			odd[1] == 0x12 && odd[2] == 0x35);
 		CHECK(fixture.writes16 >= 6U && packet_asb.status == 0);
 		fixture.atapi = 1; fixture.data_reads = 0; fixture.bm_reads = 0;
+		fixture.prdt_ready = 0; fixture.packet_issued = 0;
+		fixture.bm_starts = 0; fixture.ordering_bad = 0;
 		fixture.status = 0; fixture.bm_status = 0x04;
 		atapi_packet.in_data = data; atapi_packet.in_length = 512;
 		atapi_packet.protocol = 0x0a;
 		CHECK(cdk2_ide_atapi_execute(&engine, 0, 0, &atapi_packet, cdb,
 			sizeof(cdb), 100) == EFI_SUCCESS);
 		CHECK(fixture.maps >= 2U && fixture.unmaps >= 2U);
+		CHECK(fixture.prdt_ready != 0U && fixture.packet_issued != 0U &&
+			fixture.bm_starts == 1U && fixture.ordering_bad == 0U);
+		fixture.atapi = 1; fixture.packet_issued = 0; fixture.bm_starts = 0;
+		fixture.fail_cdb = 1; fixture.bm_reads = 0;
+		{
+			unsigned int maps = fixture.maps, unmaps = fixture.unmaps;
+			CHECK(cdk2_ide_atapi_execute(&engine, 0, 0, &atapi_packet, cdb,
+				sizeof(cdb), 100) == EFI_DEVICE_ERROR);
+			CHECK(fixture.maps > maps && fixture.unmaps > unmaps &&
+				fixture.bm_starts == 0U);
+		}
+		fixture.fail_cdb = 0;
 		fixture.atapi = 1; fixture.bm_reads = 0;
 		fixture.fail_map = fixture.maps + 1U;
 		CHECK(cdk2_ide_atapi_execute(&engine, 0, 0, &atapi_packet, cdb,
