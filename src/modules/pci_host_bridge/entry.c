@@ -258,6 +258,44 @@ static uint64_t validate_config_backends(struct boot_services_view *boot)
 	return discover_pci_express_base(boot, &pci_express_base);
 }
 
+struct scan_context {
+	struct cpu_io_view *cpu;
+	uint64_t ecam;
+};
+
+static uint64_t scan_config(void *context, uint8_t bus, uint8_t device,
+	uint8_t function, uint16_t offset, size_t width, uint32_t *value,
+	uint8_t write)
+{
+	struct scan_context *scan = context;
+	uint64_t address;
+	size_t access_width;
+	cdk2_pci_io_fn *access;
+
+	if (scan == NULL || scan->cpu == NULL || value == NULL ||
+	    (width != 1 && width != 2 && width != 4) || offset > 4095U)
+		return EFI_INVALID_PARAMETER;
+	address = scan->ecam + ((uint64_t)bus << 20) +
+		((uint64_t)device << 15) + ((uint64_t)function << 12) + offset;
+	access_width = width == 1 ? CDK2_PCI_UINT8 :
+		(width == 2 ? CDK2_PCI_UINT16 : CDK2_PCI_UINT32);
+	access = write ? scan->cpu->mem.write : scan->cpu->mem.read;
+	return access == NULL ? EFI_UNSUPPORTED :
+		access(scan->cpu, access_width, address, 1, value);
+}
+
+static uint64_t scan_read(void *context, uint8_t bus, uint8_t device,
+	uint8_t function, uint16_t offset, size_t width, uint32_t *value)
+{
+	return scan_config(context, bus, device, function, offset, width, value, 0);
+}
+
+static uint64_t scan_write(void *context, uint8_t bus, uint8_t device,
+	uint8_t function, uint16_t offset, size_t width, uint32_t *value)
+{
+	return scan_config(context, bus, device, function, offset, width, value, 1);
+}
+
 static size_t alignment_exponent(uint64_t mask)
 {
 	size_t exponent = 0;
@@ -298,8 +336,8 @@ static uint64_t CDK2_MS_ABI gcd_release(void *context, uint8_t memory,
 	return function == NULL ? EFI_UNSUPPORTED : function(base, length);
 }
 
-static uint64_t add_io_aperture(struct dxe_services_view *services,
-	uint64_t base, uint64_t length)
+static uint64_t add_io_aperture(struct boot_services_view *boot,
+	struct dxe_services_view *services, uint64_t base, uint64_t length)
 {
 	struct gcd_io_descriptor *map;
 	size_t count, index;
@@ -322,12 +360,12 @@ static uint64_t add_io_aperture(struct dxe_services_view *services,
 		if (status != EFI_SUCCESS)
 			break;
 	}
-	(void)boot_services->free_pool(map);
+	(void)boot->free_pool(map);
 	return status;
 }
 
-static uint64_t add_memory_aperture(struct dxe_services_view *services,
-	uint64_t base, uint64_t length)
+static uint64_t add_memory_aperture(struct boot_services_view *boot,
+	struct dxe_services_view *services, uint64_t base, uint64_t length)
 {
 	struct gcd_memory_descriptor *map;
 	size_t count, index;
@@ -351,13 +389,14 @@ static uint64_t add_memory_aperture(struct dxe_services_view *services,
 		if (status != EFI_SUCCESS)
 			break;
 	}
-	(void)boot_services->free_pool(map);
+	(void)boot->free_pool(map);
 	if (status == EFI_SUCCESS)
 		(void)services->set_memory(base, length, 1ULL);
 	return status;
 }
 
-static uint64_t initialize_gcd_apertures(struct dxe_services_view *services)
+static uint64_t initialize_gcd_apertures(struct boot_services_view *boot,
+	struct dxe_services_view *services)
 {
 	size_t root, aperture;
 
@@ -366,18 +405,28 @@ static uint64_t initialize_gcd_apertures(struct dxe_services_view *services)
 		     aperture++) {
 			const struct cdk2_pci_aperture *range =
 				&host.root[root].aperture[aperture];
+			uint64_t base, length;
 			uint64_t status;
 
 			if (range->base > range->limit)
 				continue;
-			status = aperture == 1 ? add_io_aperture(services,
-				range->base - range->translation,
-				range->limit - range->base + 1U) :
-				add_memory_aperture(services,
-				range->base - range->translation,
-				range->limit - range->base + 1U);
+			base = range->base - range->translation;
+			length = range->limit - range->base + 1U;
+			status = aperture == 1 ? add_io_aperture(boot, services,
+				base, length) : add_memory_aperture(boot, services,
+				base, length);
 			if (status != EFI_SUCCESS)
 				return status;
+			if (host.resource_assigned) {
+				uint64_t allocated = base;
+				gcd_allocate_fn *allocate = aperture == 1 ?
+					services->allocate_io : services->allocate_memory;
+
+				status = allocate(2U, aperture == 1 ? 2U : 3U, 0,
+					length, &allocated, gcd.image, NULL);
+				if (status != EFI_SUCCESS || allocated != base)
+					return status == EFI_SUCCESS ? EFI_DEVICE_ERROR : status;
+			}
 		}
 	return EFI_SUCCESS;
 }
@@ -778,8 +827,9 @@ uint64_t CDK2_MS_ABI cdk2_pci_host_bridge_entry(void *image, void *system)
 		if (same_guid(&table->tables[index].guid, &hob_list_guid)) {
 			hob = table->tables[index].table;
 		}
-		if (same_guid(&table->tables[index].guid, &dxe_services_guid))
+		if (same_guid(&table->tables[index].guid, &dxe_services_guid)) {
 			dxe = table->tables[index].table;
+		}
 	}
 	if (dxe == NULL || dxe->add_memory == NULL || dxe->allocate_memory == NULL ||
 	    dxe->free_memory == NULL || dxe->set_memory == NULL ||
@@ -807,12 +857,39 @@ uint64_t CDK2_MS_ABI cdk2_pci_host_bridge_entry(void *image, void *system)
 			if (status != EFI_SUCCESS)
 				return status;
 			boot_services = table->boot;
-			status = initialize_gcd_apertures(dxe);
+			status = initialize_gcd_apertures(table->boot, dxe);
 			if (status != EFI_SUCCESS)
 				return status;
-			return publish_protocols(table->boot);
+			status = publish_protocols(table->boot);
+			return status;
 		}
 		hob = (struct hob_header *)((uint8_t *)hob + hob->length);
 	}
-	return EFI_NOT_FOUND;
+	{
+		struct scan_context scan;
+
+		memset(&scan, 0, sizeof(scan));
+		status = discover_pci_express_base(table->boot, &scan.ecam);
+		if (status != EFI_SUCCESS)
+			return status;
+		status = table->boot->locate_protocol(&cpu_io_protocol_guid, NULL,
+			(void **)&scan.cpu);
+		if (status != EFI_SUCCESS || scan.cpu == NULL)
+			return EFI_UNSUPPORTED;
+		status = cdk2_pci_host_scan(&host, &scan, scan_read, scan_write);
+		if (status != EFI_SUCCESS)
+			return status;
+		pci_express_base = scan.ecam;
+		gcd.services = dxe;
+		gcd.image = image;
+		status = cdk2_pci_host_set_allocator(&host, &gcd, gcd_reserve,
+			gcd_release);
+		if (status != EFI_SUCCESS)
+			return status;
+		boot_services = table->boot;
+		status = initialize_gcd_apertures(table->boot, dxe);
+		if (status != EFI_SUCCESS)
+			return status;
+		return publish_protocols(table->boot);
+	}
 }

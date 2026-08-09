@@ -27,8 +27,10 @@ CDK2_NATIVE_METRONOME_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-metronome-test
 CDK2_NATIVE_PCD_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-pcd-test
 CDK2_NATIVE_PCI_HOST_BRIDGE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-pci-host-bridge-test
 CDK2_NATIVE_PCI_HOST_BRIDGE_ENTRY_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-pci-host-bridge-entry-test
+CDK2_NATIVE_PCI_HOST_BRIDGE_SCAN_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-pci-host-bridge-scan-test
 CDK2_NATIVE_PCI_ROOT_IO_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-pci-root-io-test
 CDK2_NATIVE_PCI_HOST_BRIDGE_MODEL_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/pci-host-bridge-model.o
+CDK2_NATIVE_PCI_HOST_BRIDGE_SCAN_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/pci-host-bridge-scan.o
 CDK2_NATIVE_PCI_HOST_BRIDGE_ENTRY_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/pci-host-bridge-entry.o
 CDK2_NATIVE_PCI_ROOT_IO_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/pci-root-io.o
 CDK2_NATIVE_PCI_HOST_BRIDGE_PE ?= $(CDK2_NATIVE_BUILD_DIR)/PciHostBridgeDxe.efi
@@ -323,6 +325,7 @@ CDK2_NATIVE_HOST_TOOLS := \
 	$(CDK2_NATIVE_PCD_TEST) \
 	$(CDK2_NATIVE_PCI_HOST_BRIDGE_TEST) \
 	$(CDK2_NATIVE_PCI_HOST_BRIDGE_ENTRY_TEST) \
+	$(CDK2_NATIVE_PCI_HOST_BRIDGE_SCAN_TEST) \
 	$(CDK2_NATIVE_PCI_ROOT_IO_TEST) \
 	$(CDK2_NATIVE_WATCHDOG_TEST) \
 	$(CDK2_NATIVE_STATUS_CODE_ROUTER_TEST) \
@@ -600,6 +603,7 @@ native-check: $(CDK2_CONFIG_HEADER) $(CDK2_NATIVE_ELF) $(CDK2_NATIVE_OVERRIDE_EL
 	@"$(CDK2_NATIVE_PCD_TEST)"
 	@"$(CDK2_NATIVE_PCI_HOST_BRIDGE_TEST)"
 	@"$(CDK2_NATIVE_PCI_HOST_BRIDGE_ENTRY_TEST)"
+	@"$(CDK2_NATIVE_PCI_HOST_BRIDGE_SCAN_TEST)"
 	@"$(CDK2_NATIVE_PCI_ROOT_IO_TEST)"
 	@if test -f "$(CDK2_NATIVE_PCD_DATABASE)" && \
 	    test -f "$(CDK2_NATIVE_PRE_PCD_FV)"; then \
@@ -1933,6 +1937,7 @@ $(CDK2_NATIVE_PCI_HOST_BRIDGE_ENTRY_TEST): \
 		$(CDK2_DIR)/tests/pci_host_bridge_entry_test.c \
 		$(CDK2_DIR)/src/modules/pci_host_bridge/model.c \
 		$(CDK2_DIR)/src/modules/pci_host_bridge/entry.c \
+		$(CDK2_DIR)/src/modules/pci_host_bridge/scan.c \
 		$(CDK2_DIR)/src/modules/pci_host_bridge/root_io.c \
 		$(CDK2_DIR)/include/cdk2/pci_host_bridge.h \
 		$(CDK2_DIR)/include/cdk2/pcd.h | $(CDK2_NATIVE_BUILD_DIR)
@@ -1940,7 +1945,16 @@ $(CDK2_NATIVE_PCI_HOST_BRIDGE_ENTRY_TEST): \
 		-o "$@" $(CDK2_DIR)/tests/pci_host_bridge_entry_test.c \
 		$(CDK2_DIR)/src/modules/pci_host_bridge/model.c \
 		$(CDK2_DIR)/src/modules/pci_host_bridge/entry.c \
+		$(CDK2_DIR)/src/modules/pci_host_bridge/scan.c \
 		$(CDK2_DIR)/src/modules/pci_host_bridge/root_io.c
+
+$(CDK2_NATIVE_PCI_HOST_BRIDGE_SCAN_TEST): \
+		$(CDK2_DIR)/tests/pci_host_bridge_scan_test.c \
+		$(CDK2_DIR)/src/modules/pci_host_bridge/scan.c \
+		$(CDK2_DIR)/include/cdk2/pci_host_bridge.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) \
+		-o "$@" $(CDK2_DIR)/tests/pci_host_bridge_scan_test.c \
+		$(CDK2_DIR)/src/modules/pci_host_bridge/scan.c
 
 $(CDK2_NATIVE_PCI_ROOT_IO_TEST): $(CDK2_DIR)/tests/pci_root_io_test.c \
 		$(CDK2_DIR)/src/modules/pci_host_bridge/root_io.c \
@@ -2026,6 +2040,13 @@ $(CDK2_NATIVE_PCI_HOST_BRIDGE_ENTRY_OBJ): \
 		-mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args \
 		$(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
 
+$(CDK2_NATIVE_PCI_HOST_BRIDGE_SCAN_OBJ): \
+		$(CDK2_DIR)/src/modules/pci_host_bridge/scan.c \
+		$(CDK2_DIR)/include/cdk2/pci_host_bridge.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
+		-mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args \
+		$(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+
 $(CDK2_NATIVE_PCI_ROOT_IO_OBJ): \
 		$(CDK2_DIR)/src/modules/pci_host_bridge/root_io.c \
 		$(CDK2_DIR)/include/cdk2/pci_host_bridge.h | $(CDK2_NATIVE_BUILD_DIR)
@@ -2034,7 +2055,8 @@ $(CDK2_NATIVE_PCI_ROOT_IO_OBJ): \
 		$(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
 
 $(CDK2_NATIVE_PCI_HOST_BRIDGE_PE): $(CDK2_NATIVE_PCI_HOST_BRIDGE_MODEL_OBJ) \
-		$(CDK2_NATIVE_PCI_HOST_BRIDGE_ENTRY_OBJ) $(CDK2_NATIVE_PCI_ROOT_IO_OBJ) \
+		$(CDK2_NATIVE_PCI_HOST_BRIDGE_ENTRY_OBJ) $(CDK2_NATIVE_PCI_HOST_BRIDGE_SCAN_OBJ) \
+		$(CDK2_NATIVE_PCI_ROOT_IO_OBJ) \
 		$(CDK2_NATIVE_BUILD_DIR)/mem.o \
 		$(CDK2_DIR)/src/modules/pci_host_bridge/pci_host_bridge.ld \
 		$(CDK2_NATIVE_PERELOCCHECK)
@@ -2043,7 +2065,8 @@ $(CDK2_NATIVE_PCI_HOST_BRIDGE_PE): $(CDK2_NATIVE_PCI_HOST_BRIDGE_MODEL_OBJ) \
 		--build-id=none --no-insert-timestamp -s --nxcompat \
 		-T "$(CDK2_DIR)/src/modules/pci_host_bridge/pci_host_bridge.ld" -o "$@" \
 		$(CDK2_NATIVE_PCI_HOST_BRIDGE_MODEL_OBJ) \
-		$(CDK2_NATIVE_PCI_HOST_BRIDGE_ENTRY_OBJ) $(CDK2_NATIVE_PCI_ROOT_IO_OBJ) \
+		$(CDK2_NATIVE_PCI_HOST_BRIDGE_ENTRY_OBJ) $(CDK2_NATIVE_PCI_HOST_BRIDGE_SCAN_OBJ) \
+		$(CDK2_NATIVE_PCI_ROOT_IO_OBJ) \
 		$(CDK2_NATIVE_BUILD_DIR)/mem.o
 	@"$(CDK2_NATIVE_PERELOCCHECK)" --subsystem 11 "$@"
 

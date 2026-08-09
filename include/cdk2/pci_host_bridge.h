@@ -65,6 +65,8 @@ typedef uint64_t CDK2_MS_ABI cdk2_pci_reserve_fn(void *, uint8_t, uint64_t,
 	uint64_t, uint64_t, uint64_t *);
 typedef uint64_t CDK2_MS_ABI cdk2_pci_release_fn(void *, uint8_t, uint64_t,
 	uint64_t);
+typedef uint64_t cdk2_pci_config_scan_fn(void *, uint8_t, uint8_t, uint8_t,
+	uint16_t, size_t, uint32_t *);
 
 struct cdk2_pci_host_model {
 	struct cdk2_pci_root_bridge_view root[CDK2_PCI_HOST_MAX_ROOTS];
@@ -188,5 +190,7 @@ uint64_t cdk2_pci_host_submit(struct cdk2_pci_host_model *host, size_t root,
 	size_t type, uint64_t length, uint64_t alignment);
 uint64_t cdk2_pci_host_set_allocator(struct cdk2_pci_host_model *host,
 	void *context, cdk2_pci_reserve_fn *reserve, cdk2_pci_release_fn *release);
+uint64_t cdk2_pci_host_scan(struct cdk2_pci_host_model *host, void *context,
+	cdk2_pci_config_scan_fn *read, cdk2_pci_config_scan_fn *write);
 
 #endif

@@ -72,21 +72,26 @@ EFI_STATUS CDK2_MS_ABI pci_host_bridge_qemu_entry(void *image, void *table)
 	EFI_STATUS status;
 
 	(void)image;
+	serial_write("CDK2_PCI_HOST_BRIDGE_ORACLE_ENTRY\r\n");
 	if (system == NULL || system->boot == NULL ||
 	    system->boot->locate_protocol == NULL || system->boot->handle_protocol == NULL)
 		goto bad;
+	serial_write("CDK2_PCI_HOST_BRIDGE_ORACLE_BOOT_OK\r\n");
 	status = system->boot->locate_protocol(&resource_protocol_guid, NULL,
 		(void **)&host);
 	if (EFI_ERROR(status) || host == NULL || host->next == NULL)
 		goto bad;
+	serial_write("CDK2_PCI_HOST_BRIDGE_ORACLE_HOST_OK\r\n");
 	status = host->next(host, &root);
 	if (EFI_ERROR(status) || root == NULL)
 		goto bad;
+	serial_write("CDK2_PCI_HOST_BRIDGE_ORACLE_ROOT_OK\r\n");
 	status = system->boot->handle_protocol(root, &root_io_protocol_guid,
 		(void **)&root_io);
 	if (EFI_ERROR(status) || root_io == NULL || root_io->pci.read == NULL ||
 	    root_io->get_attributes == NULL || root_io->configuration == NULL)
 		goto bad;
+	serial_write("CDK2_PCI_HOST_BRIDGE_ORACLE_ROOT_IO_OK\r\n");
 	status = system->boot->handle_protocol(root, &device_path_protocol_guid,
 		(void **)&path);
 	if (EFI_ERROR(status) || path == NULL || path->type != 2 || path->subtype != 1 ||
