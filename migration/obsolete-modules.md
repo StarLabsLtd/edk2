@@ -52,7 +52,7 @@ name appears in the serial log.
 The early three-module negative candidate, which removed `PcdDxe` before its
 native service existed, stopped immediately after coreboot transferred control
 to the payload. Native PCD now supplies the required protocols and database;
-the current composed inventory contains 38 retained modules after the native
+the current composed inventory contains 37 retained modules after the native
 Partition, BlSupport, PCI Host Bridge, and HII Database driver replacements.
 
 The later TPM-1.2-free candidate replaced `TcgDxe` with a valid pad while

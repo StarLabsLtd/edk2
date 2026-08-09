@@ -251,6 +251,14 @@ config CDK2_NATIVE_FAT
 	  Publish the Simple File System and revisioned File protocols from the
 	  admitted FAT volume driver.
 
+config CDK2_NATIVE_PCI_BUS
+	bool "Build native PCI bus services"
+	default y
+	depends on CDK2_NATIVE_FAT && CDK2_NATIVE_PCI_HOST_BRIDGE
+	help
+	  Enumerate PCI roots and publish per-function Device Path, PCI I/O and
+	  option-ROM Load File protocols using the native host bridge services.
+
 config CDK2_NATIVE_STATUS_CODE_HANDLER
 	bool "Build the native release status-code handler"
 	default y

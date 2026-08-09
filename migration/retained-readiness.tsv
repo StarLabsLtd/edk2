@@ -6,7 +6,6 @@ hardware-gated	MdeModulePkg/Bus/Ata/AtaBusDxe/AtaBusDxe
 hardware-gated	MdeModulePkg/Bus/Isa/Ps2MouseDxe/Ps2MouseDxe
 hardware-gated	MdeModulePkg/Bus/Pci/EhciDxe/EhciDxe
 hardware-gated	MdeModulePkg/Bus/Pci/NvmExpressDxe/NvmExpressDxe
-hardware-gated	MdeModulePkg/Bus/Pci/PciBusDxe/PciBusDxe
 hardware-gated	MdeModulePkg/Bus/Pci/SataControllerDxe/SataControllerDxe
 hardware-gated	MdeModulePkg/Bus/Pci/SdMmcPciHcDxe/SdMmcPciHcDxe
 hardware-gated	MdeModulePkg/Bus/Pci/UhciDxe/UhciDxe

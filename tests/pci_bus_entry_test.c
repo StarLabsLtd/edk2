@@ -8,8 +8,16 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define CHECK(x) do { if (!(x)) { fprintf(stderr, "check failed: %s:%d: %s\n", \
-	__FILE__, __LINE__, #x); return 1; } } while (0)
+static void verify_condition(int condition, const char *file, int line,
+	const char *text)
+{
+	if (!condition) {
+		fprintf(stderr, "test failed: %s:%d: %s\n", file, line, text);
+		exit(EXIT_FAILURE);
+	}
+}
+
+#define CHECK(x) verify_condition((x), __FILE__, __LINE__, #x)
 
 typedef EFI_STATUS CDK2_MS_ABI unload_fn(void *);
 typedef EFI_STATUS CDK2_MS_ABI request_notify_fn(void *, UINTN, void *, void *,

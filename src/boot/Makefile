@@ -34,6 +34,7 @@ CDK2_NATIVE_PCI_BUS_ENTRY_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-pci-bus-entry-te
 CDK2_NATIVE_PCI_BUS_OBJS ?= $(addprefix $(CDK2_NATIVE_BUILD_DIR)/pci-bus-,model.o allocator.o host.o rom.o cardbus.o pci_io.o pci_io_abi.o binding.o adapter.o driver.o entry.o)
 CDK2_NATIVE_PCI_BUS_PE ?= $(CDK2_NATIVE_BUILD_DIR)/PciBusDxe.efi
 CDK2_NATIVE_PCI_BUS_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/PciBusDxe.ffs
+CDK2_NATIVE_PCI_BUS_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-pci-bus.fv
 CDK2_NATIVE_PCI_HOST_BRIDGE_MODEL_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/pci-host-bridge-model.o
 CDK2_NATIVE_PCI_HOST_BRIDGE_SCAN_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/pci-host-bridge-scan.o
 CDK2_NATIVE_PCI_HOST_BRIDGE_ENTRY_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/pci-host-bridge-entry.o
@@ -1810,6 +1811,24 @@ native-fat-fv:
 	@printf '%s\n' 'native Fat: disabled by Kconfig'
 endif
 
+ifeq ($(CONFIG_CDK2_NATIVE_PCI_BUS),y)
+CDK2_NATIVE_PRE_PCI_BUS_FV := $(CDK2_NATIVE_FINAL_FV)
+CDK2_NATIVE_FINAL_FV := $(CDK2_NATIVE_PCI_BUS_FV)
+
+$(CDK2_NATIVE_PCI_BUS_FV): $(CDK2_NATIVE_PRE_PCI_BUS_FV) \
+		$(CDK2_NATIVE_PCI_BUS_FFS) $(CDK2_NATIVE_FVREPLACE)
+	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_PRE_PCI_BUS_FV)" 0x28c0c0 \
+		"$(CDK2_NATIVE_PCI_BUS_FFS)" "$@"
+
+native-pci-bus-fv: $(CDK2_NATIVE_PCI_BUS_FV)
+	@"$(CDK2_NATIVE_FVINFO)" "$<" | grep -q \
+		'^93b80004-9fb3-11d4-9a3a-0090273fc14d[[:space:]]0x0028c0c0[[:space:]]0x00018042[[:space:]]0x07[[:space:]]PciBusDxe$$'
+	@printf '%s\n' "native PCI Bus FV: $<"
+else
+native-pci-bus-fv:
+	@printf '%s\n' 'native PCI Bus: disabled by Kconfig'
+endif
+
 ifeq ($(CONFIG_CDK2_NATIVE_ENGLISH),y)
 $(CDK2_NATIVE_ENGLISH_OBJ): $(CDK2_DIR)/src/modules/english/english.c $(CDK2_DIR)/include/cdk2/english.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
@@ -1850,6 +1869,12 @@ ifeq ($(CONFIG_CDK2_NATIVE_PCI_HOST_BRIDGE),y)
 native-pci-host-bridge-fv:
 	@printf '%s\n' \
 		'native-pci-host-bridge-fv requires CDK2_PAYLOAD_FV=/path/to/payload.fv' >&2
+	@exit 1
+endif
+ifeq ($(CONFIG_CDK2_NATIVE_PCI_BUS),y)
+native-pci-bus-fv:
+	@printf '%s\n' \
+		'native-pci-bus-fv requires CDK2_PAYLOAD_FV=/path/to/payload.fv' >&2
 	@exit 1
 endif
 endif
@@ -2215,7 +2240,12 @@ $(CDK2_NATIVE_PCI_BUS_FFS): $(CDK2_NATIVE_PCI_BUS_PE) $(CDK2_NATIVE_FFSBUILD)
 	@"$(CDK2_NATIVE_FFSBUILD)" 93b80004-9fb3-11d4-9a3a-0090273fc14d \
 		PciBusDxe 1.0 0x18042 "$(CDK2_NATIVE_PCI_BUS_PE)" "$@" -
 
-.PHONY: native-pci-bus-package
+.PHONY: native-pci-bus-test native-pci-bus-package
+native-pci-bus-test: $(CDK2_NATIVE_PCI_BUS_MODEL_TEST) \
+		$(CDK2_NATIVE_PCI_BUS_ENTRY_TEST)
+	@"$(CDK2_NATIVE_PCI_BUS_MODEL_TEST)"
+	@"$(CDK2_NATIVE_PCI_BUS_ENTRY_TEST)"
+
 native-pci-bus-package: $(CDK2_NATIVE_PCI_BUS_FFS)
 	@test "$$(wc -c < "$(CDK2_NATIVE_PCI_BUS_FFS)")" -eq $$((0x18042))
 	@test "$$(od -An -tx1 -N16 "$(CDK2_NATIVE_PCI_BUS_FFS)" | tr -d ' \n')" = \

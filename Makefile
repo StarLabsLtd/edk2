@@ -43,6 +43,7 @@ CDK2_CONFIG_TARGETS := build check manifest modules native-stage \
 	native-coreboot-stage native-coreboot-image native-check native-pack native-service-test \
 	native-pcd-package \
 	native-pci-host-bridge-package \
+	native-pci-bus-package native-pci-bus-fv \
 	native-coreboot-test native-fv-test native-fvpack-test native-pe-test \
 	native-fvinfo native-fvinfo-test native-null-memory-test-fv \
 	native-null-memory-test-test native-module-test native-elfcheck-test \
@@ -77,6 +78,7 @@ CDK2_CONFIG_TARGETS := build check manifest modules native-stage \
 	native-pci-host-bridge-oracle \
 	native-pci-host-bridge-in-fv-oracle \
 	native-fat-test native-fat-package native-fat-fv native-fat-oracle \
+	native-pci-bus-test \
 	manifest-check print
 
 CDK2_RECURSIVE_ARGS := \

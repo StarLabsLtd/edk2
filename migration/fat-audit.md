@@ -15,7 +15,7 @@ read/write growth and truncation, flush ordering, media-change handling, and
 transactional Driver Binding Start/Stop ownership.
 
 The serial implementation now replaces the admitted envelope and reduces the
-retained inventory to 38 modules. It provides the production Driver Binding,
+retained inventory to 37 modules after the serial PCI Bus replacement. It provides the production Driver Binding,
 Simple File System and revision-two File protocols and validates legal open modes and access,
 creates files and initialized directories, resolves absolute and relative
 paths, maintains long and short names, and queues event-backed revision-two

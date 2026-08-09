@@ -786,6 +786,29 @@ static EFI_STATUS hotplug_add(struct entry_context *entry, UINTN root,
 	return EFI_SUCCESS;
 }
 
+static UINT16 child_function_index(struct entry_context *entry,
+				   const struct cdk2_pci_topology *topology,
+				   UINTN child)
+{
+	for (UINTN function = 0; function < topology->count; function++)
+		if (function_same_bdf(
+			    &entry->driver.binding.children[child]->function,
+			    &topology->functions[function]))
+			return function;
+	return CDK2_PCI_ROOT_PARENT;
+}
+
+static int function_below(const struct cdk2_pci_topology *topology,
+			  UINT16 function, UINT16 ancestor)
+{
+	while (function != CDK2_PCI_ROOT_PARENT) {
+		if (function == ancestor)
+			return 1;
+		function = topology->functions[function].parent_index;
+	}
+	return 0;
+}
+
 static EFI_STATUS hotplug_remove(struct entry_context *entry, UINTN root,
 	void *controller, UINT8 *number, void **handles)
 {
@@ -797,10 +820,7 @@ static EFI_STATUS hotplug_remove(struct entry_context *entry, UINTN root,
 	UINT16 remap[CDK2_PCI_MAX_FUNCTIONS];
 	for (UINTN child = 0; child < entry->driver.binding.child_count; child++)
 		if (entry->driver.binding.children[child]->handle == controller)
-			for (UINTN index = 0; index < topology->count; index++)
-				if (function_same_bdf(&entry->driver.binding.children[child]->function,
-					&topology->functions[index]))
-					controller_index = index;
+			controller_index = child_function_index(entry, topology, child);
 	if (*number != 0U && handles == NULL)
 		return EFI_INVALID_PARAMETER;
 	if (*number != 0U) {
@@ -808,16 +828,8 @@ static EFI_STATUS hotplug_remove(struct entry_context *entry, UINTN root,
 			int allowed = controller == entry->roots[root].controller;
 			for (UINTN child = 0; child < entry->driver.binding.child_count; child++)
 				if (entry->driver.binding.children[child]->handle == handles[index]) {
-					UINT16 candidate = CDK2_PCI_ROOT_PARENT;
-					for (UINTN function = 0; function < topology->count; function++)
-						if (function_same_bdf(&entry->driver.binding.children[child]->function,
-							&topology->functions[function]))
-							candidate = function;
-					while (!allowed && candidate != CDK2_PCI_ROOT_PARENT) {
-						if (candidate == controller_index)
-							allowed = 1;
-						candidate = topology->functions[candidate].parent_index;
-					}
+					UINT16 candidate = child_function_index(entry, topology, child);
+					allowed |= function_below(topology, candidate, controller_index);
 				}
 			if (!allowed)
 				return EFI_INVALID_PARAMETER;

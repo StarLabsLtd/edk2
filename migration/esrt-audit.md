@@ -16,4 +16,4 @@ AND; AND; END`:
 
 The native FFS replaces that exact admitted envelope at `0x519ca8`. Later
 native PCD, Device Path, Partition, and BlSupport layers preserve it; the
-composed inventory now has 38 retained modules.
+composed inventory now has 37 retained modules.
