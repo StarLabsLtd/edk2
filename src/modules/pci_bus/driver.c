@@ -38,15 +38,24 @@ static EFI_STATUS CDK2_MS_ABI start(struct cdk2_driver_binding_protocol *protoco
 	call_status = cdk2_pci_bus_start(&instance->binding, controller, path,
 		path_size, &topology);
 	instance->release_discovery(instance->context, path);
+	if (instance->finish_discovery != NULL)
+		instance->finish_discovery(instance->context, controller,
+			call_status == 0);
 	return call_status == 0 ? EFI_SUCCESS : EFI_DEVICE_ERROR;
 }
 
 static EFI_STATUS CDK2_MS_ABI stop(struct cdk2_driver_binding_protocol *protocol,
 	void *controller, UINTN child_count, void **children)
 {
-	if (cdk2_pci_bus_stop(&driver(protocol)->binding, controller, children,
-		child_count) != 0)
+	struct cdk2_pci_bus_driver *instance = driver(protocol);
+	if (cdk2_pci_bus_stop(&instance->binding, controller, children,
+		child_count) != 0) {
+		if (instance->finish_stop != NULL)
+			instance->finish_stop(instance->context, controller, 0);
 		return EFI_DEVICE_ERROR;
+	}
+	if (instance->finish_stop != NULL)
+		instance->finish_stop(instance->context, controller, 1);
 	return EFI_SUCCESS;
 }
 

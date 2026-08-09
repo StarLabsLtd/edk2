@@ -63,6 +63,9 @@ struct cdk2_driver_binding_protocol {
 
 struct cdk2_pci_bus_child {
 	void *handle, *parent;
+	void *root_io;
+	void *entry_context;
+	EFI_STATUS io_status;
 	void *device_path;
 	size_t device_path_size;
 	unsigned int installed;
@@ -103,6 +106,8 @@ struct cdk2_pci_bus_driver {
 	int (*discover)(void *context, void *controller, void *remaining,
 		struct cdk2_pci_topology *topology, void **path, size_t *path_size);
 	void (*release_discovery)(void *context, void *path);
+	void (*finish_discovery)(void *context, void *controller, int success);
+	void (*finish_stop)(void *context, void *controller, int success);
 	int (*publish)(void *context, struct cdk2_pci_bus_driver *driver);
 	int (*unpublish)(void *context, struct cdk2_pci_bus_driver *driver);
 	uint8_t published;
@@ -122,5 +127,7 @@ void cdk2_pci_bus_initialize_component_names(struct cdk2_pci_bus_binding *bindin
 int cdk2_pci_bus_driver_entry(struct cdk2_pci_bus_driver *driver,
 	void *image_handle);
 int cdk2_pci_bus_driver_unload(struct cdk2_pci_bus_driver *driver);
+EFI_STATUS CDK2_MS_ABI cdk2_pci_bus_entry(void *image, void *system_table);
+EFI_STATUS CDK2_MS_ABI cdk2_pci_bus_unload(void *image);
 
 #endif
