@@ -788,11 +788,6 @@ native-fat-package: $(CDK2_NATIVE_FAT_FFS) $(CDK2_NATIVE_FAT_PACKAGE_TEST)
 	@"$(CDK2_NATIVE_FAT_PACKAGE_TEST)" "$<"
 	@printf '%s\n' "native Fat FFS: $<"
 
-native-fat-fv: $(CDK2_NATIVE_FAT_FV)
-	@"$(CDK2_NATIVE_FVINFO)" "$<" | grep -q \
-		'^961578fe-b6b7-44c3-af35-6bc705cd2b1f[[:space:]]0x003516c8[[:space:]]0x0000e036[[:space:]]0x07[[:space:]]Fat$$'
-	@printf '%s\n' "native Fat FV: $<"
-
 native-fat-oracle: $(CDK2_NATIVE_FAT_QEMU_PE)
 	@printf '%s\n' "native Fat oracle: $<"
 
@@ -1798,6 +1793,11 @@ $(CDK2_NATIVE_FAT_FV): $(CDK2_NATIVE_PRE_FAT_FV) $(CDK2_NATIVE_FAT_FFS) \
 		$(CDK2_NATIVE_FVREPLACE)
 	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_PRE_FAT_FV)" 0x3516c8 \
 		"$(CDK2_NATIVE_FAT_FFS)" "$@"
+
+native-fat-fv: $(CDK2_NATIVE_FAT_FV)
+	@"$(CDK2_NATIVE_FVINFO)" "$<" | grep -q \
+		'^961578fe-b6b7-44c3-af35-6bc705cd2b1f[[:space:]]0x003516c8[[:space:]]0x0000e036[[:space:]]0x07[[:space:]]Fat$$'
+	@printf '%s\n' "native Fat FV: $<"
 else
 native-fat-fv:
 	@printf '%s\n' 'native Fat: disabled by Kconfig'
