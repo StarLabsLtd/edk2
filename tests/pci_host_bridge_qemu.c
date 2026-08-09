@@ -79,25 +79,31 @@ EFI_STATUS CDK2_MS_ABI pci_host_bridge_qemu_entry(void *image, void *table)
 	serial_write("CDK2_PCI_HOST_BRIDGE_ORACLE_BOOT_OK\r\n");
 	status = system->boot->locate_protocol(&resource_protocol_guid, NULL,
 		(void **)&host);
-	if (EFI_ERROR(status) || host == NULL || host->next == NULL)
-		goto bad;
-	serial_write("CDK2_PCI_HOST_BRIDGE_ORACLE_HOST_OK\r\n");
-	status = host->next(host, &root);
-	if (EFI_ERROR(status) || root == NULL)
-		goto bad;
-	serial_write("CDK2_PCI_HOST_BRIDGE_ORACLE_ROOT_OK\r\n");
-	status = system->boot->handle_protocol(root, &root_io_protocol_guid,
-		(void **)&root_io);
+	if (!EFI_ERROR(status) && host != NULL && host->next != NULL) {
+		serial_write("CDK2_PCI_HOST_BRIDGE_ORACLE_HOST_OK\r\n");
+		status = host->next(host, &root);
+		if (EFI_ERROR(status) || root == NULL)
+			goto bad;
+		serial_write("CDK2_PCI_HOST_BRIDGE_ORACLE_ROOT_OK\r\n");
+		status = system->boot->handle_protocol(root, &root_io_protocol_guid,
+			(void **)&root_io);
+	} else {
+		status = system->boot->locate_protocol(&root_io_protocol_guid, NULL,
+			(void **)&root_io);
+		serial_write("CDK2_PCI_HOST_BRIDGE_ORACLE_ASSIGNED_ROOT_OK\r\n");
+	}
 	if (EFI_ERROR(status) || root_io == NULL || root_io->pci.read == NULL ||
 	    root_io->get_attributes == NULL || root_io->configuration == NULL)
 		goto bad;
 	serial_write("CDK2_PCI_HOST_BRIDGE_ORACLE_ROOT_IO_OK\r\n");
-	status = system->boot->handle_protocol(root, &device_path_protocol_guid,
-		(void **)&path);
-	if (EFI_ERROR(status) || path == NULL || path->type != 2 || path->subtype != 1 ||
-	    path->length != 12 || path->end_type != 0x7f || path->end_subtype != 0xff ||
-	    path->end_length != 4)
-		goto bad;
+	if (root != NULL) {
+		status = system->boot->handle_protocol(root, &device_path_protocol_guid,
+			(void **)&path);
+		if (EFI_ERROR(status) || path == NULL || path->type != 2 ||
+		    path->subtype != 1 || path->length != 12 || path->end_type != 0x7f ||
+		    path->end_subtype != 0xff || path->end_length != 4)
+			goto bad;
+	}
 	serial_write("CDK2_PCI_HOST_BRIDGE_PROTOCOLS_OK\r\n");
 	status = root_io->get_attributes(root_io, &supports, &attributes);
 	if (EFI_ERROR(status) || (attributes & ~supports) != 0)

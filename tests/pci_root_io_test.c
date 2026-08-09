@@ -136,6 +136,7 @@ int main(void)
 	uint64_t result, device, attributes, supports, pci_address = 0;
 	size_t bytes;
 	void *mapping, *resources;
+	void *allocated;
 	int failures = 0;
 
 	memset(&root, 0, sizeof(root));
@@ -212,6 +213,10 @@ int main(void)
 		"attribute policy failed");
 	failures += expect(io.configuration(&io, &resources) == EFI_SUCCESS &&
 		*(uint8_t *)resources == 0x8a, "configuration descriptors absent");
+	allocated = NULL;
+	failures += expect(io.allocate_buffer(&io, 0, 4, 1, &allocated, 0x8000) ==
+		EFI_SUCCESS && allocated == bounce,
+		"non-DMA64 root did not force DAC buffer below 4G");
 	failures += expect(io.poll_mem(&io, CDK2_PCI_UINT8,
 		(uint64_t)(uintptr_t)memory, 0xff, 0xee, 10, &result) == EFI_TIMEOUT &&
 		stalls == 1, "poll timeout semantics failed");

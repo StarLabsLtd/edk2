@@ -15,6 +15,7 @@ static int provide_pcd;
 static int provide_pcd_names = 1;
 static unsigned int uninstalls;
 static unsigned int gcd_memory_adds, gcd_io_adds;
+static unsigned int gcd_removes, fail_gcd_add_on;
 static unsigned int fail_install_on;
 static void *published_path;
 
@@ -96,12 +97,23 @@ static uint64_t CDK2_MS_ABI gcd_add(uint32_t type, uint64_t base,
 	uint64_t length, ...)
 {
 	(void)base;
+	if (gcd_memory_adds + gcd_io_adds + 1U == fail_gcd_add_on)
+		return EFI_OUT_OF_RESOURCES;
 	if (type == 2U)
 		gcd_io_adds++;
 	if (type == 3U)
 		gcd_memory_adds++;
 	return (type == 2U || type == 3U) && length != 0 ? EFI_SUCCESS :
 		EFI_INVALID_PARAMETER;
+}
+
+static uint64_t CDK2_MS_ABI gcd_remove(uint64_t base, uint64_t length)
+{
+	(void)base;
+	if (length == 0)
+		return EFI_INVALID_PARAMETER;
+	gcd_removes++;
+	return EFI_SUCCESS;
 }
 
 static uint64_t CDK2_MS_ABI gcd_set(uint64_t base, uint64_t length,
@@ -310,11 +322,13 @@ int main(void)
 	dxe.add_memory = gcd_add;
 	dxe.allocate_memory = gcd_allocate;
 	dxe.free_memory = gcd_free;
+	dxe.remove_memory = gcd_remove;
 	dxe.set_memory = gcd_set;
 	dxe.get_memory_map = memory_map;
 	dxe.add_io = gcd_add;
 	dxe.allocate_io = gcd_allocate;
 	dxe.free_io = gcd_free;
+	dxe.remove_io = gcd_remove;
 	dxe.get_io_map = io_map;
 	config[0].guid = hob_list;
 	config[0].table = &hob;
@@ -331,6 +345,15 @@ int main(void)
 	failures += expect(gcd_io_adds == 1 && gcd_memory_adds == 1,
 		"root apertures were not registered in the GCD maps before publication");
 	protocol = installed;
+	{
+		unsigned int before_removes = gcd_removes;
+
+		fail_gcd_add_on = gcd_memory_adds + gcd_io_adds + 2U;
+		failures += expect(cdk2_pci_host_bridge_entry((void *)0x44, &system) ==
+			EFI_OUT_OF_RESOURCES && gcd_removes == before_removes + 1U,
+			"partial GCD additions were not removed in reverse rollback");
+		fail_gcd_add_on = 0;
+	}
 	failures += expect(protocol->next(protocol, &root) == EFI_SUCCESS && root != NULL &&
 		protocol->attributes(protocol, root, &attributes) == EFI_SUCCESS &&
 		attributes == 0x1234 && protocol->next(protocol, &root) == EFI_NOT_FOUND,

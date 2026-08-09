@@ -8,12 +8,13 @@
 struct function {
 	uint8_t bus, device, function, present, header, class_base, class_sub, sub_bus;
 	uint32_t bar[6], mask[6];
+	uint16_t mem_base, mem_limit;
 };
 
 struct fixture {
 	struct function function[8];
 	size_t count;
-	uint8_t fail, writes, restores;
+	uint8_t fail, writes, restores, fail_bar_write;
 };
 
 static struct function *find_function(struct fixture *fixture, uint8_t bus,
@@ -48,6 +49,8 @@ static uint64_t config(void *context, uint8_t bus, uint8_t device,
 		bar = (offset - 0x10U) / 4U;
 		if (write) {
 			fixture->writes++;
+			if (fixture->writes == fixture->fail_bar_write)
+				return EFI_DEVICE_ERROR;
 			if (*value == UINT32_MAX)
 				entry->bar[bar] = entry->mask[bar];
 			else {
@@ -71,6 +74,10 @@ static uint64_t config(void *context, uint8_t bus, uint8_t device,
 		*value = entry->class_sub;
 	else if (offset == 0x1a && width == 1)
 		*value = entry->sub_bus;
+	else if (offset == 0x20 && width == 2)
+		*value = entry->mem_base;
+	else if (offset == 0x22 && width == 2)
+		*value = entry->mem_limit;
 	else
 		*value = 0;
 	return EFI_SUCCESS;
@@ -107,23 +114,30 @@ int main(void)
 	failures += expect(cdk2_pci_host_scan(&host, &fixture, read_config,
 		write_config) == EFI_NOT_FOUND && memcmp(&host, &saved, sizeof(host)) == 0,
 		"empty scan mutated the caller model");
-	fixture.count = 4;
+	fixture.count = 5;
 	fixture.function[0] = (struct function){ .present = 1, .header = 0x80,
 		.bar = { 0x80001000 }, .mask = { 0xfffff000 } };
 	fixture.function[1] = (struct function){ .present = 1, .function = 1,
 		.bar = { 0x2001 }, .mask = { 0xffffff01 } };
 	fixture.function[2] = (struct function){ .present = 1, .device = 1,
-		.header = 1, .class_base = 6, .class_sub = 4, .sub_bus = 3 };
+		.header = 1, .class_base = 6, .class_sub = 4, .sub_bus = 3,
+		.mem_base = 0x9000, .mem_limit = 0x9000 };
 	fixture.function[3] = (struct function){ .present = 1, .device = 2,
 		.bar = { 4, 1 }, .mask = { 0xfffff004, UINT32_MAX } };
+	fixture.function[4] = (struct function){ .present = 1, .device = 3,
+		.class_base = 3 };
 	failures += expect(cdk2_pci_host_scan(&host, &fixture, read_config,
 		write_config) == EFI_SUCCESS, "valid topology scan failed");
 	failures += expect(host.count == 1 && host.root[0].aperture[0].limit == 3,
 		"bridge bus bound was not preserved");
 	failures += expect(host.root[0].aperture[1].base == 0x2000 &&
 		host.root[0].aperture[2].base == 0x80001000 &&
+		host.root[0].aperture[2].limit == 0x900fffff &&
 		host.root[0].aperture[3].base == 0x100000000ULL,
 		"multifunction BAR apertures were not aggregated");
+	failures += expect(host.root[0].supports != 0 &&
+		host.root[0].attributes == host.root[0].supports,
+		"legacy decode attributes were not discovered");
 	failures += expect(fixture.writes != 0 && fixture.writes == fixture.restores * 2,
 		"BAR probes were not restored");
 	saved = host;
@@ -131,5 +145,11 @@ int main(void)
 	failures += expect(cdk2_pci_host_scan(&host, &fixture, read_config,
 		write_config) == EFI_DEVICE_ERROR && memcmp(&host, &saved, sizeof(host)) == 0,
 		"failed scan was not atomic");
+	fixture.fail = 0;
+	fixture.writes = 0;
+	fixture.fail_bar_write = 2;
+	failures += expect(cdk2_pci_host_scan(&host, &fixture, read_config,
+		write_config) == EFI_DEVICE_ERROR && memcmp(&host, &saved, sizeof(host)) == 0,
+		"BAR restore failure was accepted or mutated the model");
 	return failures != 0;
 }

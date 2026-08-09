@@ -337,8 +337,7 @@ static uint64_t CDK2_MS_ABI allocate_buffer(struct cdk2_pci_root_io *io,
 				attributes & ~PCI_ATTRIBUTE_DUAL_ADDRESS_CYCLE);
 	if (io->services.allocate_pages == NULL)
 		return EFI_UNSUPPORTED;
-	if ((attributes & PCI_ATTRIBUTE_DUAL_ADDRESS_CYCLE) == 0 &&
-	    !io->root.dma_above_4g) {
+	if (!io->root.dma_above_4g) {
 		type = 1;
 		address = UINT32_MAX;
 	} else {

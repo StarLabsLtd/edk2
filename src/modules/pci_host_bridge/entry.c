@@ -84,13 +84,15 @@ struct dxe_services_view {
 	gcd_add_fn *add_memory;
 	gcd_allocate_fn *allocate_memory;
 	gcd_free_fn *free_memory;
-	void *remove_memory, *get_memory;
+	gcd_free_fn *remove_memory;
+	void *get_memory;
 	gcd_set_fn *set_memory;
 	gcd_get_map_fn *get_memory_map;
 	gcd_add_fn *add_io;
 	gcd_allocate_fn *allocate_io;
 	gcd_free_fn *free_io;
-	void *remove_io, *get_io;
+	gcd_free_fn *remove_io;
+	void *get_io;
 	gcd_get_map_fn *get_io_map;
 };
 
@@ -131,8 +133,41 @@ struct resource_protocol {
 
 static struct cdk2_pci_host_model host;
 static void *host_handle;
+static uint8_t resource_protocol_installed;
 static struct boot_services_view *boot_services;
 static struct gcd_context gcd;
+struct gcd_owned_range {
+	uint64_t base, length;
+	uint8_t memory, added, allocated;
+};
+static struct gcd_owned_range gcd_owned[128];
+static size_t gcd_owned_count;
+
+static uint64_t record_gcd(uint8_t memory, uint8_t added, uint8_t allocated,
+	uint64_t base, uint64_t length)
+{
+	if (gcd_owned_count == ARRAY_SIZE(gcd_owned))
+		return EFI_OUT_OF_RESOURCES;
+	gcd_owned[gcd_owned_count++] = (struct gcd_owned_range){ base, length,
+		memory, added, allocated };
+	return EFI_SUCCESS;
+}
+
+static void rollback_gcd(void)
+{
+	while (gcd_owned_count != 0) {
+		struct gcd_owned_range *range = &gcd_owned[--gcd_owned_count];
+		gcd_free_fn *free = range->memory ? gcd.services->free_memory :
+			gcd.services->free_io;
+		gcd_free_fn *remove = range->memory ? gcd.services->remove_memory :
+			gcd.services->remove_io;
+
+		if (range->allocated && free != NULL)
+			(void)free(range->base, range->length);
+		if (range->added && remove != NULL)
+			(void)remove(range->base, range->length);
+	}
+}
 static uint64_t pci_express_base;
 static struct cdk2_pci_root_io root_io[CDK2_PCI_HOST_MAX_ROOTS];
 static void *root_handles[CDK2_PCI_HOST_MAX_ROOTS];
@@ -365,6 +400,11 @@ static uint64_t add_io_aperture(struct boot_services_view *boot,
 		status = services->add_io(2U, start, end - start);
 		if (status != EFI_SUCCESS)
 			break;
+		status = record_gcd(0, 1, 0, start, end - start);
+		if (status != EFI_SUCCESS) {
+			(void)services->remove_io(start, end - start);
+			break;
+		}
 	}
 	(void)boot->free_pool(map);
 	return status;
@@ -394,6 +434,11 @@ static uint64_t add_memory_aperture(struct boot_services_view *boot,
 		status = services->add_memory(3U, start, end - start, 1ULL);
 		if (status != EFI_SUCCESS)
 			break;
+		status = record_gcd(1, 1, 0, start, end - start);
+		if (status != EFI_SUCCESS) {
+			(void)services->remove_memory(start, end - start);
+			break;
+		}
 	}
 	(void)boot->free_pool(map);
 	if (status == EFI_SUCCESS)
@@ -405,14 +450,15 @@ static uint64_t initialize_gcd_apertures(struct boot_services_view *boot,
 	struct dxe_services_view *services)
 {
 	size_t root, aperture;
+	uint64_t status = EFI_SUCCESS;
 
+	gcd_owned_count = 0;
 	for (root = 0; root < host.count; root++)
 		for (aperture = 1; aperture < CDK2_PCI_ROOT_BRIDGE_APERTURES;
 		     aperture++) {
 			const struct cdk2_pci_aperture *range =
 				&host.root[root].aperture[aperture];
 			uint64_t base, length;
-			uint64_t status;
 
 			if (range->base > range->limit)
 				continue;
@@ -422,7 +468,7 @@ static uint64_t initialize_gcd_apertures(struct boot_services_view *boot,
 				base, length) : add_memory_aperture(boot, services,
 				base, length);
 			if (status != EFI_SUCCESS)
-				return status;
+				goto fail;
 			if (host.resource_assigned) {
 				uint64_t allocated = base;
 				gcd_allocate_fn *allocate = aperture == 1 ?
@@ -430,11 +476,24 @@ static uint64_t initialize_gcd_apertures(struct boot_services_view *boot,
 
 				status = allocate(2U, aperture == 1 ? 2U : 3U, 0,
 					length, &allocated, gcd.image, NULL);
-				if (status != EFI_SUCCESS || allocated != base)
-					return status == EFI_SUCCESS ? EFI_DEVICE_ERROR : status;
+				if (status == EFI_SUCCESS && allocated != base) {
+					(void)(aperture == 1 ? services->free_io :
+						services->free_memory)(allocated, length);
+					status = EFI_DEVICE_ERROR;
+				}
+				if (status != EFI_SUCCESS)
+					goto fail;
+				status = record_gcd(aperture != 1, 0, 1, base, length);
+				if (status != EFI_SUCCESS)
+					goto fail;
 			}
 		}
 	return EFI_SUCCESS;
+fail:
+	if (status == EFI_SUCCESS)
+		status = EFI_DEVICE_ERROR;
+	rollback_gcd();
+	return status;
 }
 
 static int same_guid(const EFI_GUID *left, const EFI_GUID *right)
@@ -749,10 +808,11 @@ static void rollback_publication(struct boot_services_view *boot, size_t count)
 			&root_io_protocol_guid, &root_io[count], NULL);
 		root_handles[count] = NULL;
 	}
-	if (host_handle != NULL) {
+	if (resource_protocol_installed && host_handle != NULL) {
 		(void)boot->uninstall_multiple_protocols(host_handle,
 			&resource_protocol_guid, &protocol, NULL);
 		host_handle = NULL;
+		resource_protocol_installed = 0;
 	}
 }
 
@@ -792,10 +852,16 @@ static uint64_t publish_protocols(struct boot_services_view *boot)
 	}
 	memset(root_handles, 0, sizeof(root_handles));
 	host_handle = NULL;
-	status = boot->install_multiple_protocols(&host_handle,
-		&resource_protocol_guid, &protocol, NULL);
-	if (status != EFI_SUCCESS)
-		return status;
+	resource_protocol_installed = 0;
+	if (!host.resource_assigned) {
+		status = boot->install_multiple_protocols(&host_handle,
+			&resource_protocol_guid, &protocol, NULL);
+		if (status != EFI_SUCCESS)
+			return status;
+		resource_protocol_installed = 1;
+	} else {
+		host_handle = gcd.image;
+	}
 	for (index = 0; index < host.count; index++) {
 		status = cdk2_pci_root_io_init(&root_io[index], &host.root[index],
 			pci_express_base, &services, host_handle, host.resource_assigned);
@@ -838,9 +904,11 @@ uint64_t CDK2_MS_ABI cdk2_pci_host_bridge_entry(void *image, void *system)
 		}
 	}
 	if (dxe == NULL || dxe->add_memory == NULL || dxe->allocate_memory == NULL ||
-	    dxe->free_memory == NULL || dxe->set_memory == NULL ||
+	    dxe->free_memory == NULL || dxe->remove_memory == NULL ||
+	    dxe->set_memory == NULL ||
 	    dxe->get_memory_map == NULL || dxe->add_io == NULL ||
-	    dxe->allocate_io == NULL || dxe->free_io == NULL || dxe->get_io_map == NULL)
+	    dxe->allocate_io == NULL || dxe->free_io == NULL || dxe->remove_io == NULL ||
+	    dxe->get_io_map == NULL)
 		return EFI_NOT_FOUND;
 	while (hob != NULL && hob->type != 0xffffU) {
 		struct guid_hob *guid = (struct guid_hob *)hob;
@@ -867,6 +935,8 @@ uint64_t CDK2_MS_ABI cdk2_pci_host_bridge_entry(void *image, void *system)
 			if (status != EFI_SUCCESS)
 				return status;
 			status = publish_protocols(table->boot);
+			if (status != EFI_SUCCESS)
+				rollback_gcd();
 			return status;
 		}
 		hob = (struct hob_header *)((uint8_t *)hob + hob->length);
@@ -897,6 +967,8 @@ uint64_t CDK2_MS_ABI cdk2_pci_host_bridge_entry(void *image, void *system)
 		if (status != EFI_SUCCESS)
 			return status;
 		status = publish_protocols(table->boot);
+		if (status != EFI_SUCCESS)
+			rollback_gcd();
 		return status;
 	}
 }
