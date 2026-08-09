@@ -127,6 +127,13 @@ static int all_ff(const UINT8 *target)
 			return 0;
 	return 1;
 }
+static int target_equal(const UINT8 *left, const UINT8 *right)
+{
+	for (size_t index = 0; index < CDK2_EXT_SCSI_TARGET_BYTES; index++)
+		if (left[index] != right[index])
+			return 0;
+	return 1;
+}
 
 static EFI_STATUS next_common(struct cdk2_ext_scsi_instance *instance,
 	UINT8 **target, UINT64 *lun, int include_lun)
@@ -137,8 +144,7 @@ static EFI_STATUS next_common(struct cdk2_ext_scsi_instance *instance,
 	    (include_lun && lun == NULL))
 		return EFI_INVALID_PARAMETER;
 	if (!all_ff(*target)) {
-		if (!instance->enumerated || memcmp(*target, instance->previous,
-			CDK2_EXT_SCSI_TARGET_BYTES) != 0 ||
+		if (!instance->enumerated || !target_equal(*target, instance->previous) ||
 		    (include_lun && *lun != instance->previous_lun))
 			return EFI_INVALID_PARAMETER;
 		for (; start < instance->controller->topology.count; start++)

@@ -191,8 +191,8 @@ EFI_STATUS cdk2_ata_binding_stop(struct cdk2_ata_binding *binding, void *control
 	binding->services.release_engines(binding->services.context, instance);
 	binding->services.destroy_protocols(binding->services.context,
 		instance->protocols);
-	memmove(&binding->controllers[index], &binding->controllers[index + 1U],
-		(binding->count - index - 1U) * sizeof(binding->controllers[0]));
+	for (size_t current = index; current + 1U < binding->count; current++)
+		binding->controllers[current] = binding->controllers[current + 1U];
 	binding->count--;
 	for (size_t current = index; current < binding->count; current++) {
 		binding->controllers[current].protocols->ata.controller =
