@@ -186,6 +186,66 @@ static int overflow_and_cardbus_test(void)
 	return 0;
 }
 
+static int allocator_test(void)
+{
+	struct fixture f = { 0 };
+	struct cdk2_pci_cfg cfg = { .context = &f, .read = rd, .write = wr };
+	struct cdk2_pci_topology topology = { 0 }, before;
+	struct cdk2_pci_allocation_policy policy = {
+		.io = { 0x1000, 0xffff, 0x1000 },
+		.mem32 = { 0x80000000, 0x8fffffff, 0x80000000 },
+		.mem64 = { 0x100000000ULL, 0x10fffffffULL, 0x100000000ULL },
+		.prefetch = { 0x90000000, 0x9fffffff, 0x90000000 },
+		.hotplug_padding = { 0x1000, 0x100000, 0, 0 },
+		.maximum_rebar_size = 4, .enable_sriov = 1,
+	};
+	struct cdk2_pci_function *bridge, *child;
+	add(&f, 0, 0, 0, 1, 1, 1);
+	add(&f, 1, 0, 0, 2, 2, 0);
+	topology.count = 2;
+	bridge = &topology.functions[0];
+	bridge->bus = 0; bridge->header_type = 1;
+	bridge->secondary_bus = 1; bridge->subordinate_bus = 1;
+	child = &topology.functions[1];
+	child->bus = 1; child->bar_count = 3;
+	child->bars[0] = (struct cdk2_pci_bar) {
+		.kind = CDK2_PCI_BAR_MEM32, .index = 0, .size = 0x2000 };
+	child->bars[1] = (struct cdk2_pci_bar) {
+		.kind = CDK2_PCI_BAR_IO, .index = 1, .size = 0x100 };
+	child->bars[2] = (struct cdk2_pci_bar) {
+		.kind = CDK2_PCI_BAR_MEM32, .index = 2, .size = 0x1000 };
+	child->rebar_count = 2;
+	child->rebar[0].control_offset = 0x148;
+	child->rebar[0].supported_sizes = 0x12;
+	child->rebar[1].control_offset = 0x150;
+	child->rebar[1].supported_sizes = 0x0c;
+	child->rebar[1].bar_index = 2;
+	put32(f.devices[1].data + 0x150, 2);
+	child->sriov_cap = 0x200; child->total_vfs = 2;
+	child->vf_bar_count = 1;
+	child->vf_bars[0] = (struct cdk2_pci_bar) {
+		.kind = CDK2_PCI_BAR_MEM32, .index = 0, .size = 0x1000 };
+	CHECK(cdk2_pci_allocate_resources(&cfg, &topology, &policy) == 0);
+	CHECK(child->bars[0].base == 0x81000000);
+	CHECK(child->bars[1].base == 0x2000);
+	CHECK((get(f.devices[1].data + 0x148, 4) & 0x1f00) == 0x400);
+	CHECK((get(f.devices[1].data + 0x150, 4) & 0x1f00) == 0x300);
+	CHECK(child->vf_bars[0].base == 0x82800000);
+	CHECK(get(f.devices[1].data + 0x224, 4) == 0x82800000);
+	CHECK((get(f.devices[1].data + 0x208, 2) & 1U) != 0U);
+	CHECK((get(f.devices[0].data + 0x20, 4) & 0xfff0U) == 0x8100);
+	memset(f.devices[0].data + 0x1c, 0, 0x20);
+	memset(f.devices[1].data + 0x10, 0, 0x150);
+	topology.functions[1].bars[0].base = 0;
+	topology.functions[1].bars[1].base = 0;
+	before = topology; f.writes = 0; f.fail_write = 3;
+	CHECK(cdk2_pci_allocate_resources(&cfg, &topology, &policy) != 0);
+	CHECK(memcmp(&before, &topology, sizeof(before)) == 0);
+	CHECK(get(f.devices[1].data + 0x10, 4) == 0);
+	CHECK(get(f.devices[1].data + 0x14, 4) == 0);
+	return 0;
+}
+
 static int temporary_bridge_and_crs_test(void)
 {
 	struct fixture f = { 0 };
@@ -195,16 +255,22 @@ static int temporary_bridge_and_crs_test(void)
 	struct device *bridge, *child;
 	bridge = add(&f, 0, 3, 0, 0x1111, 1, 1);
 	bridge->data[0x0b] = 6; bridge->data[0x0a] = 4; bridge->masks[6] = 0;
+	put16(bridge->data + 6, 0x10); bridge->data[0x34] = 0x40;
+	put16(bridge->data + 0x40, 0x10); put32(bridge->data + 0x64, 0x20);
+	put16(bridge->data + 0x68, 0x20);
 	put32(bridge->data + 0x1c, 0x0000f101);
 	put32(bridge->data + 0x20, 0x8ff08000);
 	put32(bridge->data + 0x24, 0x9ff19001);
 	put32(bridge->data + 0x28, 1); put32(bridge->data + 0x2c, 1);
 	child = add(&f, 1, 0, 0, 0x2222, 2, 0); child->masks[6] = 0;
+	child = add(&f, 1, 1, 3, 0x3333, 3, 0); child->masks[6] = 0;
 	f.crs_reads = 2;
 	CHECK(cdk2_pci_enumerate(&cfg, 0, 4, &topology) == 0);
-	CHECK(topology.count == 2);
+	CHECK(topology.count == 3);
 	CHECK(topology.functions[0].secondary_bus == 1);
 	CHECK(topology.functions[1].bus == 1);
+	CHECK(topology.functions[2].device == 1);
+	CHECK(topology.functions[2].function == 3);
 	CHECK(get(bridge->data + 0x18, 4) == 0);
 	CHECK(topology.functions[0].memory_base == 0x80000000ULL);
 	CHECK(topology.functions[0].memory_limit == 0x8fffffffULL);
@@ -229,7 +295,7 @@ static int corruption_test(void)
 int main(void)
 {
 	if (topology_test() || temporary_bridge_and_crs_test() ||
-	    overflow_and_cardbus_test() || corruption_test())
+	    overflow_and_cardbus_test() || allocator_test() || corruption_test())
 		return 1;
 	puts("pci bus model tests: PASS");
 	return 0;

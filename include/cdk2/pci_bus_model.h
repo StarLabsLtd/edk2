@@ -8,6 +8,7 @@
 #define CDK2_PCI_MAX_FUNCTIONS 256U
 #define CDK2_PCI_MAX_BARS 7U
 #define CDK2_PCI_MAX_VFS 64U
+#define CDK2_PCI_MAX_REBAR 6U
 
 enum cdk2_pci_bar_kind {
 	CDK2_PCI_BAR_NONE,
@@ -46,11 +47,33 @@ struct cdk2_pci_function {
 	uint8_t vf_count;
 	uint8_t ari_forwarding;
 	uint8_t selected_rebar_size;
+	uint8_t rebar_count;
+	struct {
+		uint16_t control_offset;
+		uint32_t supported_sizes;
+		uint8_t bar_index;
+		uint8_t selected_size;
+	} rebar[CDK2_PCI_MAX_REBAR];
 	uint64_t io_base, io_limit;
 	uint64_t memory_base, memory_limit;
 	uint64_t prefetch_base, prefetch_limit;
 	struct cdk2_pci_bar bars[CDK2_PCI_MAX_BARS];
 	uint8_t bar_count;
+	struct cdk2_pci_bar vf_bars[6];
+	uint8_t vf_bar_count;
+};
+
+struct cdk2_pci_aperture {
+	uint64_t base;
+	uint64_t limit;
+	uint64_t cursor;
+};
+
+struct cdk2_pci_allocation_policy {
+	struct cdk2_pci_aperture io, mem32, mem64, prefetch;
+	uint64_t hotplug_padding[4];
+	uint8_t maximum_rebar_size;
+	uint8_t enable_sriov;
 };
 
 struct cdk2_pci_resource_request {
@@ -69,5 +92,8 @@ int cdk2_pci_probe_function(const struct cdk2_pci_cfg *cfg,
 	struct cdk2_pci_function *function);
 int cdk2_pci_enumerate(const struct cdk2_pci_cfg *cfg, uint8_t first_bus,
 	uint8_t last_bus, struct cdk2_pci_topology *topology);
+int cdk2_pci_allocate_resources(const struct cdk2_pci_cfg *cfg,
+	struct cdk2_pci_topology *topology,
+	const struct cdk2_pci_allocation_policy *policy);
 
 #endif

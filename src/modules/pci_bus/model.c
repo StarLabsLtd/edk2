@@ -234,13 +234,32 @@ static int parse_capabilities(const struct cdk2_pci_cfg *cfg,
 		}
 	}
 	if (fn->resizable_bar_cap != 0U) {
+		uint32_t control;
+		unsigned int entries;
 		if (read_cfg(cfg, fn->bus, fn->device, fn->function,
-			fn->resizable_bar_cap + 4U, 4, &value) != 0)
+			fn->resizable_bar_cap + 8U, 4, &control) != 0)
 			return -1;
-		/* Select the largest supported encoding; programming is a later phase. */
-		value >>= 4;
-		if (value != 0U)
-			fn->selected_rebar_size = (uint8_t)(31U - __builtin_clz(value));
+		entries = ((control >> 5) & 7U) + 1U;
+		if (entries > CDK2_PCI_MAX_REBAR)
+			return -1;
+		for (unsigned int entry = 0; entry < entries; entry++) {
+			uint16_t offset = fn->resizable_bar_cap + 4U + entry * 8U;
+			if (read_cfg(cfg, fn->bus, fn->device, fn->function,
+				offset, 4, &value) != 0 ||
+			    read_cfg(cfg, fn->bus, fn->device, fn->function,
+				offset + 4U, 4, &control) != 0)
+				return -1;
+			value >>= 4;
+			if (value == 0U || (control & 7U) >= 6U)
+				return -1;
+			fn->rebar[entry].control_offset = offset + 4U;
+			fn->rebar[entry].supported_sizes = value;
+			fn->rebar[entry].bar_index = control & 7U;
+			fn->rebar[entry].selected_size =
+				(uint8_t)(31U - __builtin_clz(value));
+		}
+		fn->rebar_count = entries;
+		fn->selected_rebar_size = fn->rebar[0].selected_size;
 	}
 	return count == 256U ? -1 : 0;
 }
@@ -341,8 +360,36 @@ int cdk2_pci_probe_function(const struct cdk2_pci_cfg *cfg,
 	if (restore_cfg(cfg, fn->bus, fn->device, fn->function, PCI_COMMAND, 2,
 		command) != 0)
 		failed = 1;
-	if (failed || parse_capabilities(cfg, fn) != 0 ||
-	    decode_bridge_windows(cfg, fn) != 0)
+	if (failed || parse_capabilities(cfg, fn) != 0)
+		return -1;
+	if (fn->sriov_cap != 0U && fn->total_vfs != 0U) {
+		uint8_t normal_count = fn->bar_count;
+		struct cdk2_pci_bar normal_bars[CDK2_PCI_MAX_BARS];
+		memcpy(normal_bars, fn->bars, sizeof(normal_bars));
+		fn->bar_count = 0;
+		if (write_cfg(cfg, fn->bus, fn->device, fn->function, PCI_COMMAND, 2,
+			command & ~3U) != 0)
+			return -1;
+		for (index = 0; index < 6U;) {
+			if (probe_bar(cfg, fn, index, fn->sriov_cap + 0x24U + index * 4U,
+				0, &consumed) != 0) {
+				failed = 1;
+				break;
+			}
+			index = (uint8_t)(index + consumed);
+		}
+		fn->vf_bar_count = fn->bar_count;
+		memcpy(fn->vf_bars, fn->bars,
+			fn->vf_bar_count * sizeof(fn->vf_bars[0]));
+		memcpy(fn->bars, normal_bars, sizeof(normal_bars));
+		fn->bar_count = normal_count;
+		if (restore_cfg(cfg, fn->bus, fn->device, fn->function, PCI_COMMAND,
+			2, command) != 0)
+			failed = 1;
+		if (failed)
+			return -1;
+	}
+	if (decode_bridge_windows(cfg, fn) != 0)
 		return -1;
 	if ((fn->header_type & 0x7fU) == 1U) {
 		if (read_cfg(cfg, fn->bus, fn->device, fn->function, PCI_BRIDGE_BUSES,
@@ -355,7 +402,8 @@ int cdk2_pci_probe_function(const struct cdk2_pci_cfg *cfg,
 }
 
 static int scan_bus(const struct cdk2_pci_cfg *cfg, uint8_t bus, uint8_t last,
-	struct cdk2_pci_topology *topology, uint8_t visited[32], uint8_t *next_bus)
+	struct cdk2_pci_topology *topology, uint8_t visited[32], uint8_t *next_bus,
+	int ari_bus)
 {
 	uint32_t id, header;
 	uint8_t device, function, limit;
@@ -366,11 +414,12 @@ static int scan_bus(const struct cdk2_pci_cfg *cfg, uint8_t bus, uint8_t last,
 	for (device = 0; device < 32U; device++) {
 		if (read_id(cfg, bus, device, 0, &id) != 0)
 			return -1;
-		if ((id & 0xffffU) == 0xffffU)
+		if ((id & 0xffffU) == 0xffffU && !ari_bus)
 			continue;
-		if (read_cfg(cfg, bus, device, 0, PCI_HEADER, 4, &header) != 0)
+		if ((id & 0xffffU) != 0xffffU &&
+		    read_cfg(cfg, bus, device, 0, PCI_HEADER, 4, &header) != 0)
 			return -1;
-		limit = ((header >> 16) & 0x80U) ? 8U : 1U;
+		limit = ari_bus ? 8U : (((header >> 16) & 0x80U) ? 8U : 1U);
 		for (function = 0; function < limit; function++) {
 			struct cdk2_pci_function *fn;
 			if (read_id(cfg, bus, device, function, &id) != 0)
@@ -408,7 +457,8 @@ static int scan_bus(const struct cdk2_pci_cfg *cfg, uint8_t bus, uint8_t last,
 				status = (child > bus && child <= last &&
 					fn->subordinate_bus >= child) ?
 					scan_bus(cfg, child, fn->subordinate_bus < last ?
-					fn->subordinate_bus : last, topology, visited, next_bus) : 0;
+					fn->subordinate_bus : last, topology, visited, next_bus,
+					fn->ari_forwarding) : 0;
 				if (temporary && restore_cfg(cfg, bus, device, function,
 					PCI_BRIDGE_BUSES, 4, original_buses) != 0)
 					status = -1;
@@ -429,7 +479,7 @@ int cdk2_pci_enumerate(const struct cdk2_pci_cfg *cfg, uint8_t first_bus,
 	if (topology == NULL || first_bus > last_bus)
 		return -1;
 	memset(&staged, 0, sizeof(staged));
-	if (scan_bus(cfg, first_bus, last_bus, &staged, visited, &next_bus) != 0)
+	if (scan_bus(cfg, first_bus, last_bus, &staged, visited, &next_bus, 0) != 0)
 		return -1;
 	for (size_t i = 0; i < staged.count; i++) {
 		struct cdk2_pci_function *fn = &staged.functions[i];
@@ -449,6 +499,17 @@ int cdk2_pci_enumerate(const struct cdk2_pci_cfg *cfg, uint8_t first_bus,
 			staged.requests[request].length = length + bar->size;
 			if (alignment > staged.requests[request].alignment)
 				staged.requests[request].alignment = alignment;
+		}
+		for (uint8_t j = 0; j < fn->vf_bar_count; j++) {
+			struct cdk2_pci_bar *bar = &fn->vf_bars[j];
+			unsigned int request = bar->kind == CDK2_PCI_BAR_IO ? 0U :
+				(bar->kind == CDK2_PCI_BAR_MEM64 ? 2U :
+				(bar->prefetchable ? 3U : 1U));
+			uint64_t length = bar->size * fn->total_vfs;
+			if ((fn->total_vfs != 0U && length / fn->total_vfs != bar->size) ||
+			    UINT64_MAX - staged.requests[request].length < length)
+				return -1;
+			staged.requests[request].length += length;
 		}
 	}
 	*topology = staged;
