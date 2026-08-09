@@ -122,6 +122,7 @@ CDK2_NATIVE_FAT_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-fat-test
 CDK2_NATIVE_FAT_OBJS := $(addprefix $(CDK2_NATIVE_BUILD_DIR)/fat-,fat.o binding.o protocol.o entry.o)
 CDK2_NATIVE_FAT_PE ?= $(CDK2_NATIVE_BUILD_DIR)/Fat.efi
 CDK2_NATIVE_FAT_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/Fat.ffs
+CDK2_NATIVE_FAT_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-fat.fv
 CDK2_NATIVE_FAT_PACKAGE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-fat-package-test
 CDK2_NATIVE_DISK_IO_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/disk-io.o
 CDK2_NATIVE_DISK_IO_PE ?= $(CDK2_NATIVE_BUILD_DIR)/DiskIoDxe.efi
@@ -784,6 +785,11 @@ native-fat-package: $(CDK2_NATIVE_FAT_FFS) $(CDK2_NATIVE_FAT_PACKAGE_TEST)
 	@test "$$(stat -c %s "$<")" = 57398
 	@"$(CDK2_NATIVE_FAT_PACKAGE_TEST)" "$<"
 	@printf '%s\n' "native Fat FFS: $<"
+
+native-fat-fv: $(CDK2_NATIVE_FAT_FV)
+	@"$(CDK2_NATIVE_FVINFO)" "$<" | grep -q \
+		'^961578fe-b6b7-44c3-af35-6bc705cd2b1f[[:space:]]0x003516c8[[:space:]]0x0000e036[[:space:]]0x07[[:space:]]Fat$$'
+	@printf '%s\n' "native Fat FV: $<"
 
 $(CDK2_NATIVE_BUILD_DIR)/fat-%.o: $(CDK2_DIR)/src/modules/fat/%.c $(CDK2_DIR)/include/cdk2/fat_binding.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
@@ -1763,6 +1769,19 @@ $(CDK2_NATIVE_HII_DATABASE_FV): $(CDK2_NATIVE_PRE_HII_DATABASE_FV) \
 else
 native-hii-database-fv:
 	@printf '%s\n' 'native HiiDatabaseDxe: disabled by Kconfig'
+endif
+
+ifeq ($(CONFIG_CDK2_NATIVE_FAT),y)
+CDK2_NATIVE_PRE_FAT_FV := $(CDK2_NATIVE_FINAL_FV)
+CDK2_NATIVE_FINAL_FV := $(CDK2_NATIVE_FAT_FV)
+
+$(CDK2_NATIVE_FAT_FV): $(CDK2_NATIVE_PRE_FAT_FV) $(CDK2_NATIVE_FAT_FFS) \
+		$(CDK2_NATIVE_FVREPLACE)
+	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_PRE_FAT_FV)" 0x3516c8 \
+		"$(CDK2_NATIVE_FAT_FFS)" "$@"
+else
+native-fat-fv:
+	@printf '%s\n' 'native Fat: disabled by Kconfig'
 endif
 
 ifeq ($(CONFIG_CDK2_NATIVE_ENGLISH),y)

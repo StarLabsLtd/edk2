@@ -14,9 +14,9 @@ short filename lookup, directory enumeration, file and volume information,
 read/write growth and truncation, flush ordering, media-change handling, and
 transactional Driver Binding Start/Stop ownership.
 
-The inventory-neutral implementation now provides the production Driver
-Binding, Simple File System and revision-two File protocols without changing
-the retained inventory or FV.  It validates legal open modes and access,
+The serial implementation now replaces the admitted envelope and reduces the
+retained inventory to 38 modules. It provides the production Driver Binding,
+Simple File System and revision-two File protocols and validates legal open modes and access,
 creates files and initialized directories, resolves absolute and relative
 paths, maintains long and short names, and queues event-backed revision-two
 operations while retaining their handles until completion.
