@@ -8,7 +8,7 @@
 #define FAT_VOLUME_CORRUPTED EFIERR(10)
 
 struct medium { uint8_t boot[512]; uint64_t size; uint64_t status; };
-struct chain_medium { uint8_t fat[32], data[32]; };
+struct chain_medium { uint8_t fat[32], data[128]; };
 
 static void write16(uint8_t *data, uint16_t value)
 { data[0] = value; data[1] = value >> 8; }
@@ -75,6 +75,8 @@ int main(void)
 	struct medium medium;
 	struct chain_medium chain = { 0 };
 	struct cdk2_fat_directory_entry entry;
+	struct cdk2_fat_file root, file;
+	struct cdk2_fat_file_info info;
 	uint8_t records[96] = { 0 }, output[32];
 	uint16_t long_name[13] = {
 		'L', 'o', 'n', 'g', ' ', 'N', 'a', 'm', 'e', '.', 't', 'x', 't'
@@ -153,5 +155,58 @@ int main(void)
 	failures += expect(cdk2_fat_parse_directory_entry(records, 1U, &entry,
 		&consumed) == EFI_SUCCESS && entry.name[6] == '.' && entry.name[9] == 'T',
 		"short filename fallback was not decoded");
+	write16(records + 24U, (13U << 5) | 1U);
+	failures += expect(cdk2_fat_parse_directory_entry(records, 1U, &entry,
+		&consumed) == FAT_VOLUME_CORRUPTED,
+		"invalid FAT timestamp was admitted");
+	write16(records + 24U, 0U); records[11U] = 0x80U;
+	failures += expect(cdk2_fat_parse_directory_entry(records, 1U, &entry,
+		&consumed) == FAT_VOLUME_CORRUPTED,
+		"reserved directory attributes were admitted");
+	memset(&chain, 0, sizeof(chain));
+	volume = (struct cdk2_fat_volume) {
+		.read = read_chain, .context = &chain, .media_size = 256U,
+		.fat_offset = 64U, .data_offset = 128U, .cluster_count = 4U,
+		.root_cluster = 2U, .bytes_per_sector = 32U, .sectors_per_cluster = 1U,
+		.fat_type = CDK2_FAT32
+	};
+	write32(chain.fat + 8U, 0x0fffffffU);
+	write32(chain.fat + 16U, 0x0fffffffU);
+	write32(chain.fat + 20U, 0x0fffffffU);
+	memcpy(chain.data, "DIR        ", 11U); chain.data[11U] = 0x10U;
+	write16(chain.data + 20U, 0U); write16(chain.data + 26U, 4U);
+	memcpy(chain.data + 64U, "NEST    TXT", 11U); chain.data[64U + 11U] = 0x20U;
+	write16(chain.data + 64U + 26U, 5U); write32(chain.data + 64U + 28U, 5U);
+	memcpy(chain.data + 96U, "HELLO", 5U);
+	failures += expect(cdk2_fat_open_root(&volume, &root) == EFI_SUCCESS &&
+		cdk2_fat_open(&root, (const uint16_t[]){
+			'd', 'i', 'r', '/', 'n', 'e', 's', 't', '.', 't', 'x', 't', 0
+		}, &file) == EFI_SUCCESS && !file.is_directory,
+		"case-insensitive nested path lookup failed");
+	size = 0U;
+	failures += expect(cdk2_fat_file_get_info(&file, &size, NULL) ==
+		EFI_BUFFER_TOO_SMALL && size == offsetof(struct cdk2_fat_file_info, name) +
+		18U, "file info sizing contract is wrong");
+	size = sizeof(info);
+	failures += expect(cdk2_fat_file_get_info(&file, &size, &info) == EFI_SUCCESS &&
+		info.size == 5U && info.name[0] == 'N', "file info content is wrong");
+	size = 2U;
+	failures += expect(cdk2_fat_file_read(&file, &size, output) == EFI_SUCCESS &&
+		size == 2U && memcmp(output, "HE", 2U) == 0 &&
+		cdk2_fat_file_get_position(&file, &offset) == EFI_SUCCESS && offset == 2U,
+		"file read/position semantics failed");
+	failures += expect(cdk2_fat_file_set_position(&file, UINT64_MAX) == EFI_SUCCESS &&
+		cdk2_fat_file_get_position(&file, &offset) == EFI_SUCCESS && offset == 5U,
+		"end-position sentinel was not honored");
+	size = 1U;
+	failures += expect(cdk2_fat_file_read(&root, &size, output) ==
+		EFI_BUFFER_TOO_SMALL && root.position == 0U && size > 1U,
+		"short directory buffer advanced enumeration");
+	size = sizeof(info);
+	failures += expect(cdk2_fat_file_read(&root, &size, &info) == EFI_SUCCESS &&
+		info.name[0] == 'D' && root.position == 1U &&
+		cdk2_fat_file_set_position(&root, 1U) == EFI_UNSUPPORTED &&
+		cdk2_fat_file_set_position(&root, 0U) == EFI_SUCCESS,
+		"directory iteration or position reset semantics failed");
 	return failures == 0 ? 0 : 1;
 }

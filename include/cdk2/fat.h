@@ -26,7 +26,22 @@ struct cdk2_fat_volume {
 struct cdk2_fat_directory_entry {
 	uint16_t name[256];
 	uint32_t first_cluster, size;
+	uint16_t creation_time, creation_date, write_time, write_date;
 	uint8_t attributes;
+};
+
+struct cdk2_fat_file {
+	const struct cdk2_fat_volume *volume;
+	struct cdk2_fat_directory_entry entry;
+	uint64_t position;
+	uint32_t directory_cluster;
+	uint8_t is_directory, is_root;
+};
+
+struct cdk2_fat_file_info {
+	uint64_t size, physical_size;
+	uint64_t attributes;
+	uint16_t name[256];
 };
 
 uint64_t cdk2_fat_probe(struct cdk2_fat_volume *volume,
@@ -40,5 +55,17 @@ uint64_t cdk2_fat_read_file(const struct cdk2_fat_volume *volume,
 	size_t *size, void *buffer);
 uint64_t cdk2_fat_parse_directory_entry(const uint8_t *records, size_t count,
 	struct cdk2_fat_directory_entry *entry, size_t *consumed);
+uint64_t cdk2_fat_open_root(const struct cdk2_fat_volume *volume,
+	struct cdk2_fat_file *file);
+uint64_t cdk2_fat_open(struct cdk2_fat_file *directory, const uint16_t *path,
+	struct cdk2_fat_file *file);
+uint64_t cdk2_fat_file_read(struct cdk2_fat_file *file, size_t *size,
+	void *buffer);
+uint64_t cdk2_fat_file_get_position(const struct cdk2_fat_file *file,
+	uint64_t *position);
+uint64_t cdk2_fat_file_set_position(struct cdk2_fat_file *file,
+	uint64_t position);
+uint64_t cdk2_fat_file_get_info(const struct cdk2_fat_file *file,
+	size_t *size, struct cdk2_fat_file_info *info);
 
 #endif
