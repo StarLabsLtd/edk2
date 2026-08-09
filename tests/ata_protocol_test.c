@@ -107,6 +107,9 @@ int main(void)
 	CHECK(sizeof(struct cdk2_ext_scsi_mode) == 12);
 	CHECK(sizeof(struct cdk2_ext_scsi_protocol) == 8 * sizeof(void *));
 	CHECK(cdk2_ext_scsi_init(&scsi, &controller, &services, 4) == EFI_SUCCESS);
+	CHECK(scsi.mode.adapter_id == 0 && scsi.mode.attributes ==
+		(CDK2_ATA_PASS_THRU_ATTRIBUTES_PHYSICAL |
+		 CDK2_ATA_PASS_THRU_ATTRIBUTES_LOGICAL));
 	memset(first, 0xff, sizeof(first));
 	CHECK(scsi.protocol.get_next_target_lun(&scsi.protocol, &target, &lun) ==
 		EFI_SUCCESS);
@@ -115,6 +118,8 @@ int main(void)
 		&fixture) == EFI_SUCCESS);
 	CHECK(scsi_packet.host_status == 0 && scsi_packet.target_status == 0);
 	path = NULL;
+	CHECK(scsi.protocol.build_device_path(&scsi.protocol, target, lun, NULL) ==
+		EFI_INVALID_PARAMETER);
 	CHECK(scsi.protocol.build_device_path(&scsi.protocol, target, lun, &path) ==
 		EFI_SUCCESS);
 	target = NULL;

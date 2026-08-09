@@ -193,11 +193,12 @@ static EFI_STATUS CDK2_MS_ABI build_path(
 	void *path;
 	EFI_STATUS status;
 
-	if (instance == NULL || target == NULL || lun != 0U)
+	if (instance == NULL || target == NULL || device_path == NULL)
+		return EFI_INVALID_PARAMETER;
+	if (lun != 0U)
 		return EFI_NOT_FOUND;
 	multiplier = target_multiplier(target[1]);
-	if (!atapi_exists(&instance->controller->topology, target[0], multiplier) ||
-	    device_path == NULL)
+	if (!atapi_exists(&instance->controller->topology, target[0], multiplier))
 		return EFI_NOT_FOUND;
 	size = instance->controller->topology.mode == CDK2_ATA_IDE ?
 		sizeof(struct cdk2_atapi_device_path) :
@@ -320,7 +321,7 @@ EFI_STATUS cdk2_ext_scsi_init(struct cdk2_ext_scsi_instance *instance,
 	memset(instance, 0, sizeof(*instance));
 	instance->controller = controller;
 	instance->services = *services;
-	instance->mode = (struct cdk2_ext_scsi_mode) { 0xffffffffU,
+	instance->mode = (struct cdk2_ext_scsi_mode) { 0U,
 		CDK2_ATA_PASS_THRU_ATTRIBUTES_PHYSICAL |
 		CDK2_ATA_PASS_THRU_ATTRIBUTES_LOGICAL, io_align };
 	instance->protocol = (struct cdk2_ext_scsi_protocol) { &instance->mode,
