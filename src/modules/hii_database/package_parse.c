@@ -4,6 +4,7 @@
 
 #define HII_SIMPLE_FONTS 0x07U
 #define HII_FONTS 0x05U
+#define HII_FORMS 0x02U
 #define HII_STRINGS 0x04U
 #define HII_IMAGES 0x06U
 #define HII_KEYBOARD_LAYOUT 0x09U
@@ -530,6 +531,149 @@ static EFI_STATUS ingest_fonts(struct cdk2_hii_database *database, void *handle,
 	return EFI_INVALID_PARAMETER;
 }
 
+static BOOLEAN keyword_language(const CHAR8 *language)
+{
+	static const CHAR8 prefix[] = "x-UEFI-";
+	UINTN index;
+
+	for (index = 0U; prefix[index] != 0; index++) {
+		CHAR8 character = language[index];
+		if (character >= 'A' && character <= 'Z')
+			character = (CHAR8)(character + ('a' - 'A'));
+		if (character != (CHAR8)(prefix[index] + ('a' - 'A')))
+			return FALSE;
+	}
+	return TRUE;
+}
+
+static BOOLEAN has_varstore(const UINT8 *package, UINT32 length, UINT16 wanted)
+{
+	UINTN offset = 4U;
+	UINT8 opcode, size;
+
+	while (offset + 2U <= length) {
+		opcode = package[offset];
+		size = package[offset + 1U] & 0x7fU;
+		if (size < 2U || size > length - offset)
+			return FALSE;
+		if (((opcode == 0x24U && size >= 24U) ||
+		     (opcode == 0x25U && size >= 20U) ||
+		     (opcode == 0x26U && size >= 28U)) &&
+		    read16(package + offset + (opcode == 0x24U ? 18U : 2U)) == wanted)
+			return TRUE;
+		offset += size;
+	}
+	return FALSE;
+}
+
+static UINT16 question_width(const UINT8 *opcode, UINTN remaining,
+	UINT8 *numeric_size)
+{
+	UINT8 size, type;
+	UINT16 width;
+
+	*numeric_size = 0U;
+	switch (opcode[0]) {
+	case 0x05U:
+	case 0x07U:
+		if (remaining < 14U)
+			return 0U;
+		*numeric_size = opcode[13] & 3U;
+		return (UINT16)(1U << *numeric_size);
+	case 0x06U:
+		return 1U;
+	case 0x08U:
+		return remaining < 17U ? 0U : (UINT16)(read16(opcode + 15U) * 2U);
+	case 0x1cU:
+		return remaining < 16U ? 0U : (UINT16)(opcode[14] * 2U);
+	case 0x1aU:
+		return 4U;
+	case 0x1bU:
+		return 3U;
+	case 0x23U:
+		if (remaining < 15U || opcode[13] == 0U)
+			return 0U;
+		size = opcode[1] & 0x7fU;
+		if (remaining < (UINTN)size + 6U || opcode[size] != 0x09U ||
+		    (opcode[size + 1U] & 0x7fU) < 6U)
+			return 0U;
+		type = opcode[size + 5U];
+		if (type > 3U || opcode[13] > 0xffffU / (1U << type))
+			return 0U;
+		width = (UINT16)(opcode[13] * (1U << type));
+		*numeric_size = type;
+		return width;
+	default:
+		return 0U;
+	}
+}
+
+static EFI_STATUS add_question_keywords(struct cdk2_hii_database *database,
+	void *handle, const UINT8 *form, UINT32 form_length, const UINT8 *opcode,
+	UINTN remaining, UINT16 prompt,
+	UINT16 varstore, UINT16 varinfo, BOOLEAN read_only)
+{
+	struct cdk2_hii_string *string;
+	CHAR16 language[CDK2_HII_MAX_LANGUAGE + 1U];
+	UINT8 numeric_size;
+	UINT16 width;
+	UINTN index, character;
+	EFI_STATUS status;
+
+	width = question_width(opcode, remaining, &numeric_size);
+	if (width == 0U || !has_varstore(form, form_length, varstore))
+		return EFI_INVALID_PARAMETER;
+	for (index = 0U; index < CDK2_HII_MAX_STRINGS; index++) {
+		string = &database->strings[index];
+		if (!string->active || string->package_handle != handle ||
+		    string->id != prompt || !keyword_language(string->language))
+			continue;
+		for (character = 0U; string->language[character] != 0; character++)
+			language[character] = (UINT8)string->language[character];
+		language[character] = 0U;
+		status = cdk2_hii_register_package_keyword(database, handle, language,
+			string->text, prompt, varstore, varinfo, width, opcode[0],
+			numeric_size, read_only);
+		if (EFI_ERROR(status))
+			return status;
+	}
+	return EFI_SUCCESS;
+}
+
+static EFI_STATUS ingest_forms(struct cdk2_hii_database *database, void *handle,
+	const UINT8 *package, UINT32 length)
+{
+	EFI_STATUS status;
+	UINTN offset = 4U;
+	UINT16 prompt, varstore, varinfo;
+	UINT8 size;
+
+	while (offset < length) {
+		if (offset + 2U > length)
+			return EFI_INVALID_PARAMETER;
+		size = package[offset + 1U] & 0x7fU;
+		if (size < 2U || size > length - offset)
+			return EFI_INVALID_PARAMETER;
+		if (question_width(package + offset, length - offset,
+			&(UINT8) { 0 }) != 0U) {
+			if (size < 13U)
+				return EFI_INVALID_PARAMETER;
+			prompt = read16(package + offset + 2U);
+			varstore = read16(package + offset + 8U);
+			varinfo = read16(package + offset + 10U);
+			if (prompt == 0U || varstore == 0U)
+				return EFI_INVALID_PARAMETER;
+			status = add_question_keywords(database, handle, package, length,
+				package + offset, length - offset, prompt, varstore, varinfo,
+				(package[offset + 12U] & 1U) != 0U);
+			if (EFI_ERROR(status))
+				return status;
+		}
+		offset += size;
+	}
+	return offset == length ? EFI_SUCCESS : EFI_INVALID_PARAMETER;
+}
+
 EFI_STATUS cdk2_hii_ingest_package_list(struct cdk2_hii_database *database,
 	void *package_handle)
 {
@@ -609,17 +753,30 @@ EFI_STATUS cdk2_hii_ingest_package_list(struct cdk2_hii_database *database,
 		}
 		offset += package_length(package);
 	}
+	offset = sizeof(*header);
+	while (offset < list->size) {
+		package = (const void *)((const UINT8 *)list->data + offset);
+		if (package_type(package) == HII_FORMS) {
+			status = ingest_forms(database, list, (const UINT8 *)package,
+				package_length(package));
+			if (EFI_ERROR(status))
+				goto ingest_failed;
+		}
+		offset += package_length(package);
+	}
 	return EFI_SUCCESS;
 ingest_failed:
 	cdk2_hii_remove_strings(database, list);
 	cdk2_hii_remove_images(database, list);
 	cdk2_hii_remove_glyphs(database, list);
 	cdk2_hii_remove_keyboard_layouts(database, list);
+	cdk2_hii_remove_keywords(database, list);
 	return status;
 invalid:
 	cdk2_hii_remove_strings(database, list);
 	cdk2_hii_remove_images(database, list);
 	cdk2_hii_remove_glyphs(database, list);
 	cdk2_hii_remove_keyboard_layouts(database, list);
+	cdk2_hii_remove_keywords(database, list);
 	return EFI_INVALID_PARAMETER;
 }

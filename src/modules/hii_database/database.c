@@ -207,6 +207,7 @@ EFI_STATUS cdk2_hii_new_package_list(struct cdk2_hii_database *database,
 		cdk2_hii_remove_images(database, list);
 		cdk2_hii_remove_glyphs(database, list);
 		cdk2_hii_remove_keyboard_layouts(database, list);
+		cdk2_hii_remove_keywords(database, list);
 		database->ops->release(database->context, list->data);
 		*list = (struct cdk2_hii_list) { 0 };
 		*handle = NULL;
@@ -229,6 +230,7 @@ EFI_STATUS cdk2_hii_remove_package_list(struct cdk2_hii_database *database,
 	cdk2_hii_remove_images(database, list);
 	cdk2_hii_remove_glyphs(database, list);
 	cdk2_hii_remove_keyboard_layouts(database, list);
+	cdk2_hii_remove_keywords(database, list);
 	database->ops->release(database->context, list->data);
 	*list = (struct cdk2_hii_list) { 0 };
 	return EFI_SUCCESS;
@@ -281,6 +283,7 @@ EFI_STATUS cdk2_hii_update_package_list(struct cdk2_hii_database *database,
 		cdk2_hii_remove_images(database, staged);
 		cdk2_hii_remove_glyphs(database, staged);
 		cdk2_hii_remove_keyboard_layouts(database, staged);
+		cdk2_hii_remove_keywords(database, staged);
 		database->ops->release(database->context, staged->data);
 		*staged = (struct cdk2_hii_list) { 0 };
 		return status;
@@ -290,6 +293,7 @@ EFI_STATUS cdk2_hii_update_package_list(struct cdk2_hii_database *database,
 	cdk2_hii_remove_images(database, list);
 	cdk2_hii_remove_glyphs(database, list);
 	cdk2_hii_remove_keyboard_layouts(database, list);
+	cdk2_hii_remove_keywords(database, list);
 	database->ops->release(database->context, list->data);
 	list->data = staged->data;
 	list->size = staged->size;
@@ -309,6 +313,10 @@ EFI_STATUS cdk2_hii_update_package_list(struct cdk2_hii_database *database,
 		if (database->keyboard_records[index].active &&
 		    database->keyboard_records[index].package_handle == staged)
 			database->keyboard_records[index].package_handle = list;
+	for (index = 0; index < CDK2_HII_MAX_KEYWORDS; index++)
+		if (database->keywords[index].active &&
+		    database->keywords[index].package_handle == staged)
+			database->keywords[index].package_handle = list;
 	*staged = (struct cdk2_hii_list) { 0 };
 	notify_list(database, list, HII_NOTIFY_ADD);
 	return EFI_SUCCESS;

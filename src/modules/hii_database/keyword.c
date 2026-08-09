@@ -89,6 +89,72 @@ cleanup_namespace:
 	return status;
 }
 
+EFI_STATUS cdk2_hii_register_package_keyword(struct cdk2_hii_database *database,
+	void *package_handle, const CHAR16 *name_space, const CHAR16 *keyword,
+	UINT16 prompt_id, UINT16 varstore_id, UINT16 varstore_info, UINT16 width,
+	UINT8 opcode, UINT8 numeric_size, BOOLEAN read_only)
+{
+	struct cdk2_hii_keyword *entry = NULL;
+	EFI_STATUS status;
+	UINTN index;
+
+	if (database == NULL || package_handle == NULL || name_space == NULL ||
+	    keyword == NULL || name_space[0] == 0U || keyword[0] == 0U ||
+	    prompt_id == 0U || varstore_id == 0U || width == 0U)
+		return EFI_INVALID_PARAMETER;
+	for (index = 0U; index < CDK2_HII_MAX_KEYWORDS; index++)
+		if (!database->keywords[index].active) {
+			entry = &database->keywords[index];
+			break;
+		}
+	if (entry == NULL)
+		return EFI_OUT_OF_RESOURCES;
+	status = duplicate(database, name_space, &entry->name_space);
+	if (EFI_ERROR(status))
+		return status;
+	status = duplicate(database, keyword, &entry->keyword);
+	if (EFI_ERROR(status))
+		goto cleanup_namespace;
+	status = duplicate(database, L"", &entry->value);
+	if (EFI_ERROR(status))
+		goto cleanup_keyword;
+	entry->package_handle = package_handle;
+	entry->prompt_id = prompt_id;
+	entry->varstore_id = varstore_id;
+	entry->varstore_info = varstore_info;
+	entry->width = width;
+	entry->opcode = opcode;
+	entry->numeric_size = numeric_size;
+	entry->read_only = read_only;
+	entry->active = TRUE;
+	return EFI_SUCCESS;
+
+cleanup_keyword:
+	database->ops->release(database->context, entry->keyword);
+cleanup_namespace:
+	database->ops->release(database->context, entry->name_space);
+	*entry = (struct cdk2_hii_keyword) { 0 };
+	return status;
+}
+
+void cdk2_hii_remove_keywords(struct cdk2_hii_database *database,
+	void *package_handle)
+{
+	UINTN index;
+
+	for (index = 0U; index < CDK2_HII_MAX_KEYWORDS; index++)
+		if (database->keywords[index].active &&
+		    database->keywords[index].package_handle == package_handle) {
+			database->ops->release(database->context,
+				database->keywords[index].name_space);
+			database->ops->release(database->context,
+				database->keywords[index].keyword);
+			database->ops->release(database->context,
+				database->keywords[index].value);
+			database->keywords[index] = (struct cdk2_hii_keyword) { 0 };
+		}
+}
+
 EFI_STATUS cdk2_hii_get_keyword_data(struct cdk2_hii_database *database,
 	const CHAR16 *name_space, const CHAR16 *keyword, CHAR16 **value)
 {

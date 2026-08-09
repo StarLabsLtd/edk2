@@ -126,6 +126,9 @@ struct cdk2_hii_config_route {
 };
 struct cdk2_hii_keyword {
 	CHAR16 *name_space, *keyword, *value;
+	void *package_handle;
+	UINT16 prompt_id, varstore_id, varstore_info, width;
+	UINT8 opcode, numeric_size;
 	BOOLEAN read_only, active;
 };
 struct cdk2_hii_keyboard_record {
@@ -258,6 +261,12 @@ EFI_STATUS cdk2_hii_get_alt_config(struct cdk2_hii_database *database,
 EFI_STATUS cdk2_hii_register_keyword(struct cdk2_hii_database *database,
 	const CHAR16 *name_space, const CHAR16 *keyword, const CHAR16 *value,
 	BOOLEAN read_only);
+EFI_STATUS cdk2_hii_register_package_keyword(struct cdk2_hii_database *database,
+	void *package_handle, const CHAR16 *name_space, const CHAR16 *keyword,
+	UINT16 prompt_id, UINT16 varstore_id, UINT16 varstore_info, UINT16 width,
+	UINT8 opcode, UINT8 numeric_size, BOOLEAN read_only);
+void cdk2_hii_remove_keywords(struct cdk2_hii_database *database,
+	void *package_handle);
 EFI_STATUS cdk2_hii_get_keyword_data(struct cdk2_hii_database *database,
 	const CHAR16 *name_space, const CHAR16 *keyword, CHAR16 **value);
 EFI_STATUS cdk2_hii_set_keyword_data(struct cdk2_hii_database *database,

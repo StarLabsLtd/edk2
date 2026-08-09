@@ -33,6 +33,7 @@ int main(void)
 	UINT8 image_list[55] = { 0 };
 	UINT8 palette_list[54] = { 0 };
 	UINT8 font_list[92] = { 0 };
+	UINT8 ifr_list[138] = { 0 };
 	struct cdk2_hii_image_input image;
 	CHAR16 text[3];
 	UINTN size = sizeof(text);
@@ -136,5 +137,35 @@ int main(void)
 	failures += expect(cdk2_hii_update_package_list(&database, handle, font_list) ==
 		EFI_INVALID_PARAMETER && database.glyphs[4].character == 7U,
 		"undersized extended GIBT block was admitted");
+	write32(ifr_list + 16U, sizeof(ifr_list));
+	write32(ifr_list + 20U, (0x04U << 24) | 68U);
+	write32(ifr_list + 24U, 56U); write32(ifr_list + 28U, 56U);
+	ifr_list[64] = 1U;
+	__builtin_memcpy(ifr_list + 66U, "x-UEFI-ns", 10U);
+	ifr_list[76] = 0x14U;
+	ifr_list[77] = 'M'; ifr_list[79] = 'o'; ifr_list[81] = 'd'; ifr_list[83] = 'e';
+	ifr_list[87] = 0U;
+	write32(ifr_list + 88U, (0x02U << 24) | 46U);
+	ifr_list[92] = 0x24U; ifr_list[93] = 23U;
+	write16(ifr_list + 110U, 1U); write16(ifr_list + 112U, 8U);
+	ifr_list[115] = 0x07U; ifr_list[116] = 17U;
+	write16(ifr_list + 117U, 1U); write16(ifr_list + 121U, 3U);
+	write16(ifr_list + 123U, 1U); write16(ifr_list + 125U, 2U);
+	ifr_list[127] = 1U; ifr_list[128] = 0U;
+	ifr_list[132] = 0x29U; ifr_list[133] = 2U;
+	write32(ifr_list + 134U, (CDK2_HII_PACKAGE_END << 24) | 4U);
+	failures += expect(cdk2_hii_new_package_list(&database, ifr_list, NULL,
+		&handle) == EFI_SUCCESS && database.keywords[0].active &&
+		database.keywords[0].package_handle == handle &&
+		database.keywords[0].prompt_id == 1U &&
+		database.keywords[0].varstore_id == 1U &&
+		database.keywords[0].varstore_info == 2U &&
+		database.keywords[0].width == 1U && database.keywords[0].read_only &&
+		database.keywords[0].keyword[0] == L'M',
+		"x-UEFI prompt was not associated with its IFR question and varstore");
+	write16(ifr_list + 123U, 2U);
+	failures += expect(cdk2_hii_update_package_list(&database, handle, ifr_list) ==
+		EFI_INVALID_PARAMETER && database.keywords[0].varstore_id == 1U,
+		"question with a missing varstore was admitted or corrupted old metadata");
 	return failures == 0 ? 0 : 1;
 }

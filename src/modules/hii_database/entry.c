@@ -872,6 +872,7 @@ static EFI_STATUS append_keyword(CHAR16 *output, UINTN *offset,
 	static const CHAR16 namespace_token[] = L"NAMESPACE=";
 	static const CHAR16 keyword_token[] = L"&KEYWORD=";
 	static const CHAR16 value_token[] = L"&VALUE=";
+	static const CHAR16 read_only_token[] = L"&READONLY";
 	const CHAR16 *pieces[] = { namespace_token, entry->name_space, keyword_token,
 		entry->keyword, value_token, entry->value };
 	UINTN index, length;
@@ -883,7 +884,44 @@ static EFI_STATUS append_keyword(CHAR16 *output, UINTN *offset,
 				length * sizeof(CHAR16));
 		*offset += length;
 	}
+	if (entry->read_only) {
+		length = text_length(read_only_token);
+		if (output != NULL)
+			__builtin_memcpy(output + *offset, read_only_token,
+				length * sizeof(CHAR16));
+		*offset += length;
+	}
 	return EFI_SUCCESS;
+}
+static EFI_STATUS keyword_filter(const struct cdk2_hii_keyword *entry,
+	const CHAR16 *filter, const CHAR16 **next)
+{
+	UINTN length = 0U;
+	BOOLEAN numeric = entry->opcode == 0x05U || entry->opcode == 0x07U ||
+		entry->opcode == 0x06U;
+	BOOLEAN matches = TRUE;
+
+	while (filter[length] != 0U && filter[length] != L'&')
+		length++;
+	if (length == 8U && token(filter, L"ReadOnly"))
+		matches = entry->read_only;
+	else if (length == 9U && token(filter, L"ReadWrite"))
+		matches = !entry->read_only;
+	else if (length == 6U && token(filter, L"Buffer"))
+		matches = !numeric;
+	else if (length == 7U && token(filter, L"Numeric"))
+		matches = numeric;
+	else if (length == 9U && token(filter, L"Numeric:")) {
+		UINT8 wanted = filter[8] == L'1' ? 0U : filter[8] == L'2' ? 1U :
+			filter[8] == L'4' ? 2U : filter[8] == L'8' ? 3U : 0xffU;
+		matches = numeric && wanted != 0xffU &&
+			(entry->opcode == 0x06U ? wanted == 0U :
+			 entry->numeric_size == wanted);
+	} else {
+		return EFI_INVALID_PARAMETER;
+	}
+	*next = filter + length;
+	return matches ? EFI_SUCCESS : EFI_NOT_FOUND;
 }
 static EFI_STATUS CDK2_MS_ABI keyword_get(const void *self,
 	const CHAR16 *requested_namespace, const CHAR16 *request, CHAR16 **progress,
@@ -931,6 +969,21 @@ static EFI_STATUS CDK2_MS_ABI keyword_get(const void *self,
 				*progress_error = requested_namespace == NULL ?
 					0x00000001U : 0x00000004U;
 				return EFI_NOT_FOUND;
+			}
+			while (*next == L'&' && !token(next + 1U, L"KEYWORD=")) {
+				const CHAR16 *after;
+				status = keyword_filter(entry, next + 1U, &after);
+				if (status == EFI_INVALID_PARAMETER) {
+					*progress = (CHAR16 *)next;
+					*progress_error = 0x00000002U;
+					return status;
+				}
+				if (status == EFI_NOT_FOUND) {
+					*progress = (CHAR16 *)next;
+					*progress_error = 0x00000008U;
+					return EFI_INVALID_PARAMETER;
+				}
+				next = after;
 			}
 			if (matches++ != 0U)
 				offset++;

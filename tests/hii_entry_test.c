@@ -85,10 +85,24 @@ int main(void)
 		L"1", FALSE);
 	(void)cdk2_hii_register_keyword(&context.database, L"private", L"Hidden",
 		L"0", FALSE);
+	(void)cdk2_hii_register_keyword(&context.database, L"x-UEFI-test", L"Fixed",
+		L"1", TRUE);
 	failures += expect(keyword->get_data(keyword, L"X-uefi-TEST", L"KEYWORD=mode",
 		&progress, &progress_error, &results) == EFI_SUCCESS &&
 		progress_error == 0U && results[0] == L'N',
 		"case-insensitive keyword request adapter failed");
+	free(results);
+	failures += expect(keyword->get_data(keyword, L"x-UEFI-test",
+		L"KEYWORD=Mode&ReadWrite&Buffer", &progress, &progress_error,
+		&results) == EFI_SUCCESS && keyword->get_data(keyword, L"x-UEFI-test",
+		L"KEYWORD=Mode&Numeric", &progress, &progress_error, &results) ==
+		EFI_INVALID_PARAMETER && progress_error == 0x00000008U,
+		"keyword access/data filters were not enforced");
+	free(results);
+	failures += expect(keyword->get_data(keyword, L"x-UEFI-test",
+		L"KEYWORD=Fixed&ReadOnly", &progress, &progress_error, &results) ==
+		EFI_SUCCESS && results[0] == L'N',
+		"read-only keyword filter or response failed");
 	free(results);
 	failures += expect(keyword->get_data(keyword, NULL, NULL, &progress,
 		&progress_error, &results) == EFI_SUCCESS && results[0] == L'N' &&
