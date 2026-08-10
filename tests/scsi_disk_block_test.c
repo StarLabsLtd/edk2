@@ -42,6 +42,20 @@ static EFI_STATUS cancel(void *opaque)
 	fixture->cancels++; return EFI_SUCCESS;
 }
 
+static EFI_STATUS wait(void *opaque)
+{
+	struct fixture *fixture = opaque;
+
+	if (fixture->complete != NULL) {
+		void (*complete)(void *, EFI_STATUS, UINT8, UINT8) = fixture->complete;
+		void *context = fixture->context;
+
+		fixture->complete = NULL;
+		complete(context, EFI_SUCCESS, 0, 0);
+	}
+	return EFI_SUCCESS;
+}
+
 static EFI_STATUS signal(void *opaque, void *event)
 {
 	struct fixture *fixture = opaque;
@@ -53,12 +67,12 @@ int main(void)
 {
 	struct fixture fixture = { 0 };
 	struct cdk2_scsi_disk disk = { .media = { 9, 1, 1, 0, 512, 8, 99 },
-		.transport = { &fixture, execute, submit, cancel } };
+		.transport = { &fixture, execute, submit, cancel, wait } };
 	struct cdk2_scsi_disk_async async;
 	struct cdk2_scsi_disk_block block;
 	struct cdk2_block_io2_token token = { (void *)1, EFI_SUCCESS };
 	struct cdk2_block_io2_token flush = { (void *)2, EFI_SUCCESS };
-	UINT8 buffer[512] __attribute__((aligned(8)));
+	UINT8 buffer[512] __aligned(8);
 
 	CHECK(sizeof(struct cdk2_block_media) == 48U &&
 		offsetof(struct cdk2_block_media, last_block) == 24U &&
@@ -78,7 +92,8 @@ int main(void)
 		fixture.submits == 1U && fixture.signals == 0U);
 	CHECK(block.block2.flush_blocks(&block.block2, &flush) == EFI_SUCCESS &&
 		flush.transaction_status == EFI_NOT_READY && fixture.signals == 0U);
-	fixture.complete(fixture.context, EFI_SUCCESS, 0, 0);
+	CHECK(block.block.read_blocks(&block.block, 9, 2, sizeof(buffer), buffer) ==
+		EFI_SUCCESS && fixture.executes == 2U);
 	CHECK(token.transaction_status == EFI_SUCCESS &&
 		flush.transaction_status == EFI_SUCCESS && fixture.signals == 2U);
 	CHECK(block.block2.reset(&block.block2, FALSE) == EFI_SUCCESS);

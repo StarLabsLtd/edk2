@@ -34,8 +34,8 @@ static uint64_t CDK2_MS_ABI read_blocks(struct cdk2_block_io *block,
 {
 	struct cdk2_scsi_disk_block *instance = from_block(block);
 
-	return instance == NULL ? EFI_INVALID_PARAMETER :
-		cdk2_scsi_disk_read(instance->disk, media_id, lba, size, buffer);
+	return instance == NULL || instance->async == NULL ? EFI_INVALID_PARAMETER :
+		cdk2_scsi_disk_async_read(instance->async, media_id, lba, size, buffer);
 }
 
 static uint64_t CDK2_MS_ABI write_blocks(struct cdk2_block_io *block,
@@ -43,13 +43,16 @@ static uint64_t CDK2_MS_ABI write_blocks(struct cdk2_block_io *block,
 {
 	struct cdk2_scsi_disk_block *instance = from_block(block);
 
-	return instance == NULL ? EFI_INVALID_PARAMETER :
-		cdk2_scsi_disk_write(instance->disk, media_id, lba, size, buffer);
+	return instance == NULL || instance->async == NULL ? EFI_INVALID_PARAMETER :
+		cdk2_scsi_disk_async_write(instance->async, media_id, lba, size, buffer);
 }
 
 static uint64_t CDK2_MS_ABI flush_blocks(struct cdk2_block_io *block)
 {
-	return from_block(block) == NULL ? EFI_INVALID_PARAMETER : EFI_SUCCESS;
+	struct cdk2_scsi_disk_block *instance = from_block(block);
+
+	return instance == NULL || instance->async == NULL ? EFI_INVALID_PARAMETER :
+		cdk2_scsi_disk_async_drain(instance->async);
 }
 
 static EFI_STATUS CDK2_MS_ABI reset_ex(struct cdk2_block_io2 *block,

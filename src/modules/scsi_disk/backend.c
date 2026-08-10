@@ -6,6 +6,7 @@
 #include <string.h>
 
 struct async_call {
+	struct cdk2_scsi_disk_backend *backend;
 	struct cdk2_scsi_disk_backend_services services;
 	struct cdk2_scsi_request request;
 	struct cdk2_scsi_disk_command command;
@@ -49,6 +50,7 @@ static void CDK2_MS_ABI async_notify(void *event, void *opaque)
 	UINT8 host_status = call->request.host_status;
 	UINT8 target_status = call->request.target_status;
 
+	call->backend->active_event = NULL;
 	(void)services.close_event(services.context, event);
 	services.release(services.context, call);
 	complete(complete_context, EFI_SUCCESS, host_status, target_status);
@@ -68,6 +70,7 @@ static EFI_STATUS submit(void *opaque, struct cdk2_scsi_disk_command *command,
 		return status;
 	memset(call, 0, sizeof(*call));
 	call->services = backend->services;
+	call->backend = backend;
 	call->command = *command;
 	call->complete = complete;
 	call->complete_context = complete_context;
@@ -76,14 +79,25 @@ static EFI_STATUS submit(void *opaque, struct cdk2_scsi_disk_command *command,
 		async_notify, call, &call->event);
 	if (EFI_ERROR(status))
 		goto fail;
+	backend->active_event = call->event;
 	status = backend->io->execute_scsi_command(backend->io, &call->request,
 		call->event);
 	if (!EFI_ERROR(status))
 		return EFI_SUCCESS;
+	backend->active_event = NULL;
 	(void)backend->services.close_event(backend->services.context, call->event);
 fail:
 	backend->services.release(backend->services.context, call);
 	return status;
+}
+
+static EFI_STATUS wait(void *opaque)
+{
+	struct cdk2_scsi_disk_backend *backend = opaque;
+
+	return backend->active_event == NULL ? EFI_SUCCESS :
+		backend->services.wait_event(backend->services.context,
+			backend->active_event);
 }
 
 static EFI_STATUS cancel(void *opaque)
@@ -153,7 +167,7 @@ EFI_STATUS cdk2_scsi_disk_backend_init(struct cdk2_scsi_disk_backend *backend,
 	    io->get_device_type == NULL || io->execute_scsi_command == NULL ||
 	    io->reset_device == NULL || services->allocate == NULL ||
 	    services->release == NULL || services->create_event == NULL ||
-	    services->close_event == NULL)
+	    services->close_event == NULL || services->wait_event == NULL)
 		return EFI_INVALID_PARAMETER;
 	status = io->get_device_type(io, &type);
 	if (EFI_ERROR(status))
@@ -167,7 +181,7 @@ EFI_STATUS cdk2_scsi_disk_backend_init(struct cdk2_scsi_disk_backend *backend,
 	disk->media = (struct cdk2_scsi_disk_media) { .present = TRUE,
 		.io_align = io->io_align == 0U ? 1U : io->io_align };
 	disk->transport = (struct cdk2_scsi_disk_transport) { .context = backend,
-		.execute = execute, .submit = submit, .cancel = cancel };
+		.execute = execute, .submit = submit, .cancel = cancel, .wait = wait };
 	status = inquiry(backend, disk);
 	if (EFI_ERROR(status))
 		return status;

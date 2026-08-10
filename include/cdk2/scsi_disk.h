@@ -44,6 +44,7 @@ struct cdk2_scsi_disk_transport {
 	EFI_STATUS (*submit)(void *, struct cdk2_scsi_disk_command *, void *, UINT32,
 		BOOLEAN, void (*)(void *, EFI_STATUS, UINT8, UINT8), void *);
 	EFI_STATUS (*cancel)(void *context);
+	EFI_STATUS (*wait)(void *context);
 };
 
 struct cdk2_scsi_disk_async_task {
@@ -64,6 +65,7 @@ struct cdk2_scsi_disk_async {
 	void (*unlock)(void *context, UINTN state);
 	UINTN head, count;
 	BOOLEAN parent_active, dispatching, completion_pending, stopping, aborting;
+	BOOLEAN sync_busy;
 	EFI_STATUS submission_status;
 	EFI_STATUS completion_status;
 	UINT8 completion_host, completion_target;
@@ -147,11 +149,13 @@ struct cdk2_scsi_disk_backend_services {
 		void (CDK2_MS_ABI *notify)(void *, void *), void *notify_context,
 		void **event);
 	EFI_STATUS (*close_event)(void *context, void *event);
+	EFI_STATUS (*wait_event)(void *context, void *event);
 };
 
 struct cdk2_scsi_disk_backend {
 	struct cdk2_scsi_io *io;
 	struct cdk2_scsi_disk_backend_services services;
+	void *active_event;
 };
 
 EFI_STATUS cdk2_scsi_disk_parse_capacity10(const UINT8 response[8],
@@ -178,6 +182,11 @@ EFI_STATUS cdk2_scsi_disk_async_flush(struct cdk2_scsi_disk_async *async,
 	struct cdk2_block_io2_token *token);
 EFI_STATUS cdk2_scsi_disk_async_reset(struct cdk2_scsi_disk_async *async);
 EFI_STATUS cdk2_scsi_disk_async_stop(struct cdk2_scsi_disk_async *async);
+EFI_STATUS cdk2_scsi_disk_async_read(struct cdk2_scsi_disk_async *async,
+	UINT32 media_id, UINT64 lba, UINTN size, void *buffer);
+EFI_STATUS cdk2_scsi_disk_async_write(struct cdk2_scsi_disk_async *async,
+	UINT32 media_id, UINT64 lba, UINTN size, const void *buffer);
+EFI_STATUS cdk2_scsi_disk_async_drain(struct cdk2_scsi_disk_async *async);
 EFI_STATUS cdk2_scsi_disk_block_init(struct cdk2_scsi_disk_block *instance,
 	struct cdk2_scsi_disk *disk, struct cdk2_scsi_disk_async *async);
 EFI_STATUS cdk2_scsi_disk_info_init(

@@ -87,6 +87,17 @@ static EFI_STATUS close_event(void *opaque, void *event)
 	fixture->closes++; free(event); return EFI_SUCCESS;
 }
 
+static EFI_STATUS wait_event(void *opaque, void *event)
+{
+	struct fixture *fixture = opaque;
+	struct event *pending = event;
+
+	CHECK(fixture->event == event);
+	fixture->event = NULL;
+	pending->notify(pending, pending->context);
+	return EFI_SUCCESS;
+}
+
 static void complete(void *opaque, EFI_STATUS status, UINT8 host, UINT8 target)
 {
 	struct fixture *fixture = opaque;
@@ -103,11 +114,11 @@ int main(void)
 		.io_align = 8U };
 	struct cdk2_scsi_disk_backend_services services = { .context = &fixture,
 		.allocate = allocate, .release = release, .create_event = create_event,
-		.close_event = close_event };
+		.close_event = close_event, .wait_event = wait_event };
 	struct cdk2_scsi_disk_backend backend;
 	struct cdk2_scsi_disk disk;
 	struct cdk2_scsi_disk_command command;
-	UINT8 buffer[512] __attribute__((aligned(8)));
+	UINT8 buffer[512] __aligned(8);
 
 	active = &fixture;
 	fixture.type = 5U;

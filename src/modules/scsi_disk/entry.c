@@ -20,6 +20,7 @@ typedef EFI_STATUS CDK2_MS_ABI create_fn(UINT32, UINTN,
 	void (CDK2_MS_ABI *)(void *, void *), void *, void **);
 typedef EFI_STATUS CDK2_MS_ABI signal_fn(void *);
 typedef EFI_STATUS CDK2_MS_ABI close_event_fn(void *);
+typedef EFI_STATUS CDK2_MS_ABI wait_fn(UINTN, void **, UINTN *);
 typedef EFI_STATUS CDK2_MS_ABI install_fn(void **, const EFI_GUID *, void *, ...);
 typedef EFI_STATUS CDK2_MS_ABI uninstall_fn(void *, const EFI_GUID *, void *, ...);
 typedef UINTN CDK2_MS_ABI raise_tpl_fn(UINTN);
@@ -33,7 +34,8 @@ struct boot_services {
 	allocate_fn *allocate_pool;
 	free_fn *free_pool;
 	create_fn *create_event;
-	void *set_timer, *wait_for_event;
+	void *set_timer;
+	wait_fn *wait_for_event;
 	signal_fn *signal_event;
 	close_event_fn *close_event;
 	void *check_event, *install_protocol, *reinstall_protocol, *uninstall_protocol;
@@ -49,6 +51,7 @@ struct system_view { UINT8 prefix[96]; struct boot_services *boot; };
 typedef char raise_offset[offsetof(struct boot_services, raise_tpl) == 24 ? 1 : -1];
 typedef char allocate_offset[offsetof(struct boot_services, allocate_pool) == 64 ? 1 : -1];
 typedef char event_offset[offsetof(struct boot_services, create_event) == 80 ? 1 : -1];
+typedef char wait_offset[offsetof(struct boot_services, wait_for_event) == 96 ? 1 : -1];
 typedef char signal_offset[offsetof(struct boot_services, signal_event) == 104 ? 1 : -1];
 typedef char handle_offset[offsetof(struct boot_services, handle_protocol) == 152 ? 1 : -1];
 typedef char open_offset[offsetof(struct boot_services, open_protocol) == 280 ? 1 : -1];
@@ -95,6 +98,18 @@ static EFI_STATUS close_event(void *context, void *event)
 	return boot(context)->close_event(event);
 }
 
+static EFI_STATUS wait_event(void *context, void *event)
+{
+	struct boot_services *services = boot(context);
+	UINTN old_tpl = services->raise_tpl(8U);
+	UINTN index;
+
+	services->restore_tpl(old_tpl);
+	if (old_tpl >= 8U)
+		return EFI_NOT_READY;
+	return services->wait_for_event(1U, &event, &index);
+}
+
 static EFI_STATUS signal(void *context, void *event)
 {
 	return boot(context)->signal_event(event);
@@ -131,7 +146,7 @@ static EFI_STATUS probe(void *context,
 {
 	struct cdk2_scsi_disk_backend_services services = { .context = context,
 		.allocate = allocate, .release = release, .create_event = create_event,
-		.close_event = close_event };
+		.close_event = close_event, .wait_event = wait_event };
 	EFI_STATUS status = cdk2_scsi_disk_backend_init(bound->backend, bound->scsi_io,
 		&services, &bound->disk);
 

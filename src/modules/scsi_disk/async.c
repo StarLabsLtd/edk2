@@ -67,7 +67,7 @@ static EFI_STATUS submit_chunk(struct cdk2_scsi_disk_async *async)
 
 static void dispatch(struct cdk2_scsi_disk_async *async)
 {
-	if (async->dispatching || async->aborting)
+	if (async->dispatching || async->aborting || async->sync_busy)
 		return;
 	async->dispatching = TRUE;
 	while (async->count != 0U && !async->parent_active) {
@@ -290,5 +290,86 @@ EFI_STATUS cdk2_scsi_disk_async_stop(struct cdk2_scsi_disk_async *async)
 	state = lock_scheduler(async);
 	status = abort_all(async, TRUE);
 	unlock_scheduler(async, state);
+	return status;
+}
+
+EFI_STATUS cdk2_scsi_disk_async_drain(struct cdk2_scsi_disk_async *async)
+{
+	EFI_STATUS status;
+	UINTN state;
+	BOOLEAN pending;
+
+	if (async == NULL || async->disk == NULL || async->disk->transport.wait == NULL)
+		return EFI_INVALID_PARAMETER;
+	for (;;) {
+		state = lock_scheduler(async);
+		pending = async->count != 0U;
+		if (pending && !async->parent_active && !async->completion_pending) {
+			unlock_scheduler(async, state);
+			return EFI_DEVICE_ERROR;
+		}
+		unlock_scheduler(async, state);
+		if (!pending)
+			return EFI_SUCCESS;
+		status = async->disk->transport.wait(async->disk->transport.context);
+		if (EFI_ERROR(status))
+			return status;
+	}
+}
+
+static EFI_STATUS begin_sync(struct cdk2_scsi_disk_async *async)
+{
+	EFI_STATUS status;
+	UINTN state;
+
+	for (;;) {
+		status = cdk2_scsi_disk_async_drain(async);
+		if (EFI_ERROR(status))
+			return status;
+		state = lock_scheduler(async);
+		if (async->stopping)
+			status = EFI_NOT_READY;
+		else if (async->count == 0U && !async->sync_busy) {
+			async->sync_busy = TRUE;
+			status = EFI_SUCCESS;
+		} else {
+			status = EFI_ALREADY_STARTED;
+		}
+		unlock_scheduler(async, state);
+		if (status != EFI_ALREADY_STARTED)
+			return status;
+	}
+}
+
+static void end_sync(struct cdk2_scsi_disk_async *async)
+{
+	UINTN state = lock_scheduler(async);
+
+	async->sync_busy = FALSE;
+	dispatch(async);
+	unlock_scheduler(async, state);
+}
+
+EFI_STATUS cdk2_scsi_disk_async_read(struct cdk2_scsi_disk_async *async,
+	UINT32 media_id, UINT64 lba, UINTN size, void *buffer)
+{
+	EFI_STATUS status = begin_sync(async);
+
+	if (!EFI_ERROR(status)) {
+		status = cdk2_scsi_disk_read(async->disk, media_id, lba, size, buffer);
+		end_sync(async);
+	}
+	return status;
+}
+
+EFI_STATUS cdk2_scsi_disk_async_write(struct cdk2_scsi_disk_async *async,
+	UINT32 media_id, UINT64 lba, UINTN size, const void *buffer)
+{
+	EFI_STATUS status = begin_sync(async);
+
+	if (!EFI_ERROR(status)) {
+		status = cdk2_scsi_disk_write(async->disk, media_id, lba, size, buffer);
+		end_sync(async);
+	}
 	return status;
 }

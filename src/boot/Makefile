@@ -41,6 +41,12 @@ CDK2_NATIVE_SCSI_BUS_QEMU_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/scsi-bus-qemu.o
 CDK2_NATIVE_SCSI_BUS_QEMU_PE ?= $(CDK2_NATIVE_BUILD_DIR)/scsi-bus-qemu.efi
 CDK2_NATIVE_SCSI_DISK_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-scsi-disk-test
 CDK2_NATIVE_SCSI_DISK_IO_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-scsi-disk-io-test
+CDK2_NATIVE_SCSI_DISK_OBJS := $(addprefix $(CDK2_NATIVE_BUILD_DIR)/scsi-disk-,\
+	model.o io.o async.o block.o binding.o backend.o disk_info.o entry.o)
+CDK2_NATIVE_SCSI_DISK_PE ?= $(CDK2_NATIVE_BUILD_DIR)/ScsiDisk.efi
+CDK2_NATIVE_SCSI_DISK_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/ScsiDisk.ffs
+CDK2_NATIVE_SCSI_DISK_PACKAGE_TEST ?= \
+	$(CDK2_NATIVE_BUILD_DIR)/scsi-disk-package-test
 CDK2_NATIVE_SATA_CONTROLLER_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-sata-controller-test
 CDK2_NATIVE_ATA_ATAPI_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-atapi-test
 CDK2_NATIVE_ATA_ATAPI_BINDING_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-atapi-binding-test
@@ -1110,6 +1116,11 @@ native-scsi-disk-test: $(CDK2_NATIVE_SCSI_DISK_ENTRY_TEST)
 	@"$(CDK2_NATIVE_SCSI_DISK_BINDING_TEST)"
 	@"$(CDK2_NATIVE_SCSI_DISK_BACKEND_TEST)"
 	@"$(CDK2_NATIVE_SCSI_DISK_ENTRY_TEST)"
+
+.PHONY: native-scsi-disk-package
+native-scsi-disk-package: $(CDK2_NATIVE_SCSI_DISK_FFS) \
+		$(CDK2_NATIVE_SCSI_DISK_PACKAGE_TEST)
+	@"$(CDK2_NATIVE_SCSI_DISK_PACKAGE_TEST)" "$(CDK2_NATIVE_SCSI_DISK_FFS)"
 
 native-scsi-bus-package: $(CDK2_NATIVE_SCSI_BUS_FFS) $(CDK2_NATIVE_SCSI_PACKAGE_TEST)
 	@"$(CDK2_NATIVE_SCSI_PACKAGE_TEST)" "$(CDK2_NATIVE_SCSI_BUS_FFS)"
@@ -2405,11 +2416,13 @@ $(CDK2_NATIVE_SCSI_DISK_IO_TEST): $(CDK2_DIR)/tests/scsi_disk_io_test.c \
 
 $(CDK2_NATIVE_SCSI_DISK_ASYNC_TEST): $(CDK2_DIR)/tests/scsi_disk_async_test.c \
 		$(CDK2_DIR)/src/modules/scsi_disk/model.c \
+		$(CDK2_DIR)/src/modules/scsi_disk/io.c \
 		$(CDK2_DIR)/src/modules/scsi_disk/async.c \
 		$(CDK2_DIR)/include/cdk2/scsi_disk.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -fsanitize=address,undefined \
 		$(CDK2_NATIVE_INCLUDES) -o "$@" $(CDK2_DIR)/tests/scsi_disk_async_test.c \
 		$(CDK2_DIR)/src/modules/scsi_disk/model.c \
+		$(CDK2_DIR)/src/modules/scsi_disk/io.c \
 		$(CDK2_DIR)/src/modules/scsi_disk/async.c
 
 $(CDK2_NATIVE_SCSI_DISK_BLOCK_TEST): $(CDK2_DIR)/tests/scsi_disk_block_test.c \
@@ -2523,6 +2536,34 @@ $(CDK2_NATIVE_SCSI_BUS_PE): $(CDK2_NATIVE_SCSI_BUS_OBJS) \
 $(CDK2_NATIVE_SCSI_BUS_FFS): $(CDK2_NATIVE_SCSI_BUS_PE) $(CDK2_NATIVE_FFSBUILD)
 	@"$(CDK2_NATIVE_FFSBUILD)" 0167ccc4-d0f7-4f21-a3ef-9e64b7cdce8b \
 		ScsiBus 1.0 0x703e "$<" "$@" -
+
+$(CDK2_NATIVE_BUILD_DIR)/scsi-disk-%.o: \
+		$(CDK2_DIR)/src/modules/scsi_disk/%.c \
+		$(CDK2_DIR)/include/cdk2/scsi_disk.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,\
+		$(CDK2_NATIVE_CFLAGS)) -mcmodel=large -fno-ident -fcf-protection=none \
+		-maccumulate-outgoing-args $(CDK2_NATIVE_INCLUDES) -MMD -MP \
+		-MF "$(@:.o=.d)" -MT "$@" -c "$<" -o "$@"
+
+$(CDK2_NATIVE_SCSI_DISK_PE): $(CDK2_NATIVE_SCSI_DISK_OBJS) \
+		$(CDK2_DIR)/src/modules/scsi_disk/scsi_disk.ld $(CDK2_NATIVE_PERELOCCHECK)
+	@$(LD) -mi386pep --subsystem 11 --entry cdk2_scsi_disk_entry --image-base 0 \
+		--section-alignment 0x1000 --file-alignment 0x1000 --build-id=none \
+		--no-insert-timestamp -s --nxcompat \
+		-T "$(CDK2_DIR)/src/modules/scsi_disk/scsi_disk.ld" \
+		-o "$@" $(CDK2_NATIVE_SCSI_DISK_OBJS)
+	@"$(CDK2_NATIVE_PERELOCCHECK)" --subsystem 11 "$@"
+
+$(CDK2_NATIVE_SCSI_DISK_FFS): $(CDK2_NATIVE_SCSI_DISK_PE) \
+		$(CDK2_NATIVE_FFSBUILD)
+	@"$(CDK2_NATIVE_FFSBUILD)" 0a66e322-3740-4cce-ad62-bd172cecca35 \
+		ScsiDisk 1.0 0xf042 "$<" "$@" -
+
+$(CDK2_NATIVE_SCSI_DISK_PACKAGE_TEST): \
+		$(CDK2_DIR)/tests/scsi_disk_package_test.c | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -MMD -MP \
+		-MF "$(CDK2_NATIVE_BUILD_DIR)/scsi-disk-package-test.d" -MT "$@" \
+		-o "$@" "$<"
 
 $(CDK2_NATIVE_SCSI_BUS_QEMU_OBJ): $(CDK2_DIR)/tests/scsi_bus_qemu.c \
 		$(CDK2_DIR)/include/cdk2/scsi_bus_binding.h | $(CDK2_NATIVE_BUILD_DIR)
