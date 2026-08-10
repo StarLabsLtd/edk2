@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 
 #include <cdk2/ata_atapi_entry.h>
+#include <cdk2/ata_atapi_backend.h>
 
 #include <stdarg.h>
 #include <stddef.h>
@@ -14,23 +15,33 @@ typedef UINT64 native_uint64_t;
 typedef UINT32 native_uint32_t;
 struct guid { UINT32 data1; UINT16 data2, data3; UINT8 data4[8]; };
 typedef EFI_STATUS CDK2_MS_ABI handle_t(void *, const void *, void **);
-typedef EFI_STATUS CDK2_MS_ABI install_t(void **, ...);
+typedef EFI_STATUS CDK2_MS_ABI install_t(void **, const struct guid *, void *, ...);
 typedef EFI_STATUS CDK2_MS_ABI uninstall_t(void *, ...);
 typedef EFI_STATUS CDK2_MS_ABI open_t(void *, const struct guid *, void **,
 	void *, void *, UINT32);
 typedef EFI_STATUS CDK2_MS_ABI close_t(void *, const struct guid *, void *, void *);
 typedef EFI_STATUS CDK2_MS_ABI allocate_t(UINT32, UINTN, void **);
 typedef EFI_STATUS CDK2_MS_ABI free_t(void *);
+typedef EFI_STATUS CDK2_MS_ABI create_event_t(UINT32, UINTN,
+	void (CDK2_MS_ABI *)(void *, void *), void *, void **);
+typedef EFI_STATUS CDK2_MS_ABI set_timer_t(void *, UINT32, UINT64);
+typedef EFI_STATUS CDK2_MS_ABI event_t(void *);
 struct fake_boot { UINT8 before_allocate[64]; allocate_t *allocate; free_t *free;
-	UINT8 before_handle[72]; handle_t *handle;
+	create_event_t *create_event; set_timer_t *set_timer; void *wait;
+	event_t *signal_event; event_t *close_event; UINT8 before_handle[32]; handle_t *handle;
 	UINT8 before_open[120]; open_t *open; close_t *close;
 	UINT8 before_install[32]; install_t *install; uninstall_t *uninstall; };
 struct fake_system { UINT8 before_boot[96]; struct fake_boot *boot; };
 struct fixture { struct fake_boot boot; struct fake_system system;
 	struct cdk2_ata_loaded_image loaded; unsigned int installs, uninstalls;
 	unsigned int fail_install, fail_uninstall, fail_open, fail_close, releases;
-	unsigned int opens, closes; UINT32 open_guid[16], open_attributes[16];
+	unsigned int opens, closes, events, timers, signals, closes_event;
+	unsigned int fail_timer, fail_signal;
+	UINT32 open_guid[16], open_attributes[16];
 	UINT32 close_guid[16]; void *controller[16], *agent[16], *child[16]; };
+struct fake_event { void (CDK2_MS_ABI *notify)(void *, void *); void *context; };
+static struct cdk2_ata_pass_thru_protocol *installed_ata;
+static struct fake_event *pending_event;
 static struct fixture *active;
 static EFI_STATUS CDK2_MS_ABI allocate_pool(UINT32 type, UINTN size, void **buffer)
 { (void)type; *buffer = calloc(1, size); return *buffer == NULL ?
@@ -39,8 +50,11 @@ static EFI_STATUS CDK2_MS_ABI free_pool(void *buffer)
 { free(buffer); return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI handle(void *image, const void *guid, void **interface)
 { (void)image; (void)guid; *interface = &active->loaded; return EFI_SUCCESS; }
-static EFI_STATUS CDK2_MS_ABI install(void **handle, ...)
+static EFI_STATUS CDK2_MS_ABI install(void **handle, const struct guid *guid,
+	void *interface, ...)
 { active->installs++; *handle = (void *)0x9000;
+	if (guid != NULL && guid->data1 == 0x1d3de7f0U)
+		installed_ata = interface;
 	return active->fail_install ? EFI_DEVICE_ERROR : EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI uninstall(void *handle, ...)
 { (void)handle; active->uninstalls++;
@@ -71,6 +85,49 @@ static EFI_STATUS CDK2_MS_ABI close_protocol(void *controller,
 	active->child[8U + call] = child;
 	return active->fail_close == call + 1U ? EFI_DEVICE_ERROR : EFI_SUCCESS;
 }
+static EFI_STATUS CDK2_MS_ABI create_event(UINT32 type, UINTN tpl,
+	void (CDK2_MS_ABI *notify)(void *, void *), void *context, void **event)
+{ struct fake_event *created = calloc(1, sizeof(*created)); (void)type; (void)tpl;
+	if (created == NULL)
+		return EFI_OUT_OF_RESOURCES;
+	active->events++;
+	created->notify = notify; created->context = context; *event = created; return EFI_SUCCESS; }
+static EFI_STATUS CDK2_MS_ABI set_timer(void *event, UINT32 type, UINT64 trigger)
+{ (void)trigger; active->timers++;
+	if (active->timers == active->fail_timer)
+		return EFI_DEVICE_ERROR;
+	pending_event = type == 0U ? NULL : event; return EFI_SUCCESS; }
+static EFI_STATUS CDK2_MS_ABI signal_event(void *event)
+{ (void)event; active->signals++;
+	return active->signals == active->fail_signal ? EFI_DEVICE_ERROR : EFI_SUCCESS; }
+static EFI_STATUS CDK2_MS_ABI close_event(void *event)
+{ active->closes_event++; if (pending_event == event) pending_event = NULL;
+	free(event); return EFI_SUCCESS; }
+static void tick(void)
+{ struct fake_event *event = pending_event; CHECK(event != NULL); pending_event = NULL;
+	event->notify(event, event->context); }
+
+static EFI_STATUS ahci_allocate(void *opaque, size_t size, size_t alignment,
+	void **host, UINT64 *device)
+{ (void)opaque; *host = aligned_alloc(alignment, size);
+	if (*host == NULL)
+		return EFI_OUT_OF_RESOURCES;
+	*device = (UINT64)(uintptr_t)*host; return EFI_SUCCESS; }
+static EFI_STATUS ahci_release(void *opaque, void *host, size_t size)
+{ (void)opaque; (void)size; free(host); return EFI_SUCCESS; }
+static EFI_STATUS ahci_map(void *opaque, enum cdk2_ahci_dma_operation operation,
+	void *host, size_t *size, UINT64 *device, void **mapping)
+{ (void)opaque; (void)operation; *device = (UINT64)(uintptr_t)host; *mapping = host;
+	return *size == 0U ? EFI_INVALID_PARAMETER : EFI_SUCCESS; }
+static EFI_STATUS ahci_unmap(void *opaque, void *mapping)
+{ (void)opaque; (void)mapping; return EFI_SUCCESS; }
+static EFI_STATUS ahci_flush(void *opaque) { (void)opaque; return EFI_SUCCESS; }
+static UINT32 ahci_read(void *opaque, UINT16 port, UINT16 offset)
+{ (void)opaque; (void)port; return offset == 0x38U ? 0U : 0U; }
+static EFI_STATUS ahci_write(void *opaque, UINT16 port, UINT16 offset, UINT32 value)
+{ (void)opaque; (void)port; (void)offset; (void)value; return EFI_SUCCESS; }
+static UINT64 ahci_time(void *opaque) { static UINT64 now; (void)opaque; return now++; }
+static void ahci_delay(void *opaque, UINTN delay) { (void)opaque; (void)delay; }
 static EFI_STATUS read_class(void *context, void *pci, UINT8 code[3])
 { (void)context; (void)pci; code[0] = 1; code[1] = 6; code[2] = 1;
 	return EFI_SUCCESS; }
@@ -87,12 +144,35 @@ static EFI_STATUS discover_ahci(void *context, struct cdk2_ata_controller *contr
 	native_uint32_t *cap,
 	native_uint32_t *pi,
 	struct cdk2_ata_topology *topology)
-{ (void)context; (void)controller; *cap = 0; *pi = 1;
-	return cdk2_ata_add_device(topology, 0, 0xffff, CDK2_ATA_DISK); }
+{ EFI_STATUS status; (void)context; (void)controller; *cap = 0; *pi = 3;
+	status = cdk2_ata_add_device(topology, 0, 0xffff, CDK2_ATA_DISK);
+	if (EFI_ERROR(status))
+		return status;
+	topology->devices[0].block_size = 512U;
+	status = cdk2_ata_add_device(topology, 1, 0xffff, CDK2_ATA_DISK);
+	if (!EFI_ERROR(status))
+		topology->devices[1].block_size = 512U;
+	return status; }
 static EFI_STATUS prepare(void *context, struct cdk2_ata_controller *controller)
-{ (void)context; (void)controller; return EFI_SUCCESS; }
+{ struct cdk2_ata_controller_backend *backend = calloc(1, sizeof(*backend));
+	struct cdk2_ahci_dma_services services = { context, ahci_allocate, ahci_release,
+		ahci_map, ahci_unmap, ahci_flush, ahci_read, ahci_write, ahci_time, ahci_delay };
+	EFI_STATUS status; if (backend == NULL) return EFI_OUT_OF_RESOURCES;
+	status = cdk2_ahci_engine_init(&backend->ahci, &services, 0U, 3U);
+	if (EFI_ERROR(status)) {
+		free(backend);
+		return status;
+	}
+	backend->ahci_initialized = 1; controller->backend = backend;
+	controller->ahci = &backend->ahci; return EFI_SUCCESS; }
 static void release_engines(void *context, struct cdk2_ata_controller *controller)
-{ (void)controller; ((struct fixture *)context)->releases++; }
+{ struct cdk2_ata_controller_backend *backend = controller->backend;
+	if (backend != NULL) {
+		cdk2_ahci_engine_destroy(&backend->ahci);
+		free(backend);
+	}
+	controller->backend = NULL; controller->ahci = NULL;
+	((struct fixture *)context)->releases++; }
 static EFI_STATUS create_protocols(void *context,
 	struct cdk2_ata_controller *controller,
 	struct cdk2_ata_protocol_bundle **protocols)
@@ -118,9 +198,12 @@ static void initialize(struct fixture *fixture, struct cdk2_ata_binding *binding
 	memset(fixture, 0, sizeof(*fixture)); active = fixture;
 	fixture->boot.handle = handle; fixture->boot.install = install;
 	fixture->boot.allocate = allocate_pool; fixture->boot.free = free_pool;
+	fixture->boot.create_event = create_event; fixture->boot.set_timer = set_timer;
+	fixture->boot.signal_event = signal_event; fixture->boot.close_event = close_event;
 	fixture->boot.uninstall = uninstall; fixture->boot.open = open_protocol;
 	fixture->boot.close = close_protocol; fixture->system.boot = &fixture->boot;
 	fixture->loaded.unload = old_unload;
+	installed_ata = NULL; pending_event = NULL;
 	CHECK(cdk2_ata_entry_publish_with_services(NULL, binding, &services,
 		fixture, &fixture->system) == EFI_INVALID_PARAMETER);
 }
@@ -184,6 +267,42 @@ int main(void)
 	CHECK(entry.driver.start(&entry.driver, (void *)1, NULL) == EFI_SUCCESS);
 	CHECK(entry.driver.start(&entry.driver, (void *)2, NULL) == EFI_SUCCESS);
 	CHECK(binding.count == 2);
+	{
+		struct cdk2_ata_command_block acb = { .command = 0xe7U };
+		struct cdk2_ata_status_block asb = { .status = 0xffU };
+		struct cdk2_ata_command_packet first = { .asb = &asb, .acb = &acb,
+			.timeout = 100U, .protocol = 2U };
+		struct cdk2_ata_command_packet second = first;
+		unsigned int before_signals = fixture.signals;
+
+		CHECK(installed_ata != NULL &&
+			(installed_ata->mode->attributes &
+			 CDK2_ATA_PASS_THRU_ATTRIBUTES_NONBLOCKIO) != 0U);
+		CHECK(installed_ata->pass_thru(installed_ata, 0, 0xffffU, &first,
+			(void *)0xa001U) ==
+			EFI_SUCCESS && fixture.signals == before_signals);
+		CHECK(installed_ata->pass_thru(installed_ata, 1, 0xffffU, &second,
+			(void *)0xa002U) ==
+			EFI_SUCCESS);
+		for (unsigned int step = 0; step < 80U && fixture.signals < before_signals + 2U;
+		     step++)
+			tick();
+		CHECK(fixture.signals == before_signals + 2U && asb.status == 0U);
+		CHECK(installed_ata->reset_port(installed_ata, 0) == EFI_SUCCESS);
+		fixture.fail_timer = fixture.timers + 1U;
+		CHECK(installed_ata->pass_thru(installed_ata, 0, 0xffffU, &first,
+			(void *)0xa003U) == EFI_DEVICE_ERROR);
+		fixture.fail_timer = 0;
+		fixture.fail_signal = fixture.signals + 1U;
+		CHECK(installed_ata->pass_thru(installed_ata, 0, 0xffffU, &first,
+			(void *)0xa004U) == EFI_SUCCESS);
+		for (unsigned int step = 0; step < 40U && pending_event != NULL; step++)
+			tick();
+		CHECK(pending_event == NULL && fixture.signals == fixture.fail_signal);
+		fixture.fail_signal = 0;
+		CHECK(installed_ata->pass_thru(installed_ata, 0, 0xffffU, &first,
+			(void *)0xa005U) == EFI_SUCCESS && pending_event != NULL);
+	}
 	fixture.fail_uninstall = fixture.uninstalls + 3U;
 	CHECK(entry.loaded->unload(&fixture) == EFI_DEVICE_ERROR);
 	CHECK(entry.published && binding.count == 0);
@@ -191,6 +310,7 @@ int main(void)
 	CHECK(entry.loaded->unload(&fixture) == EFI_SUCCESS);
 	CHECK(!entry.published && fixture.loaded.unload == old_unload);
 	CHECK(fixture.releases == 2 && fixture.closes >= 4);
+	CHECK(pending_event == NULL && fixture.closes_event == fixture.events);
 	CHECK(cdk2_ata_atapi_pass_thru_entry(&fixture, &fixture.system) == EFI_SUCCESS);
 	CHECK(fixture.loaded.unload(&fixture) == EFI_SUCCESS);
 	puts("ata atapi entry tests: PASS");

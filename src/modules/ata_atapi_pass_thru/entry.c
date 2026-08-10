@@ -321,6 +321,14 @@ static void service_destroy_protocols(void *opaque,
 	}
 	protocol_release(opaque, protocols);
 }
+static void service_relocate(void *opaque, struct cdk2_ata_controller *controller)
+{
+	struct cdk2_ata_controller_backend *backend = controller->backend;
+
+	(void)opaque;
+	if (backend != NULL && controller->topology.mode == CDK2_ATA_AHCI)
+		backend->async.controller = controller;
+}
 static EFI_STATUS service_install(void *opaque, void *controller,
 	struct cdk2_ata_protocol_bundle *protocols)
 {
@@ -446,6 +454,7 @@ EFI_STATUS cdk2_ata_entry_publish_with_services(struct cdk2_ata_entry *entry,
 	services.destroy_protocols = service_destroy_protocols;
 	services.install = service_install;
 	services.uninstall = service_uninstall;
+	services.relocate = service_relocate;
 	status = cdk2_ata_binding_init(binding, &services);
 	if (EFI_ERROR(status))
 		return status;

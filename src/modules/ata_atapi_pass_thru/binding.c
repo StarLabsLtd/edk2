@@ -148,6 +148,9 @@ EFI_STATUS cdk2_ata_binding_start(struct cdk2_ata_binding *binding, void *contro
 		&binding->controllers[binding->count - 1U];
 	binding->controllers[binding->count - 1U].protocols->ext_scsi.controller =
 		&binding->controllers[binding->count - 1U];
+	if (services->relocate != NULL)
+		services->relocate(services->context,
+			&binding->controllers[binding->count - 1U]);
 	return EFI_SUCCESS;
 destroy_protocols:
 	services->destroy_protocols(services->context, staged.protocols);
@@ -188,9 +191,9 @@ EFI_STATUS cdk2_ata_binding_stop(struct cdk2_ata_binding *binding, void *control
 			instance->protocols);
 		return status;
 	}
-	binding->services.release_engines(binding->services.context, instance);
 	binding->services.destroy_protocols(binding->services.context,
 		instance->protocols);
+	binding->services.release_engines(binding->services.context, instance);
 	for (size_t current = index; current + 1U < binding->count; current++)
 		binding->controllers[current] = binding->controllers[current + 1U];
 	binding->count--;
@@ -199,6 +202,9 @@ EFI_STATUS cdk2_ata_binding_stop(struct cdk2_ata_binding *binding, void *control
 			&binding->controllers[current];
 		binding->controllers[current].protocols->ext_scsi.controller =
 			&binding->controllers[current];
+		if (binding->services.relocate != NULL)
+			binding->services.relocate(binding->services.context,
+				&binding->controllers[current]);
 	}
 	return EFI_SUCCESS;
 }

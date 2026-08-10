@@ -146,6 +146,7 @@ struct cdk2_ata_binding_services {
 		struct cdk2_ata_protocol_bundle *protocols);
 	EFI_STATUS (*uninstall)(void *context, void *controller,
 		struct cdk2_ata_protocol_bundle *protocols);
+	void (*relocate)(void *context, struct cdk2_ata_controller *controller);
 };
 struct cdk2_ata_controller {
 	void *handle, *pci, *ide;
