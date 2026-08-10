@@ -36,6 +36,8 @@ static const EFI_GUID block2_guid = { 0xa77b2472U, 0xe282U, 0x4e9fU,
 	{ 0xa2, 0x45, 0xc2, 0xc0, 0xe2, 0x7b, 0xbc, 0xc1 } };
 static const EFI_GUID disk_guid = { 0xd432a67fU, 0x14dcU, 0x484bU,
 	{ 0xb3, 0xbb, 0x3f, 0x02, 0x91, 0x84, 0x93, 0x27 } };
+static const EFI_GUID ahci_interface = { 0x9e498932U, 0x4abcU, 0x45afU,
+	{ 0xa3, 0x4d, 0x02, 0x47, 0x78, 0x7b, 0xe7, 0xc6 } };
 
 static UINT8 port_read(UINT16 port)
 {
@@ -97,7 +99,9 @@ EFI_STATUS CDK2_MS_ABI ata_bus_qemu_entry(void *image, void *table)
 		if (!EFI_ERROR(system->boot->handle_protocol(handles[index], &block_guid,
 		    (void **)&block)) && !EFI_ERROR(system->boot->handle_protocol(handles[index],
 		    &block2_guid, (void **)&block2)) && !EFI_ERROR(system->boot->handle_protocol(
-		    handles[index], &disk_guid, (void **)&disk)))
+		    handles[index], &disk_guid, (void **)&disk)) &&
+		    same((const UINT8 *)&disk->interface, (const UINT8 *)&ahci_interface,
+		    sizeof(ahci_interface)))
 			break;
 		block = NULL;
 		block2 = NULL;
@@ -109,9 +113,14 @@ EFI_STATUS CDK2_MS_ABI ata_bus_qemu_entry(void *image, void *table)
 	    block->media != block2->media || block->media->block_size != 512U)
 		goto bad;
 	serial("CDK2_ATA_BUS_PROTOCOLS_OK\r\n");
-	if (EFI_ERROR(disk->identify(disk, identify, &identify_size)) ||
-	    identify_size != sizeof(identify))
+	status = disk->identify(disk, identify, &identify_size);
+	if (EFI_ERROR(status) || identify_size != sizeof(identify)) {
+		serial("CDK2_ATA_BUS_DISK_INFO_STATUS=");
+		serial_status(status);
+		serial("CDK2_ATA_BUS_DISK_INFO_SIZE=");
+		serial_status(identify_size);
 		goto bad;
+	}
 	serial("CDK2_ATA_BUS_DISK_INFO_OK\r\n");
 	scratch = block->media->last_block;
 	for (index = 0; index < sizeof(pattern); index++)

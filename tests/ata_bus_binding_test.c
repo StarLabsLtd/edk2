@@ -251,7 +251,7 @@ int main(void)
 		&identify_size) == EFI_SUCCESS && identify_size == 512 &&
 		memcmp(identify_buffer, binding.controllers[1]->children[0]->model.identify,
 			512) == 0);
-	CHECK(binding.controllers[1]->children[0]->disk_info.interface->data1 == 0x9e498932 &&
+	CHECK(binding.controllers[1]->children[0]->disk_info.interface.data1 == 0x9e498932 &&
 		binding.controllers[1]->children[0]->disk_info.which_ide(
 			&binding.controllers[1]->children[0]->disk_info, NULL, NULL) ==
 		EFI_INVALID_PARAMETER);

@@ -99,7 +99,9 @@ int main(void)
 	CHECK(sizeof(struct cdk2_block_io) == 48);
 	CHECK(sizeof(struct cdk2_block_io2) == 40);
 	CHECK(sizeof(struct cdk2_block_media) == 48);
-	CHECK(sizeof(struct cdk2_ata_bus_disk_info) == 40);
+	CHECK(sizeof(struct cdk2_ata_bus_disk_info) == 48);
+	CHECK(offsetof(struct cdk2_ata_bus_disk_info, inquiry) == 16);
+	CHECK(offsetof(struct cdk2_ata_bus_disk_info, identify) == 24);
 	CHECK(sizeof(struct cdk2_ata_bus_security) == 16);
 	CHECK(offsetof(struct cdk2_block_media, lowest_aligned_lba) == 32);
 	put16(identify + 49 * 2, 1U << 9); put16(identify + 83 * 2, 0x4400);

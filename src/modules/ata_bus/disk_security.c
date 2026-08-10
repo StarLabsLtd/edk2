@@ -168,7 +168,7 @@ EFI_STATUS cdk2_ata_bus_disk_security_init(struct cdk2_ata_bus_bound_child *chil
 	    services->release == NULL)
 		return EFI_INVALID_PARAMETER;
 	child->disk_info = (struct cdk2_ata_bus_disk_info) {
-		child->model.device_path[1] == 1U ? &ide_interface : &ahci_interface,
+		child->model.device_path[1] == 1U ? ide_interface : ahci_interface,
 		unsupported_inquiry, identify, sense, which_ide };
 	child->security = (struct cdk2_ata_bus_security) { receive_data, send_data };
 	child->transport = services->transport;

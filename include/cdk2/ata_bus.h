@@ -25,7 +25,7 @@ typedef EFI_STATUS CDK2_MS_ABI cdk2_disk_info_sense_fn(
 typedef EFI_STATUS CDK2_MS_ABI cdk2_disk_info_which_ide_fn(
 	struct cdk2_ata_bus_disk_info *, UINT32 *, UINT32 *);
 struct cdk2_ata_bus_disk_info {
-	const EFI_GUID *interface;
+	EFI_GUID interface;
 	cdk2_disk_info_inquiry_fn *inquiry;
 	cdk2_disk_info_identify_fn *identify;
 	cdk2_disk_info_sense_fn *sense_data;
