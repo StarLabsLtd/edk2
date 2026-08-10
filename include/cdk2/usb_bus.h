@@ -92,6 +92,7 @@ struct cdk2_usb_child {
 	struct cdk2_usb_device_path_node path;
 	UINT8 port, address, interface;
 	BOOLEAN active;
+	void *handle;
 };
 
 typedef void cdk2_usb_delay_fn(void *context, UINTN microseconds);
@@ -126,5 +127,60 @@ EFI_STATUS cdk2_usb_bus_init(struct cdk2_usb_bus *bus,
 	cdk2_usb_delay_fn *delay);
 EFI_STATUS cdk2_usb_bus_enumerate_port(struct cdk2_usb_bus *bus, UINT8 port);
 EFI_STATUS cdk2_usb_bus_remove_port(struct cdk2_usb_bus *bus, UINT8 port);
+
+typedef EFI_STATUS cdk2_usb_open_host_fn(void *context, void *controller,
+	struct cdk2_usb2_hc_protocol **host);
+typedef EFI_STATUS cdk2_usb_close_host_fn(void *context, void *controller);
+typedef EFI_STATUS cdk2_usb_install_marker_fn(void *context, void *controller,
+	void *marker);
+typedef EFI_STATUS cdk2_usb_uninstall_marker_fn(void *context, void *controller,
+	void *marker);
+typedef EFI_STATUS cdk2_usb_publish_child_fn(void *context, void *controller,
+	struct cdk2_usb_child *child, void **handle);
+typedef EFI_STATUS cdk2_usb_remove_child_fn(void *context, void *controller,
+	struct cdk2_usb_child *child, void *handle);
+typedef EFI_STATUS cdk2_usb_link_child_fn(void *context, void *controller,
+	void *child);
+typedef EFI_STATUS cdk2_usb_unlink_child_fn(void *context, void *controller,
+	void *child);
+typedef EFI_STATUS cdk2_usb_allocate_fn(void *context, UINTN size, void **buffer);
+typedef void cdk2_usb_free_fn(void *context, void *buffer);
+
+struct cdk2_usb_binding_services {
+	void *context;
+	cdk2_usb_open_host_fn *open_host;
+	cdk2_usb_close_host_fn *close_host;
+	cdk2_usb_install_marker_fn *install_marker;
+	cdk2_usb_uninstall_marker_fn *uninstall_marker;
+	cdk2_usb_publish_child_fn *publish_child;
+	cdk2_usb_remove_child_fn *remove_child;
+	cdk2_usb_link_child_fn *link_child;
+	cdk2_usb_unlink_child_fn *unlink_child;
+	cdk2_usb_allocate_fn *allocate;
+	cdk2_usb_free_fn *free;
+	void *delay_context;
+	cdk2_usb_delay_fn *delay;
+};
+
+struct cdk2_usb_binding_controller {
+	struct cdk2_usb_bus *bus;
+	void *handle;
+	BOOLEAN marker;
+};
+
+struct cdk2_usb_binding {
+	struct cdk2_usb_binding_services services;
+	struct cdk2_usb_binding_controller controllers[8];
+	UINT8 count;
+};
+
+EFI_STATUS cdk2_usb_binding_init(struct cdk2_usb_binding *binding,
+	const struct cdk2_usb_binding_services *services);
+EFI_STATUS cdk2_usb_binding_supported(struct cdk2_usb_binding *binding,
+	void *controller);
+EFI_STATUS cdk2_usb_binding_start(struct cdk2_usb_binding *binding,
+	void *controller);
+EFI_STATUS cdk2_usb_binding_stop(struct cdk2_usb_binding *binding,
+	void *controller, UINTN child_count, void **children);
 
 #endif
