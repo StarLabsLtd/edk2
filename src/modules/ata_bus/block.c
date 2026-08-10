@@ -52,15 +52,20 @@ static EFI_STATUS async_request(struct cdk2_ata_bus_block_instance *instance,
 {
 	struct cdk2_ata_bus_request request = { instance->child, operation, token,
 		media_id, lba, bytes, buffer };
-	EFI_STATUS status;
+	EFI_STATUS status, original_status;
 	if (token == NULL || token->event == NULL)
 		return sync_request(instance, operation, media_id, lba, bytes, buffer);
+	original_status = token->transaction_status;
 	status = cdk2_ata_bus_submit(instance->scheduler, &request);
 	if (EFI_ERROR(status))
 		return status;
-	return instance->scheduler->worker_active || instance->scheduler->dispatching ?
-		EFI_SUCCESS :
-		cdk2_ata_bus_worker(instance->scheduler);
+	if (instance->scheduler->worker_active || instance->scheduler->dispatching)
+		return EFI_SUCCESS;
+	instance->scheduler->initial_token = token;
+	instance->scheduler->initial_token_status = original_status;
+	status = cdk2_ata_bus_worker(instance->scheduler);
+	instance->scheduler->initial_token = NULL;
+	return status;
 }
 
 static EFI_STATUS CDK2_MS_ABI block2_reset(struct cdk2_block_io2 *block,

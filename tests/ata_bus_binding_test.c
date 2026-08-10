@@ -16,6 +16,7 @@ enum failure { FAIL_NONE, FAIL_OPEN, FAIL_MARKER, FAIL_ALLOC, FAIL_INSTALL,
 struct fixture;
 struct mock_protocol {
 	struct cdk2_ata_pass_thru_protocol protocol;
+	struct cdk2_ata_pass_thru_mode mode;
 	struct fixture *fixture;
 	UINTN port_calls, device_calls;
 };
@@ -169,8 +170,8 @@ static EFI_STATUS submit(void *context, struct cdk2_ata_bus_child *child,
 { EFI_STATUS status = execute(context, child, packet);
 	if (!EFI_ERROR(status)) complete(complete_context, EFI_SUCCESS);
 	return status; }
-static EFI_STATUS wait_idle(void *context)
-{ (void)context; return EFI_NOT_READY; }
+static EFI_STATUS wait_idle(void *context, struct cdk2_ata_bus_scheduler *scheduler)
+{ (void)context; (void)scheduler; return EFI_NOT_READY; }
 static void signal_event(void *context, void *event)
 {
 	struct fixture *f = context;
@@ -188,6 +189,9 @@ static void init(struct fixture *f, struct cdk2_ata_bus_binding *binding)
 	for (UINTN index = 0; index < 2; index++) {
 		f->protocols[index].fixture = f;
 		f->protocols[index].protocol.pass_thru = pass;
+		f->protocols[index].mode.attributes = CDK2_ATA_PASS_THRU_ATTRIBUTES_LOGICAL |
+			CDK2_ATA_PASS_THRU_ATTRIBUTES_NONBLOCKIO;
+		f->protocols[index].protocol.mode = &f->protocols[index].mode;
 		f->protocols[index].protocol.get_next_port = next_port;
 		f->protocols[index].protocol.get_next_device = next_device;
 		f->protocols[index].protocol.build_device_path = build_path;

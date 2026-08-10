@@ -95,9 +95,10 @@ struct parent_call {
 	cdk2_ata_bus_complete_fn *complete;
 	void *complete_context;
 	void *event;
+	struct cdk2_ata_command_packet *packet;
 	struct parent_call *next;
 	UINTN references;
-	BOOLEAN notified;
+	BOOLEAN notified, waiting, event_closed;
 };
 
 static EFI_STATUS service_allocate(void *context, UINTN size, void **buffer)
@@ -114,6 +115,13 @@ static void release_parent_call(struct parent_call *call)
 {
 	if (--call->references == 0U)
 		service_release(call->entry, call);
+}
+static void close_parent_event(struct parent_call *call)
+{
+	if (!call->event_closed && call->event != NULL) {
+		call->event_closed = 1;
+		(void)call->entry->boot->close_event(call->event);
+	}
 }
 static void CDK2_MS_ABI worker_notify(void *event, void *context)
 {
@@ -278,15 +286,22 @@ static EFI_STATUS service_execute(void *context, struct cdk2_ata_bus_child *chil
 static void CDK2_MS_ABI parent_notify(void *event, void *context)
 {
 	struct parent_call *call = context;
-	EFI_STATUS status = EFI_SUCCESS;
+	EFI_STATUS status = call->packet->asb != NULL &&
+		(call->packet->asb->status & 0x21U) != 0U ? EFI_DEVICE_ERROR : EFI_SUCCESS;
 	struct parent_call **link;
+	UINTN tpl = call->entry->boot->raise_tpl(8U);
 
 	call->notified = 1;
+	call->entry->boot->restore_tpl(tpl);
 	call->complete(call->complete_context, status);
+	tpl = call->entry->boot->raise_tpl(8U);
 	for (link = (struct parent_call **)&call->entry->parent_calls;
 	    *link != NULL; link = &(*link)->next)
 		if (*link == call) { *link = call->next; break; }
-	(void)call->entry->boot->close_event(event);
+	if (!call->waiting)
+		close_parent_event(call);
+	call->entry->boot->restore_tpl(tpl);
+	(void)event;
 	release_parent_call(call);
 }
 static EFI_STATUS service_submit(void *context, struct cdk2_ata_bus_child *child,
@@ -303,43 +318,65 @@ static EFI_STATUS service_submit(void *context, struct cdk2_ata_bus_child *child
 	status = service_allocate(entry, sizeof(*call), (void **)&call);
 	if (EFI_ERROR(status))
 		return status;
-	*call = (struct parent_call) { entry, complete, complete_context, NULL, NULL, 2U, 0 };
+	*call = (struct parent_call) { entry, complete, complete_context, NULL, packet,
+		NULL, 2U, 0, 0, 0 };
 	status = entry->boot->create_event(0x200U, 8U, parent_notify, call, &call->event);
 	if (!EFI_ERROR(status)) {
+		UINTN tpl = entry->boot->raise_tpl(8U);
 		call->next = entry->parent_calls;
 		entry->parent_calls = call;
+		entry->boot->restore_tpl(tpl);
 		status = owner->pass_thru->pass_thru(owner->pass_thru, child->port,
 			child->multiplier, packet, call->event);
 	}
 	if (EFI_ERROR(status)) {
 		if (!call->notified) {
 			struct parent_call **link;
+			UINTN tpl = entry->boot->raise_tpl(8U);
 			for (link = (struct parent_call **)&entry->parent_calls;
 			    *link != NULL; link = &(*link)->next)
 				if (*link == call) { *link = call->next; break; }
-			if (call->event != NULL)
-				(void)entry->boot->close_event(call->event);
+			close_parent_event(call);
+			entry->boot->restore_tpl(tpl);
 			release_parent_call(call);
 		}
 	}
 	release_parent_call(call);
 	return status;
 }
-static EFI_STATUS service_wait(void *context)
+static EFI_STATUS service_wait(void *context, struct cdk2_ata_bus_scheduler *scheduler)
 {
 	struct cdk2_ata_bus_entry *entry = context;
-	struct parent_call *call = entry->parent_calls;
-	UINTN index, old_tpl;
-	if (call == NULL)
-		return EFI_NOT_READY;
+	struct parent_call *call;
+	void *event;
+	EFI_STATUS status;
+	UINTN index, old_tpl, tpl;
 	if (entry->boot->raise_tpl == NULL || entry->boot->restore_tpl == NULL ||
 	    entry->boot->wait_for_event == NULL)
 		return EFI_UNSUPPORTED;
+	tpl = entry->boot->raise_tpl(8U);
+	for (call = entry->parent_calls; call != NULL; call = call->next)
+		if (call->complete_context == scheduler)
+			break;
+	if (call == NULL) {
+		entry->boot->restore_tpl(tpl);
+		return EFI_NOT_READY;
+	}
+	call->references++;
+	call->waiting = 1;
+	event = call->event;
+	entry->boot->restore_tpl(tpl);
 	old_tpl = entry->boot->raise_tpl(31U);
 	entry->boot->restore_tpl(old_tpl);
-	if (old_tpl > 4U)
-		return EFI_UNSUPPORTED;
-	return entry->boot->wait_for_event(1U, &call->event, &index);
+	status = old_tpl > 4U ? EFI_UNSUPPORTED :
+		entry->boot->wait_for_event(1U, &event, &index);
+	tpl = entry->boot->raise_tpl(8U);
+	call->waiting = 0;
+	if (call->notified)
+		close_parent_event(call);
+	entry->boot->restore_tpl(tpl);
+	release_parent_call(call);
+	return status;
 }
 static EFI_STATUS service_reset(void *context, struct cdk2_ata_bus_child *child,
 	BOOLEAN extended)

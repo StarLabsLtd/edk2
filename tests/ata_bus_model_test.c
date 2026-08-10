@@ -83,7 +83,10 @@ static void init(struct fixture *fixture, UINTN devices)
 	fixture->protocol.pass_thru = pass; fixture->protocol.get_next_port = next_port;
 	fixture->protocol.get_next_device = next_device;
 	fixture->protocol.build_device_path = build_path;
-	fixture->mode.io_align = 64; fixture->protocol.mode = &fixture->mode;
+	fixture->mode.io_align = 64; fixture->mode.attributes =
+		CDK2_ATA_PASS_THRU_ATTRIBUTES_LOGICAL |
+		CDK2_ATA_PASS_THRU_ATTRIBUTES_NONBLOCKIO;
+	fixture->protocol.mode = &fixture->mode;
 }
 
 int main(void)

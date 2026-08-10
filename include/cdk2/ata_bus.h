@@ -83,7 +83,8 @@ typedef void cdk2_ata_bus_complete_fn(void *context, EFI_STATUS status);
 typedef EFI_STATUS cdk2_ata_bus_submit_fn(void *context,
 	struct cdk2_ata_bus_child *child, struct cdk2_ata_command_packet *packet,
 	cdk2_ata_bus_complete_fn *complete, void *complete_context);
-typedef EFI_STATUS cdk2_ata_bus_wait_fn(void *context);
+typedef EFI_STATUS cdk2_ata_bus_wait_fn(void *context,
+	struct cdk2_ata_bus_scheduler *scheduler);
 typedef EFI_STATUS cdk2_ata_bus_reset_fn(void *context,
 	struct cdk2_ata_bus_child *child, BOOLEAN extended_verification);
 typedef void cdk2_ata_bus_signal_fn(void *context, void *event);
@@ -109,6 +110,8 @@ struct cdk2_ata_bus_scheduler {
 	UINT8 *active_buffer;
 	UINTN active_remaining;
 	EFI_STATUS active_status;
+	struct cdk2_block_io2_token *initial_token;
+	EFI_STATUS initial_token_status;
 	BOOLEAN stopping, worker_active, deferred, parent_active;
 	BOOLEAN dispatching, completion_pending, abort_active, resetting;
 };

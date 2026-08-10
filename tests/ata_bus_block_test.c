@@ -28,8 +28,9 @@ static EFI_STATUS submit(void *opaque, struct cdk2_ata_bus_child *child,
 	CHECK(fixture->complete == NULL);
 	fixture->complete = complete; fixture->complete_context = complete_context;
 	return EFI_SUCCESS; }
-static EFI_STATUS wait_idle(void *opaque)
+static EFI_STATUS wait_idle(void *opaque, struct cdk2_ata_bus_scheduler *scheduler)
 { struct fixture *fixture = opaque; cdk2_ata_bus_complete_fn *complete;
+	(void)scheduler;
 	void *context; if (fixture->complete == NULL) return EFI_NOT_READY;
 	complete = fixture->complete; context = fixture->complete_context;
 	fixture->complete = NULL; fixture->complete_context = NULL;
@@ -79,11 +80,11 @@ int main(void)
 	CHECK(instance.block2.write_blocks(&instance.block2, 0, 1, &second, 512,
 		buffer + 512) == EFI_SUCCESS && fixture.executes == 1);
 	fixture.reentrant = &first;
-	CHECK(wait_idle(&fixture) == EFI_SUCCESS && fixture.executes == 2 &&
+	CHECK(wait_idle(&fixture, &scheduler) == EFI_SUCCESS && fixture.executes == 2 &&
 		fixture.signals == 1 && first.transaction_status == EFI_NOT_READY);
-	CHECK(wait_idle(&fixture) == EFI_SUCCESS &&
+	CHECK(wait_idle(&fixture, &scheduler) == EFI_SUCCESS &&
 		fixture.executes == 3 && second.transaction_status == EFI_SUCCESS);
-	CHECK(fixture.executes == 3 && wait_idle(&fixture) == EFI_SUCCESS &&
+	CHECK(fixture.executes == 3 && wait_idle(&fixture, &scheduler) == EFI_SUCCESS &&
 		fixture.executes == 3 && first.transaction_status == EFI_SUCCESS &&
 		fixture.signals == 3);
 	CHECK(instance.block.read_blocks(&instance.block, 0, 3, 512, buffer) ==

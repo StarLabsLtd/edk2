@@ -16,6 +16,7 @@ struct fixture {
 	struct system_view system;
 	struct cdk2_ata_loaded_image loaded;
 	struct cdk2_ata_pass_thru_protocol ata;
+	struct cdk2_ata_pass_thru_mode ata_mode;
 	enum fail_stage fail;
 	UINTN allocs, frees, opens, closes, installs, uninstalls, creates, signals, child_links;
 	UINT32 last_attribute;
@@ -140,12 +141,15 @@ static EFI_STATUS CDK2_MS_ABI build_path(struct cdk2_ata_pass_thru_protocol *ata
 static EFI_STATUS CDK2_MS_ABI get_device(struct cdk2_ata_pass_thru_protocol *ata,
 	void *path, UINT16 * port, UINT16 * device)
 { (void)ata; (void)path; *port = 0; *device = 0; return EFI_SUCCESS; }
+static UINTN CDK2_MS_ABI mock_raise_tpl(UINTN tpl) { (void)tpl; return 4U; }
+static void CDK2_MS_ABI mock_restore_tpl(UINTN tpl) { (void)tpl; }
 
 static void init(void)
 {
 	memset(&fixture, 0, sizeof(fixture));
 	active = NULL;
 	fixture.system.boot = &fixture.boot;
+	fixture.boot.raise_tpl = mock_raise_tpl; fixture.boot.restore_tpl = mock_restore_tpl;
 	fixture.boot.allocate_pool = mock_alloc; fixture.boot.free_pool = mock_free;
 	fixture.boot.create_event = mock_create; fixture.boot.signal_event = mock_signal;
 	fixture.boot.close_event = mock_close_event; fixture.boot.handle_protocol = mock_handle;
@@ -153,6 +157,9 @@ static void init(void)
 	fixture.boot.install_multiple = mock_install;
 	fixture.boot.uninstall_multiple = mock_uninstall;
 	fixture.ata.pass_thru = pass; fixture.ata.get_next_port = next_port;
+	fixture.ata_mode.attributes = CDK2_ATA_PASS_THRU_ATTRIBUTES_LOGICAL |
+		CDK2_ATA_PASS_THRU_ATTRIBUTES_NONBLOCKIO;
+	fixture.ata.mode = &fixture.ata_mode;
 	fixture.ata.get_next_device = next_device; fixture.ata.build_device_path = build_path;
 	fixture.ata.get_device = get_device;
 	fixture.parent_path[0] = 1; fixture.parent_path[1] = 1;

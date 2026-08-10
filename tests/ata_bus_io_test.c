@@ -40,8 +40,9 @@ static EFI_STATUS submit(void *opaque, struct cdk2_ata_bus_child *child,
 	if (EFI_ERROR(status)) return status;
 	CHECK(fixture->complete == NULL); fixture->complete = complete;
 	fixture->complete_context = complete_context; return EFI_SUCCESS; }
-static EFI_STATUS wait_idle(void *opaque)
+static EFI_STATUS wait_idle(void *opaque, struct cdk2_ata_bus_scheduler *scheduler)
 { struct fixture *fixture = opaque; cdk2_ata_bus_complete_fn *complete;
+	(void)scheduler;
 	void *context; if (fixture->complete == NULL) return EFI_NOT_READY;
 	complete = fixture->complete; context = fixture->complete_context;
 	fixture->complete = NULL; fixture->complete_context = NULL;
@@ -87,9 +88,9 @@ int main(void)
 	CHECK(cdk2_ata_bus_submit(&scheduler, &read) == EFI_ALREADY_STARTED);
 	CHECK(cdk2_ata_bus_worker(&scheduler) == EFI_SUCCESS &&
 		one.transaction_status == EFI_NOT_READY && fixture.signals == 0);
-	CHECK(wait_idle(&fixture) == EFI_SUCCESS && one.transaction_status == EFI_SUCCESS &&
+	CHECK(wait_idle(&fixture, &scheduler) == EFI_SUCCESS && one.transaction_status == EFI_SUCCESS &&
 		fixture.events[0] == (void *)1 && two.transaction_status == EFI_NOT_READY);
-	CHECK(wait_idle(&fixture) == EFI_SUCCESS &&
+	CHECK(wait_idle(&fixture, &scheduler) == EFI_SUCCESS &&
 		two.transaction_status == EFI_SUCCESS && fixture.events[1] == (void *)2);
 	CHECK(fixture.calls == 2 &&
 		three.transaction_status == EFI_SUCCESS && fixture.events[2] == (void *)3);
@@ -111,7 +112,7 @@ int main(void)
 	fixture.fail_call = fixture.calls + 2U; read.token = &one; read.bytes = 0x10001U * 512U;
 	CHECK(cdk2_ata_bus_submit(&scheduler, &read) == EFI_SUCCESS);
 	CHECK(cdk2_ata_bus_worker(&scheduler) == EFI_SUCCESS &&
-		wait_idle(&fixture) == EFI_SUCCESS &&
+		wait_idle(&fixture, &scheduler) == EFI_SUCCESS &&
 		one.transaction_status == EFI_DEVICE_ERROR && fixture.signals == 5);
 	read.token = &one; read.bytes = 512; write.token = &two;
 	CHECK(cdk2_ata_bus_submit(&scheduler, &read) == EFI_SUCCESS &&
@@ -120,7 +121,7 @@ int main(void)
 	CHECK(cdk2_ata_bus_reset(&scheduler, &first, 0) == EFI_SUCCESS &&
 		one.transaction_status == CDK2_EFI_ABORTED &&
 		two.transaction_status == EFI_NOT_READY && scheduler.parent_active);
-	CHECK(wait_idle(&fixture) == EFI_SUCCESS && two.transaction_status == EFI_SUCCESS);
+	CHECK(wait_idle(&fixture, &scheduler) == EFI_SUCCESS && two.transaction_status == EFI_SUCCESS);
 	read.token = &one; read.bytes = 512; write.token = &two; flush.token = &three;
 	CHECK(cdk2_ata_bus_submit(&scheduler, &read) == EFI_SUCCESS);
 	CHECK(cdk2_ata_bus_submit(&scheduler, &write) == EFI_SUCCESS);
@@ -130,7 +131,7 @@ int main(void)
 		two.transaction_status == EFI_NOT_READY &&
 		three.transaction_status == CDK2_EFI_ABORTED && fixture.resets == 3 &&
 		scheduler.count == 1);
-	CHECK(wait_idle(&fixture) == EFI_SUCCESS &&
+	CHECK(wait_idle(&fixture, &scheduler) == EFI_SUCCESS &&
 		two.transaction_status == EFI_SUCCESS);
 
 	read.token = NULL; read.media_id = 1;
@@ -138,7 +139,7 @@ int main(void)
 	read.buffer = NULL; read.bytes = 0;
 	CHECK(cdk2_ata_bus_execute_sync(&scheduler, &read) == CDK2_EFI_MEDIA_CHANGED);
 	read.media_id = 0;
-	CHECK(cdk2_ata_bus_execute_sync(&scheduler, &read) == EFI_INVALID_PARAMETER);
+	CHECK(cdk2_ata_bus_execute_sync(&scheduler, &read) == EFI_SUCCESS);
 	read.buffer = data; read.lba = first.geometry.blocks;
 	CHECK(cdk2_ata_bus_execute_sync(&scheduler, &read) == EFI_SUCCESS);
 	read.bytes = 513;

@@ -80,11 +80,15 @@ static EFI_STATUS identify_device(struct cdk2_ata_pass_thru_protocol *protocol,
 	void *path = NULL;
 	EFI_STATUS status;
 
-	status = protocol->pass_thru(protocol, port, multiplier, &packet, NULL);
-	if (EFI_ERROR(status))
+	for (UINTN attempt = 0; attempt < 4U; attempt++) {
 		status = protocol->pass_thru(protocol, port, multiplier, &packet, NULL);
+		if (!EFI_ERROR(status))
+			break;
+	}
 	if (EFI_ERROR(status))
 		return status;
+	if ((get16(child->identify) & (1U << 15)) != 0U)
+		return EFI_UNSUPPORTED;
 	status = cdk2_ata_bus_parse_identify(child->identify, &child->geometry);
 	if (EFI_ERROR(status))
 		return status;
@@ -114,7 +118,14 @@ EFI_STATUS cdk2_ata_bus_add_controller(struct cdk2_ata_bus *bus,
 
 	if (bus == NULL || handle == NULL || pass_thru == NULL || release_path == NULL ||
 	    pass_thru->get_next_port == NULL || pass_thru->get_next_device == NULL ||
-	    pass_thru->pass_thru == NULL || pass_thru->build_device_path == NULL)
+	    pass_thru->pass_thru == NULL || pass_thru->build_device_path == NULL ||
+	    pass_thru->mode == NULL ||
+	    (pass_thru->mode->attributes & (CDK2_ATA_PASS_THRU_ATTRIBUTES_LOGICAL |
+	    CDK2_ATA_PASS_THRU_ATTRIBUTES_NONBLOCKIO)) !=
+	    (CDK2_ATA_PASS_THRU_ATTRIBUTES_LOGICAL |
+	    CDK2_ATA_PASS_THRU_ATTRIBUTES_NONBLOCKIO) ||
+	    (pass_thru->mode->io_align != 0U && (pass_thru->mode->io_align &
+	    (pass_thru->mode->io_align - 1U)) != 0U))
 		return EFI_INVALID_PARAMETER;
 	for (UINTN index = 0; index < bus->controller_count; index++)
 		if (bus->controllers[index].handle == handle)

@@ -19,10 +19,10 @@ static EFI_STATUS validate(const struct cdk2_ata_bus_request *request)
 			EFI_INVALID_PARAMETER;
 	if (request->media_id != 0U)
 		return CDK2_EFI_MEDIA_CHANGED;
-	if (request->buffer == NULL)
-		return EFI_INVALID_PARAMETER;
 	if (request->bytes == 0U)
 		return EFI_SUCCESS;
+	if (request->buffer == NULL)
+		return EFI_INVALID_PARAMETER;
 	if (media->block_size == 0U || request->bytes % media->block_size != 0U)
 		return EFI_BAD_BUFFER_SIZE;
 	if (media->io_align > 1U &&
@@ -207,6 +207,15 @@ static EFI_STATUS dispatch(struct cdk2_ata_bus_scheduler *scheduler)
 		{
 			EFI_STATUS status = submit_active_chunk(scheduler);
 			if (EFI_ERROR(status)) {
+				if (scheduler->active.token == scheduler->initial_token) {
+					scheduler->active.token->transaction_status =
+						scheduler->initial_token_status;
+					scheduler->head = (scheduler->head + 1U) %
+						CDK2_ATA_BUS_QUEUE_DEPTH;
+					scheduler->count--; scheduler->worker_active = 0;
+					if (!EFI_ERROR(first)) first = status;
+					continue;
+				}
 				scheduler->active_status = status;
 				scheduler->completion_pending = 1;
 				if (!EFI_ERROR(first)) first = status;
@@ -274,7 +283,7 @@ EFI_STATUS cdk2_ata_bus_execute_sync(struct cdk2_ata_bus_scheduler *scheduler,
 		if (!scheduler->worker_active)
 			status = cdk2_ata_bus_worker(scheduler);
 		else
-			status = scheduler->transport.wait(scheduler->transport.context);
+			status = scheduler->transport.wait(scheduler->transport.context, scheduler);
 		if (EFI_ERROR(status))
 			return status;
 	}
@@ -290,6 +299,8 @@ EFI_STATUS cdk2_ata_bus_reset(struct cdk2_ata_bus_scheduler *scheduler,
 	if (scheduler == NULL || child == NULL)
 		return EFI_INVALID_PARAMETER;
 	scheduler->resetting = 1;
+	if (scheduler->worker_active && scheduler->active.child == child)
+		scheduler->abort_active = 1;
 	status = scheduler->transport.reset(scheduler->transport.context, child,
 		extended_verification);
 	if (EFI_ERROR(status)) {
@@ -297,9 +308,8 @@ EFI_STATUS cdk2_ata_bus_reset(struct cdk2_ata_bus_scheduler *scheduler,
 		return status;
 	}
 	if (scheduler->worker_active && scheduler->active.child == child) {
-		scheduler->abort_active = 1;
 		while (scheduler->parent_active) {
-			status = scheduler->transport.wait(scheduler->transport.context);
+			status = scheduler->transport.wait(scheduler->transport.context, scheduler);
 			if (EFI_ERROR(status)) {
 				scheduler->resetting = 0;
 				return status;
@@ -321,17 +331,28 @@ EFI_STATUS cdk2_ata_bus_reset(struct cdk2_ata_bus_scheduler *scheduler,
 	memcpy(scheduler->queue, retained, retained_count * sizeof(retained[0]));
 	scheduler->head = 0; scheduler->count = retained_count;
 	scheduler->resetting = 0;
-	if (scheduler->count != 0U)
+	if (scheduler->count != 0U && !scheduler->stopping)
 		(void)dispatch(scheduler);
 	return EFI_SUCCESS;
 }
 
 EFI_STATUS cdk2_ata_bus_stop_scheduler(struct cdk2_ata_bus_scheduler *scheduler)
 {
+	EFI_STATUS status = EFI_SUCCESS;
 	if (scheduler == NULL)
 		return EFI_INVALID_PARAMETER;
 	scheduler->stopping = 1;
-	return cdk2_ata_bus_drain_scheduler(scheduler);
+	if (scheduler->worker_active)
+		status = cdk2_ata_bus_reset(scheduler, scheduler->active.child, 0);
+	while (scheduler->count != 0U) {
+		struct cdk2_ata_bus_request request = scheduler->queue[scheduler->head];
+		scheduler->head = (scheduler->head + 1U) % CDK2_ATA_BUS_QUEUE_DEPTH;
+		scheduler->count--;
+		request.token->transaction_status = CDK2_EFI_ABORTED;
+		scheduler->transport.signal(scheduler->transport.context,
+			request.token->event);
+	}
+	return status;
 }
 
 EFI_STATUS cdk2_ata_bus_drain_scheduler(struct cdk2_ata_bus_scheduler *scheduler)
@@ -342,7 +363,7 @@ EFI_STATUS cdk2_ata_bus_drain_scheduler(struct cdk2_ata_bus_scheduler *scheduler
 		return EFI_INVALID_PARAMETER;
 	while (scheduler->count != 0U) {
 		EFI_STATUS status = scheduler->parent_active ?
-			scheduler->transport.wait(scheduler->transport.context) :
+			scheduler->transport.wait(scheduler->transport.context, scheduler) :
 			cdk2_ata_bus_worker(scheduler);
 
 		if (EFI_ERROR(status) && !EFI_ERROR(first))
