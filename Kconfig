@@ -291,6 +291,14 @@ config CDK2_NATIVE_SCSI_BUS
 	  Publish SCSI I/O children for devices exposed by native Extended SCSI
 	  Pass Thru.
 
+config CDK2_NATIVE_SCSI_DISK
+	bool "Build native SCSI disk services"
+	default y
+	depends on CDK2_NATIVE_SCSI_BUS
+	help
+	  Publish Block I/O, Block I/O 2 and Disk Info on supported native SCSI
+	  I/O controllers.
+
 config CDK2_NATIVE_STATUS_CODE_HANDLER
 	bool "Build the native release status-code handler"
 	default y

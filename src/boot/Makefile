@@ -45,6 +45,7 @@ CDK2_NATIVE_SCSI_DISK_OBJS := $(addprefix $(CDK2_NATIVE_BUILD_DIR)/scsi-disk-,\
 	model.o io.o async.o block.o binding.o backend.o disk_info.o entry.o)
 CDK2_NATIVE_SCSI_DISK_PE ?= $(CDK2_NATIVE_BUILD_DIR)/ScsiDisk.efi
 CDK2_NATIVE_SCSI_DISK_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/ScsiDisk.ffs
+CDK2_NATIVE_SCSI_DISK_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-scsi-disk.fv
 CDK2_NATIVE_SCSI_DISK_PACKAGE_TEST ?= \
 	$(CDK2_NATIVE_BUILD_DIR)/scsi-disk-package-test
 CDK2_NATIVE_SATA_CONTROLLER_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-sata-controller-test
@@ -1122,6 +1123,15 @@ native-scsi-disk-package: $(CDK2_NATIVE_SCSI_DISK_FFS) \
 		$(CDK2_NATIVE_SCSI_DISK_PACKAGE_TEST)
 	@"$(CDK2_NATIVE_SCSI_DISK_PACKAGE_TEST)" "$(CDK2_NATIVE_SCSI_DISK_FFS)"
 
+.PHONY: native-scsi-disk-fv-exact
+native-scsi-disk-fv-exact: $(CDK2_NATIVE_SCSI_DISK_FFS) \
+		$(CDK2_NATIVE_FVREPLACE) $(CDK2_NATIVE_FVINFO)
+	@test -n "$(CDK2_NATIVE_PRE_SCSI_DISK_FV)"
+	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_PRE_SCSI_DISK_FV)" 0x332630 \
+		"$(CDK2_NATIVE_SCSI_DISK_FFS)" "$(CDK2_NATIVE_SCSI_DISK_FV)"
+	@"$(CDK2_NATIVE_FVINFO)" "$(CDK2_NATIVE_SCSI_DISK_FV)" | grep -q \
+		'^0a66e322-3740-4cce-ad62-bd172cecca35[[:space:]]0x00332630[[:space:]]0x0000f042[[:space:]]0x07[[:space:]]ScsiDisk$$'
+
 native-scsi-bus-package: $(CDK2_NATIVE_SCSI_BUS_FFS) $(CDK2_NATIVE_SCSI_PACKAGE_TEST)
 	@"$(CDK2_NATIVE_SCSI_PACKAGE_TEST)" "$(CDK2_NATIVE_SCSI_BUS_FFS)"
 	@printf '%s\n' "native SCSI bus FFS: $(CDK2_NATIVE_SCSI_BUS_FFS)"
@@ -2088,6 +2098,25 @@ native-scsi-bus-fv:
 	@printf '%s\n' 'native SCSI bus: disabled by Kconfig'
 endif
 
+ifeq ($(CONFIG_CDK2_NATIVE_SCSI_DISK),y)
+CDK2_NATIVE_PRE_SCSI_DISK_FV ?= $(CDK2_NATIVE_FINAL_FV)
+CDK2_NATIVE_FINAL_FV := $(CDK2_NATIVE_SCSI_DISK_FV)
+
+$(CDK2_NATIVE_SCSI_DISK_FV): $(CDK2_NATIVE_PRE_SCSI_DISK_FV) \
+		$(CDK2_NATIVE_SCSI_DISK_FFS) $(CDK2_NATIVE_FVREPLACE)
+	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_PRE_SCSI_DISK_FV)" 0x332630 \
+		"$(CDK2_NATIVE_SCSI_DISK_FFS)" "$@"
+
+.PHONY: native-scsi-disk-fv
+native-scsi-disk-fv: $(CDK2_NATIVE_SCSI_DISK_FV)
+	@"$(CDK2_NATIVE_FVINFO)" "$<" | grep -q \
+		'^0a66e322-3740-4cce-ad62-bd172cecca35[[:space:]]0x00332630[[:space:]]0x0000f042[[:space:]]0x07[[:space:]]ScsiDisk$$'
+	@printf '%s\n' "native SCSI disk FV: $<"
+else
+native-scsi-disk-fv:
+	@printf '%s\n' 'native SCSI disk: disabled by Kconfig'
+endif
+
 ifeq ($(CONFIG_CDK2_NATIVE_ENGLISH),y)
 $(CDK2_NATIVE_ENGLISH_OBJ): $(CDK2_DIR)/src/modules/english/english.c $(CDK2_DIR)/include/cdk2/english.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
@@ -2539,7 +2568,8 @@ $(CDK2_NATIVE_SCSI_BUS_FFS): $(CDK2_NATIVE_SCSI_BUS_PE) $(CDK2_NATIVE_FFSBUILD)
 
 $(CDK2_NATIVE_BUILD_DIR)/scsi-disk-%.o: \
 		$(CDK2_DIR)/src/modules/scsi_disk/%.c \
-		$(CDK2_DIR)/include/cdk2/scsi_disk.h | $(CDK2_NATIVE_BUILD_DIR)
+		$(CDK2_DIR)/include/cdk2/scsi_disk.h \
+		$(CDK2_DIR)/include/cdk2/scsi_disk_entry.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,\
 		$(CDK2_NATIVE_CFLAGS)) -mcmodel=large -fno-ident -fcf-protection=none \
 		-maccumulate-outgoing-args $(CDK2_NATIVE_INCLUDES) -MMD -MP \
