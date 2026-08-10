@@ -112,7 +112,8 @@ EFI_STATUS CDK2_MS_ABI scsi_disk_qemu_entry(void *image, void *table)
 		goto bad;
 	serial(index == EFI_NOT_READY ? "SCSI_DISK_STAGE_PENDING_OK\r\n" :
 		"SCSI_DISK_STAGE_EARLY_COMPLETE_OK\r\n");
-	if (EFI_ERROR(system->boot->wait_for_event(1U, &event, &index)) || index != 0U ||
+	if ((index == EFI_NOT_READY &&
+	    (EFI_ERROR(system->boot->wait_for_event(1U, &event, &index)) || index != 0U)) ||
 	    token.transaction_status != EFI_SUCCESS)
 		goto bad;
 	serial("SCSI_DISK_STAGE_ASYNC_READ_OK\r\n");
