@@ -56,6 +56,8 @@ static EFI_STATUS CDK2_MS_ABI map(struct cdk2_efi_pci_io_protocol *pci,
 static EFI_STATUS CDK2_MS_ABI unmap(struct cdk2_efi_pci_io_protocol *pci,
 	void *mapping)
 { (void)pci; (void)mapping; active->unmaps++; return EFI_SUCCESS; }
+static EFI_STATUS CDK2_MS_ABI flush(struct cdk2_efi_pci_io_protocol *pci)
+{ (void)pci; return EFI_SUCCESS; }
 static void delay(void *opaque, UINTN microseconds)
 { ((struct fixture *)opaque)->delays += microseconds; }
 
@@ -65,7 +67,7 @@ int main(void)
 	struct cdk2_efi_pci_io_protocol pci = { .mem = { access, access },
 		.pci = { config, config }, .map = map, .unmap = unmap,
 		.allocate_buffer = allocate_buffer, .free_buffer = free_buffer,
-		.attributes = attributes };
+		.flush = flush, .attributes = attributes };
 	struct cdk2_xhci_pci_adapter adapter;
 	struct cdk2_xhci_controller_services services;
 	struct cdk2_xhci_dma dma;

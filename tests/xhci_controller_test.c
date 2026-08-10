@@ -13,6 +13,7 @@ struct fixture {
 	UINT32 registers[0x3000U / 4U];
 	UINTN allocations, releases, fail_allocation, writes;
 	UINT64 next_device;
+	struct cdk2_xhci_controller *controller;
 };
 
 static EFI_STATUS read32(void *opaque, UINT32 offset, UINT32 *value)
@@ -31,6 +32,15 @@ static EFI_STATUS write32(void *opaque, UINT32 offset, UINT32 value)
 	if (offset == 0x40U && (value & 2U) != 0U)
 		value &= ~2U;
 	fixture->registers[offset / 4U] = value;
+	if (offset == 0x1000U && fixture->controller != NULL) {
+		struct cdk2_xhci_ring *ring = &fixture->controller->command_ring;
+		UINT16 command = ring->enqueue == 0U ? 254U : ring->enqueue - 1U;
+		struct cdk2_xhci_trb *event = fixture->controller->event_dma.host;
+
+		event[0] = (struct cdk2_xhci_trb) {
+			.parameter = ring->device_address + command * 16U,
+			.status = 1U << 24, .control = 33U << 10 | 5U << 24 | 1U };
+	}
 	return EFI_SUCCESS;
 }
 
@@ -48,6 +58,12 @@ static void delay(void *opaque, UINTN microseconds)
 {
 	(void)opaque;
 	(void)microseconds;
+}
+
+static EFI_STATUS flush(void *opaque)
+{
+	(void)opaque;
+	return EFI_SUCCESS;
 }
 
 static EFI_STATUS allocate_dma(void *opaque, UINTN size, UINTN alignment,
@@ -81,17 +97,21 @@ int main(void)
 {
 	struct fixture fixture = { .next_device = 0x100000U };
 	struct cdk2_xhci_controller_services services = { &fixture, read32, write32,
-		write64, delay, allocate_dma, release_dma };
+		write64, flush, delay, allocate_dma, release_dma };
 	struct cdk2_xhci_capabilities capability = { .capability_length = 0x40U,
 		.maximum_slots = 8U, .maximum_ports = 4U, .runtime_offset = 0x2000U,
 		.doorbell_offset = 0x1000U, .page_size = 4096U };
 	struct cdk2_xhci_controller controller;
+	UINT8 slot;
 
 	fixture.registers[0x44U / 4U] = 1U;
 	CHECK(cdk2_xhci_controller_init(&controller, &services, &capability) ==
 		EFI_SUCCESS && controller.running && fixture.allocations == 4U &&
 		fixture.registers[0x40U / 4U] == 5U &&
 		fixture.registers[0x2038U / 4U] == controller.event_dma.device);
+	fixture.controller = &controller;
+	CHECK(cdk2_xhci_controller_command(&controller, 9U, 0U, 0U, &slot) ==
+		EFI_SUCCESS && slot == 5U);
 	cdk2_xhci_controller_destroy(&controller);
 	CHECK(fixture.releases == 4U && fixture.registers[0x40U / 4U] == 0U);
 	for (UINTN fault = 1U; fault <= 4U; fault++) {

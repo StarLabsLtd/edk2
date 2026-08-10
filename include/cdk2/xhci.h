@@ -71,6 +71,7 @@ typedef EFI_STATUS cdk2_xhci_write32_fn(void *context, UINT32 offset,
 	UINT32 value);
 typedef EFI_STATUS cdk2_xhci_write64_fn(void *context, UINT32 offset,
 	UINT64 value);
+typedef EFI_STATUS cdk2_xhci_flush_fn(void *context);
 typedef void cdk2_xhci_delay_fn(void *context, UINTN microseconds);
 typedef EFI_STATUS cdk2_xhci_allocate_dma_fn(void *context, UINTN size,
 	UINTN alignment, struct cdk2_xhci_dma *dma);
@@ -81,6 +82,7 @@ struct cdk2_xhci_controller_services {
 	cdk2_xhci_read32_fn *read32;
 	cdk2_xhci_write32_fn *write32;
 	cdk2_xhci_write64_fn *write64;
+	cdk2_xhci_flush_fn *flush;
 	cdk2_xhci_delay_fn *delay;
 	cdk2_xhci_allocate_dma_fn *allocate_dma;
 	cdk2_xhci_release_dma_fn *release_dma;
@@ -94,6 +96,8 @@ struct cdk2_xhci_controller {
 	struct cdk2_xhci_dma scratchpads[CDK2_XHCI_MAX_SCRATCHPADS];
 	struct cdk2_xhci_ring command_ring;
 	struct cdk2_xhci_event_ring event_ring;
+	struct cdk2_xhci_trb pending_events[32];
+	UINT8 pending_count;
 	UINT16 scratchpads_owned;
 	BOOLEAN running;
 };
@@ -143,6 +147,8 @@ EFI_STATUS cdk2_xhci_controller_init(struct cdk2_xhci_controller *controller,
 	const struct cdk2_xhci_controller_services *services,
 	const struct cdk2_xhci_capabilities *capability);
 void cdk2_xhci_controller_destroy(struct cdk2_xhci_controller *controller);
+EFI_STATUS cdk2_xhci_controller_command(struct cdk2_xhci_controller *controller,
+	UINT8 type, UINT8 slot, UINT64 parameter, UINT8 *result_slot);
 EFI_STATUS cdk2_xhci_pci_adapter_init(struct cdk2_xhci_pci_adapter *adapter,
 	struct cdk2_efi_pci_io_protocol *pci, UINT8 bar, void *delay_context,
 	cdk2_xhci_delay_fn *delay);

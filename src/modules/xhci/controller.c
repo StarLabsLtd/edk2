@@ -69,7 +69,8 @@ EFI_STATUS cdk2_xhci_controller_init(struct cdk2_xhci_controller *controller,
 
 	if (controller == NULL || services == NULL || capability == NULL ||
 	    services->read32 == NULL || services->write32 == NULL ||
-	    services->write64 == NULL || services->delay == NULL ||
+	    services->write64 == NULL || services->flush == NULL ||
+	    services->delay == NULL ||
 	    services->allocate_dma == NULL || services->release_dma == NULL)
 		return EFI_INVALID_PARAMETER;
 	memset(controller, 0, sizeof(*controller));
@@ -168,4 +169,61 @@ EFI_STATUS cdk2_xhci_controller_init(struct cdk2_xhci_controller *controller,
 fail:
 	cdk2_xhci_controller_destroy(controller);
 	return status;
+}
+
+static EFI_STATUS next_event(struct cdk2_xhci_controller *controller,
+	struct cdk2_xhci_trb *event)
+{
+	EFI_STATUS status = controller->services.flush(controller->services.context);
+
+	if (EFI_ERROR(status))
+		return status;
+	status = cdk2_xhci_event_ring_dequeue(&controller->event_ring, event);
+	if (EFI_ERROR(status))
+		return status;
+	return controller->services.write64(controller->services.context,
+		controller->capability.runtime_offset + XHCI_ERDP,
+		(controller->event_dma.device +
+		 controller->event_ring.dequeue * sizeof(struct cdk2_xhci_trb)) | 8U);
+}
+
+EFI_STATUS cdk2_xhci_controller_command(struct cdk2_xhci_controller *controller,
+	UINT8 type, UINT8 slot, UINT64 parameter, UINT8 *result_slot)
+{
+	struct cdk2_xhci_trb event;
+	UINT64 command_address;
+	UINT8 completion;
+	EFI_STATUS status;
+
+	if (controller == NULL || !controller->running || result_slot == NULL)
+		return EFI_INVALID_PARAMETER;
+	status = cdk2_xhci_command_enqueue(&controller->command_ring, type, slot,
+		parameter, &command_address);
+	if (!EFI_ERROR(status))
+		status = controller->services.flush(controller->services.context);
+	if (!EFI_ERROR(status))
+		status = controller->services.write32(controller->services.context,
+			controller->capability.doorbell_offset, 0U);
+	if (EFI_ERROR(status))
+		return status;
+	for (UINTN retry = 0; retry < 1000U; retry++) {
+		status = next_event(controller, &event);
+		if (status == EFI_NOT_READY) {
+			controller->services.delay(controller->services.context, 1000U);
+			continue;
+		}
+		if (EFI_ERROR(status))
+			return status;
+		if ((event.control >> 10 & 0x3fU) != 33U ||
+		    (event.parameter & ~0xfULL) != (command_address & ~0xfULL)) {
+			if (controller->pending_count == 32U)
+				return EFI_OUT_OF_RESOURCES;
+			controller->pending_events[controller->pending_count++] = event;
+			continue;
+		}
+		completion = event.status >> 24;
+		*result_slot = event.control >> 24;
+		return completion == 1U ? EFI_SUCCESS : EFI_DEVICE_ERROR;
+	}
+	return EFI_TIMEOUT;
 }

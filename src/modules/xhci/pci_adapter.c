@@ -45,6 +45,13 @@ static void delay(void *opaque, UINTN microseconds)
 	adapter->delay(adapter->delay_context, microseconds);
 }
 
+static EFI_STATUS flush(void *opaque)
+{
+	struct cdk2_xhci_pci_adapter *adapter = opaque;
+
+	return adapter->pci->flush(adapter->pci);
+}
+
 static EFI_STATUS allocate_dma(void *opaque, UINTN size, UINTN alignment,
 	struct cdk2_xhci_dma *dma)
 {
@@ -113,7 +120,7 @@ EFI_STATUS cdk2_xhci_pci_adapter_init(struct cdk2_xhci_pci_adapter *adapter,
 	if (adapter == NULL || pci == NULL || delay_service == NULL ||
 	    pci->mem.read == NULL || pci->mem.write == NULL || pci->pci.read == NULL ||
 	    pci->map == NULL || pci->unmap == NULL || pci->allocate_buffer == NULL ||
-	    pci->free_buffer == NULL || pci->attributes == NULL)
+	    pci->free_buffer == NULL || pci->flush == NULL || pci->attributes == NULL)
 		return EFI_INVALID_PARAMETER;
 	status = pci->pci.read(pci, PCI_WIDTH_UINT8, 9U, 3U, class_code);
 	if (EFI_ERROR(status))
@@ -143,7 +150,7 @@ void cdk2_xhci_pci_controller_services(struct cdk2_xhci_pci_adapter *adapter,
 	struct cdk2_xhci_controller_services *services)
 {
 	*services = (struct cdk2_xhci_controller_services) { adapter, read32, write32,
-		write64, delay, allocate_dma, release_dma };
+		write64, flush, delay, allocate_dma, release_dma };
 }
 
 EFI_STATUS cdk2_xhci_pci_adapter_release(struct cdk2_xhci_pci_adapter *adapter)
