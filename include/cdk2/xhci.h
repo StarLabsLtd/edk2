@@ -53,6 +53,12 @@ struct cdk2_xhci_segment {
 	UINT32 length;
 };
 
+struct cdk2_xhci_port_status {
+	UINT8 speed;
+	BOOLEAN connected, enabled, powered, resetting;
+	UINT32 changes;
+};
+
 struct cdk2_xhci_dma {
 	void *host;
 	UINT64 device;
@@ -128,6 +134,11 @@ EFI_STATUS cdk2_xhci_build_control_transfer(struct cdk2_xhci_ring *ring,
 EFI_STATUS cdk2_xhci_build_bulk_transfer(struct cdk2_xhci_ring *ring,
 	const struct cdk2_xhci_segment *segments, UINTN segment_count,
 	UINT16 *first, UINT16 *count);
+EFI_STATUS cdk2_xhci_decode_port(UINT32 portsc,
+	struct cdk2_xhci_port_status *status);
+EFI_STATUS cdk2_xhci_build_address_context(void *input_context,
+	UINTN input_size, void *device_context, UINTN device_size, BOOLEAN context_64,
+	UINT8 speed, UINT8 root_port, UINT16 maximum_packet, UINT64 endpoint_ring);
 EFI_STATUS cdk2_xhci_controller_init(struct cdk2_xhci_controller *controller,
 	const struct cdk2_xhci_controller_services *services,
 	const struct cdk2_xhci_capabilities *capability);

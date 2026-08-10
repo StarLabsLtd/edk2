@@ -23,6 +23,9 @@ int main(void)
 	struct cdk2_xhci_segment segments[2] = { { 0x200000U, 4096U },
 		{ 0x201000U, 512U } };
 	UINT16 first, count;
+	struct cdk2_xhci_port_status port;
+	UINT8 input_context[192], device_context[128];
+	UINT32 *words;
 
 	CHECK(sizeof(struct cdk2_xhci_trb) == 16U &&
 		sizeof(struct cdk2_xhci_erst_entry) == 16U &&
@@ -76,6 +79,21 @@ int main(void)
 	CHECK(cdk2_xhci_build_bulk_transfer(&ring, segments, 2U, &first, &count) ==
 		EFI_SUCCESS && count == 2U && (trbs[first].control & 1U << 4) != 0U &&
 		(trbs[(first + 1U) % 255U].control & 1U << 5) != 0U);
+	CHECK(cdk2_xhci_decode_port(1U | 2U | 1U << 9 | 4U << 10 | 3U << 17,
+		&port) == EFI_SUCCESS && port.connected && port.enabled && port.powered &&
+		port.speed == 4U && port.changes == 3U);
+	CHECK(cdk2_xhci_build_address_context(input_context, 96U, device_context, 64U,
+		FALSE, 3U, 2U, 64U, 0x400000U) == EFI_SUCCESS);
+	words = (void *)(input_context + 32U);
+	CHECK((words[0] >> 20 & 0xfU) == 3U && (words[1] >> 16 & 0xffU) == 2U);
+	words = (void *)(input_context + 64U);
+	CHECK((words[1] >> 16) == 64U && (words[1] >> 3 & 7U) == 4U &&
+		(words[2] & ~0x3fU) == 0x400000U);
+	CHECK(cdk2_xhci_build_address_context(input_context, sizeof(input_context),
+		device_context, sizeof(device_context), TRUE, 4U, 1U, 512U,
+		0x500000U) == EFI_SUCCESS);
+	words = (void *)(input_context + 128U);
+	CHECK((words[1] >> 16) == 512U && (words[2] & ~0x3fU) == 0x500000U);
 	puts("xhci model tests: PASS");
 	return 0;
 }

@@ -199,3 +199,55 @@ EFI_STATUS cdk2_xhci_build_bulk_transfer(struct cdk2_xhci_ring *ring,
 	}
 	return EFI_SUCCESS;
 }
+
+EFI_STATUS cdk2_xhci_decode_port(UINT32 portsc,
+	struct cdk2_xhci_port_status *status)
+{
+	UINT8 speed;
+
+	if (status == NULL)
+		return EFI_INVALID_PARAMETER;
+	speed = portsc >> 10 & 0xfU;
+	if (speed == 0U || speed > 5U)
+		return EFI_UNSUPPORTED;
+	*status = (struct cdk2_xhci_port_status) { .speed = speed,
+		.connected = (portsc & 1U) != 0U, .enabled = (portsc & 2U) != 0U,
+		.powered = (portsc & 1U << 9) != 0U,
+		.resetting = (portsc & 1U << 4) != 0U,
+		.changes = portsc >> 17 & 0x7fU };
+	return EFI_SUCCESS;
+}
+
+EFI_STATUS cdk2_xhci_build_address_context(void *input_context,
+	UINTN input_size, void *device_context, UINTN device_size, BOOLEAN context_64,
+	UINT8 speed, UINT8 root_port, UINT16 maximum_packet, UINT64 endpoint_ring)
+{
+	UINTN context_size = context_64 ? 64U : 32U;
+	UINT32 *input = input_context;
+	UINT32 *device = device_context;
+	UINT32 *input_slot;
+	UINT32 *input_ep0;
+	UINT32 *device_slot;
+	UINT32 *device_ep0;
+
+	if (input == NULL || device == NULL || speed == 0U || speed > 5U ||
+	    root_port == 0U || maximum_packet == 0U || (endpoint_ring & 0x3fU) != 0U ||
+	    input_size < context_size * 3U || device_size < context_size * 2U)
+		return EFI_INVALID_PARAMETER;
+	memset(input, 0, input_size);
+	memset(device, 0, device_size);
+	input[1] = 3U;
+	input_slot = (void *)((UINT8 *)input + context_size);
+	input_ep0 = (void *)((UINT8 *)input_slot + context_size);
+	device_slot = device;
+	device_ep0 = (void *)((UINT8 *)device + context_size);
+	input_slot[0] = (UINT32)speed << 20 | 1U << 27;
+	input_slot[1] = (UINT32)root_port << 16;
+	input_ep0[1] = 3U << 1 | 4U << 3 | (UINT32)maximum_packet << 16;
+	input_ep0[2] = (UINT32)endpoint_ring | 1U;
+	input_ep0[3] = endpoint_ring >> 32;
+	input_ep0[4] = 8U;
+	memcpy(device_slot, input_slot, context_size);
+	memcpy(device_ep0, input_ep0, context_size);
+	return EFI_SUCCESS;
+}
