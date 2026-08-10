@@ -3,6 +3,7 @@
 #define CDK2_USB_MASS_H
 
 #include <cdk2/usb_bus.h>
+#include <cdk2/partition.h>
 
 #define CDK2_USB_MASS_CBW_SIGNATURE 0x43425355U
 #define CDK2_USB_MASS_CSW_SIGNATURE 0x53425355U
@@ -11,6 +12,9 @@
 #endif
 #ifndef EFI_NO_MEDIA
 #define EFI_NO_MEDIA EFIERR(12)
+#endif
+#ifndef EFI_MEDIA_CHANGED
+#define EFI_MEDIA_CHANGED EFIERR(13)
 #endif
 
 struct cdk2_usb_mass_cbw {
@@ -32,6 +36,14 @@ struct cdk2_usb_mass_device {
 	struct cdk2_usb_mass_media media[16];
 	UINT32 next_tag;
 	UINT8 bulk_in, bulk_out, maximum_lun, media_count;
+};
+
+struct cdk2_usb_mass_block {
+	struct cdk2_block_io block;
+	struct cdk2_block_io2 block2;
+	struct cdk2_block_media media;
+	struct cdk2_usb_mass_device *device;
+	UINT8 lun;
 };
 
 EFI_STATUS cdk2_usb_mass_init(struct cdk2_usb_mass_device *device,
@@ -56,5 +68,7 @@ EFI_STATUS cdk2_usb_mass_read(struct cdk2_usb_mass_device *device, UINT8 lun,
 	UINT64 lba, UINTN blocks, void *buffer);
 EFI_STATUS cdk2_usb_mass_write(struct cdk2_usb_mass_device *device, UINT8 lun,
 	UINT64 lba, UINTN blocks, const void *buffer);
+EFI_STATUS cdk2_usb_mass_block_init(struct cdk2_usb_mass_block *block,
+	struct cdk2_usb_mass_device *device, UINT8 lun);
 
 #endif
