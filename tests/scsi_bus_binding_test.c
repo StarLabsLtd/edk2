@@ -6,6 +6,39 @@
 
 static UINTN closes;
 static struct cdk2_device_path end_path = { 0x7f, 0xff, { 4, 0 } };
+static struct cdk2_ext_scsi_mode pass_mode = { 0, 3, 8 };
+static struct cdk2_ext_scsi pass;
+
+static EFI_STATUS CDK2_MS_ABI pass_command(struct cdk2_ext_scsi *interface,
+	UINT8 *target, UINT64 lun, struct cdk2_scsi_request *packet, void *event)
+{
+	(void)interface; (void)target; (void)lun; (void)event;
+	if (packet->cdb_length != 6 || ((UINT8 *)packet->cdb)[0] != 0x12 ||
+	    packet->in_length < 36)
+		return EFI_DEVICE_ERROR;
+	((UINT8 *)packet->in_data)[0] = 0;
+	packet->host_status = 0; packet->target_status = 0;
+	return EFI_SUCCESS;
+}
+
+static EFI_STATUS CDK2_MS_ABI get_target(struct cdk2_ext_scsi *interface,
+	struct cdk2_device_path *path, UINT8 **target, UINT64 *lun)
+{
+	(void)interface; (void)path;
+	for (UINTN index = 0; index < CDK2_SCSI_TARGET_MAX; index++)
+		(*target)[index] = index == 0 ? 1 : 0;
+	*lun = 0; return EFI_SUCCESS;
+}
+
+static EFI_STATUS CDK2_MS_ABI build_path(struct cdk2_ext_scsi *interface,
+	UINT8 *target, UINT64 lun, struct cdk2_device_path **path)
+{
+	(void)interface; (void)target; (void)lun;
+	*path = malloc(sizeof(end_path));
+	if (*path == NULL)
+		return EFI_OUT_OF_RESOURCES;
+	**path = end_path; return EFI_SUCCESS;
+}
 
 static EFI_STATUS open_fault(void *context, void *controller, const EFI_GUID *protocol,
 	void **interface, void *agent, void *child, UINT32 attributes)
@@ -20,6 +53,15 @@ static EFI_STATUS open_fault(void *context, void *controller, const EFI_GUID *pr
 		return EFI_SUCCESS;
 	}
 	return EFI_DEVICE_ERROR;
+}
+
+static EFI_STATUS open_good(void *context, void *controller, const EFI_GUID *protocol,
+	void **interface, void *agent, void *child, UINT32 attributes)
+{
+	(void)context; (void)controller; (void)agent; (void)child; (void)attributes;
+	*interface = protocol->data1 == cdk2_device_path_guid.data1 ?
+		(void *)&end_path : (void *)&pass;
+	return EFI_SUCCESS;
 }
 
 static EFI_STATUS close_ok(void *context, void *controller, const EFI_GUID *protocol,
@@ -38,7 +80,7 @@ static EFI_STATUS install_unused(void *context, void **handle, const EFI_GUID *f
 	void *first_interface, const EFI_GUID *second, void *second_interface)
 {
 	(void)context;
-	(void)handle;
+	*handle = (void *)9;
 	(void)first;
 	(void)first_interface;
 	(void)second;
@@ -84,6 +126,16 @@ int main(void)
 	struct cdk2_scsi_binding_ops ops = { open_fault, close_ok, install_unused,
 		uninstall_unused, NULL, allocate_ok, free_ok, NULL };
 	int failures = 0;
+	struct cdk2_device_path target_path = { 3, 0x12, { 4, 0 } };
+	void *child;
+	UINT8 type = 0xff;
+
+	pass = (struct cdk2_ext_scsi) {
+		.pass_thru = pass_command,
+		.build_device_path = build_path,
+		.get_target_lun = get_target,
+		.mode = &pass_mode,
+	};
 
 	cdk2_scsi_binding_init(&binding, &ops, NULL, (void *)1);
 	failures += check(sizeof(struct cdk2_scsi_io) == 6U * sizeof(void *),
@@ -101,5 +153,20 @@ int main(void)
 	failures += check(cdk2_scsi_binding_start(&binding, (void *)2, NULL) ==
 		EFI_DEVICE_ERROR && closes == 1U,
 		"failed pass-through open rolls back the device-path open");
+	ops.open = open_good;
+	cdk2_scsi_binding_init(&binding, &ops, NULL, (void *)1);
+	failures += check(cdk2_scsi_binding_start(&binding, (void *)2, &target_path) ==
+		EFI_SUCCESS && binding.children != NULL,
+		"targeted start discovers and publishes the child");
+	if (binding.children != NULL) {
+		child = binding.children->handle;
+		failures += check(binding.children->io.get_device_type(
+			&binding.children->io, &type) == EFI_SUCCESS && type == 0,
+			"INQUIRY publishes the discovered direct-access type");
+		failures += check(cdk2_scsi_binding_stop(&binding, (void *)2, 1,
+			&child) == EFI_SUCCESS && cdk2_scsi_binding_stop(&binding,
+			(void *)2, 0, NULL) == EFI_SUCCESS,
+			"child and parent ownership stop cleanly");
+	}
 	return failures != 0;
 }

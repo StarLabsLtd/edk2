@@ -55,6 +55,70 @@ static struct cdk2_scsi_child *from_io(struct cdk2_scsi_io *io)
 	return (void *)((UINT8 *)io - offsetof(struct cdk2_scsi_child, io));
 }
 
+static EFI_STATUS CDK2_MS_ABI execute(struct cdk2_scsi_io *io,
+	struct cdk2_scsi_request *packet, void *event);
+
+static EFI_STATUS discover_device(struct cdk2_scsi_child *child)
+{
+	UINT8 cdb[6] = { 0x12, 0, 0, 0, 36, 0 };
+	UINT8 *inquiry;
+	UINT8 *sense;
+	void *allocation;
+	UINTN alignment = child->io.io_align;
+	UINTN address;
+	struct cdk2_scsi_request packet;
+	EFI_STATUS status = EFI_NOT_FOUND;
+	UINTN attempt;
+
+	if (alignment == 0U)
+		alignment = 1U;
+	if ((alignment & (alignment - 1U)) != 0U || alignment > 0x10000U)
+		return EFI_INVALID_PARAMETER;
+	status = child->owner->ops->allocate(child->owner->context,
+		36U + 18U + 2U * (alignment - 1U), &allocation);
+	if (EFI_ERROR(status))
+		return status;
+	address = ((UINTN)allocation + alignment - 1U) & ~(alignment - 1U);
+	inquiry = (UINT8 *)address;
+	address = ((UINTN)(inquiry + 36U) + alignment - 1U) & ~(alignment - 1U);
+	sense = (UINT8 *)address;
+	for (attempt = 0; attempt < 2U; attempt++) {
+		for (UINTN index = 0; index < 36U; index++)
+			inquiry[index] = 0;
+		for (UINTN index = 0; index < 18U; index++)
+			sense[index] = 0;
+		packet = (struct cdk2_scsi_request) {
+			.timeout = 30000000ULL,
+			.in_data = inquiry,
+			.sense_data = sense,
+			.cdb = cdb,
+			.in_length = 36,
+			.cdb_length = 6,
+			.data_direction = 0,
+			.sense_length = 18,
+		};
+		status = execute(&child->io, &packet, NULL);
+		if (!EFI_ERROR(status))
+			break;
+		if (status == EFI_BAD_BUFFER_SIZE || status == EFI_INVALID_PARAMETER ||
+		    status == EFI_UNSUPPORTED) {
+			status = EFI_NOT_FOUND;
+			break;
+		}
+	}
+	if (!EFI_ERROR(status) && packet.host_status == 0U &&
+	    packet.target_status == 2U && (sense[0] & 0x7fU) == 0x70U &&
+	    (sense[2] & 0x0fU) == 5U)
+		status = EFI_NOT_FOUND;
+	if (!EFI_ERROR(status) && ((inquiry[0] >> 5) != 0U ||
+	    ((inquiry[0] & 0x1fU) >= 0x12U && (inquiry[0] & 0x1fU) <= 0x1eU)))
+		status = EFI_NOT_FOUND;
+	if (!EFI_ERROR(status))
+		child->device_type = inquiry[0] & 0x1fU;
+	child->owner->ops->free(child->owner->context, allocation);
+	return status;
+}
+
 static EFI_STATUS CDK2_MS_ABI get_type(struct cdk2_scsi_io *io, UINT8 *type)
 {
 	if (io == NULL || type == NULL)
@@ -185,6 +249,9 @@ static EFI_STATUS add_child(struct cdk2_scsi_binding *binding,
 	child->device_type = 0xffU;
 	child->io = (struct cdk2_scsi_io) { get_type, get_location, reset_bus,
 		reset_device, execute, binding->pass_thru->mode->io_align };
+	status = discover_device(child);
+	if (EFI_ERROR(status))
+		goto done;
 	status = binding->ops->install(binding->context, &child->handle,
 		&cdk2_device_path_guid, child->path, &cdk2_scsi_io_guid, &child->io);
 	if (EFI_ERROR(status))
