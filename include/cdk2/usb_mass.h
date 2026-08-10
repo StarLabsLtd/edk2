@@ -39,5 +39,10 @@ EFI_STATUS cdk2_usb_mass_parse_capacity10(const UINT8 bytes[8],
 	struct cdk2_usb_mass_media *media);
 EFI_STATUS cdk2_usb_mass_parse_capacity16(const UINT8 bytes[32],
 	struct cdk2_usb_mass_media *media);
+EFI_STATUS cdk2_usb_mass_get_max_lun(struct cdk2_usb_mass_device *device);
+EFI_STATUS cdk2_usb_mass_transport(struct cdk2_usb_mass_device *device,
+	UINT8 lun, const void *command, UINT8 command_length, void *data,
+	UINT32 *length, BOOLEAN input, UINTN timeout);
+EFI_STATUS cdk2_usb_mass_reset(struct cdk2_usb_mass_device *device);
 
 #endif

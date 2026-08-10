@@ -1156,8 +1156,21 @@ native-usb-bus-test: $(CDK2_NATIVE_BUILD_DIR)/usb-bus-model-test \
 	@"$(CDK2_NATIVE_BUILD_DIR)/usb-bus-entry-test"
 
 .PHONY: native-usb-mass-test
-native-usb-mass-test: $(CDK2_NATIVE_BUILD_DIR)/usb-mass-model-test
+native-usb-mass-test: $(CDK2_NATIVE_BUILD_DIR)/usb-mass-model-test \
+		$(CDK2_NATIVE_BUILD_DIR)/usb-mass-transport-test
 	@"$(CDK2_NATIVE_BUILD_DIR)/usb-mass-model-test"
+	@"$(CDK2_NATIVE_BUILD_DIR)/usb-mass-transport-test"
+
+$(CDK2_NATIVE_BUILD_DIR)/usb-mass-transport-test: \
+		$(CDK2_DIR)/tests/usb_mass_transport_test.c \
+		$(CDK2_DIR)/src/modules/usb_mass/model.c \
+		$(CDK2_DIR)/src/modules/usb_mass/transport.c \
+		$(CDK2_DIR)/include/cdk2/usb_mass.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -fsanitize=address,undefined \
+		$(CDK2_NATIVE_INCLUDES) -MMD -MP -MF "$(@:.test=.d)" -MT "$@" \
+		-o "$@" $(CDK2_DIR)/tests/usb_mass_transport_test.c \
+		$(CDK2_DIR)/src/modules/usb_mass/model.c \
+		$(CDK2_DIR)/src/modules/usb_mass/transport.c
 
 $(CDK2_NATIVE_BUILD_DIR)/usb-mass-model-test: \
 		$(CDK2_DIR)/tests/usb_mass_model_test.c \
