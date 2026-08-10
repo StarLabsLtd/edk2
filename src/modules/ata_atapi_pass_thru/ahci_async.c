@@ -135,10 +135,27 @@ EFI_STATUS cdk2_ahci_async_prepare(struct cdk2_ahci_async_request *request,
 		goto fail;
 	request->original_command = engine->services.read(engine->services.context,
 		port, PX_CMD);
+	if ((engine->configured_ports & (1U << port)) == 0U) {
+		engine->original_command[port] = request->original_command;
+		engine->original_clb[port] = engine->services.read(engine->services.context,
+			port, PX_CLB);
+		engine->original_clbu[port] = engine->services.read(engine->services.context,
+			port, PX_CLBU);
+		engine->original_fb[port] = engine->services.read(engine->services.context,
+			port, PX_FB);
+		engine->original_fbu[port] = engine->services.read(engine->services.context,
+			port, PX_FBU);
+		engine->configured_ports |= 1U << port;
+	}
+	request->prior_port = engine->active_port;
+	if (request->prior_port < 32U && request->prior_port != port)
+		request->prior_runtime_command = engine->services.read(
+			engine->services.context, request->prior_port, PX_CMD);
 	request->deadline = timeout == 0U ? 0U : engine->services.time(
 		engine->services.context) + timeout;
-	request->phase = engine->active_port == port ? CDK2_AHCI_ASYNC_TFD :
-		CDK2_AHCI_ASYNC_CONFIG_STOP;
+	request->phase = request->prior_port < 32U && request->prior_port != port ?
+		CDK2_AHCI_ASYNC_RESTORE_STOP : (engine->active_port == port ?
+		CDK2_AHCI_ASYNC_TFD : CDK2_AHCI_ASYNC_CONFIG_STOP);
 	return EFI_SUCCESS;
 fail:
 	return cleanup(request, status);
@@ -163,6 +180,49 @@ static EFI_STATUS program_port(struct cdk2_ahci_async_request *request)
 		request->phase = CDK2_AHCI_ASYNC_TFD;
 	}
 	return status;
+}
+
+static EFI_STATUS restore_prior(struct cdk2_ahci_async_request *request)
+{
+	static const UINT16 offsets[] = { PX_CLB, PX_CLBU, PX_FB, PX_FBU, PX_CMD };
+	struct cdk2_ahci_engine *engine = request->engine;
+	UINT16 port = request->prior_port;
+	UINT32 values[] = { engine->original_clb[port], engine->original_clbu[port],
+		engine->original_fb[port], engine->original_fbu[port],
+		engine->original_command[port] };
+	EFI_STATUS status = engine->services.write(engine->services.context, port,
+		offsets[request->restore_index], values[request->restore_index]);
+
+	if (!EFI_ERROR(status) && ++request->restore_index == 5U) {
+		engine->configured_ports &= ~(1U << port); engine->active_port = 0xffffU;
+		request->phase = CDK2_AHCI_ASYNC_CONFIG_STOP;
+	}
+	return status;
+}
+
+static void reverse_prior_failure(struct cdk2_ahci_async_request *request)
+{
+	if (request->prior_port < 32U)
+		(void)request->engine->services.write(request->engine->services.context,
+			request->prior_port, PX_CMD, request->prior_runtime_command);
+}
+
+static void reverse_config_failure(struct cdk2_ahci_async_request *request)
+{
+	struct cdk2_ahci_engine *engine = request->engine;
+	UINT16 port = request->port;
+
+	(void)engine->services.write(engine->services.context, port, PX_CLB,
+		engine->original_clb[port]);
+	(void)engine->services.write(engine->services.context, port, PX_CLBU,
+		engine->original_clbu[port]);
+	(void)engine->services.write(engine->services.context, port, PX_FB,
+		engine->original_fb[port]);
+	(void)engine->services.write(engine->services.context, port, PX_FBU,
+		engine->original_fbu[port]);
+	(void)engine->services.write(engine->services.context, port, PX_CMD,
+		engine->original_command[port]);
+	engine->configured_ports &= ~(1U << port);
 }
 
 static EFI_STATUS finalize(struct cdk2_ahci_async_request *request)
@@ -204,6 +264,31 @@ EFI_STATUS cdk2_ahci_async_step(struct cdk2_ahci_async_request *request,
 		return EFI_SUCCESS;
 	}
 	switch (request->phase) {
+	case CDK2_AHCI_ASYNC_RESTORE_STOP:
+		status = engine->services.write(engine->services.context, request->prior_port,
+			PX_CMD, request->prior_runtime_command & ~CMD_ST);
+		request->phase = CDK2_AHCI_ASYNC_RESTORE_WAIT_CR;
+		break;
+	case CDK2_AHCI_ASYNC_RESTORE_WAIT_CR:
+		value = engine->services.read(engine->services.context, request->prior_port,
+			PX_CMD);
+		if ((value & CMD_CR) == 0U)
+			request->phase = CDK2_AHCI_ASYNC_RESTORE_FRE_STOP;
+		break;
+	case CDK2_AHCI_ASYNC_RESTORE_FRE_STOP:
+		status = engine->services.write(engine->services.context, request->prior_port,
+			PX_CMD, request->prior_runtime_command & ~(CMD_ST | CMD_FRE));
+		request->phase = CDK2_AHCI_ASYNC_RESTORE_WAIT_FR;
+		break;
+	case CDK2_AHCI_ASYNC_RESTORE_WAIT_FR:
+		value = engine->services.read(engine->services.context, request->prior_port,
+			PX_CMD);
+		if ((value & CMD_FR) == 0U)
+			request->phase = CDK2_AHCI_ASYNC_RESTORE_PROGRAM;
+		break;
+	case CDK2_AHCI_ASYNC_RESTORE_PROGRAM:
+		status = restore_prior(request);
+		break;
 	case CDK2_AHCI_ASYNC_CONFIG_STOP:
 		status = engine->services.write(engine->services.context, request->port,
 			PX_CMD, request->original_command & ~CMD_ST);
@@ -256,6 +341,10 @@ EFI_STATUS cdk2_ahci_async_step(struct cdk2_ahci_async_request *request,
 	}
 	if (EFI_ERROR(status)) {
 		if (!request->issued) {
+			if (request->phase <= CDK2_AHCI_ASYNC_RESTORE_PROGRAM)
+				reverse_prior_failure(request);
+			else if (request->engine->active_port != request->port)
+				reverse_config_failure(request);
 			status = cleanup(request, status); *complete = 1;
 		} else {
 			request->aborting = 1; request->terminal_status = status;

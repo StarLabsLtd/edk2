@@ -159,6 +159,13 @@ static EFI_STATUS reset(struct cdk2_ata_protocol_instance *instance, UINT16 port
 	controller = instance->controller;
 	if (check_device && !device_exists(&controller->topology, port, multiplier))
 		return EFI_NOT_FOUND;
+	if (instance->services.cancel != NULL) {
+		EFI_STATUS status = instance->services.cancel(instance->services.context,
+			controller);
+
+		if (EFI_ERROR(status))
+			return status;
+	}
 	if (controller->topology.mode == CDK2_ATA_AHCI)
 		return controller->ahci == NULL ? EFI_UNSUPPORTED :
 			cdk2_ahci_reset_port(controller->ahci, port, 5000000U);

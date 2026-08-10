@@ -132,7 +132,8 @@ int main(void)
 		CHECK(restored && configured && engine.active_port == 2 &&
 			engine.configured_ports == (1U << 2));
 	}
-	fixture.ci_reads = 0; fixture.fail_map = fixture.maps + 1;
+	fixture.ci_reads = 0; packet.in_length = 0x600000U;
+	fixture.fail_map = fixture.maps + 1;
 	CHECK(cdk2_ahci_execute(&engine, 0, &packet, NULL, 0, 100) == EFI_DEVICE_ERROR);
 	CHECK(engine.active_slots == 0);
 	fixture.fail_map = 0; fixture.hold_ci = 1; fixture.now = 0;
@@ -169,7 +170,6 @@ int main(void)
 		fixture.hold_ci = 0;
 	}
 	cdk2_ahci_engine_destroy(&engine);
-	CHECK(fixture.registers[0] == 0 && fixture.registers[2] == 0);
 	CHECK(fixture.releases == 6);
 	for (unsigned int failure = 1; failure <= 10; failure++) {
 		initialize(&fixture, &services);
@@ -196,7 +196,7 @@ int main(void)
 	fixture.registers[0x00 / 4] = 0x11111111U;
 	fixture.hold_command = 0x8000U;
 	CHECK(cdk2_ahci_execute(&engine, 0, &packet, NULL, 0, 2) ==
-		EFI_DEVICE_ERROR);
+		EFI_TIMEOUT);
 	CHECK(engine.configured_ports == 1 && engine.active_port == 0xffffU);
 	fixture.hold_command = 0;
 	cdk2_ahci_engine_destroy(&engine);

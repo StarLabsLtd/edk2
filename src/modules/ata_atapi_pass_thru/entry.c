@@ -246,8 +246,8 @@ static EFI_STATUS async_arm(void *opaque, struct cdk2_ata_controller *controller
 	}
 	return status;
 }
-static void async_signal(void *opaque, void *event)
-{ (void)opaque; (void)active_entry->boot->signal_event(event); }
+static EFI_STATUS async_signal(void *opaque, void *event)
+{ (void)opaque; return active_entry->boot->signal_event(event); }
 static EFI_STATUS protocol_async_submit(void *opaque,
 	struct cdk2_ata_controller *controller, UINT16 port, UINT16 multiplier,
 	struct cdk2_ata_command_packet *packet, void *event)
@@ -256,8 +256,17 @@ static EFI_STATUS protocol_async_submit(void *opaque,
 	port, multiplier, packet, event); }
 static EFI_STATUS protocol_async_cancel(void *opaque,
 	struct cdk2_ata_controller *controller)
-{ (void)opaque; return cdk2_ata_async_stop(
-	&((struct cdk2_ata_controller_backend *)controller->backend)->async); }
+{
+	struct cdk2_ata_async_controller *async =
+		&((struct cdk2_ata_controller_backend *)controller->backend)->async;
+	EFI_STATUS status;
+
+	(void)opaque;
+	status = cdk2_ata_async_stop(async);
+	if (async->count == 0U)
+		async->stopping = 0;
+	return status;
+}
 static EFI_STATUS service_create_protocols(void *opaque,
 	struct cdk2_ata_controller *controller,
 	struct cdk2_ata_protocol_bundle **protocols)

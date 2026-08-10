@@ -12,7 +12,7 @@
 
 struct fixture {
 	UINT64 now;
-	unsigned int allocations, releases, resets, atapi, submits;
+	unsigned int allocations, releases, resets, atapi, submits, cancels;
 	void *submitted_event;
 };
 static EFI_STATUS allocate(void *opaque, size_t size, void **buffer)
@@ -64,6 +64,9 @@ static EFI_STATUS submit(void *opaque, struct cdk2_ata_controller *controller,
 	fixture->submits++; fixture->submitted_event = event;
 	return EFI_SUCCESS;
 }
+static EFI_STATUS cancel(void *opaque, struct cdk2_ata_controller *controller)
+{ struct fixture *fixture = opaque; (void)controller; fixture->cancels++;
+	return EFI_SUCCESS; }
 
 int main(void)
 {
@@ -135,7 +138,9 @@ int main(void)
 		NULL) == EFI_NOT_FOUND);
 	CHECK(instance.protocol.pass_thru(&instance.protocol, 0, 0, &packet,
 		NULL) == EFI_SUCCESS);
-	CHECK(instance.protocol.reset_device(&instance.protocol, 0, 0) == EFI_SUCCESS);
+	instance.services.cancel = cancel;
+	CHECK(instance.protocol.reset_device(&instance.protocol, 0, 0) == EFI_SUCCESS &&
+		fixture.cancels == 1);
 	CHECK(instance.protocol.reset_device(&instance.protocol, 0, 2) == EFI_NOT_FOUND);
 	CHECK(fixture.allocations == fixture.releases && fixture.resets != 0U);
 	CHECK(sizeof(struct cdk2_ext_scsi_mode) == 12);

@@ -305,7 +305,7 @@ EFI_STATUS cdk2_ahci_build_command(const struct cdk2_ata_command_packet *packet,
 	return EFI_SUCCESS;
 }
 
-EFI_STATUS cdk2_ahci_execute(struct cdk2_ahci_engine *engine, UINT16 port,
+static EFI_STATUS ahci_execute_legacy(struct cdk2_ahci_engine *engine, UINT16 port,
 	struct cdk2_ata_command_packet *packet, const UINT8 *atapi, size_t atapi_size,
 	UINT64 timeout)
 {
@@ -428,5 +428,27 @@ cleanup:
 	if (EFI_ERROR(engine->services.flush(engine->services.context)) && !EFI_ERROR(status))
 		status = EFI_DEVICE_ERROR;
 	engine->active_slots &= ~(1U << slot);
+	return status;
+}
+
+EFI_STATUS cdk2_ahci_execute(struct cdk2_ahci_engine *engine, UINT16 port,
+	struct cdk2_ata_command_packet *packet, const UINT8 *atapi, size_t atapi_size,
+	UINT64 timeout)
+{
+	struct cdk2_ahci_async_request request;
+	BOOLEAN complete = 0;
+	EFI_STATUS status;
+
+	if (atapi_size != 0U)
+		return ahci_execute_legacy(engine, port, packet, atapi, atapi_size, timeout);
+	status = cdk2_ahci_async_prepare(&request, engine, port, packet, timeout);
+	while (!EFI_ERROR(status) && !complete) {
+		status = request.aborting ? cdk2_ahci_async_abort(&request, &complete) :
+			cdk2_ahci_async_step(&request, &complete);
+		if (!complete && !EFI_ERROR(status))
+			engine->services.delay(engine->services.context, 10U);
+	}
+	if (request.aborting && complete && request.terminal_status != EFI_SUCCESS)
+		return request.terminal_status;
 	return status;
 }

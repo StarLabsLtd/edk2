@@ -175,7 +175,7 @@ struct cdk2_ata_async_services {
 	EFI_STATUS (*abort)(void *context, struct cdk2_ata_controller *controller,
 		struct cdk2_ata_async_task *task);
 	EFI_STATUS (*arm)(void *context, struct cdk2_ata_controller *controller);
-	void (*signal)(void *context, void *event);
+	EFI_STATUS (*signal)(void *context, void *event);
 };
 struct cdk2_ata_async_controller {
 	struct cdk2_ata_controller *controller;
@@ -313,6 +313,9 @@ struct cdk2_ahci_engine {
 	UINT8 slots, initialized;
 };
 enum cdk2_ahci_async_phase {
+	CDK2_AHCI_ASYNC_RESTORE_STOP, CDK2_AHCI_ASYNC_RESTORE_WAIT_CR,
+	CDK2_AHCI_ASYNC_RESTORE_FRE_STOP, CDK2_AHCI_ASYNC_RESTORE_WAIT_FR,
+	CDK2_AHCI_ASYNC_RESTORE_PROGRAM,
 	CDK2_AHCI_ASYNC_CONFIG_STOP, CDK2_AHCI_ASYNC_WAIT_CR,
 	CDK2_AHCI_ASYNC_CONFIG_FRE_STOP, CDK2_AHCI_ASYNC_WAIT_FR,
 	CDK2_AHCI_ASYNC_PROGRAM, CDK2_AHCI_ASYNC_TFD,
@@ -327,9 +330,9 @@ struct cdk2_ahci_async_request {
 	void *mappings[CDK2_AHCI_MAX_PRDT];
 	UINT64 deadline;
 	EFI_STATUS terminal_status;
-	UINT32 original_command;
-	UINT16 port, mapping_count;
-	UINT8 slot, program_index, issued, aborting, cleaned;
+	UINT32 original_command, prior_runtime_command;
+	UINT16 port, prior_port, mapping_count;
+	UINT8 slot, program_index, restore_index, issued, aborting, cleaned;
 	enum cdk2_ahci_async_phase phase;
 };
 EFI_STATUS cdk2_ahci_async_prepare(struct cdk2_ahci_async_request *request,
