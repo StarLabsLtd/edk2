@@ -71,3 +71,32 @@ EFI_STATUS cdk2_xhci_ring_enqueue(struct cdk2_xhci_ring *ring,
 	}
 	return EFI_SUCCESS;
 }
+
+EFI_STATUS cdk2_xhci_event_ring_init(struct cdk2_xhci_event_ring *ring,
+	struct cdk2_xhci_trb *trbs, UINT16 count)
+{
+	if (ring == NULL || trbs == NULL || count < 16U || count > 4096U)
+		return EFI_INVALID_PARAMETER;
+	*ring = (struct cdk2_xhci_event_ring) { .trbs = trbs, .count = count,
+		.cycle = TRUE };
+	return EFI_SUCCESS;
+}
+
+EFI_STATUS cdk2_xhci_event_ring_dequeue(struct cdk2_xhci_event_ring *ring,
+	struct cdk2_xhci_trb *event)
+{
+	struct cdk2_xhci_trb *source;
+
+	if (ring == NULL || ring->trbs == NULL || event == NULL || ring->count == 0U)
+		return EFI_INVALID_PARAMETER;
+	source = &ring->trbs[ring->dequeue];
+	if ((source->control & 1U) != ring->cycle)
+		return EFI_NOT_READY;
+	*event = *source;
+	ring->dequeue++;
+	if (ring->dequeue == ring->count) {
+		ring->dequeue = 0U;
+		ring->cycle = !ring->cycle;
+	}
+	return EFI_SUCCESS;
+}
