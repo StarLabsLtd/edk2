@@ -330,7 +330,7 @@ int main(void)
 		CHECK(installed_ata->pass_thru(installed_ata, 1, 0xffffU, &second,
 			(void *)0xa002U) ==
 			EFI_SUCCESS);
-		for (unsigned int step = 0; step < 80U && fixture.signals < before_signals + 2U;
+		for (unsigned int step = 0; step < 512U && fixture.signals < before_signals + 2U;
 		     step++)
 			tick();
 		CHECK(fixture.signals == before_signals + 2U && asb.status == 0U);
@@ -342,7 +342,7 @@ int main(void)
 		fixture.fail_signal = fixture.signals + 1U;
 		CHECK(installed_ata->pass_thru(installed_ata, 0, 0xffffU, &first,
 			(void *)0xa004U) == EFI_SUCCESS);
-		for (unsigned int step = 0; step < 40U && pending_event != NULL; step++)
+		for (unsigned int step = 0; step < 512U && pending_event != NULL; step++)
 			tick();
 		CHECK(pending_event == NULL && fixture.signals == fixture.fail_signal + 1U);
 		fixture.fail_signal = 0;

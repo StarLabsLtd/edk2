@@ -322,6 +322,10 @@ struct cdk2_ahci_engine {
 	UINT8 slots, initialized;
 };
 enum cdk2_ahci_async_phase {
+	CDK2_AHCI_ASYNC_SLOT, CDK2_AHCI_ASYNC_MAP,
+	CDK2_AHCI_ASYNC_TABLE_CLEAR, CDK2_AHCI_ASYNC_TABLE_BUILD,
+	CDK2_AHCI_ASYNC_HEADER_BUILD, CDK2_AHCI_ASYNC_PREP_FLUSH,
+	CDK2_AHCI_ASYNC_SNAPSHOT, CDK2_AHCI_ASYNC_PRIOR_READ,
 	CDK2_AHCI_ASYNC_RESTORE_STOP, CDK2_AHCI_ASYNC_RESTORE_WAIT_CR,
 	CDK2_AHCI_ASYNC_RESTORE_FRE_STOP, CDK2_AHCI_ASYNC_RESTORE_WAIT_FR,
 	CDK2_AHCI_ASYNC_RESTORE_PROGRAM,
@@ -330,18 +334,23 @@ enum cdk2_ahci_async_phase {
 	CDK2_AHCI_ASYNC_PROGRAM, CDK2_AHCI_ASYNC_TFD,
 	CDK2_AHCI_ASYNC_ISSUE, CDK2_AHCI_ASYNC_CI,
 	CDK2_AHCI_ASYNC_ABORT_STOP, CDK2_AHCI_ASYNC_ABORT_WAIT,
-	CDK2_AHCI_ASYNC_ABORT_RESTART, CDK2_AHCI_ASYNC_DONE
+	CDK2_AHCI_ASYNC_ABORT_RESTART, CDK2_AHCI_ASYNC_CLEAN_UNMAP,
+	CDK2_AHCI_ASYNC_CLEAN_FLUSH, CDK2_AHCI_ASYNC_CLEAN_RELEASE,
+	CDK2_AHCI_ASYNC_DONE
 };
 struct cdk2_ahci_async_request {
 	struct cdk2_ahci_engine *engine;
 	struct cdk2_ata_command_packet *packet;
 	struct cdk2_ahci_command command;
 	void *mappings[CDK2_AHCI_MAX_PRDT];
-	UINT64 deadline;
+	UINT8 *buffer;
+	size_t remaining, table_offset;
+	UINT64 deadline, timeout;
 	EFI_STATUS terminal_status;
 	UINT32 original_command, prior_runtime_command;
-	UINT16 port, prior_port, mapping_count;
-	UINT8 slot, program_index, restore_index, issued, aborting, cleaned;
+	UINT16 port, prior_port, mapping_count, serialize_index;
+	UINT8 slot, slot_probe, snapshot_index, program_index, restore_index;
+	UINT8 issued, aborting, cleaned, operation, slot_owned;
 	enum cdk2_ahci_async_phase phase;
 };
 EFI_STATUS cdk2_ahci_async_prepare(struct cdk2_ahci_async_request *request,

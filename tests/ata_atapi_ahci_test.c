@@ -16,6 +16,7 @@ struct fixture {
 	unsigned int fail_write; UINT16 write_offsets[128], write_ports[128];
 	UINT32 write_values[128];
 	unsigned int hold_ci, ghc_reads; UINT32 hold_command;
+	size_t map_limit;
 	UINT64 now; UINT32 registers[64]; enum cdk2_ahci_dma_operation operation;
 };
 static EFI_STATUS allocate(void *opaque, size_t size, size_t alignment,
@@ -34,7 +35,9 @@ static EFI_STATUS map(void *opaque, enum cdk2_ahci_dma_operation operation,
 { struct fixture *f = opaque; f->maps++; f->operation = operation;
 	if (f->maps == f->fail_map)
 		return EFI_DEVICE_ERROR;
-	if (*size > 0x500000U)
+	if (f->map_limit != 0U && *size > f->map_limit)
+		*size = f->map_limit;
+	else if (f->map_limit == 0U && *size > 0x500000U)
 		*size = 0x500000U;
 	*device = (UINT64)(uintptr_t)host; *mapping = host; return EFI_SUCCESS; }
 static EFI_STATUS unmap(void *opaque, void *mapping)
@@ -150,11 +153,23 @@ int main(void)
 
 		fixture.ci_reads = 0; fixture.now = 0; packet.in_length = 512;
 		CHECK(cdk2_ahci_async_prepare(&request, &engine, 0, &packet, 100) ==
-			EFI_SUCCESS && request.mapping_count == 1 && engine.active_slots != 0);
-		for (unsigned int tick = 0; tick < 32 && !complete; tick++)
+			EFI_SUCCESS && request.mapping_count == 0 && engine.active_slots == 0);
+		for (unsigned int tick = 0; tick < 512 && !complete; tick++)
 			CHECK(cdk2_ahci_async_step(&request, &complete) == EFI_SUCCESS);
 		CHECK(complete && request.cleaned && engine.active_slots == 0 &&
 			fixture.unmaps == before_unmaps + 1U);
+		fixture.map_limit = 512U; packet.in_length = 32768U; fixture.ci_reads = 0;
+		complete = 0;
+		CHECK(cdk2_ahci_async_prepare(&request, &engine, 0, &packet, 1000U) ==
+			EFI_SUCCESS);
+		for (unsigned int tick = 0; tick < 1024U && !complete; tick++) {
+			unsigned int maps = fixture.maps, unmaps = fixture.unmaps;
+
+			CHECK(cdk2_ahci_async_step(&request, &complete) == EFI_SUCCESS);
+			CHECK(fixture.maps - maps <= 1U && fixture.unmaps - unmaps <= 1U);
+		}
+		CHECK(complete && request.cleaned && request.command.prdt_count == 64U);
+		fixture.map_limit = 0U; packet.in_length = 512U;
 		fixture.hold_ci = 1; fixture.now = 0;
 		CHECK(cdk2_ahci_async_prepare(&request, &engine, 0, &packet, 100) == EFI_SUCCESS);
 		while (request.phase != CDK2_AHCI_ASYNC_CI)
@@ -164,7 +179,7 @@ int main(void)
 			request.phase == CDK2_AHCI_ASYNC_ABORT_STOP && request.aborting &&
 			request.terminal_status == EFI_TIMEOUT);
 		complete = 0;
-		for (unsigned int tick = 0; tick < 4 && !complete; tick++)
+		for (unsigned int tick = 0; tick < 128 && !complete; tick++)
 			(void)cdk2_ahci_async_abort(&request, &complete);
 		CHECK(complete && request.cleaned && engine.active_slots == 0);
 		fixture.hold_ci = 0;

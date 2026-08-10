@@ -448,7 +448,7 @@ EFI_STATUS cdk2_ahci_execute(struct cdk2_ahci_engine *engine, UINT16 port,
 		if (!complete && !EFI_ERROR(status))
 			engine->services.delay(engine->services.context, 10U);
 	}
-	if (request.aborting && complete && request.terminal_status != EFI_SUCCESS)
+	if (complete && request.terminal_status != EFI_SUCCESS)
 		return request.terminal_status;
 	return status;
 }
