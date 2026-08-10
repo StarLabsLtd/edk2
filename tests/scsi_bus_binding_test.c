@@ -27,7 +27,7 @@ static EFI_STATUS CDK2_MS_ABI pass_command(struct cdk2_ext_scsi *interface,
 }
 
 static EFI_STATUS CDK2_MS_ABI get_target(struct cdk2_ext_scsi *interface,
-	struct cdk2_device_path *path, UINT8 **target, UINT64 *lun)
+	struct cdk2_device_path *path, UINT8 **target, UINT64 * lun)
 {
 	(void)interface; (void)path;
 	for (UINTN index = 0; index < CDK2_SCSI_TARGET_MAX; index++)
@@ -36,7 +36,7 @@ static EFI_STATUS CDK2_MS_ABI get_target(struct cdk2_ext_scsi *interface,
 }
 
 static EFI_STATUS CDK2_MS_ABI get_next(struct cdk2_ext_scsi *interface,
-	UINT8 **target, UINT64 *lun)
+	UINT8 **target, UINT64 * lun)
 {
 	(void)interface;
 	if (target == NULL || *target == NULL)
@@ -63,7 +63,7 @@ static EFI_STATUS CDK2_MS_ABI build_path(struct cdk2_ext_scsi *interface,
 	**path = child_node; return EFI_SUCCESS;
 }
 
-static EFI_STATUS open_fault(void *context, void *controller, const EFI_GUID *protocol,
+static EFI_STATUS open_fault(void *context, void *controller, const EFI_GUID * protocol,
 	void **interface, void *agent, void *child, UINT32 attributes)
 {
 	(void)context;
@@ -78,7 +78,7 @@ static EFI_STATUS open_fault(void *context, void *controller, const EFI_GUID *pr
 	return EFI_DEVICE_ERROR;
 }
 
-static EFI_STATUS open_good(void *context, void *controller, const EFI_GUID *protocol,
+static EFI_STATUS open_good(void *context, void *controller, const EFI_GUID * protocol,
 	void **interface, void *agent, void *child, UINT32 attributes)
 {
 	(void)context; (void)controller; (void)agent; (void)child; (void)attributes;
@@ -89,7 +89,7 @@ static EFI_STATUS open_good(void *context, void *controller, const EFI_GUID *pro
 	return EFI_SUCCESS;
 }
 
-static EFI_STATUS close_ok(void *context, void *controller, const EFI_GUID *protocol,
+static EFI_STATUS close_ok(void *context, void *controller, const EFI_GUID * protocol,
 	void *agent, void *child)
 {
 	(void)context;
@@ -101,8 +101,8 @@ static EFI_STATUS close_ok(void *context, void *controller, const EFI_GUID *prot
 	return EFI_SUCCESS;
 }
 
-static EFI_STATUS install_unused(void *context, void **handle, const EFI_GUID *first,
-	void *first_interface, const EFI_GUID *second, void *second_interface)
+static EFI_STATUS install_unused(void *context, void **handle, const EFI_GUID * first,
+	void *first_interface, const EFI_GUID * second, void *second_interface)
 {
 	(void)context;
 	*handle = (void *)9;
@@ -113,8 +113,8 @@ static EFI_STATUS install_unused(void *context, void **handle, const EFI_GUID *f
 	return EFI_SUCCESS;
 }
 
-static EFI_STATUS uninstall_unused(void *context, void *handle, const EFI_GUID *first,
-	void *first_interface, const EFI_GUID *second, void *second_interface)
+static EFI_STATUS uninstall_unused(void *context, void *handle, const EFI_GUID * first,
+	void *first_interface, const EFI_GUID * second, void *second_interface)
 {
 	(void)context;
 	(void)handle;

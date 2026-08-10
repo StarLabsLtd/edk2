@@ -49,7 +49,7 @@ static struct loaded_view loaded;
 static UINTN allocations, closes, uninstalls;
 static struct cdk2_device_path end_path = { 0x7f, 0xff, { 4, 0 } };
 static struct cdk2_ext_scsi_mode mode = { 0, 3, 4 };
-static EFI_STATUS CDK2_MS_ABI build_path(struct cdk2_ext_scsi *pass, UINT8 *target,
+static EFI_STATUS CDK2_MS_ABI build_path(struct cdk2_ext_scsi *pass, UINT8 * target,
 	UINT64 lun, struct cdk2_device_path **path)
 {
 	(void)pass; (void)target; (void)lun; (void)path;
@@ -57,7 +57,7 @@ static EFI_STATUS CDK2_MS_ABI build_path(struct cdk2_ext_scsi *pass, UINT8 *targ
 }
 static struct cdk2_ext_scsi pass = { .build_device_path = build_path, .mode = &mode };
 
-static EFI_STATUS CDK2_MS_ABI handle(void *image, const EFI_GUID *guid,
+static EFI_STATUS CDK2_MS_ABI handle(void *image, const EFI_GUID * guid,
 	void **interface)
 {
 	(void)image; (void)guid; *interface = &loaded; return EFI_SUCCESS;
@@ -73,7 +73,7 @@ static EFI_STATUS CDK2_MS_ABI release(void *buffer)
 {
 	free(buffer); allocations--; return EFI_SUCCESS;
 }
-static EFI_STATUS CDK2_MS_ABI open(void *controller, const EFI_GUID *guid,
+static EFI_STATUS CDK2_MS_ABI open(void *controller, const EFI_GUID * guid,
 	void **interface, void *agent, void *child, UINT32 attributes)
 {
 	(void)controller; (void)agent; (void)child; (void)attributes;
@@ -81,13 +81,13 @@ static EFI_STATUS CDK2_MS_ABI open(void *controller, const EFI_GUID *guid,
 		(void *)&end_path : (void *)&pass;
 	return EFI_SUCCESS;
 }
-static EFI_STATUS CDK2_MS_ABI close(void *controller, const EFI_GUID *guid,
+static EFI_STATUS CDK2_MS_ABI close(void *controller, const EFI_GUID * guid,
 	void *agent, void *child)
 {
 	(void)controller; (void)guid; (void)agent; (void)child; closes++;
 	return EFI_SUCCESS;
 }
-static EFI_STATUS CDK2_MS_ABI install(void **handle, const EFI_GUID *guid,
+static EFI_STATUS CDK2_MS_ABI install(void **handle, const EFI_GUID * guid,
 	void *interface, ...)
 {
 	(void)handle;
