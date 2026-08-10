@@ -22,13 +22,15 @@ typedef EFI_STATUS CDK2_MS_ABI create_event_t(UINT32, UINTN,
 typedef EFI_STATUS CDK2_MS_ABI set_timer_t(void *, UINT32, UINT64);
 typedef EFI_STATUS CDK2_MS_ABI signal_event_t(void *);
 typedef EFI_STATUS CDK2_MS_ABI close_event_t(void *);
+typedef EFI_STATUS CDK2_MS_ABI stall_t(UINTN);
 struct cdk2_ata_boot_services {
 	raise_tpl_t *raise_tpl; restore_tpl_t *restore_tpl;
 	UINT8 before_allocate[48]; allocate_t *allocate_pool; free_t *free_pool;
 	create_event_t *create_event; set_timer_t *set_timer; void *wait_for_event;
 	signal_event_t *signal_event; close_event_t *close_event;
 	UINT8 before_handle[32]; handle_t *handle_protocol;
-	UINT8 before_open[120]; open_t *open_protocol; close_t *close_protocol;
+	UINT8 before_stall[88]; stall_t *stall; UINT8 before_open[24];
+	open_t *open_protocol; close_t *close_protocol;
 	UINT8 before_install[32]; install_t *install_multiple;
 	uninstall_t *uninstall_multiple;
 };
@@ -46,6 +48,8 @@ typedef char open_offset_check[offsetof(struct cdk2_ata_boot_services,
 	open_protocol) == 280 ? 1 : -1];
 typedef char close_offset_check[offsetof(struct cdk2_ata_boot_services,
 	close_protocol) == 288 ? 1 : -1];
+typedef char stall_offset_check[offsetof(struct cdk2_ata_boot_services,
+	stall) == 248 ? 1 : -1];
 typedef char allocate_offset_check[offsetof(struct cdk2_ata_boot_services,
 	allocate_pool) == 64 ? 1 : -1];
 typedef char free_offset_check[offsetof(struct cdk2_ata_boot_services,
@@ -222,15 +226,13 @@ static EFI_STATUS async_poll_task(void *opaque,
 static EFI_STATUS async_abort_task(void *opaque,
 	struct cdk2_ata_controller *controller, struct cdk2_ata_async_task *task)
 { struct cdk2_ata_controller_backend *backend = controller->backend;
-	BOOLEAN complete = 0; EFI_STATUS status = EFI_SUCCESS; (void)opaque; (void)task;
+	BOOLEAN complete = 0; EFI_STATUS status; (void)opaque; (void)task;
 	if (controller->topology.mode == CDK2_ATA_IDE) {
-		for (UINTN step = 0; step < CDK2_IDE_MAX_PRD + 8U && !complete; step++)
-			status = cdk2_ide_async_abort(&backend->ide_async_request, &complete);
-		return complete ? status : EFI_DEVICE_ERROR;
+		status = cdk2_ide_async_abort(&backend->ide_async_request, &complete);
+		return complete ? status : EFI_NOT_READY;
 	}
-	for (UINTN step = 0; step < 4U && !complete; step++)
-		status = cdk2_ahci_async_abort(&backend->async_request, &complete);
-	return complete ? status : EFI_DEVICE_ERROR; }
+	status = cdk2_ahci_async_abort(&backend->async_request, &complete);
+	return complete ? status : EFI_NOT_READY; }
 static void CDK2_MS_ABI async_notify(void *event, void *opaque)
 { struct async_call *call = opaque; struct cdk2_ata_controller_backend *backend =
 		call->backend;
@@ -246,6 +248,8 @@ static EFI_STATUS async_arm(void *opaque, struct cdk2_ata_controller *controller
 {
 	struct cdk2_ata_controller_backend *backend = controller->backend;
 	struct async_call *call; EFI_STATUS status; (void)opaque;
+	if (backend->sync_busy)
+		return EFI_SUCCESS;
 	status = protocol_allocate(active_entry, sizeof(*call), (void **)&call);
 	if (EFI_ERROR(status))
 		return status;
@@ -290,12 +294,67 @@ static EFI_STATUS protocol_async_cancel(void *opaque,
 		async->stopping = 0;
 	return status;
 }
+static EFI_STATUS service_quiesce(void *opaque, struct cdk2_ata_controller *controller)
+{ return protocol_async_cancel(opaque, controller); }
+static void cancel_async_event(struct cdk2_ata_controller_backend *backend)
+{
+	if (backend->async_event == NULL)
+		return;
+	(void)active_entry->boot->set_timer(backend->async_event, 0U, 0U);
+	(void)active_entry->boot->close_event(backend->async_event);
+	protocol_release(active_entry, backend->async_call);
+	backend->async_event = NULL; backend->async_call = NULL;
+}
+static EFI_STATUS protocol_async_wait(void *opaque,
+	struct cdk2_ata_controller *controller)
+{
+	struct cdk2_ata_controller_backend *backend = controller->backend;
+	struct cdk2_ata_async_controller *async = &backend->async;
+	UINTN old_tpl;
+
+	(void)opaque;
+	old_tpl = active_entry->boot->raise_tpl(8U);
+	active_entry->boot->restore_tpl(old_tpl);
+	if (old_tpl >= 8U || async->polling)
+		return EFI_NOT_READY;
+	while (async->count != 0U) {
+		EFI_STATUS status;
+
+		old_tpl = active_entry->boot->raise_tpl(8U);
+		cancel_async_event(backend);
+		active_entry->boot->restore_tpl(old_tpl);
+		backend->adapter.ticks += 10000U;
+		status = cdk2_ata_async_poll(async);
+		if (EFI_ERROR(status) && status != EFI_NOT_READY)
+			return status;
+		if (async->count != 0U && EFI_ERROR(active_entry->boot->stall(1000U)))
+			return EFI_DEVICE_ERROR;
+	}
+	backend->sync_busy = 1;
+	return EFI_SUCCESS;
+}
+static void protocol_async_done(void *opaque,
+	struct cdk2_ata_controller *controller)
+{
+	struct cdk2_ata_controller_backend *backend = controller->backend;
+	UINTN old_tpl;
+
+	(void)opaque;
+	old_tpl = active_entry->boot->raise_tpl(8U);
+	backend->sync_busy = 0;
+	if (backend->async.count != 0U && backend->async_event == NULL) {
+		backend->async.armed = 1;
+		if (EFI_ERROR(async_arm(active_entry, controller)))
+			backend->async.armed = 0;
+	}
+	active_entry->boot->restore_tpl(old_tpl);
+}
 static EFI_STATUS service_create_protocols(void *opaque,
 	struct cdk2_ata_controller *controller,
 	struct cdk2_ata_protocol_bundle **protocols)
 {
 	struct cdk2_ata_protocol_services services = {
-		opaque, protocol_allocate, protocol_release, NULL, NULL };
+		opaque, protocol_allocate, protocol_release, NULL, NULL, NULL, NULL };
 	EFI_STATUS status;
 	if (controller->backend != NULL &&
 	    ((controller->topology.mode == CDK2_ATA_AHCI && controller->ahci != NULL) ||
@@ -311,6 +370,8 @@ static EFI_STATUS service_create_protocols(void *opaque,
 		if (EFI_ERROR(status))
 			return status;
 		services.submit = protocol_async_submit; services.cancel = protocol_async_cancel;
+		services.wait = protocol_async_wait;
+		services.done = protocol_async_done;
 	}
 
 	status = protocol_allocate(opaque, sizeof(**protocols), (void **)protocols);
@@ -480,6 +541,7 @@ EFI_STATUS cdk2_ata_entry_publish_with_services(struct cdk2_ata_entry *entry,
 	services.destroy_protocols = service_destroy_protocols;
 	services.install = service_install;
 	services.uninstall = service_uninstall;
+	services.quiesce = service_quiesce;
 	services.relocate = service_relocate;
 	status = cdk2_ata_binding_init(binding, &services);
 	if (EFI_ERROR(status))

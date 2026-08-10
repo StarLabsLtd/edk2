@@ -28,11 +28,13 @@ typedef EFI_STATUS CDK2_MS_ABI create_event_t(UINT32, UINTN,
 	void (CDK2_MS_ABI *)(void *, void *), void *, void **);
 typedef EFI_STATUS CDK2_MS_ABI set_timer_t(void *, UINT32, UINT64);
 typedef EFI_STATUS CDK2_MS_ABI event_t(void *);
+typedef EFI_STATUS CDK2_MS_ABI stall_t(UINTN);
 struct fake_boot { raise_tpl_t *raise_tpl; restore_tpl_t *restore_tpl;
 	UINT8 before_allocate[48]; allocate_t *allocate; free_t *free;
 	create_event_t *create_event; set_timer_t *set_timer; void *wait;
 	event_t *signal_event; event_t *close_event; UINT8 before_handle[32]; handle_t *handle;
-	UINT8 before_open[120]; open_t *open; close_t *close;
+	UINT8 before_stall[88]; stall_t *stall; UINT8 before_open[24];
+	open_t *open; close_t *close;
 	UINT8 before_install[32]; install_t *install; uninstall_t *uninstall; };
 struct fake_system { UINT8 before_boot[96]; struct fake_boot *boot; };
 struct fixture { struct fake_boot boot; struct fake_system system;
@@ -46,8 +48,12 @@ struct fake_event { void (CDK2_MS_ABI *notify)(void *, void *); void *context; }
 static struct cdk2_ata_pass_thru_protocol *installed_ata;
 static struct fake_event *pending_event;
 static struct fixture *active;
-static UINTN CDK2_MS_ABI raise_tpl(UINTN tpl) { return tpl; }
-static void CDK2_MS_ABI restore_tpl(UINTN tpl) { (void)tpl; }
+static UINTN current_tpl;
+static UINTN CDK2_MS_ABI raise_tpl(UINTN tpl)
+{ UINTN old = current_tpl; current_tpl = tpl; return old; }
+static void CDK2_MS_ABI restore_tpl(UINTN tpl) { current_tpl = tpl; }
+static EFI_STATUS CDK2_MS_ABI stall(UINTN microseconds)
+{ (void)microseconds; return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI allocate_pool(UINT32 type, UINTN size, void **buffer)
 { (void)type; *buffer = calloc(1, size); return *buffer == NULL ?
 	EFI_OUT_OF_RESOURCES : EFI_SUCCESS; }
@@ -237,11 +243,12 @@ static void initialize(struct fixture *fixture, struct cdk2_ata_binding *binding
 	fixture->boot.raise_tpl = raise_tpl; fixture->boot.restore_tpl = restore_tpl;
 	fixture->boot.allocate = allocate_pool; fixture->boot.free = free_pool;
 	fixture->boot.create_event = create_event; fixture->boot.set_timer = set_timer;
+	fixture->boot.stall = stall;
 	fixture->boot.signal_event = signal_event; fixture->boot.close_event = close_event;
 	fixture->boot.uninstall = uninstall; fixture->boot.open = open_protocol;
 	fixture->boot.close = close_protocol; fixture->system.boot = &fixture->boot;
 	fixture->loaded.unload = old_unload;
-	installed_ata = NULL; pending_event = NULL;
+	installed_ata = NULL; pending_event = NULL; current_tpl = 4U;
 	CHECK(cdk2_ata_entry_publish_with_services(NULL, binding, &services,
 		fixture, &fixture->system) == EFI_INVALID_PARAMETER);
 }
@@ -251,6 +258,7 @@ int main(void)
 	struct fixture fixture; struct cdk2_ata_binding binding; struct cdk2_ata_entry entry;
 	CHAR16 *name = NULL;
 	CHECK(offsetof(struct fake_boot, handle) == 152);
+	CHECK(offsetof(struct fake_boot, stall) == 248);
 	CHECK(offsetof(struct fake_boot, allocate) == 64);
 	CHECK(offsetof(struct fake_boot, free) == 72);
 	CHECK(offsetof(struct fake_boot, open) == 280);
@@ -362,6 +370,10 @@ int main(void)
 		CHECK(fixture.signals == before + 1U && asb.status == 0U);
 		CHECK(installed_ata->pass_thru(installed_ata, 0, 0, &packet,
 			(void *)0xb002U) == EFI_SUCCESS && pending_event != NULL);
+		before = fixture.signals;
+		CHECK(installed_ata->pass_thru(installed_ata, 0, 0, &packet,
+			NULL) == EFI_SUCCESS);
+		CHECK(fixture.signals == before + 1U && pending_event == NULL);
 	}
 	fixture.fail_uninstall = fixture.uninstalls + 4U;
 	CHECK(entry.loaded->unload(&fixture) == EFI_DEVICE_ERROR);

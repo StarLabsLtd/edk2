@@ -17,6 +17,7 @@ struct cdk2_ata_controller_backend {
 	struct cdk2_ide_engine ide;
 	struct cdk2_ata_backend_pool pool;
 	struct cdk2_ata_async_controller async;
+	BOOLEAN sync_busy;
 	struct cdk2_ahci_async_request async_request;
 	struct cdk2_ide_async_request ide_async_request;
 	void *async_event, *async_call;

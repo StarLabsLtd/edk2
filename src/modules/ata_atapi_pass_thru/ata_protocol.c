@@ -64,17 +64,27 @@ static EFI_STATUS CDK2_MS_ABI pass_thru(
 		return instance->services.submit == NULL ? EFI_UNSUPPORTED :
 			instance->services.submit(instance->services.context, controller, port,
 				multiplier, packet, event);
+	if (instance->services.wait != NULL) {
+		status = instance->services.wait(instance->services.context, controller);
+		if (EFI_ERROR(status))
+			return status;
+	}
 	if (controller->topology.mode == CDK2_ATA_AHCI) {
 		if (controller->ahci == NULL ||
 		    multiplier != CDK2_ATA_NO_PORT_MULTIPLIER)
-			return EFI_UNSUPPORTED;
-		return cdk2_ahci_execute(controller->ahci, port, packet, NULL, 0,
-			packet->timeout);
+			status = EFI_UNSUPPORTED;
+		else
+			status = cdk2_ahci_execute(controller->ahci, port, packet, NULL, 0,
+				packet->timeout);
+	} else if (controller->ide_engine == NULL || port > 1U || multiplier > 1U) {
+		status = EFI_UNSUPPORTED;
+	} else {
+		status = cdk2_ide_execute(controller->ide_engine, (UINT8)port,
+			(UINT8)multiplier, packet, packet->timeout);
 	}
-	if (controller->ide_engine == NULL || port > 1U || multiplier > 1U)
-		return EFI_UNSUPPORTED;
-	return cdk2_ide_execute(controller->ide_engine, (UINT8)port,
-		(UINT8)multiplier, packet, packet->timeout);
+	if (instance->services.done != NULL)
+		instance->services.done(instance->services.context, controller);
+	return status;
 }
 
 static EFI_STATUS CDK2_MS_ABI next_port(
@@ -153,25 +163,30 @@ static EFI_STATUS reset(struct cdk2_ata_protocol_instance *instance, UINT16 port
 	UINT16 multiplier, int check_device)
 {
 	struct cdk2_ata_controller *controller;
+	EFI_STATUS status;
 
 	if (instance == NULL || instance->controller == NULL)
 		return EFI_INVALID_PARAMETER;
 	controller = instance->controller;
 	if (check_device && !device_exists(&controller->topology, port, multiplier))
 		return EFI_NOT_FOUND;
-	if (instance->services.cancel != NULL) {
-		EFI_STATUS status = instance->services.cancel(instance->services.context,
+	if (instance->services.wait != NULL) {
+		EFI_STATUS status = instance->services.wait(instance->services.context,
 			controller);
 
 		if (EFI_ERROR(status))
 			return status;
 	}
 	if (controller->topology.mode == CDK2_ATA_AHCI)
-		return controller->ahci == NULL ? EFI_UNSUPPORTED :
+		status = controller->ahci == NULL ? EFI_UNSUPPORTED :
 			cdk2_ahci_reset_port(controller->ahci, port, 5000000U);
-	if (controller->ide_engine == NULL || port > 1U)
-		return EFI_UNSUPPORTED;
-	return cdk2_ide_reset(controller->ide_engine, (UINT8)port, 5000000U);
+	else if (controller->ide_engine == NULL || port > 1U)
+		status = EFI_UNSUPPORTED;
+	else
+		status = cdk2_ide_reset(controller->ide_engine, (UINT8)port, 5000000U);
+	if (instance->services.done != NULL)
+		instance->services.done(instance->services.context, controller);
+	return status;
 }
 
 static EFI_STATUS CDK2_MS_ABI reset_port(

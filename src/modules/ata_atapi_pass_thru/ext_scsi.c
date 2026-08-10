@@ -43,7 +43,8 @@ static EFI_STATUS execute(struct cdk2_ext_scsi_instance *instance, UINT16 port,
 		.out_length = packet->out_length, .length = 0x20U };
 	EFI_STATUS status;
 
-	memcpy(packet_cdb, cdb, cdb_length);
+	for (UINT8 index = 0; index < cdb_length; index++)
+		packet_cdb[index] = cdb[index];
 
 	ata.protocol = packet->direction == CDK2_EXT_SCSI_DIRECTION_READ ? 4U :
 		packet->direction == CDK2_EXT_SCSI_DIRECTION_WRITE ? 5U : 2U;
@@ -98,6 +99,12 @@ static EFI_STATUS CDK2_MS_ABI pass_thru(struct cdk2_ext_scsi_protocol *protocol,
 	multiplier = target_multiplier(target[1]);
 	if (!atapi_exists(&instance->controller->topology, port, multiplier))
 		return EFI_INVALID_PARAMETER;
+	if (instance->services.wait != NULL) {
+		status = instance->services.wait(instance->services.context,
+			instance->controller);
+		if (EFI_ERROR(status))
+			return status;
+	}
 	status = execute(instance, port, multiplier, packet, packet->cdb,
 		packet->cdb_length);
 	if (EFI_ERROR(status) && packet->sense_length != 0U &&
@@ -117,6 +124,8 @@ static EFI_STATUS CDK2_MS_ABI pass_thru(struct cdk2_ext_scsi_protocol *protocol,
 	} else if (!EFI_ERROR(status)) {
 		packet->sense_length = 0;
 	}
+	if (instance->services.done != NULL)
+		instance->services.done(instance->services.context, instance->controller);
 	return status;
 }
 
@@ -275,13 +284,25 @@ static EFI_STATUS CDK2_MS_ABI get_target_lun(
 static EFI_STATUS reset_one(struct cdk2_ext_scsi_instance *instance,
 	UINT16 port, UINT16 multiplier, int validate)
 {
+	EFI_STATUS status;
+
 	if (validate && !atapi_exists(&instance->controller->topology, port,
 		multiplier))
 		return EFI_INVALID_PARAMETER;
+	if (instance->services.wait != NULL) {
+		status = instance->services.wait(instance->services.context,
+			instance->controller);
+		if (EFI_ERROR(status))
+			return status;
+	}
 	if (instance->controller->topology.mode == CDK2_ATA_AHCI)
-		return cdk2_ahci_reset_port(instance->controller->ahci, port, 5000000U);
-	return cdk2_ide_reset(instance->controller->ide_engine, (UINT8)port,
-		5000000U);
+		status = cdk2_ahci_reset_port(instance->controller->ahci, port, 5000000U);
+	else
+		status = cdk2_ide_reset(instance->controller->ide_engine, (UINT8)port,
+			5000000U);
+	if (instance->services.done != NULL)
+		instance->services.done(instance->services.context, instance->controller);
+	return status;
 }
 
 static EFI_STATUS CDK2_MS_ABI reset_channel(

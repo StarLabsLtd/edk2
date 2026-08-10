@@ -121,6 +121,10 @@ EFI_STATUS cdk2_ata_async_stop(struct cdk2_ata_async_controller *async)
 		EFI_STATUS status = task->active ? async->services.abort(
 			async->services.context, async->controller, task) : EFI_SUCCESS;
 
+		if (status == EFI_NOT_READY) {
+			async->stopping = 0;
+			return status;
+		}
 		if (EFI_ERROR(status) && !EFI_ERROR(first))
 			first = status;
 		if (!finish(async, task, CDK2_ASYNC_ABORTED)) {

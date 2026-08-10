@@ -14,6 +14,7 @@ struct fixture {
 	UINTN begins, polls, aborts, arms, signals, complete_after;
 	UINTN fail_begin, fail_poll, fail_arm;
 	UINTN fail_signal;
+	UINTN abort_not_ready;
 	BOOLEAN reenter;
 };
 static EFI_STATUS begin(void *context, struct cdk2_ata_controller *controller,
@@ -28,7 +29,7 @@ static EFI_STATUS poll_task(void *context, struct cdk2_ata_controller *controlle
 static EFI_STATUS abort_task(void *context, struct cdk2_ata_controller *controller,
 	struct cdk2_ata_async_task *task)
 { struct fixture *f = context; (void)controller; (void)task; f->aborts++;
-	return EFI_SUCCESS; }
+	return f->aborts <= f->abort_not_ready ? EFI_NOT_READY : EFI_SUCCESS; }
 static EFI_STATUS arm(void *context, struct cdk2_ata_controller *controller)
 { struct fixture *f = context; (void)controller; f->arms++;
 	return f->arms == f->fail_arm ? EFI_DEVICE_ERROR : EFI_SUCCESS; }
@@ -76,6 +77,16 @@ int main(void)
 	CHECK(cdk2_ata_async_poll(&async) == EFI_NOT_READY && async.count == 0 &&
 		f.signals == 1);
 	CHECK(cdk2_ata_async_poll(&async) == EFI_NOT_READY && f.signals == 1);
+	memset(&async, 0, sizeof(async)); f = (struct fixture) {
+		.complete_after = 8, .abort_not_ready = 1 };
+	f.async = &async; services.context = &f;
+	CHECK(cdk2_ata_async_init(&async, &controller, &services) == EFI_SUCCESS &&
+		cdk2_ata_async_submit(&async, 0, 0, &packet, (void *)1) == EFI_SUCCESS &&
+		cdk2_ata_async_poll(&async) == EFI_SUCCESS);
+	CHECK(cdk2_ata_async_stop(&async) == EFI_NOT_READY && async.count == 1 &&
+		!async.stopping && f.signals == 0);
+	CHECK(cdk2_ata_async_stop(&async) == EFI_SUCCESS && async.count == 0 &&
+		f.signals == 1);
 	puts("ata async controller tests: PASS");
 	return 0;
 }

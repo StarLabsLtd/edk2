@@ -172,6 +172,11 @@ EFI_STATUS cdk2_ata_binding_stop(struct cdk2_ata_binding *binding, void *control
 	instance = find_controller(binding, controller, &index);
 	if (instance == NULL)
 		return EFI_NOT_STARTED;
+	if (binding->services.quiesce != NULL) {
+		status = binding->services.quiesce(binding->services.context, instance);
+		if (EFI_ERROR(status))
+			return status;
+	}
 	status = binding->services.uninstall(binding->services.context, controller,
 		instance->protocols);
 	if (EFI_ERROR(status))

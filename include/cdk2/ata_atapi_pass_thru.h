@@ -146,6 +146,7 @@ struct cdk2_ata_binding_services {
 		struct cdk2_ata_protocol_bundle *protocols);
 	EFI_STATUS (*uninstall)(void *context, void *controller,
 		struct cdk2_ata_protocol_bundle *protocols);
+	EFI_STATUS (*quiesce)(void *context, struct cdk2_ata_controller *controller);
 	void (*relocate)(void *context, struct cdk2_ata_controller *controller);
 };
 struct cdk2_ata_controller {
@@ -207,6 +208,8 @@ struct cdk2_ata_protocol_services {
 		UINT16 port, UINT16 multiplier, struct cdk2_ata_command_packet *packet,
 		void *event);
 	EFI_STATUS (*cancel)(void *context, struct cdk2_ata_controller *controller);
+	EFI_STATUS (*wait)(void *context, struct cdk2_ata_controller *controller);
+	void (*done)(void *context, struct cdk2_ata_controller *controller);
 };
 struct cdk2_ata_protocol_instance {
 	struct cdk2_ata_pass_thru_protocol protocol;

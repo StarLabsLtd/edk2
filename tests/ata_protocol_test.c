@@ -13,6 +13,7 @@
 struct fixture {
 	UINT64 now;
 	unsigned int allocations, releases, resets, atapi, cdb_words, submits, cancels;
+	unsigned int dones;
 	void *submitted_event;
 };
 static EFI_STATUS allocate(void *opaque, size_t size, void **buffer)
@@ -72,6 +73,8 @@ static EFI_STATUS submit(void *opaque, struct cdk2_ata_controller *controller,
 static EFI_STATUS cancel(void *opaque, struct cdk2_ata_controller *controller)
 { struct fixture *fixture = opaque; (void)controller; fixture->cancels++;
 	return EFI_SUCCESS; }
+static void done(void *opaque, struct cdk2_ata_controller *controller)
+{ struct fixture *fixture = opaque; (void)controller; fixture->dones++; }
 
 int main(void)
 {
@@ -80,7 +83,7 @@ int main(void)
 	struct cdk2_ide_services ide_services = { &fixture, read8, read16,
 		write8, write16, write32, map, unmap, flush, timing, get_time, delay };
 	struct cdk2_ata_protocol_services services = {
-		&fixture, allocate, release, NULL, NULL };
+		&fixture, allocate, release, NULL, NULL, NULL, NULL };
 	struct cdk2_ata_controller controller = { 0 };
 	struct cdk2_ata_protocol_instance instance;
 	struct cdk2_ext_scsi_instance scsi;
@@ -143,13 +146,15 @@ int main(void)
 		NULL) == EFI_NOT_FOUND);
 	CHECK(instance.protocol.pass_thru(&instance.protocol, 0, 0, &packet,
 		NULL) == EFI_SUCCESS);
-	instance.services.cancel = cancel;
+	instance.services.wait = cancel;
+	instance.services.done = done;
 	CHECK(instance.protocol.reset_device(&instance.protocol, 0, 0) == EFI_SUCCESS &&
-		fixture.cancels == 1);
+		fixture.cancels == 1 && fixture.dones == 1);
 	CHECK(instance.protocol.reset_device(&instance.protocol, 0, 2) == EFI_NOT_FOUND);
 	CHECK(fixture.allocations == fixture.releases && fixture.resets != 0U);
 	CHECK(sizeof(struct cdk2_ext_scsi_mode) == 12);
 	CHECK(sizeof(struct cdk2_ext_scsi_protocol) == 8 * sizeof(void *));
+	services.wait = cancel; services.done = done;
 	CHECK(cdk2_ext_scsi_init(&scsi, &controller, &services, 4) == EFI_SUCCESS);
 	CHECK(scsi.mode.adapter_id == 0 && scsi.mode.attributes ==
 		(CDK2_ATA_PASS_THRU_ATTRIBUTES_PHYSICAL |
@@ -160,7 +165,8 @@ int main(void)
 	CHECK(target[0] == 0 && target[1] == 1 && lun == 0);
 	CHECK(scsi.protocol.pass_thru(&scsi.protocol, target, lun, &scsi_packet,
 		&fixture) == EFI_SUCCESS);
-	CHECK(scsi_packet.host_status == 0 && scsi_packet.target_status == 0);
+	CHECK(scsi_packet.host_status == 0 && scsi_packet.target_status == 0 &&
+		fixture.cancels == 2 && fixture.dones == 2);
 	path = NULL;
 	CHECK(scsi.protocol.build_device_path(&scsi.protocol, target, lun, NULL) ==
 		EFI_INVALID_PARAMETER);
