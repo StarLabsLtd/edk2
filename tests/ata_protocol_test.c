@@ -13,6 +13,7 @@
 struct fixture {
 	UINT64 now;
 	unsigned int allocations, releases, resets, atapi, cdb_words, submits, cancels;
+	unsigned int scsi_submits;
 	unsigned int dones;
 	void *submitted_event;
 };
@@ -75,6 +76,13 @@ static EFI_STATUS cancel(void *opaque, struct cdk2_ata_controller *controller)
 	return EFI_SUCCESS; }
 static void done(void *opaque, struct cdk2_ata_controller *controller)
 { struct fixture *fixture = opaque; (void)controller; fixture->dones++; }
+static EFI_STATUS submit_scsi(void *opaque, struct cdk2_ata_controller *controller,
+	UINT16 port, UINT16 multiplier, struct cdk2_ext_scsi_packet *packet,
+	void *event)
+{ struct fixture *fixture = opaque; (void)controller;
+	CHECK(port == 0U && multiplier == 1U && packet->cdb != NULL &&
+		packet->cdb_length == 6U && event == fixture);
+	fixture->scsi_submits++; return EFI_SUCCESS; }
 
 int main(void)
 {
@@ -82,8 +90,8 @@ int main(void)
 	struct cdk2_ide_channel channel = { 0x1f0, 0x3f6, 0 };
 	struct cdk2_ide_services ide_services = { &fixture, read8, read16,
 		write8, write16, write32, map, unmap, flush, timing, get_time, delay };
-	struct cdk2_ata_protocol_services services = {
-		&fixture, allocate, release, NULL, NULL, NULL, NULL, NULL };
+	struct cdk2_ata_protocol_services services = { .context = &fixture,
+		.allocate = allocate, .release = release };
 	struct cdk2_ata_controller controller = { 0 };
 	struct cdk2_ata_protocol_instance instance;
 	struct cdk2_ext_scsi_instance scsi;
@@ -164,9 +172,16 @@ int main(void)
 		EFI_SUCCESS);
 	CHECK(target[0] == 0 && target[1] == 1 && lun == 0);
 	CHECK(scsi.protocol.pass_thru(&scsi.protocol, target, lun, &scsi_packet,
-		&fixture) == EFI_SUCCESS);
+		NULL) == EFI_SUCCESS);
 	CHECK(scsi_packet.host_status == 0 && scsi_packet.target_status == 0 &&
 		fixture.cancels == 2 && fixture.dones == 2);
+	services.submit_scsi = submit_scsi;
+	CHECK(cdk2_ext_scsi_init(&scsi, &controller, &services, 4) == EFI_SUCCESS &&
+		(scsi.mode.attributes & CDK2_ATA_PASS_THRU_ATTRIBUTES_NONBLOCKIO) != 0U);
+	memset(first, 0xff, sizeof(first)); target = first;
+	CHECK(scsi.protocol.get_next_target_lun(&scsi.protocol, &target, &lun) ==
+		EFI_SUCCESS && scsi.protocol.pass_thru(&scsi.protocol, target, lun,
+		&scsi_packet, &fixture) == EFI_SUCCESS && fixture.scsi_submits == 1U);
 	path = NULL;
 	CHECK(scsi.protocol.build_device_path(&scsi.protocol, target, lun, NULL) ==
 		EFI_INVALID_PARAMETER);

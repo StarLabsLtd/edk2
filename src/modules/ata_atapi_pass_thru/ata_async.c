@@ -27,7 +27,8 @@ static EFI_STATUS submit(struct cdk2_ata_async_controller *async,
 	EFI_STATUS status;
 
 	if (async == NULL || packet == NULL || event == NULL ||
-	    (cdb_size != 0U && (cdb == NULL || (cdb_size != 12U && cdb_size != 16U))))
+	    (cdb_size != 0U && (cdb == NULL ||
+	     (cdb_size > 12U && cdb_size != 16U))))
 		return EFI_INVALID_PARAMETER;
 	if (async->stopping)
 		return EFI_NOT_READY;
@@ -36,7 +37,8 @@ static EFI_STATUS submit(struct cdk2_ata_async_controller *async,
 	task = &async->queue[(async->head + async->count) % CDK2_ATA_ASYNC_DEPTH];
 	*task = (struct cdk2_ata_async_task) {
 		.packet = packet, .event = event, .port = port, .multiplier = multiplier,
-		.status = EFI_NOT_READY, .atapi = cdb_size != 0U, .cdb_size = cdb_size };
+		.status = EFI_NOT_READY, .atapi = cdb_size != 0U,
+		.cdb_size = cdb_size > 12U ? 16U : cdb_size == 0U ? 0U : 12U };
 	if (cdb_size != 0U)
 		memcpy(task->cdb, cdb, cdb_size);
 	async->count++;

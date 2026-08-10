@@ -150,6 +150,21 @@ int main(void)
 		!async.stopping && f.signals == 0);
 	CHECK(cdk2_ata_async_stop(&async) == EFI_SUCCESS && async.count == 0 &&
 		f.signals == 1);
+	memset(&async, 0, sizeof(async)); f = (struct fixture) { .complete_after = 1 };
+	f.async = &async; services.context = &f;
+	{
+		UINT8 cdb[12] = { 0x12U, 0x34U };
+
+		CHECK(cdk2_ata_async_init(&async, &controller, &services) == EFI_SUCCESS &&
+			cdk2_ata_async_submit_atapi(&async, 2, 0xffffU, &packet, cdb,
+				sizeof(cdb), (void *)1) == EFI_SUCCESS);
+		memset(cdb, 0xa5, sizeof(cdb));
+		CHECK(async.queue[async.head].atapi &&
+			async.queue[async.head].cdb_size == sizeof(cdb) &&
+			async.queue[async.head].cdb[0] == 0x12U &&
+			async.queue[async.head].cdb[1] == 0x34U);
+		CHECK(cdk2_ata_async_stop(&async) == EFI_SUCCESS && async.count == 0);
+	}
 	puts("ata async controller tests: PASS");
 	return 0;
 }

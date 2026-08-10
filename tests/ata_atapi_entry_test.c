@@ -49,7 +49,9 @@ struct fixture { struct fake_boot boot; struct fake_system system;
 	UINT32 close_guid[16]; void *controller[16], *agent[16], *child[16]; };
 struct fake_event { void (CDK2_MS_ABI *notify)(void *, void *); void *context; };
 static struct cdk2_ata_pass_thru_protocol *installed_ata;
+static struct cdk2_ext_scsi_protocol *installed_ext_scsi;
 static struct fake_event *pending_event;
+static struct fake_event *signal_notify_event;
 static struct fixture *active;
 static UINTN current_tpl;
 static UINTN CDK2_MS_ABI raise_tpl(UINTN tpl)
@@ -69,6 +71,8 @@ static EFI_STATUS CDK2_MS_ABI install(void **handle, const struct guid *guid,
 { active->installs++; *handle = (void *)0x9000;
 	if (guid != NULL && guid->data1 == 0x1d3de7f0U)
 		installed_ata = interface;
+	if (guid != NULL && guid->data1 == 0x143b7632U)
+		installed_ext_scsi = interface;
 	return active->fail_install ? EFI_DEVICE_ERROR : EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI uninstall(void *handle, ...)
 { (void)handle; active->uninstalls++;
@@ -101,21 +105,31 @@ static EFI_STATUS CDK2_MS_ABI close_protocol(void *controller,
 }
 static EFI_STATUS CDK2_MS_ABI create_event(UINT32 type, UINTN tpl,
 	void (CDK2_MS_ABI *notify)(void *, void *), void *context, void **event)
-{ struct fake_event *created = calloc(1, sizeof(*created)); (void)type; (void)tpl;
+{ struct fake_event *created = calloc(1, sizeof(*created)); (void)tpl;
 	if (created == NULL)
 		return EFI_OUT_OF_RESOURCES;
 	active->events++;
-	created->notify = notify; created->context = context; *event = created; return EFI_SUCCESS; }
+	created->notify = notify; created->context = context; *event = created;
+	if (type == 0x200U)
+		signal_notify_event = created;
+	return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI set_timer(void *event, UINT32 type, UINT64 trigger)
 { (void)trigger; active->timers++;
 	if (active->timers == active->fail_timer)
 		return EFI_DEVICE_ERROR;
 	pending_event = type == 0U ? NULL : event; return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI signal_event(void *event)
-{ (void)event; active->signals++;
-	return active->signals == active->fail_signal ? EFI_DEVICE_ERROR : EFI_SUCCESS; }
+{ struct fake_event *notify = signal_notify_event; active->signals++;
+	if (active->signals == active->fail_signal)
+		return EFI_DEVICE_ERROR;
+	if (event == notify) {
+		signal_notify_event = NULL;
+		notify->notify(notify, notify->context);
+	}
+	return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI close_event(void *event)
 { active->closes_event++; if (pending_event == event) pending_event = NULL;
+	if (signal_notify_event == event) signal_notify_event = NULL;
 	free(event); return EFI_SUCCESS; }
 static void tick(void)
 { struct fake_event *event = pending_event; CHECK(event != NULL); pending_event = NULL;
@@ -126,6 +140,7 @@ static EFI_STATUS ahci_allocate(void *opaque, size_t size, size_t alignment,
 { (void)opaque; *host = aligned_alloc(alignment, size);
 	if (*host == NULL)
 		return EFI_OUT_OF_RESOURCES;
+	memset(*host, 0, size);
 	*device = (UINT64)(uintptr_t)*host; return EFI_SUCCESS; }
 static EFI_STATUS ahci_release(void *opaque, void *host, size_t size)
 { (void)opaque; (void)size; free(host); return EFI_SUCCESS; }
@@ -175,15 +190,16 @@ static EFI_STATUS discover_ahci(void *context, struct cdk2_ata_controller *contr
 	native_uint32_t *cap,
 	native_uint32_t *pi,
 	struct cdk2_ata_topology *topology)
-{ EFI_STATUS status; (void)context; (void)controller; *cap = 0; *pi = 3;
+{ EFI_STATUS status; (void)context; (void)controller; *cap = 0; *pi = 7;
 	status = cdk2_ata_add_device(topology, 0, 0xffff, CDK2_ATA_DISK);
 	if (EFI_ERROR(status))
 		return status;
 	topology->devices[0].block_size = 512U;
 	status = cdk2_ata_add_device(topology, 1, 0xffff, CDK2_ATA_DISK);
-	if (!EFI_ERROR(status))
-		topology->devices[1].block_size = 512U;
-	return status; }
+	if (EFI_ERROR(status))
+		return status;
+	topology->devices[1].block_size = 512U;
+	return cdk2_ata_add_device(topology, 2, 0xffff, CDK2_ATAPI_DEVICE); }
 static EFI_STATUS prepare(void *context, struct cdk2_ata_controller *controller)
 { struct cdk2_ata_controller_backend *backend = calloc(1, sizeof(*backend));
 	struct cdk2_ahci_dma_services services = { context, ahci_allocate, ahci_release,
@@ -251,7 +267,8 @@ static void initialize(struct fixture *fixture, struct cdk2_ata_binding *binding
 	fixture->boot.uninstall = uninstall; fixture->boot.open = open_protocol;
 	fixture->boot.close = close_protocol; fixture->system.boot = &fixture->boot;
 	fixture->loaded.unload = old_unload;
-	installed_ata = NULL; pending_event = NULL; current_tpl = 4U;
+	installed_ata = NULL; installed_ext_scsi = NULL;
+	pending_event = NULL; current_tpl = 4U;
 	CHECK(cdk2_ata_entry_publish_with_services(NULL, binding, &services,
 		fixture, &fixture->system) == EFI_INVALID_PARAMETER);
 }
@@ -316,6 +333,42 @@ int main(void)
 	CHECK(entry.driver.start(&entry.driver, (void *)1, NULL) == EFI_SUCCESS);
 	CHECK(entry.driver.start(&entry.driver, (void *)2, NULL) == EFI_SUCCESS);
 	CHECK(binding.count == 2);
+	{
+		struct cdk2_ata_protocol_bundle *bundle = (void *)((UINT8 *)installed_ata -
+			offsetof(struct cdk2_ata_protocol_bundle, ata.protocol));
+		UINT8 first[16]; UINT8 *target = first; UINT64 lun = 0;
+		UINT8 cdb[6] = { 0x12U, 0, 0, 0, 36U, 0 };
+		UINT8 inquiry[36] = { 0 };
+		struct cdk2_ext_scsi_packet packet = { .timeout = 10000U,
+			.in_data = inquiry, .cdb = cdb, .in_length = sizeof(inquiry),
+			.cdb_length = sizeof(cdb),
+			.direction = CDK2_EXT_SCSI_DIRECTION_READ };
+		unsigned int before = fixture.signals;
+
+		installed_ext_scsi = &bundle->ext_scsi.protocol;
+		CHECK(installed_ext_scsi != NULL &&
+			(installed_ext_scsi->mode->attributes &
+			 CDK2_ATA_PASS_THRU_ATTRIBUTES_NONBLOCKIO) != 0U);
+		memset(first, 0xff, sizeof(first));
+		CHECK(installed_ext_scsi->get_next_target_lun(installed_ext_scsi,
+			&target, &lun) == EFI_SUCCESS && target[0] == 2U);
+		packet.host_status = 0xa5U;
+		packet.target_status = 0x5aU;
+		fixture.fail_timer = fixture.timers + 1U;
+		CHECK(installed_ext_scsi->pass_thru(installed_ext_scsi, target, lun,
+			&packet, (void *)0xc000U) == EFI_DEVICE_ERROR &&
+			fixture.signals == before && packet.host_status == 0xa5U &&
+			packet.target_status == 0x5aU && signal_notify_event == NULL);
+		fixture.fail_timer = 0U;
+		CHECK(installed_ext_scsi->pass_thru(installed_ext_scsi, target, lun,
+			&packet, (void *)0xc001U) == EFI_SUCCESS &&
+			fixture.signals == before);
+		for (unsigned int step = 0; step < 512U && fixture.signals == before; step++)
+			tick();
+		CHECK(fixture.signals == before + 2U);
+		CHECK(packet.host_status == 0U);
+		CHECK(packet.target_status == 0U || packet.target_status == 2U);
+	}
 	{
 		struct cdk2_ata_command_block acb = { .command = 0xe7U };
 		struct cdk2_ata_status_block asb = { .status = 0xffU };

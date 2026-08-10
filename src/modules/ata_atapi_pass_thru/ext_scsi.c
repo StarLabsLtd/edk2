@@ -80,7 +80,6 @@ static EFI_STATUS CDK2_MS_ABI pass_thru(struct cdk2_ext_scsi_protocol *protocol,
 	UINT16 port, multiplier;
 	EFI_STATUS status;
 
-	(void)event;
 	if (instance == NULL || target == NULL || packet == NULL ||
 	    packet->cdb == NULL || lun != 0U ||
 	    (packet->cdb_length != 6U && packet->cdb_length != 10U &&
@@ -102,6 +101,10 @@ static EFI_STATUS CDK2_MS_ABI pass_thru(struct cdk2_ext_scsi_protocol *protocol,
 	multiplier = target_multiplier(target[1]);
 	if (!atapi_exists(&instance->controller->topology, port, multiplier))
 		return EFI_INVALID_PARAMETER;
+	if (event != NULL)
+		return instance->services.submit_scsi == NULL ? EFI_UNSUPPORTED :
+			instance->services.submit_scsi(instance->services.context,
+				instance->controller, port, multiplier, packet, event);
 	if (instance->services.wait != NULL) {
 		status = instance->services.wait(instance->services.context,
 			instance->controller);
@@ -359,7 +362,9 @@ EFI_STATUS cdk2_ext_scsi_init(struct cdk2_ext_scsi_instance *instance,
 	instance->services = *services;
 	instance->mode = (struct cdk2_ext_scsi_mode) { 0U,
 		CDK2_ATA_PASS_THRU_ATTRIBUTES_PHYSICAL |
-		CDK2_ATA_PASS_THRU_ATTRIBUTES_LOGICAL, io_align };
+		CDK2_ATA_PASS_THRU_ATTRIBUTES_LOGICAL |
+		(services->submit_scsi == NULL ? 0U :
+		 CDK2_ATA_PASS_THRU_ATTRIBUTES_NONBLOCKIO), io_align };
 	instance->protocol = (struct cdk2_ext_scsi_protocol) { &instance->mode,
 		pass_thru, next_target_lun, build_path, get_target_lun,
 		reset_channel, reset_target, next_target };

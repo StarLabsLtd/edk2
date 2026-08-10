@@ -208,6 +208,7 @@ struct cdk2_ata_binding {
 	size_t count;
 };
 
+struct cdk2_ext_scsi_packet;
 struct cdk2_ata_protocol_services {
 	void *context;
 	EFI_STATUS (*allocate)(void *context, size_t size, void **buffer);
@@ -215,6 +216,9 @@ struct cdk2_ata_protocol_services {
 	EFI_STATUS (*submit)(void *context, struct cdk2_ata_controller *controller,
 		UINT16 port, UINT16 multiplier, struct cdk2_ata_command_packet *packet,
 		void *event);
+	EFI_STATUS (*submit_scsi)(void *context,
+		struct cdk2_ata_controller *controller, UINT16 port, UINT16 multiplier,
+		struct cdk2_ext_scsi_packet *packet, void *event);
 	EFI_STATUS (*cancel)(void *context, struct cdk2_ata_controller *controller);
 	EFI_STATUS (*cancel_scope)(void *context,
 		struct cdk2_ata_controller *controller, UINT16 port, UINT16 multiplier,

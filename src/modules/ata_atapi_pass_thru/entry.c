@@ -82,6 +82,13 @@ static struct cdk2_ata_entry *active_entry;
 static struct cdk2_ata_entry image_entry;
 static struct cdk2_ata_binding image_binding;
 struct async_call { struct cdk2_ata_controller_backend *backend; void *event; };
+struct ext_scsi_async_call {
+	struct cdk2_ext_scsi_packet *packet;
+	void *caller_event;
+	struct cdk2_ata_command_block acb;
+	struct cdk2_ata_status_block asb;
+	struct cdk2_ata_command_packet ata;
+};
 
 
 static EFI_STATUS open_protocol(struct cdk2_ata_entry *entry, void *controller,
@@ -289,6 +296,60 @@ static EFI_STATUS protocol_async_submit(void *opaque,
 	UINTN tpl = active_entry->boot->raise_tpl(8U); EFI_STATUS status; (void)opaque;
 	status = cdk2_ata_async_submit(async, port, multiplier, packet, event);
 	active_entry->boot->restore_tpl(tpl); return status; }
+static void CDK2_MS_ABI ext_scsi_async_notify(void *event, void *opaque)
+{
+	struct ext_scsi_async_call *call = opaque;
+
+	call->packet->in_length = call->ata.in_length;
+	call->packet->out_length = call->ata.out_length;
+	call->packet->host_status = 0U;
+	call->packet->target_status = (call->asb.status & 0x21U) != 0U ? 2U : 0U;
+	call->packet->sense_length = 0U;
+	(void)active_entry->boot->signal_event(call->caller_event);
+	(void)active_entry->boot->close_event(event);
+	protocol_release(active_entry, call);
+}
+static EFI_STATUS __attribute__((optimize("Oz"))) protocol_scsi_submit(void *opaque,
+	struct cdk2_ata_controller *controller, UINT16 port, UINT16 multiplier,
+	struct cdk2_ext_scsi_packet *packet, void *event)
+{
+	struct cdk2_ata_controller_backend *backend = controller->backend;
+	struct ext_scsi_async_call *call;
+	void *internal_event;
+	EFI_STATUS status;
+	UINTN tpl;
+
+	(void)opaque;
+	status = protocol_allocate(active_entry, sizeof(*call), (void **)&call);
+	if (EFI_ERROR(status))
+		return status;
+	*call = (struct ext_scsi_async_call) { .packet = packet,
+		.caller_event = event };
+	call->acb.command = 0xa0U;
+	if (controller->topology.mode == CDK2_ATA_AHCI)
+		call->acb.features = CDK2_ATAPI_FEATURE_DMA;
+	call->ata = (struct cdk2_ata_command_packet) { .asb = &call->asb,
+		.acb = &call->acb, .timeout = packet->timeout,
+		.in_data = packet->in_data, .out_data = packet->out_data,
+		.in_length = packet->in_length, .out_length = packet->out_length,
+		.protocol = packet->direction == CDK2_EXT_SCSI_DIRECTION_READ ? 4U :
+			packet->direction == CDK2_EXT_SCSI_DIRECTION_WRITE ? 5U : 2U,
+		.length = 0x20U };
+	status = active_entry->boot->create_event(0x200U, 8U, ext_scsi_async_notify,
+		call, &internal_event);
+	if (EFI_ERROR(status))
+		goto fail;
+	tpl = active_entry->boot->raise_tpl(8U);
+	status = cdk2_ata_async_submit_atapi(&backend->async, port, multiplier,
+		&call->ata, packet->cdb, packet->cdb_length, internal_event);
+	active_entry->boot->restore_tpl(tpl);
+	if (!EFI_ERROR(status))
+		return status;
+	(void)active_entry->boot->close_event(internal_event);
+fail:
+	protocol_release(active_entry, call);
+	return status;
+}
 static EFI_STATUS protocol_async_cancel(void *opaque,
 	struct cdk2_ata_controller *controller)
 {
@@ -398,8 +459,8 @@ static EFI_STATUS service_create_protocols(void *opaque,
 	struct cdk2_ata_controller *controller,
 	struct cdk2_ata_protocol_bundle **protocols)
 {
-	struct cdk2_ata_protocol_services services = {
-		opaque, protocol_allocate, protocol_release, NULL, NULL, NULL, NULL, NULL };
+	struct cdk2_ata_protocol_services services = { .context = opaque,
+		.allocate = protocol_allocate, .release = protocol_release };
 	EFI_STATUS status;
 	if (controller->backend != NULL &&
 	    ((controller->topology.mode == CDK2_ATA_AHCI && controller->ahci != NULL) ||
@@ -414,7 +475,9 @@ static EFI_STATUS service_create_protocols(void *opaque,
 		status = cdk2_ata_async_init(&backend->async, controller, &async_services);
 		if (EFI_ERROR(status))
 			return status;
-		services.submit = protocol_async_submit; services.cancel = protocol_async_cancel;
+		services.submit = protocol_async_submit;
+		services.submit_scsi = protocol_scsi_submit;
+		services.cancel = protocol_async_cancel;
 		services.cancel_scope = protocol_async_cancel_scope;
 		services.wait = protocol_async_wait;
 		services.done = protocol_async_done;
