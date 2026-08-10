@@ -1,5 +1,5 @@
 # baseline-retained=72
-# retained=31
+# retained=30
 # status	wave	module
 native	boot	FatPkg/EnhancedFatDxe/Fat
 native	storage	MdeModulePkg/Bus/Ata/AtaAtapiPassThru/AtaAtapiPassThru
@@ -17,7 +17,7 @@ native	storage	MdeModulePkg/Bus/Scsi/ScsiBusDxe/ScsiBusDxe
 native	storage	MdeModulePkg/Bus/Scsi/ScsiDiskDxe/ScsiDiskDxe
 retain	storage	MdeModulePkg/Bus/Sd/EmmcDxe/EmmcDxe
 retain	storage	MdeModulePkg/Bus/Sd/SdDxe/SdDxe
-retain	usb	MdeModulePkg/Bus/Usb/UsbBusDxe/UsbBusDxe
+native	usb	MdeModulePkg/Bus/Usb/UsbBusDxe/UsbBusDxe
 retain	usb	MdeModulePkg/Bus/Usb/UsbKbDxe/UsbKbDxe
 retain	usb	MdeModulePkg/Bus/Usb/UsbMassStorageDxe/UsbMassStorageDxe
 retain	usb	MdeModulePkg/Bus/Usb/UsbMouseDxe/UsbMouseDxe

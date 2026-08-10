@@ -63,6 +63,7 @@ CDK2_NATIVE_USB_BUS_OBJS := $(addprefix $(CDK2_NATIVE_BUILD_DIR)/usb-bus-,\
 	model.o usb_io.o bus.o binding.o entry.o)
 CDK2_NATIVE_USB_BUS_PE ?= $(CDK2_NATIVE_BUILD_DIR)/UsbBusDxe.efi
 CDK2_NATIVE_USB_BUS_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/UsbBusDxe.ffs
+CDK2_NATIVE_USB_BUS_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-usb-bus.fv
 CDK2_NATIVE_USB_BUS_PACKAGE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/usb-bus-package-test
 CDK2_NATIVE_SATA_CONTROLLER_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-sata-controller-test
 CDK2_NATIVE_ATA_ATAPI_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-atapi-test
@@ -1222,6 +1223,15 @@ native-usb-bus-package: $(CDK2_NATIVE_USB_BUS_FFS) \
 		$(CDK2_NATIVE_USB_BUS_PACKAGE_TEST)
 	@"$(CDK2_NATIVE_USB_BUS_PACKAGE_TEST)" "$(CDK2_NATIVE_USB_BUS_FFS)"
 
+.PHONY: native-usb-bus-fv-exact
+native-usb-bus-fv-exact: $(CDK2_NATIVE_USB_BUS_FFS) $(CDK2_NATIVE_FVREPLACE) \
+		$(CDK2_NATIVE_FVINFO)
+	@test -n "$(CDK2_NATIVE_PRE_USB_BUS_FV)"
+	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_PRE_USB_BUS_FV)" 0x3cda28 \
+		"$(CDK2_NATIVE_USB_BUS_FFS)" "$(CDK2_NATIVE_USB_BUS_FV)"
+	@"$(CDK2_NATIVE_FVINFO)" "$(CDK2_NATIVE_USB_BUS_FV)" | grep -q \
+		'^240612b7-a063-11d4-9a3a-0090273fc14d[[:space:]]0x003cda28[[:space:]]0x0000d042[[:space:]]0x07[[:space:]]UsbBusDxe$$'
+
 $(CDK2_NATIVE_BUILD_DIR)/usb-bus-%.o: \
 		$(CDK2_DIR)/src/modules/usb_bus/%.c \
 		$(CDK2_DIR)/include/cdk2/usb_bus.h \
@@ -2363,6 +2373,25 @@ native-xhci-fv: $(CDK2_NATIVE_XHCI_FV)
 else
 native-xhci-fv:
 	@printf '%s\n' 'native XHCI: disabled by Kconfig'
+endif
+
+ifeq ($(CONFIG_CDK2_NATIVE_USB_BUS),y)
+CDK2_NATIVE_PRE_USB_BUS_FV ?= $(CDK2_NATIVE_FINAL_FV)
+CDK2_NATIVE_FINAL_FV := $(CDK2_NATIVE_USB_BUS_FV)
+
+$(CDK2_NATIVE_USB_BUS_FV): $(CDK2_NATIVE_PRE_USB_BUS_FV) \
+		$(CDK2_NATIVE_USB_BUS_FFS) $(CDK2_NATIVE_FVREPLACE)
+	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_PRE_USB_BUS_FV)" 0x3cda28 \
+		"$(CDK2_NATIVE_USB_BUS_FFS)" "$@"
+
+.PHONY: native-usb-bus-fv
+native-usb-bus-fv: $(CDK2_NATIVE_USB_BUS_FV)
+	@"$(CDK2_NATIVE_FVINFO)" "$<" | grep -q \
+		'^240612b7-a063-11d4-9a3a-0090273fc14d[[:space:]]0x003cda28[[:space:]]0x0000d042[[:space:]]0x07[[:space:]]UsbBusDxe$$'
+	@printf '%s\n' "native USB bus FV: $<"
+else
+native-usb-bus-fv:
+	@printf '%s\n' 'native USB bus: disabled by Kconfig'
 endif
 
 ifeq ($(CONFIG_CDK2_NATIVE_ENGLISH),y)

@@ -306,6 +306,13 @@ config CDK2_NATIVE_XHCI
 	help
 	  Publish the USB2 Host Controller protocol for PCI XHCI controllers.
 
+config CDK2_NATIVE_USB_BUS
+	bool "Build native USB bus driver"
+	default y
+	depends on CDK2_NATIVE_XHCI
+	help
+	  Enumerate USB devices and publish USB I/O interface children.
+
 config CDK2_NATIVE_STATUS_CODE_HANDLER
 	bool "Build the native release status-code handler"
 	default y
