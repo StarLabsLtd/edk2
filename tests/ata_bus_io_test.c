@@ -1,0 +1,119 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
+
+#include <cdk2/ata_bus.h>
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define CHECK(x) do { if (!(x)) { fprintf(stderr, "failed %s:%d: %s\n", \
+	__FILE__, __LINE__, #x); exit(EXIT_FAILURE); } } while (0)
+
+struct fixture {
+	UINTN calls, fail_call, resets, signals;
+	UINT8 commands[16]; UINT16 counts[16]; UINT64 lbas[16];
+	void *events[16]; struct cdk2_ata_bus_scheduler *scheduler;
+};
+
+static EFI_STATUS execute(void *opaque, struct cdk2_ata_bus_child *child,
+	struct cdk2_ata_command_packet *packet)
+{
+	struct fixture *fixture = opaque; struct cdk2_ata_command_block *acb = packet->acb;
+	UINTN index = fixture->calls++; (void)child;
+	fixture->commands[index] = acb->command;
+	fixture->counts[index] = acb->sector_count |
+		((UINT16)acb->sector_count_exp << 8);
+	fixture->lbas[index] = acb->sector_number |
+		((UINT64)acb->cylinder_low << 8) |
+		((UINT64)acb->cylinder_high << 16) |
+		((UINT64)acb->sector_number_exp << 24) |
+		((UINT64)acb->cylinder_low_exp << 32) |
+		((UINT64)acb->cylinder_high_exp << 40);
+	return fixture->calls == fixture->fail_call ? EFI_DEVICE_ERROR : EFI_SUCCESS;
+}
+static EFI_STATUS reset(void *opaque, struct cdk2_ata_bus_child *child,
+	BOOLEAN extended)
+{ struct fixture *fixture = opaque; (void)child; fixture->resets += extended ? 2U : 1U;
+	return EFI_SUCCESS; }
+static void signal_event(void *opaque, void *event)
+{ struct fixture *fixture = opaque; fixture->events[fixture->signals++] = event; }
+static void init_child(struct cdk2_ata_bus_child *child, UINT64 blocks,
+	BOOLEAN lba48)
+{
+	memset(child, 0, sizeof(*child)); child->geometry.blocks = blocks;
+	child->geometry.block_size = 512; child->geometry.io_align = 16;
+	child->geometry.lba48 = lba48;
+}
+
+int main(void)
+{
+	struct fixture fixture = { 0 };
+	struct cdk2_ata_bus_scheduler scheduler;
+	struct cdk2_ata_bus_transport transport = { &fixture, execute, reset,
+		signal_event };
+	struct cdk2_ata_bus_child first, second;
+	struct cdk2_block_io2_token one = { (void *)1, 0 }, two = { (void *)2, 0 };
+	struct cdk2_block_io2_token three = { (void *)3, 0 };
+	UINT8 *data = aligned_alloc(16, 0x20200U * 512U);
+	struct cdk2_ata_bus_request read, write, flush, sync;
+	CHECK(data != NULL); init_child(&first, 0x100000, 1); init_child(&second, 0x1000, 0);
+	CHECK(cdk2_ata_bus_scheduler_init(&scheduler, &transport) == EFI_SUCCESS);
+	fixture.scheduler = &scheduler;
+	read = (struct cdk2_ata_bus_request) { &first, CDK2_ATA_BUS_READ, &one, 0,
+		7, 512, data };
+	write = (struct cdk2_ata_bus_request) { &second, CDK2_ATA_BUS_WRITE, &two, 0,
+		9, 512, data + 512 };
+	flush = (struct cdk2_ata_bus_request) { .child = &first,
+		.operation = CDK2_ATA_BUS_FLUSH, .token = &three };
+	CHECK(cdk2_ata_bus_submit(&scheduler, &read) == EFI_SUCCESS &&
+		one.transaction_status == EFI_NOT_READY);
+	CHECK(cdk2_ata_bus_submit(&scheduler, &write) == EFI_SUCCESS);
+	CHECK(cdk2_ata_bus_submit(&scheduler, &flush) == EFI_SUCCESS);
+	CHECK(cdk2_ata_bus_submit(&scheduler, &read) == EFI_ALREADY_STARTED);
+	CHECK(cdk2_ata_bus_worker(&scheduler) == EFI_SUCCESS &&
+		one.transaction_status == EFI_SUCCESS && fixture.events[0] == (void *)1);
+	CHECK(cdk2_ata_bus_worker(&scheduler) == EFI_SUCCESS &&
+		two.transaction_status == EFI_SUCCESS && fixture.events[1] == (void *)2);
+	CHECK(cdk2_ata_bus_worker(&scheduler) == EFI_SUCCESS && fixture.commands[2] == 0xe7 &&
+		three.transaction_status == EFI_SUCCESS && fixture.events[2] == (void *)3);
+	CHECK(fixture.commands[0] == 0x25 && fixture.counts[0] == 1 &&
+		fixture.lbas[0] == 7 && fixture.commands[1] == 0xca);
+
+	read.token = &one; read.lba = 0x1234; read.bytes = 0x20000U * 512U;
+	CHECK(cdk2_ata_bus_submit(&scheduler, &read) == EFI_SUCCESS);
+	sync = (struct cdk2_ata_bus_request) { &second, CDK2_ATA_BUS_READ, NULL, 0,
+		1, 512, data };
+	CHECK(cdk2_ata_bus_execute_sync(&scheduler, &sync) == EFI_SUCCESS);
+	CHECK(fixture.commands[3] == 0x25 && fixture.counts[3] == 0 &&
+		fixture.commands[4] == 0x25 && fixture.counts[4] == 0 &&
+		fixture.lbas[4] == 0x11234 && fixture.commands[5] == 0xc8);
+
+	fixture.fail_call = fixture.calls + 2U; read.token = &one; read.bytes = 0x10001U * 512U;
+	CHECK(cdk2_ata_bus_submit(&scheduler, &read) == EFI_SUCCESS);
+	CHECK(cdk2_ata_bus_worker(&scheduler) == EFI_DEVICE_ERROR &&
+		one.transaction_status == EFI_DEVICE_ERROR && fixture.signals == 5);
+	read.token = &one; read.bytes = 512; write.token = &two; flush.token = &three;
+	CHECK(cdk2_ata_bus_submit(&scheduler, &read) == EFI_SUCCESS);
+	CHECK(cdk2_ata_bus_submit(&scheduler, &write) == EFI_SUCCESS);
+	CHECK(cdk2_ata_bus_submit(&scheduler, &flush) == EFI_SUCCESS);
+	CHECK(cdk2_ata_bus_reset(&scheduler, &first, 1) == EFI_SUCCESS &&
+		one.transaction_status == CDK2_EFI_ABORTED &&
+		two.transaction_status == EFI_NOT_READY &&
+		three.transaction_status == CDK2_EFI_ABORTED && fixture.resets == 2 &&
+		scheduler.count == 1);
+	CHECK(cdk2_ata_bus_worker(&scheduler) == EFI_SUCCESS &&
+		two.transaction_status == EFI_SUCCESS);
+
+	read.token = NULL; read.media_id = 1;
+	CHECK(cdk2_ata_bus_execute_sync(&scheduler, &read) == CDK2_EFI_MEDIA_CHANGED);
+	read.media_id = 0; read.bytes = 513;
+	CHECK(cdk2_ata_bus_execute_sync(&scheduler, &read) == EFI_BAD_BUFFER_SIZE);
+	read.bytes = 512; read.buffer = data + 1;
+	CHECK(cdk2_ata_bus_execute_sync(&scheduler, &read) == EFI_INVALID_PARAMETER);
+	read.buffer = data; read.lba = first.geometry.blocks;
+	CHECK(cdk2_ata_bus_execute_sync(&scheduler, &read) == EFI_INVALID_PARAMETER);
+	CHECK(cdk2_ata_bus_stop_scheduler(&scheduler) == EFI_SUCCESS);
+	read.lba = 0; read.token = &one;
+	CHECK(cdk2_ata_bus_submit(&scheduler, &read) == EFI_NOT_READY);
+	free(data); puts("ata bus I/O scheduler tests: PASS"); return 0;
+}

@@ -9,7 +9,11 @@
 
 #define CDK2_ATA_BUS_MAX_CONTROLLERS 8U
 #define CDK2_ATA_BUS_MAX_CHILDREN 32U
+#define CDK2_ATA_BUS_QUEUE_DEPTH 64U
 #define CDK2_EFI_NO_MEDIA EFIERR(12)
+#define CDK2_EFI_MEDIA_CHANGED EFIERR(13)
+#define CDK2_EFI_WRITE_PROTECTED EFIERR(8)
+#define CDK2_EFI_ABORTED EFIERR(21)
 
 struct cdk2_ata_bus_disk_info;
 typedef EFI_STATUS CDK2_MS_ABI cdk2_disk_info_inquiry_fn(
@@ -58,6 +62,41 @@ struct cdk2_ata_bus_child {
 	UINTN device_path_size;
 };
 
+enum cdk2_ata_bus_operation {
+	CDK2_ATA_BUS_READ, CDK2_ATA_BUS_WRITE, CDK2_ATA_BUS_FLUSH
+};
+
+struct cdk2_ata_bus_scheduler;
+struct cdk2_ata_bus_request {
+	struct cdk2_ata_bus_child *child;
+	enum cdk2_ata_bus_operation operation;
+	struct cdk2_block_io2_token *token;
+	UINT32 media_id;
+	UINT64 lba;
+	UINTN bytes;
+	void *buffer;
+};
+
+typedef EFI_STATUS cdk2_ata_bus_execute_fn(void *context,
+	struct cdk2_ata_bus_child *child, struct cdk2_ata_command_packet *packet);
+typedef EFI_STATUS cdk2_ata_bus_reset_fn(void *context,
+	struct cdk2_ata_bus_child *child, BOOLEAN extended_verification);
+typedef void cdk2_ata_bus_signal_fn(void *context, void *event);
+
+struct cdk2_ata_bus_transport {
+	void *context;
+	cdk2_ata_bus_execute_fn *execute;
+	cdk2_ata_bus_reset_fn *reset;
+	cdk2_ata_bus_signal_fn *signal;
+};
+
+struct cdk2_ata_bus_scheduler {
+	struct cdk2_ata_bus_transport transport;
+	struct cdk2_ata_bus_request queue[CDK2_ATA_BUS_QUEUE_DEPTH];
+	UINTN head, count;
+	BOOLEAN stopping, worker_active;
+};
+
 struct cdk2_ata_bus_controller {
 	void *handle;
 	struct cdk2_ata_pass_thru_protocol *pass_thru;
@@ -76,5 +115,15 @@ EFI_STATUS cdk2_ata_bus_add_controller(struct cdk2_ata_bus *bus,
 	void *handle, struct cdk2_ata_pass_thru_protocol *pass_thru,
 	void (*release_path)(void *));
 EFI_STATUS cdk2_ata_bus_remove_controller(struct cdk2_ata_bus *bus, void *handle);
+EFI_STATUS cdk2_ata_bus_scheduler_init(struct cdk2_ata_bus_scheduler *scheduler,
+	const struct cdk2_ata_bus_transport *transport);
+EFI_STATUS cdk2_ata_bus_submit(struct cdk2_ata_bus_scheduler *scheduler,
+	const struct cdk2_ata_bus_request *request);
+EFI_STATUS cdk2_ata_bus_execute_sync(struct cdk2_ata_bus_scheduler *scheduler,
+	const struct cdk2_ata_bus_request *request);
+EFI_STATUS cdk2_ata_bus_worker(struct cdk2_ata_bus_scheduler *scheduler);
+EFI_STATUS cdk2_ata_bus_reset(struct cdk2_ata_bus_scheduler *scheduler,
+	struct cdk2_ata_bus_child *child, BOOLEAN extended_verification);
+EFI_STATUS cdk2_ata_bus_stop_scheduler(struct cdk2_ata_bus_scheduler *scheduler);
 
 #endif
