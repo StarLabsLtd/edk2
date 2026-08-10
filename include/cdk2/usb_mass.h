@@ -55,6 +55,7 @@ struct cdk2_usb_mass_child {
 	struct cdk2_usb_mass_block block;
 	struct cdk2_usb_mass_lun_path path;
 	void *handle;
+	void *device_path;
 	BOOLEAN installed, linked;
 };
 struct cdk2_usb_mass_controller {
