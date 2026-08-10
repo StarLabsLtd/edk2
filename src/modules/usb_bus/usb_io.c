@@ -95,7 +95,10 @@ static EFI_STATUS CDK2_MS_ABI config_descriptor(
 		return EFI_INVALID_PARAMETER;
 	configuration = &owner(protocol)->configuration;
 	memset(bytes, 0, 9U);
-	bytes[0] = 9U; bytes[1] = 2U; bytes[4] = configuration->interface_count;
+	bytes[0] = 9U; bytes[1] = 2U;
+	bytes[2] = (UINT8)configuration->total_length;
+	bytes[3] = (UINT8)(configuration->total_length >> 8);
+	bytes[4] = configuration->number_interfaces;
 	bytes[5] = configuration->value; bytes[7] = configuration->attributes;
 	bytes[8] = configuration->maximum_power;
 	return EFI_SUCCESS;

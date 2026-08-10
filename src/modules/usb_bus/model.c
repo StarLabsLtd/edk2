@@ -16,8 +16,10 @@ EFI_STATUS cdk2_usb_parse_configuration(const void *data, UINTN length,
 		return EFI_COMPROMISED_DATA;
 	memset(configuration, 0, sizeof(*configuration));
 	configuration->value = bytes[5];
+	configuration->total_length = (UINT16)length;
 	configuration->attributes = bytes[7];
 	configuration->maximum_power = bytes[8];
+	configuration->number_interfaces = bytes[4];
 	offset = bytes[0];
 	while (offset < length) {
 		UINT8 descriptor_length;
@@ -62,7 +64,8 @@ EFI_STATUS cdk2_usb_parse_configuration(const void *data, UINTN length,
 		}
 		offset += descriptor_length;
 	}
-	return configuration->interface_count == 0U ?
+	return configuration->interface_count == 0U ||
+		configuration->number_interfaces == 0U ?
 		EFI_COMPROMISED_DATA : EFI_SUCCESS;
 }
 

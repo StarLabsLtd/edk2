@@ -1141,11 +1141,28 @@ native-xhci-test: $(CDK2_NATIVE_XHCI_TEST) $(CDK2_NATIVE_XHCI_CONTROLLER_TEST) \
 native-usb-bus-test: $(CDK2_NATIVE_BUILD_DIR)/usb-bus-model-test \
 		$(CDK2_NATIVE_BUILD_DIR)/usb-bus-io-test \
 		$(CDK2_NATIVE_BUILD_DIR)/usb-bus-enumeration-test \
-		$(CDK2_NATIVE_BUILD_DIR)/usb-bus-binding-test
+		$(CDK2_NATIVE_BUILD_DIR)/usb-bus-binding-test \
+		$(CDK2_NATIVE_BUILD_DIR)/usb-bus-entry-test
 	@"$(CDK2_NATIVE_BUILD_DIR)/usb-bus-model-test"
 	@"$(CDK2_NATIVE_BUILD_DIR)/usb-bus-io-test"
 	@"$(CDK2_NATIVE_BUILD_DIR)/usb-bus-enumeration-test"
 	@"$(CDK2_NATIVE_BUILD_DIR)/usb-bus-binding-test"
+	@"$(CDK2_NATIVE_BUILD_DIR)/usb-bus-entry-test"
+
+$(CDK2_NATIVE_BUILD_DIR)/usb-bus-entry-test: \
+		$(CDK2_DIR)/tests/usb_bus_entry_test.c \
+		$(CDK2_DIR)/src/modules/usb_bus/model.c \
+		$(CDK2_DIR)/src/modules/usb_bus/usb_io.c \
+		$(CDK2_DIR)/src/modules/usb_bus/bus.c \
+		$(CDK2_DIR)/src/modules/usb_bus/binding.c \
+		$(CDK2_DIR)/include/cdk2/usb_bus.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -fsanitize=address,undefined \
+		$(CDK2_NATIVE_INCLUDES) -MMD -MP -MF "$(@:.test=.d)" -MT "$@" \
+		-o "$@" $(CDK2_DIR)/tests/usb_bus_entry_test.c \
+		$(CDK2_DIR)/src/modules/usb_bus/model.c \
+		$(CDK2_DIR)/src/modules/usb_bus/usb_io.c \
+		$(CDK2_DIR)/src/modules/usb_bus/bus.c \
+		$(CDK2_DIR)/src/modules/usb_bus/binding.c
 
 $(CDK2_NATIVE_BUILD_DIR)/usb-bus-binding-test: \
 		$(CDK2_DIR)/tests/usb_bus_binding_test.c \

@@ -22,7 +22,8 @@ struct cdk2_usb_interface {
 };
 
 struct cdk2_usb_configuration {
-	UINT8 value, attributes, maximum_power, interface_count;
+	UINT16 total_length;
+	UINT8 value, attributes, maximum_power, interface_count, number_interfaces;
 	struct cdk2_usb_interface interfaces[CDK2_USB_MAX_INTERFACES];
 };
 
@@ -93,6 +94,7 @@ struct cdk2_usb_child {
 	UINT8 port, address, interface;
 	BOOLEAN active;
 	void *handle;
+	void *device_path;
 };
 
 typedef void cdk2_usb_delay_fn(void *context, UINTN microseconds);
