@@ -412,7 +412,9 @@ EFI_STATUS cdk2_scsi_binding_start(struct cdk2_scsi_binding *binding,
 	}
 	if (binding->pass_thru->get_next_target_lun == NULL)
 		return EFI_UNSUPPORTED;
-	id = NULL;
+	for (UINTN index = 0; index < sizeof(target.id); index++)
+		target.id[index] = 0xffU;
+	id = target.id;
 	for (;;) {
 		status = binding->pass_thru->get_next_target_lun(binding->pass_thru, &id,
 			&target.lun);

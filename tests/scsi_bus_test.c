@@ -38,6 +38,15 @@ static EFI_STATUS reset_target(void *context, const UINT8 *target, UINT64 lun)
 static EFI_STATUS next(void *context, UINT8 **target, UINT64 *lun)
 {
 	(void)context;
+	if (target == NULL || *target == NULL)
+		return EFI_INVALID_PARAMETER;
+	if (cursor == 0U) {
+		for (UINTN index = 0; index < CDK2_SCSI_TARGET_MAX; index++)
+			if ((*target)[index] != 0xffU)
+				return EFI_INVALID_PARAMETER;
+	} else if (*target != listed[cursor - 1U].id) {
+		return EFI_INVALID_PARAMETER;
+	}
 	if (cursor == 2U)
 		return EFI_NOT_FOUND;
 	*target = listed[cursor].id;

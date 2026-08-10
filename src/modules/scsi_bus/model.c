@@ -112,7 +112,9 @@ EFI_STATUS cdk2_scsi_enumerate(struct cdk2_scsi_bus *bus,
 		return EFI_INVALID_PARAMETER;
 	if (only != NULL)
 		return add_target(bus, only);
-	target_id = NULL;
+	for (UINTN byte = 0; byte < sizeof(target.id); byte++)
+		target.id[byte] = 0xffU;
+	target_id = target.id;
 	for (;;) {
 		status = bus->backend.next(bus->backend.interface, &target_id,
 			&target.lun);

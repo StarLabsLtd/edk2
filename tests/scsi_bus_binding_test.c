@@ -10,6 +10,8 @@ static BOOLEAN fail_uninstall;
 static struct cdk2_device_path end_path = { 0x7f, 0xff, { 4, 0 } };
 static struct cdk2_ext_scsi_mode pass_mode = { 0, 3, 8 };
 static struct cdk2_ext_scsi pass;
+static UINT8 next_id[CDK2_SCSI_TARGET_MAX] = { 2, 0xff };
+static UINTN next_cursor;
 
 static EFI_STATUS CDK2_MS_ABI pass_command(struct cdk2_ext_scsi *interface,
 	UINT8 *target, UINT64 lun, struct cdk2_scsi_request *packet, void *event)
@@ -30,6 +32,24 @@ static EFI_STATUS CDK2_MS_ABI get_target(struct cdk2_ext_scsi *interface,
 	for (UINTN index = 0; index < CDK2_SCSI_TARGET_MAX; index++)
 		(*target)[index] = index == 0 ? 1 : 0;
 	*lun = 0; return EFI_SUCCESS;
+}
+
+static EFI_STATUS CDK2_MS_ABI get_next(struct cdk2_ext_scsi *interface,
+	UINT8 **target, UINT64 *lun)
+{
+	(void)interface;
+	if (target == NULL || *target == NULL)
+		return EFI_INVALID_PARAMETER;
+	if (next_cursor == 0U) {
+		for (UINTN index = 0; index < CDK2_SCSI_TARGET_MAX; index++)
+			if ((*target)[index] != 0xffU)
+				return EFI_INVALID_PARAMETER;
+		*target = next_id; *lun = 0; next_cursor++;
+		return EFI_SUCCESS;
+	}
+	if (*target != next_id)
+		return EFI_INVALID_PARAMETER;
+	next_cursor = 0; return EFI_NOT_FOUND;
 }
 
 static EFI_STATUS CDK2_MS_ABI build_path(struct cdk2_ext_scsi *interface,
@@ -136,6 +156,7 @@ int main(void)
 
 	pass = (struct cdk2_ext_scsi) {
 		.pass_thru = pass_command,
+		.get_next_target_lun = get_next,
 		.build_device_path = build_path,
 		.get_target_lun = get_target,
 		.mode = &pass_mode,
@@ -171,6 +192,18 @@ int main(void)
 			&child) == EFI_SUCCESS && cdk2_scsi_binding_stop(&binding,
 			(void *)2, 0, NULL) == EFI_SUCCESS,
 			"child and parent ownership stop cleanly");
+	}
+	cdk2_scsi_binding_init(&binding, &ops, NULL, (void *)1);
+	fail_child_open = FALSE; next_cursor = 0;
+	failures += check(cdk2_scsi_binding_start(&binding, (void *)2, NULL) ==
+		EFI_SUCCESS && binding.children != NULL,
+		"full scan uses the all-ones initial target contract");
+	if (binding.children != NULL) {
+		child = binding.children->handle;
+		failures += check(cdk2_scsi_binding_stop(&binding, (void *)2, 1,
+			&child) == EFI_SUCCESS && cdk2_scsi_binding_stop(&binding,
+			(void *)2, 0, NULL) == EFI_SUCCESS,
+			"enumerated child stops cleanly");
 	}
 	cdk2_scsi_binding_init(&binding, &ops, NULL, (void *)1);
 	fail_child_open = TRUE; fail_uninstall = TRUE;
