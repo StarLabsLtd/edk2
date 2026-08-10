@@ -103,7 +103,7 @@ static EFI_STATUS CDK2_MS_ABI control_transfer(
 	}
 	if (!EFI_ERROR(status))
 		status = cdk2_xhci_control_transfer(device, request, data, length,
-			direction == 1U);
+			direction == 0U);
 	*result = EFI_ERROR(status) ? CDK2_USB_ERR_SYSTEM : CDK2_USB_NOERROR;
 	return status;
 }
