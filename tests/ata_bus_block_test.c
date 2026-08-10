@@ -56,8 +56,8 @@ static EFI_STATUS defer(void *opaque, struct cdk2_ata_bus_block_instance *instan
 int main(void)
 {
 	struct fixture fixture = { 0 };
-	struct cdk2_ata_bus_transport transport = { &fixture, execute, submit, wait_idle, reset,
-		signal_event };
+	struct cdk2_ata_bus_transport transport = { .context = &fixture, .execute = execute,
+		.submit = submit, .wait = wait_idle, .reset = reset, .signal = signal_event };
 	struct cdk2_ata_bus_scheduler scheduler;
 	struct cdk2_ata_bus_block_instance instance;
 	struct cdk2_ata_bus_child child = { 0 };

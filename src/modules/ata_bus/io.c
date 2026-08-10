@@ -4,6 +4,18 @@
 
 #include <string.h>
 
+static UINTN lock_scheduler(struct cdk2_ata_bus_scheduler *scheduler)
+{
+	return scheduler->transport.lock == NULL ? 0U :
+		scheduler->transport.lock(scheduler->transport.context);
+}
+
+static void unlock_scheduler(struct cdk2_ata_bus_scheduler *scheduler, UINTN state)
+{
+	if (scheduler->transport.unlock != NULL)
+		scheduler->transport.unlock(scheduler->transport.context, state);
+}
+
 static EFI_STATUS validate(const struct cdk2_ata_bus_request *request)
 {
 	const struct cdk2_ata_bus_media *media;
@@ -106,11 +118,14 @@ static EFI_STATUS dispatch(struct cdk2_ata_bus_scheduler *scheduler);
 static void complete_active(void *context, EFI_STATUS status)
 {
 	struct cdk2_ata_bus_scheduler *scheduler = context;
+	UINTN state = lock_scheduler(scheduler);
+
 	if (scheduler->abort_active)
 		status = CDK2_EFI_ABORTED;
 	scheduler->parent_active = 0;
 	scheduler->active_status = status;
 	scheduler->completion_pending = 1;
+	unlock_scheduler(scheduler, state);
 	if (!scheduler->dispatching)
 		(void)dispatch(scheduler);
 }
@@ -150,10 +165,17 @@ static EFI_STATUS dispatch(struct cdk2_ata_bus_scheduler *scheduler)
 {
 	EFI_STATUS first = EFI_SUCCESS;
 
-	if (scheduler->dispatching)
+	UINTN state = lock_scheduler(scheduler);
+	if (scheduler->dispatching) {
+		unlock_scheduler(scheduler, state);
 		return EFI_ALREADY_STARTED;
+	}
 	scheduler->dispatching = 1;
+	unlock_scheduler(scheduler, state);
 	for (;;) {
+		void *signal_event = NULL;
+
+		state = lock_scheduler(scheduler);
 		if (scheduler->completion_pending) {
 			struct cdk2_ata_bus_request *request = &scheduler->active;
 			EFI_STATUS status = scheduler->active_status;
@@ -182,18 +204,28 @@ static EFI_STATUS dispatch(struct cdk2_ata_bus_scheduler *scheduler)
 				scheduler->abort_active = 0;
 				if (EFI_ERROR(status) && !EFI_ERROR(first))
 					first = status;
-				scheduler->transport.signal(scheduler->transport.context,
-					request->token->event);
+				signal_event = request->token->event;
 			}
 		}
-		if (scheduler->parent_active)
+		if (signal_event != NULL) {
+			unlock_scheduler(scheduler, state);
+			scheduler->transport.signal(scheduler->transport.context, signal_event);
+			continue;
+		}
+		if (scheduler->parent_active) {
+			unlock_scheduler(scheduler, state);
 			break;
-		if (scheduler->resetting)
+		}
+		if (scheduler->resetting) {
+			unlock_scheduler(scheduler, state);
 			break;
+		}
 		if (!scheduler->worker_active) {
 			struct cdk2_ata_bus_request request;
-			if (scheduler->count == 0U)
+			if (scheduler->count == 0U) {
+				unlock_scheduler(scheduler, state);
 				break;
+			}
 			request = scheduler->queue[scheduler->head];
 			scheduler->worker_active = 1; scheduler->active = request;
 			scheduler->active_lba = request.lba;
@@ -202,11 +234,14 @@ static EFI_STATUS dispatch(struct cdk2_ata_bus_scheduler *scheduler)
 			if (request.operation == CDK2_ATA_BUS_FLUSH || request.bytes == 0U) {
 				scheduler->active_status = EFI_SUCCESS;
 				scheduler->completion_pending = 1;
+				unlock_scheduler(scheduler, state);
 				continue;
 			}
 		}
+		unlock_scheduler(scheduler, state);
 		{
 			EFI_STATUS status = submit_active_chunk(scheduler);
+			state = lock_scheduler(scheduler);
 			if (EFI_ERROR(status)) {
 				if (scheduler->active.token == scheduler->initial_token) {
 					scheduler->active.token->transaction_status =
@@ -216,6 +251,7 @@ static EFI_STATUS dispatch(struct cdk2_ata_bus_scheduler *scheduler)
 					scheduler->count--; scheduler->worker_active = 0;
 					if (!EFI_ERROR(first))
 						first = status;
+					unlock_scheduler(scheduler, state);
 					continue;
 				}
 				scheduler->active_status = status;
@@ -223,9 +259,12 @@ static EFI_STATUS dispatch(struct cdk2_ata_bus_scheduler *scheduler)
 				if (!EFI_ERROR(first))
 					first = status;
 			}
+			unlock_scheduler(scheduler, state);
 		}
 	}
+	state = lock_scheduler(scheduler);
 	scheduler->dispatching = 0;
+	unlock_scheduler(scheduler, state);
 	return first;
 }
 
@@ -234,7 +273,8 @@ EFI_STATUS cdk2_ata_bus_scheduler_init(struct cdk2_ata_bus_scheduler *scheduler,
 {
 	if (scheduler == NULL || transport == NULL || transport->execute == NULL ||
 	    transport->submit == NULL || transport->wait == NULL ||
-	    transport->reset == NULL || transport->signal == NULL)
+	    transport->reset == NULL || transport->signal == NULL ||
+	    ((transport->lock == NULL) != (transport->unlock == NULL)))
 		return EFI_INVALID_PARAMETER;
 	memset(scheduler, 0, sizeof(*scheduler)); scheduler->transport = *transport;
 	return EFI_SUCCESS;
@@ -244,24 +284,33 @@ EFI_STATUS cdk2_ata_bus_submit(struct cdk2_ata_bus_scheduler *scheduler,
 	const struct cdk2_ata_bus_request *request)
 {
 	EFI_STATUS status;
+	UINTN state;
 	if (scheduler == NULL || request == NULL || request->token == NULL ||
 	    request->token->event == NULL)
 		return EFI_INVALID_PARAMETER;
 	status = validate(request);
 	if (EFI_ERROR(status))
 		return status;
+	state = lock_scheduler(scheduler);
 	if (scheduler->stopping)
-		return EFI_NOT_READY;
+		status = EFI_NOT_READY;
+	else
+		status = EFI_SUCCESS;
 	for (UINTN index = 0; index < scheduler->count; index++)
 		if (scheduler->queue[(scheduler->head + index) % CDK2_ATA_BUS_QUEUE_DEPTH].token ==
-		    request->token)
-			return EFI_ALREADY_STARTED;
-	if (scheduler->count == CDK2_ATA_BUS_QUEUE_DEPTH)
-		return EFI_OUT_OF_RESOURCES;
+		    request->token && !EFI_ERROR(status))
+			status = EFI_ALREADY_STARTED;
+	if (scheduler->count == CDK2_ATA_BUS_QUEUE_DEPTH && !EFI_ERROR(status))
+		status = EFI_OUT_OF_RESOURCES;
+	if (EFI_ERROR(status)) {
+		unlock_scheduler(scheduler, state);
+		return status;
+	}
 	scheduler->queue[(scheduler->head + scheduler->count) % CDK2_ATA_BUS_QUEUE_DEPTH] =
 		*request;
 	request->token->transaction_status = EFI_NOT_READY;
 	scheduler->count++;
+	unlock_scheduler(scheduler, state);
 	return EFI_SUCCESS;
 }
 
@@ -269,10 +318,16 @@ EFI_STATUS cdk2_ata_bus_worker(struct cdk2_ata_bus_scheduler *scheduler)
 {
 	if (scheduler == NULL)
 		return EFI_INVALID_PARAMETER;
-	if (scheduler->worker_active || scheduler->dispatching)
+	UINTN state = lock_scheduler(scheduler);
+	if (scheduler->worker_active || scheduler->dispatching) {
+		unlock_scheduler(scheduler, state);
 		return EFI_ALREADY_STARTED;
-	if (scheduler->count == 0U)
+	}
+	if (scheduler->count == 0U) {
+		unlock_scheduler(scheduler, state);
 		return EFI_NOT_READY;
+	}
+	unlock_scheduler(scheduler, state);
 	return dispatch(scheduler);
 }
 
@@ -299,15 +354,21 @@ EFI_STATUS cdk2_ata_bus_reset(struct cdk2_ata_bus_scheduler *scheduler,
 	struct cdk2_ata_bus_request retained[CDK2_ATA_BUS_QUEUE_DEPTH];
 	UINTN retained_count = 0;
 	EFI_STATUS status;
+	UINTN state;
 	if (scheduler == NULL || child == NULL)
 		return EFI_INVALID_PARAMETER;
+	state = lock_scheduler(scheduler);
 	scheduler->resetting = 1;
 	if (scheduler->worker_active && scheduler->active.child == child)
 		scheduler->abort_active = 1;
+	unlock_scheduler(scheduler, state);
 	status = scheduler->transport.reset(scheduler->transport.context, child,
 		extended_verification);
 	if (EFI_ERROR(status)) {
+		state = lock_scheduler(scheduler);
+		scheduler->abort_active = 0;
 		scheduler->resetting = 0;
+		unlock_scheduler(scheduler, state);
 		return status;
 	}
 	if (scheduler->worker_active && scheduler->active.child == child) {
@@ -320,20 +381,27 @@ EFI_STATUS cdk2_ata_bus_reset(struct cdk2_ata_bus_scheduler *scheduler,
 		}
 	}
 	while (scheduler->count != 0U) {
-		struct cdk2_ata_bus_request request = scheduler->queue[scheduler->head];
+		struct cdk2_ata_bus_request request;
+
+		state = lock_scheduler(scheduler);
+		request = scheduler->queue[scheduler->head];
 		scheduler->head = (scheduler->head + 1U) % CDK2_ATA_BUS_QUEUE_DEPTH;
 		scheduler->count--;
 		if (request.child != child) {
 			retained[retained_count++] = request;
+			unlock_scheduler(scheduler, state);
 			continue;
 		}
 		request.token->transaction_status = CDK2_EFI_ABORTED;
+		unlock_scheduler(scheduler, state);
 		scheduler->transport.signal(scheduler->transport.context,
 			request.token->event);
 	}
+	state = lock_scheduler(scheduler);
 	memcpy(scheduler->queue, retained, retained_count * sizeof(retained[0]));
 	scheduler->head = 0; scheduler->count = retained_count;
 	scheduler->resetting = 0;
+	unlock_scheduler(scheduler, state);
 	if (scheduler->count != 0U && !scheduler->stopping)
 		(void)dispatch(scheduler);
 	return EFI_SUCCESS;
@@ -342,16 +410,23 @@ EFI_STATUS cdk2_ata_bus_reset(struct cdk2_ata_bus_scheduler *scheduler,
 EFI_STATUS cdk2_ata_bus_stop_scheduler(struct cdk2_ata_bus_scheduler *scheduler)
 {
 	EFI_STATUS status = EFI_SUCCESS;
+	UINTN state;
 	if (scheduler == NULL)
 		return EFI_INVALID_PARAMETER;
+	state = lock_scheduler(scheduler);
 	scheduler->stopping = 1;
+	unlock_scheduler(scheduler, state);
 	if (scheduler->worker_active)
 		status = cdk2_ata_bus_reset(scheduler, scheduler->active.child, 0);
 	while (scheduler->count != 0U) {
-		struct cdk2_ata_bus_request request = scheduler->queue[scheduler->head];
+		struct cdk2_ata_bus_request request;
+
+		state = lock_scheduler(scheduler);
+		request = scheduler->queue[scheduler->head];
 		scheduler->head = (scheduler->head + 1U) % CDK2_ATA_BUS_QUEUE_DEPTH;
 		scheduler->count--;
 		request.token->transaction_status = CDK2_EFI_ABORTED;
+		unlock_scheduler(scheduler, state);
 		scheduler->transport.signal(scheduler->transport.context,
 			request.token->event);
 	}

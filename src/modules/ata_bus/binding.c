@@ -269,11 +269,11 @@ EFI_STATUS cdk2_ata_bus_binding_stop(struct cdk2_ata_bus_binding *binding,
 	owner = find_controller(binding, controller, &position);
 	if (owner == NULL)
 		return EFI_NOT_STARTED;
-	if (owner->scheduler.worker_active || owner->scheduler.dispatching ||
-	    owner->scheduler.parent_active)
-		return EFI_NOT_READY;
 	first = child_count == 0U ? cdk2_ata_bus_stop_scheduler(&owner->scheduler) :
 		cdk2_ata_bus_drain_scheduler(&owner->scheduler);
+	if (owner->scheduler.worker_active || owner->scheduler.dispatching ||
+	    owner->scheduler.parent_active)
+		return EFI_ERROR(first) ? first : EFI_NOT_READY;
 	for (UINTN index = owner->child_count; index-- != 0U;) {
 		struct cdk2_ata_bus_bound_child *child = owner->children[index]; BOOLEAN selected;
 		selected = child_count == 0U;

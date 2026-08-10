@@ -88,6 +88,8 @@ typedef EFI_STATUS cdk2_ata_bus_wait_fn(void *context,
 typedef EFI_STATUS cdk2_ata_bus_reset_fn(void *context,
 	struct cdk2_ata_bus_child *child, BOOLEAN extended_verification);
 typedef void cdk2_ata_bus_signal_fn(void *context, void *event);
+typedef UINTN cdk2_ata_bus_lock_fn(void *context);
+typedef void cdk2_ata_bus_unlock_fn(void *context, UINTN state);
 
 struct cdk2_ata_bus_transport {
 	void *context;
@@ -96,6 +98,8 @@ struct cdk2_ata_bus_transport {
 	cdk2_ata_bus_wait_fn *wait;
 	cdk2_ata_bus_reset_fn *reset;
 	cdk2_ata_bus_signal_fn *signal;
+	cdk2_ata_bus_lock_fn *lock;
+	cdk2_ata_bus_unlock_fn *unlock;
 };
 
 struct cdk2_ata_bus_scheduler {

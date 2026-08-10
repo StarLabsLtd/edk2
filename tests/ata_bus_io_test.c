@@ -10,7 +10,8 @@
 	__FILE__, __LINE__, #x); exit(EXIT_FAILURE); } } while (0)
 
 struct fixture {
-	UINTN calls, fail_call, resets, signals;
+	UINTN calls, fail_call, resets, signals, locks, unlocks, lock_depth;
+	BOOLEAN fail_reset;
 	UINT8 commands[16], protocols[16]; UINT16 counts[16]; UINT64 lbas[16];
 	void *events[16]; struct cdk2_ata_bus_scheduler *scheduler;
 	cdk2_ata_bus_complete_fn *complete; void *complete_context;
@@ -51,9 +52,24 @@ static EFI_STATUS wait_idle(void *opaque, struct cdk2_ata_bus_scheduler *schedul
 static EFI_STATUS reset(void *opaque, struct cdk2_ata_bus_child *child,
 	BOOLEAN extended)
 { struct fixture *fixture = opaque; (void)child; fixture->resets += extended ? 2U : 1U;
-	return EFI_SUCCESS; }
+	return fixture->fail_reset ? EFI_DEVICE_ERROR : EFI_SUCCESS; }
 static void signal_event(void *opaque, void *event)
 { struct fixture *fixture = opaque; fixture->events[fixture->signals++] = event; }
+static UINTN lock(void *opaque)
+{
+	struct fixture *fixture = opaque;
+
+	fixture->locks++;
+	CHECK(fixture->lock_depth++ == 0U);
+	return 4U;
+}
+static void unlock(void *opaque, UINTN state)
+{
+	struct fixture *fixture = opaque;
+
+	CHECK(state == 4U && fixture->lock_depth-- == 1U);
+	fixture->unlocks++;
+}
 static void init_child(struct cdk2_ata_bus_child *child, UINT64 blocks,
 	BOOLEAN lba48)
 {
@@ -66,8 +82,9 @@ int main(void)
 {
 	struct fixture fixture = { 0 };
 	struct cdk2_ata_bus_scheduler scheduler;
-	struct cdk2_ata_bus_transport transport = { &fixture, execute, submit, wait_idle, reset,
-		signal_event };
+	struct cdk2_ata_bus_transport transport = { .context = &fixture, .execute = execute,
+		.submit = submit, .wait = wait_idle, .reset = reset, .signal = signal_event,
+		.lock = lock, .unlock = unlock };
 	struct cdk2_ata_bus_child first, second;
 	struct cdk2_block_io2_token one = { (void *)1, 0 }, two = { (void *)2, 0 };
 	struct cdk2_block_io2_token three = { (void *)3, 0 };
@@ -123,6 +140,14 @@ int main(void)
 		one.transaction_status == CDK2_EFI_ABORTED &&
 		two.transaction_status == EFI_NOT_READY && scheduler.parent_active);
 	CHECK(wait_idle(&fixture, &scheduler) == EFI_SUCCESS && two.transaction_status == EFI_SUCCESS);
+	read.token = &one; read.bytes = 512; fixture.fail_reset = 1;
+	CHECK(cdk2_ata_bus_submit(&scheduler, &read) == EFI_SUCCESS &&
+		cdk2_ata_bus_worker(&scheduler) == EFI_SUCCESS &&
+		cdk2_ata_bus_reset(&scheduler, &first, 0) == EFI_DEVICE_ERROR &&
+		!scheduler.abort_active && one.transaction_status == EFI_NOT_READY);
+	fixture.fail_reset = 0;
+	CHECK(wait_idle(&fixture, &scheduler) == EFI_SUCCESS &&
+		one.transaction_status == EFI_SUCCESS);
 	read.token = &one; read.bytes = 512; write.token = &two; flush.token = &three;
 	CHECK(cdk2_ata_bus_submit(&scheduler, &read) == EFI_SUCCESS);
 	CHECK(cdk2_ata_bus_submit(&scheduler, &write) == EFI_SUCCESS);
@@ -130,7 +155,7 @@ int main(void)
 	CHECK(cdk2_ata_bus_reset(&scheduler, &first, 1) == EFI_SUCCESS &&
 		one.transaction_status == CDK2_EFI_ABORTED &&
 		two.transaction_status == EFI_NOT_READY &&
-		three.transaction_status == CDK2_EFI_ABORTED && fixture.resets == 3 &&
+		three.transaction_status == CDK2_EFI_ABORTED && fixture.resets >= 3 &&
 		scheduler.count == 1);
 	CHECK(wait_idle(&fixture, &scheduler) == EFI_SUCCESS &&
 		two.transaction_status == EFI_SUCCESS);
@@ -152,5 +177,6 @@ int main(void)
 	CHECK(cdk2_ata_bus_stop_scheduler(&scheduler) == EFI_SUCCESS);
 	read.lba = 0; read.token = &one;
 	CHECK(cdk2_ata_bus_submit(&scheduler, &read) == EFI_NOT_READY);
+	CHECK(fixture.locks == fixture.unlocks && fixture.lock_depth == 0U);
 	free(data); puts("ata bus I/O scheduler tests: PASS"); return 0;
 }

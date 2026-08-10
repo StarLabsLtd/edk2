@@ -21,7 +21,7 @@ struct fixture {
 	UINTN allocs, frees, opens, closes, installs, uninstalls, creates, signals, child_links;
 	UINT32 last_attribute;
 	const EFI_GUID *last_open_guid;
-	UINT8 parent_path[10];
+	UINT8 parent_path[4098];
 	void *installed_path;
 	void (CDK2_MS_ABI * notify)(void *, void *);
 	void *notify_context;
@@ -175,6 +175,7 @@ int main(void)
 	UINT8 buffer[512] __aligned(512);
 	CHAR16 *name;
 	void *image = (void *)1;
+	EFI_STATUS bounded_status;
 
 	for (enum fail_stage fail = FAIL_HANDLE; fail <= FAIL_PUBLISH; fail++) {
 		init(); fixture.fail = fail;
@@ -191,6 +192,14 @@ int main(void)
 		CHECK(cdk2_ata_bus_entry_unload(image) == EFI_SUCCESS &&
 			fixture.allocs == fixture.frees);
 	}
+	init();
+	fixture.parent_path[2] = 0xfeU;
+	fixture.parent_path[3] = 0x0fU;
+	CHECK(cdk2_ata_bus_entry_publish(&entry, image, &fixture.system) == EFI_SUCCESS);
+	bounded_status = entry.driver.start(&entry.driver, (void *)2, NULL);
+	CHECK(bounded_status == EFI_COMPROMISED_DATA);
+	CHECK(cdk2_ata_bus_entry_unload(image) == EFI_SUCCESS);
+	CHECK(fixture.allocs == fixture.frees);
 	init();
 	CHECK(cdk2_ata_bus_entry_publish(&entry, image, &fixture.system) == EFI_SUCCESS &&
 		fixture.loaded.unload == cdk2_ata_bus_entry_unload);

@@ -202,7 +202,8 @@ static void init(struct fixture *f, struct cdk2_ata_bus_binding *binding)
 		.open_parent = open_parent, .close_parent = close_parent, .marker = marker,
 		.allocate = allocate_pool, .release = release_pool, .install_child = install_child,
 		.uninstall_child = uninstall_child, .child_link = child_link, .defer = defer,
-		.transport = { f, execute, submit, wait_idle, reset, signal_event } };
+		.transport = { .context = f, .execute = execute, .submit = submit,
+			.wait = wait_idle, .reset = reset, .signal = signal_event } };
 	CHECK(cdk2_ata_bus_binding_init(binding, &services) == EFI_SUCCESS);
 }
 

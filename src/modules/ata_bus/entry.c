@@ -197,7 +197,7 @@ static EFI_STATUS service_install_child(void *context, void **handle,
 		(void **)&parent, entry->image, child->model.controller, 0x02U);
 	if (EFI_ERROR(status) || parent == NULL)
 		return EFI_ERROR(status) ? status : EFI_COMPROMISED_DATA;
-	while (parent_size < 4096U) {
+	while (parent_size <= 4096U - 4U) {
 		UINTN length = parent[parent_size + 2U] |
 			((UINTN)parent[parent_size + 3U] << 8);
 
@@ -210,7 +210,7 @@ static EFI_STATUS service_install_child(void *context, void **handle,
 		}
 		parent_size += length;
 	}
-	if (parent_size >= 4096U || child->model.device_path_size >
+	if (parent_size > 4096U - 4U || child->model.device_path_size >
 	    (UINTN)-1 - parent_size - 4U)
 		return EFI_COMPROMISED_DATA;
 	status = service_allocate(entry, parent_size + child->model.device_path_size + 4U,
@@ -399,6 +399,18 @@ static void service_signal(void *context, void *event)
 	struct cdk2_ata_bus_entry *entry = context;
 	(void)entry->boot->signal_event(event);
 }
+static UINTN service_lock(void *context)
+{
+	struct cdk2_ata_bus_entry *entry = context;
+
+	return entry->boot->raise_tpl(8U);
+}
+static void service_unlock(void *context, UINTN state)
+{
+	struct cdk2_ata_bus_entry *entry = context;
+
+	entry->boot->restore_tpl(state);
+}
 
 static struct cdk2_ata_bus_entry *from_driver(struct cdk2_ata_driver_binding *driver)
 {
@@ -475,7 +487,7 @@ EFI_STATUS cdk2_ata_bus_entry_publish(struct cdk2_ata_bus_entry *entry,
 		entry, service_open, service_close, service_marker, service_allocate,
 		service_release, service_install_child, service_uninstall_child, service_link,
 		service_defer, { entry, service_execute, service_submit, service_wait,
-		service_reset, service_signal } };
+		service_reset, service_signal, service_lock, service_unlock } };
 	status = cdk2_ata_bus_binding_init(&entry->binding, &services);
 	if (EFI_ERROR(status))
 		return status;
