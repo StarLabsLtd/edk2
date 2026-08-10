@@ -7,6 +7,7 @@
 
 #define CDK2_USB_MASS_CBW_SIGNATURE 0x43425355U
 #define CDK2_USB_MASS_CSW_SIGNATURE 0x53425355U
+#define CDK2_USB_MASS_MAX_CONTROLLERS 16U
 #ifndef EFI_WRITE_PROTECTED
 #define EFI_WRITE_PROTECTED EFIERR(8)
 #endif
@@ -45,6 +46,51 @@ struct cdk2_usb_mass_block {
 	struct cdk2_usb_mass_device *device;
 	UINT8 lun;
 };
+struct cdk2_usb_mass_lun_path {
+	UINT8 type, subtype;
+	UINT16 length;
+	UINT8 lun;
+} __packed;
+struct cdk2_usb_mass_child {
+	struct cdk2_usb_mass_block block;
+	struct cdk2_usb_mass_lun_path path;
+	void *handle;
+	BOOLEAN installed, linked;
+};
+struct cdk2_usb_mass_controller {
+	void *handle;
+	struct cdk2_usb_mass_device device;
+	struct cdk2_usb_mass_child children[16];
+	UINT8 child_count;
+};
+typedef EFI_STATUS cdk2_usb_mass_open_fn(void *context, void *controller,
+	struct cdk2_usb_io_protocol **usb);
+typedef EFI_STATUS cdk2_usb_mass_close_fn(void *context, void *controller);
+typedef EFI_STATUS cdk2_usb_mass_publish_fn(void *context, void *controller,
+	struct cdk2_usb_mass_child *child, void **handle);
+typedef EFI_STATUS cdk2_usb_mass_remove_fn(void *context, void *controller,
+	struct cdk2_usb_mass_child *child, void *handle);
+typedef EFI_STATUS cdk2_usb_mass_link_fn(void *context, void *controller,
+	void *child);
+typedef EFI_STATUS cdk2_usb_mass_allocate_fn(void *context, UINTN size,
+	void **buffer);
+typedef void cdk2_usb_mass_release_fn(void *context, void *buffer);
+struct cdk2_usb_mass_binding_services {
+	void *context;
+	cdk2_usb_mass_open_fn *open_usb;
+	cdk2_usb_mass_close_fn *close_usb;
+	cdk2_usb_mass_publish_fn *publish;
+	cdk2_usb_mass_remove_fn *remove;
+	cdk2_usb_mass_link_fn *link;
+	cdk2_usb_mass_link_fn *unlink;
+	cdk2_usb_mass_allocate_fn *allocate;
+	cdk2_usb_mass_release_fn *release;
+};
+struct cdk2_usb_mass_binding {
+	struct cdk2_usb_mass_binding_services services;
+	struct cdk2_usb_mass_controller *controllers[CDK2_USB_MASS_MAX_CONTROLLERS];
+	UINTN count;
+};
 
 EFI_STATUS cdk2_usb_mass_init(struct cdk2_usb_mass_device *device,
 	struct cdk2_usb_io_protocol *usb);
@@ -70,5 +116,13 @@ EFI_STATUS cdk2_usb_mass_write(struct cdk2_usb_mass_device *device, UINT8 lun,
 	UINT64 lba, UINTN blocks, const void *buffer);
 EFI_STATUS cdk2_usb_mass_block_init(struct cdk2_usb_mass_block *block,
 	struct cdk2_usb_mass_device *device, UINT8 lun);
+EFI_STATUS cdk2_usb_mass_binding_init(struct cdk2_usb_mass_binding *binding,
+	const struct cdk2_usb_mass_binding_services *services);
+EFI_STATUS cdk2_usb_mass_binding_supported(struct cdk2_usb_mass_binding *binding,
+	void *controller);
+EFI_STATUS cdk2_usb_mass_binding_start(struct cdk2_usb_mass_binding *binding,
+	void *controller);
+EFI_STATUS cdk2_usb_mass_binding_stop(struct cdk2_usb_mass_binding *binding,
+	void *controller, UINTN child_count, void **children);
 
 #endif
