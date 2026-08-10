@@ -49,7 +49,7 @@ struct cdk2_ata_bus_media {
 	UINT32 block_size, io_align, logical_blocks_per_physical_block;
 	UINT32 optimal_transfer_granularity;
 	UINT64 lowest_aligned_lba;
-	BOOLEAN removable, read_only, write_caching, lba48, trusted;
+	BOOLEAN removable, read_only, write_caching, lba48, trusted, udma;
 };
 
 struct cdk2_ata_bus_child {
@@ -133,6 +133,8 @@ struct cdk2_ata_bus_bound_child {
 	struct cdk2_ata_bus_block_instance block;
 	struct cdk2_ata_bus_disk_info disk_info;
 	struct cdk2_ata_bus_security security;
+	void *full_device_path;
+	UINTN full_device_path_size;
 	struct cdk2_ata_bus_transport transport;
 	void *service_context;
 	cdk2_ata_bus_allocate_fn *allocate;

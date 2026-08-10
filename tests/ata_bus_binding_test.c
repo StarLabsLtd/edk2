@@ -11,7 +11,7 @@
 	__FILE__, __LINE__, #x); exit(EXIT_FAILURE); } } while (0)
 
 enum failure { FAIL_NONE, FAIL_OPEN, FAIL_MARKER, FAIL_ALLOC, FAIL_INSTALL,
-	FAIL_LINK, FAIL_UNINSTALL, FAIL_UNLINK, FAIL_UNMARK, FAIL_CLOSE };
+	FAIL_LINK, FAIL_UNINSTALL, FAIL_UNLINK, FAIL_UNMARK, FAIL_CLOSE, FAIL_ROLLBACK };
 struct fixture;
 struct mock_protocol {
 	struct cdk2_ata_pass_thru_protocol protocol;
@@ -111,7 +111,8 @@ static EFI_STATUS install_child(void *context, void **handle,
 static EFI_STATUS uninstall_child(void *context, void *handle,
 	struct cdk2_ata_bus_bound_child *child, BOOLEAN security)
 { struct fixture *f = context; (void)handle; (void)child; (void)security;
-	f->uninstalls++; return f->failure == FAIL_UNINSTALL ? EFI_DEVICE_ERROR : EFI_SUCCESS; }
+	f->uninstalls++; return f->failure == FAIL_UNINSTALL || f->failure == FAIL_ROLLBACK ?
+		EFI_DEVICE_ERROR : EFI_SUCCESS; }
 static EFI_STATUS child_link(void *context, void *controller, void *child,
 	BOOLEAN open)
 {
@@ -121,7 +122,8 @@ static EFI_STATUS child_link(void *context, void *controller, void *child,
 	(void)child;
 	if (open) {
 		f->links++;
-		return f->failure == FAIL_LINK ? EFI_DEVICE_ERROR : EFI_SUCCESS;
+		return f->failure == FAIL_LINK || f->failure == FAIL_ROLLBACK ?
+			EFI_DEVICE_ERROR : EFI_SUCCESS;
 	}
 	f->unlinks++;
 	return f->failure == FAIL_UNLINK ? EFI_DEVICE_ERROR : EFI_SUCCESS;
@@ -195,6 +197,10 @@ int main(void)
 	init(&f, &binding);
 	CHECK(cdk2_ata_bus_binding_supported(&binding, (void *)1, NULL) == EFI_SUCCESS);
 	CHECK(cdk2_ata_bus_binding_supported(&binding, (void *)1, end) == EFI_SUCCESS);
+	CHECK(cdk2_ata_bus_binding_start(&binding, (void *)2, end) == EFI_SUCCESS &&
+		binding.controller_count == 1 && binding.controllers[0]->child_count == 0);
+	CHECK(cdk2_ata_bus_binding_stop(&binding, (void *)2, 0, NULL) == EFI_SUCCESS &&
+		binding.controller_count == 0);
 	path[2] = 9; CHECK(cdk2_ata_bus_binding_supported(&binding, (void *)1, path) ==
 		EFI_UNSUPPORTED); path[2] = 10;
 	path[6] = 7; CHECK(cdk2_ata_bus_binding_supported(&binding, (void *)1, path) ==
@@ -284,5 +290,11 @@ int main(void)
 		CHECK(EFI_ERROR(cdk2_ata_bus_binding_start(&binding, (void *)1, NULL)) &&
 			binding.controller_count == 0 && f.allocs == f.releases);
 	}
+	init(&f, &binding); f.failure = FAIL_ROLLBACK;
+	CHECK(cdk2_ata_bus_binding_start(&binding, (void *)1, NULL) == EFI_DEVICE_ERROR &&
+		binding.controller_count == 1 && binding.controllers[0]->child_count == 1);
+	f.failure = FAIL_NONE;
+	CHECK(cdk2_ata_bus_binding_stop(&binding, (void *)1, 0, NULL) == EFI_SUCCESS &&
+		binding.controller_count == 0 && f.allocs == f.releases);
 	puts("ata bus binding lifecycle tests: PASS"); return 0;
 }

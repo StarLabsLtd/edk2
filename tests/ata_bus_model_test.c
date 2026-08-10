@@ -12,6 +12,7 @@
 
 struct fixture {
 	struct cdk2_ata_pass_thru_protocol protocol;
+	struct cdk2_ata_pass_thru_mode mode;
 	UINTN port_call, device_call, identify_call, releases;
 	UINTN devices, fail_identify, bad_path;
 };
@@ -52,7 +53,8 @@ static EFI_STATUS CDK2_MS_ABI pass(struct cdk2_ata_pass_thru_protocol *p,
 	if (active->identify_call == active->fail_identify)
 		return EFI_DEVICE_ERROR;
 	memset(id, 0, 512); put16(id + 49 * 2, 1U << 9);
-	put16(id + 83 * 2, 0x4400); put16(id + 85 * 2, 1U << 5);
+	put16(id + 53 * 2, 1U << 2); put16(id + 83 * 2, 0x4400);
+	put16(id + 85 * 2, 1U << 5); put16(id + 88 * 2, 1);
 	put16(id + 106 * 2, 0x7003); put32(id + 117 * 2, 2048);
 	put64(id + 100 * 2, 0x123456789ULL); put16(id + 209 * 2, 0x4002);
 	return EFI_SUCCESS;
@@ -75,6 +77,7 @@ static void init(struct fixture *fixture, UINTN devices)
 	fixture->protocol.pass_thru = pass; fixture->protocol.get_next_port = next_port;
 	fixture->protocol.get_next_device = next_device;
 	fixture->protocol.build_device_path = build_path;
+	fixture->mode.io_align = 64; fixture->protocol.mode = &fixture->mode;
 }
 
 int main(void)
@@ -97,6 +100,12 @@ int main(void)
 	CHECK(media.blocks == 0x123456789ULL && media.block_size == 4096 &&
 		media.logical_blocks_per_physical_block == 8 &&
 		media.lowest_aligned_lba == 6 && media.lba48);
+	memset(identify, 0, sizeof(identify)); put16(identify + 49 * 2, 1U << 9);
+	put16(identify + 60 * 2, 1234); put16(identify + 83 * 2, 0xffff);
+	CHECK(cdk2_ata_bus_parse_identify(identify, &media) == EFI_SUCCESS &&
+		media.blocks == 1234 && !media.lba48);
+	put16(identify + 83 * 2, 0x4400); put64(identify + 100 * 2, 0x123456789ULL);
+	put16(identify + 106 * 2, 0x7003); put32(identify + 117 * 2, 2048);
 	put16(identify + 209 * 2, 0x4008);
 	CHECK(cdk2_ata_bus_parse_identify(identify, &media) == EFI_COMPROMISED_DATA);
 	put16(identify + 209 * 2, 0x4002);
@@ -107,16 +116,20 @@ int main(void)
 	CHECK(cdk2_ata_bus_add_controller(&bus, (void *)1, &first.protocol,
 		release_path, &first) == EFI_SUCCESS);
 	CHECK(bus.controller_count == 1 && bus.child_count == 2 && first.releases == 2 &&
-		bus.children[0].port == 3 && bus.children[1].multiplier == 1);
+		bus.children[0].port == 3 && bus.children[1].multiplier == 1 &&
+		bus.children[0].geometry.io_align == 64 && bus.children[0].geometry.udma);
 	CHECK(cdk2_ata_bus_add_controller(&bus, (void *)1, &first.protocol,
 		release_path, &first) == EFI_ALREADY_STARTED);
 	before = bus; init(&second, 2); second.fail_identify = 2;
 	CHECK(cdk2_ata_bus_add_controller(&bus, (void *)2, &second.protocol,
-		release_path, &second) == EFI_DEVICE_ERROR && memcmp(&bus, &before, sizeof(bus)) == 0);
+		release_path, &second) == EFI_SUCCESS && bus.controller_count == 2 &&
+		bus.child_count == 4);
+	CHECK(cdk2_ata_bus_remove_controller(&bus, (void *)2) == EFI_SUCCESS);
 	init(&second, 1); second.bad_path = 1;
 	CHECK(cdk2_ata_bus_add_controller(&bus, (void *)2, &second.protocol,
-		release_path, &second) == EFI_COMPROMISED_DATA && second.releases == 1 &&
-		memcmp(&bus, &before, sizeof(bus)) == 0);
+		release_path, &second) == EFI_NOT_FOUND);
+	CHECK(second.releases == 1 && bus.controller_count == before.controller_count &&
+		bus.child_count == before.child_count);
 	CHECK(cdk2_ata_bus_remove_controller(&bus, (void *)1) == EFI_SUCCESS &&
 		bus.controller_count == 0 && bus.child_count == 0);
 	CHECK(cdk2_ata_bus_remove_controller(&bus, (void *)1) == EFI_NOT_FOUND);

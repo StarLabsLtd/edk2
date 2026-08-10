@@ -2395,7 +2395,8 @@ native-ata-async-test: $(CDK2_NATIVE_ATA_ASYNC_TEST)
 
 $(CDK2_NATIVE_ATA_BUS_MODEL_TEST): $(CDK2_DIR)/tests/ata_bus_model_test.c \
 		$(CDK2_DIR)/src/modules/ata_bus/model.c \
-		$(CDK2_DIR)/include/cdk2/ata_bus.h | $(CDK2_NATIVE_BUILD_DIR)
+		$(CDK2_DIR)/include/cdk2/ata_bus.h \
+		$(CDK2_DIR)/include/cdk2/ata_atapi_pass_thru.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -fsanitize=address,undefined \
 		$(CDK2_NATIVE_INCLUDES) -o "$@" $(CDK2_DIR)/tests/ata_bus_model_test.c \
 		$(CDK2_DIR)/src/modules/ata_bus/model.c
@@ -2406,7 +2407,8 @@ native-ata-bus-model-test: $(CDK2_NATIVE_ATA_BUS_MODEL_TEST)
 
 $(CDK2_NATIVE_ATA_BUS_IO_TEST): $(CDK2_DIR)/tests/ata_bus_io_test.c \
 		$(CDK2_DIR)/src/modules/ata_bus/io.c \
-		$(CDK2_DIR)/include/cdk2/ata_bus.h | $(CDK2_NATIVE_BUILD_DIR)
+		$(CDK2_DIR)/include/cdk2/ata_bus.h $(CDK2_DIR)/include/cdk2/disk_io.h \
+		$(CDK2_DIR)/include/cdk2/ata_atapi_pass_thru.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -fsanitize=address,undefined \
 		$(CDK2_NATIVE_INCLUDES) -o "$@" $(CDK2_DIR)/tests/ata_bus_io_test.c \
 		$(CDK2_DIR)/src/modules/ata_bus/io.c
@@ -2418,7 +2420,8 @@ native-ata-bus-io-test: $(CDK2_NATIVE_ATA_BUS_IO_TEST)
 $(CDK2_NATIVE_ATA_BUS_BLOCK_TEST): $(CDK2_DIR)/tests/ata_bus_block_test.c \
 		$(CDK2_DIR)/src/modules/ata_bus/io.c \
 		$(CDK2_DIR)/src/modules/ata_bus/block.c \
-		$(CDK2_DIR)/include/cdk2/ata_bus.h | $(CDK2_NATIVE_BUILD_DIR)
+		$(CDK2_DIR)/include/cdk2/ata_bus.h $(CDK2_DIR)/include/cdk2/disk_io.h \
+		$(CDK2_DIR)/include/cdk2/ata_atapi_pass_thru.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -fsanitize=address,undefined \
 		$(CDK2_NATIVE_INCLUDES) -o "$@" $(CDK2_DIR)/tests/ata_bus_block_test.c \
 		$(CDK2_DIR)/src/modules/ata_bus/io.c \
@@ -2432,7 +2435,8 @@ $(CDK2_NATIVE_ATA_BUS_BINDING_TEST): $(CDK2_DIR)/tests/ata_bus_binding_test.c \
 		$(CDK2_DIR)/src/modules/ata_bus/model.c $(CDK2_DIR)/src/modules/ata_bus/io.c \
 		$(CDK2_DIR)/src/modules/ata_bus/block.c $(CDK2_DIR)/src/modules/ata_bus/binding.c \
 		$(CDK2_DIR)/src/modules/ata_bus/disk_security.c \
-		$(CDK2_DIR)/include/cdk2/ata_bus.h | $(CDK2_NATIVE_BUILD_DIR)
+		$(CDK2_DIR)/include/cdk2/ata_bus.h $(CDK2_DIR)/include/cdk2/disk_io.h \
+		$(CDK2_DIR)/include/cdk2/ata_atapi_pass_thru.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -fsanitize=address,undefined \
 		$(CDK2_NATIVE_INCLUDES) -o "$@" $(CDK2_DIR)/tests/ata_bus_binding_test.c \
 		$(CDK2_DIR)/src/modules/ata_bus/model.c $(CDK2_DIR)/src/modules/ata_bus/io.c \
@@ -2444,10 +2448,14 @@ native-ata-bus-binding-test: $(CDK2_NATIVE_ATA_BUS_BINDING_TEST)
 	@"$<"
 
 $(CDK2_NATIVE_ATA_BUS_ENTRY_TEST): $(CDK2_DIR)/tests/ata_bus_entry_test.c \
+		$(CDK2_DIR)/src/modules/ata_bus/entry.c \
 		$(CDK2_DIR)/src/modules/ata_bus/model.c $(CDK2_DIR)/src/modules/ata_bus/io.c \
 		$(CDK2_DIR)/src/modules/ata_bus/block.c $(CDK2_DIR)/src/modules/ata_bus/binding.c \
 		$(CDK2_DIR)/src/modules/ata_bus/disk_security.c \
-		$(CDK2_DIR)/include/cdk2/ata_bus_entry.h | $(CDK2_NATIVE_BUILD_DIR)
+		$(CDK2_DIR)/include/cdk2/ata_bus_entry.h $(CDK2_DIR)/include/cdk2/ata_bus.h \
+		$(CDK2_DIR)/include/cdk2/ata_atapi_entry.h \
+		$(CDK2_DIR)/include/cdk2/ata_atapi_pass_thru.h \
+		$(CDK2_DIR)/include/cdk2/disk_io.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -fsanitize=address,undefined \
 		$(CDK2_NATIVE_INCLUDES) -o "$@" $(CDK2_DIR)/tests/ata_bus_entry_test.c \
 		$(CDK2_DIR)/src/modules/ata_bus/model.c $(CDK2_DIR)/src/modules/ata_bus/io.c \

@@ -25,7 +25,7 @@ static EFI_STATUS match_path(struct cdk2_ata_pass_thru_protocol *pass_thru,
 	}
 	if (((UINT8 *)remaining)[0] == 0x7fU && ((UINT8 *)remaining)[1] == 0xffU &&
 	    ((UINT8 *)remaining)[2] == 4U && ((UINT8 *)remaining)[3] == 0U) {
-		*port = 0xffffU; *multiplier = 0xffffU;
+		*port = 0xfffeU; *multiplier = 0xfffeU;
 		return EFI_SUCCESS;
 	}
 	if (pass_thru->get_device == NULL)
@@ -71,17 +71,28 @@ static void release_discovery_path(void *context, void *path)
 	binding->services.release(binding->services.context, path);
 }
 
-static void rollback_child(struct cdk2_ata_bus_binding *binding,
+static EFI_STATUS rollback_child(struct cdk2_ata_bus_binding *binding,
 	struct cdk2_ata_bus_bound_controller *owner,
 	struct cdk2_ata_bus_bound_child *child)
 {
-	if (child->by_child)
-		(void)binding->services.child_link(binding->services.context, owner->handle,
+	EFI_STATUS status;
+
+	if (child->by_child) {
+		status = binding->services.child_link(binding->services.context, owner->handle,
 			child->handle, 0);
-	if (child->installed)
-		(void)binding->services.uninstall_child(binding->services.context,
+		if (EFI_ERROR(status))
+			return status;
+		child->by_child = 0;
+	}
+	if (child->installed) {
+		status = binding->services.uninstall_child(binding->services.context,
 			child->handle, child, child->model.geometry.trusted);
+		if (EFI_ERROR(status))
+			return status;
+		child->installed = 0;
+	}
 	binding->services.release(binding->services.context, child);
+	return EFI_SUCCESS;
 }
 
 EFI_STATUS cdk2_ata_bus_binding_start(struct cdk2_ata_bus_binding *binding,
@@ -161,12 +172,17 @@ EFI_STATUS cdk2_ata_bus_binding_start(struct cdk2_ata_bus_binding *binding,
 		status = binding->services.child_link(binding->services.context, controller,
 			child->handle, 1);
 		if (EFI_ERROR(status)) {
-			rollback_child(binding, owner, child);
+			EFI_STATUS rollback = rollback_child(binding, owner, child);
+
+			if (EFI_ERROR(rollback)) {
+				owner->children[owner->child_count++] = child;
+				status = rollback;
+			}
 			goto fail;
 		}
 		child->by_child = 1; owner->children[owner->child_count++] = child;
 	}
-	if (owner->child_count == 0U) {
+	if (owner->child_count == 0U && selected_port != 0xfffeU) {
 		status = EFI_NOT_FOUND;
 		goto fail;
 	}
@@ -174,8 +190,18 @@ EFI_STATUS cdk2_ata_bus_binding_start(struct cdk2_ata_bus_binding *binding,
 	return EFI_SUCCESS;
 fail:
 	if (owner != NULL) {
-		while (owner->child_count != 0U)
-			rollback_child(binding, owner, owner->children[--owner->child_count]);
+		while (owner->child_count != 0U) {
+			struct cdk2_ata_bus_bound_child *child =
+				owner->children[owner->child_count - 1U];
+			EFI_STATUS rollback = rollback_child(binding, owner, child);
+
+			if (EFI_ERROR(rollback)) {
+				if (binding->controller_count < CDK2_ATA_BUS_MAX_CONTROLLERS)
+					binding->controllers[binding->controller_count++] = owner;
+				return rollback;
+			}
+			owner->child_count--;
+		}
 		binding->services.release(binding->services.context, owner);
 	}
 	if (marked)
@@ -207,8 +233,9 @@ EFI_STATUS cdk2_ata_bus_binding_stop(struct cdk2_ata_bus_binding *binding,
 				selected = 1;
 		if (!selected)
 			continue;
-		EFI_STATUS status = binding->services.child_link(binding->services.context,
-			controller, child->handle, 0);
+		EFI_STATUS status = child->by_child ?
+			binding->services.child_link(binding->services.context,
+				controller, child->handle, 0) : EFI_SUCCESS;
 		if (!EFI_ERROR(status)) {
 			child->by_child = 0;
 			status = binding->services.uninstall_child(binding->services.context,

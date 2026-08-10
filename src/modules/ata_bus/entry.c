@@ -162,25 +162,75 @@ static EFI_STATUS service_install_child(void *context, void **handle,
 	struct cdk2_ata_bus_bound_child *child, BOOLEAN security)
 {
 	struct cdk2_ata_bus_entry *entry = context;
+	UINT8 *parent = NULL, *full;
+	UINTN parent_size = 0;
+	EFI_STATUS status;
+
+	status = entry->boot->open_protocol(child->model.controller, &path_guid,
+		(void **)&parent, entry->image, child->model.controller, 0x02U);
+	if (EFI_ERROR(status) || parent == NULL)
+		return EFI_ERROR(status) ? status : EFI_COMPROMISED_DATA;
+	while (parent_size < 4096U) {
+		UINTN length = parent[parent_size + 2U] |
+			((UINTN)parent[parent_size + 3U] << 8);
+
+		if (length < 4U || length > 4096U - parent_size)
+			return EFI_COMPROMISED_DATA;
+		if (parent[parent_size] == 0x7fU && parent[parent_size + 1U] == 0xffU) {
+			if (length != 4U)
+				return EFI_COMPROMISED_DATA;
+			break;
+		}
+		parent_size += length;
+	}
+	if (parent_size >= 4096U || child->model.device_path_size >
+	    (UINTN)-1 - parent_size - 4U)
+		return EFI_COMPROMISED_DATA;
+	status = service_allocate(entry, parent_size + child->model.device_path_size + 4U,
+		(void **)&full);
+	if (EFI_ERROR(status))
+		return status;
+	memcpy(full, parent, parent_size);
+	memcpy(full + parent_size, child->model.device_path, child->model.device_path_size);
+	full[parent_size + child->model.device_path_size] = 0x7fU;
+	full[parent_size + child->model.device_path_size + 1U] = 0xffU;
+	full[parent_size + child->model.device_path_size + 2U] = 4U;
+	full[parent_size + child->model.device_path_size + 3U] = 0U;
+	child->full_device_path = full;
+	child->full_device_path_size = parent_size + child->model.device_path_size + 4U;
 	if (security)
-		return entry->boot->install_multiple(handle, &path_guid, child->model.device_path,
+		status = entry->boot->install_multiple(handle, &path_guid, full,
 			&block_guid, &child->block.block, &block2_guid, &child->block.block2,
 			&disk_guid, &child->disk_info, &security_guid, &child->security, NULL);
-	return entry->boot->install_multiple(handle, &path_guid, child->model.device_path,
-		&block_guid, &child->block.block, &block2_guid, &child->block.block2,
-		&disk_guid, &child->disk_info, NULL);
+	else
+		status = entry->boot->install_multiple(handle, &path_guid, full,
+			&block_guid, &child->block.block, &block2_guid, &child->block.block2,
+			&disk_guid, &child->disk_info, NULL);
+	if (EFI_ERROR(status)) {
+		service_release(entry, full);
+		child->full_device_path = NULL; child->full_device_path_size = 0;
+	}
+	return status;
 }
 static EFI_STATUS service_uninstall_child(void *context, void *handle,
 	struct cdk2_ata_bus_bound_child *child, BOOLEAN security)
 {
 	struct cdk2_ata_bus_entry *entry = context;
+	EFI_STATUS status;
 	if (security)
-		return entry->boot->uninstall_multiple(handle, &path_guid, child->model.device_path,
+		status = entry->boot->uninstall_multiple(handle, &path_guid,
+			child->full_device_path,
 			&block_guid, &child->block.block, &block2_guid, &child->block.block2,
 			&disk_guid, &child->disk_info, &security_guid, &child->security, NULL);
-	return entry->boot->uninstall_multiple(handle, &path_guid, child->model.device_path,
-		&block_guid, &child->block.block, &block2_guid, &child->block.block2,
-		&disk_guid, &child->disk_info, NULL);
+	else
+		status = entry->boot->uninstall_multiple(handle, &path_guid,
+			child->full_device_path, &block_guid, &child->block.block,
+			&block2_guid, &child->block.block2, &disk_guid, &child->disk_info, NULL);
+	if (!EFI_ERROR(status)) {
+		service_release(entry, child->full_device_path);
+		child->full_device_path = NULL; child->full_device_path_size = 0;
+	}
+	return status;
 }
 static EFI_STATUS service_link(void *context, void *controller, void *child,
 	BOOLEAN open)

@@ -20,6 +20,8 @@ struct fixture {
 	UINTN allocs, frees, opens, closes, installs, uninstalls, creates, signals, child_links;
 	UINT32 last_attribute;
 	const EFI_GUID *last_open_guid;
+	UINT8 parent_path[10];
+	void *installed_path;
 	void (CDK2_MS_ABI * notify)(void *, void *);
 	void *notify_context;
 };
@@ -56,6 +58,8 @@ static EFI_STATUS CDK2_MS_ABI mock_install(void **handle, const EFI_GUID *guid,
 		return EFI_DEVICE_ERROR;
 	if (*handle == NULL)
 		*handle = (void *)(0x100U + fixture.installs);
+	if (guid == &path_guid)
+		fixture.installed_path = interface;
 	return EFI_SUCCESS;
 }
 static EFI_STATUS CDK2_MS_ABI mock_uninstall(void *handle, const EFI_GUID *guid,
@@ -77,7 +81,8 @@ static EFI_STATUS CDK2_MS_ABI mock_open(void *handle, const EFI_GUID *guid,
 		if (fixture.fail == FAIL_LINK)
 			return EFI_DEVICE_ERROR;
 	}
-	*interface = guid == &ata_guid ? (void *)&fixture.ata : controller;
+	*interface = guid == &ata_guid ? (void *)&fixture.ata :
+		(guid == &path_guid ? (void *)fixture.parent_path : controller);
 	return EFI_SUCCESS;
 }
 static EFI_STATUS CDK2_MS_ABI mock_close(void *handle, const EFI_GUID *guid,
@@ -150,6 +155,9 @@ static void init(void)
 	fixture.ata.pass_thru = pass; fixture.ata.get_next_port = next_port;
 	fixture.ata.get_next_device = next_device; fixture.ata.build_device_path = build_path;
 	fixture.ata.get_device = get_device;
+	fixture.parent_path[0] = 1; fixture.parent_path[1] = 1;
+	fixture.parent_path[2] = 6; fixture.parent_path[6] = 0x7f;
+	fixture.parent_path[7] = 0xff; fixture.parent_path[8] = 4;
 }
 
 int main(void)
@@ -182,7 +190,11 @@ int main(void)
 	CHECK(entry.driver.supported(&entry.driver, (void *)2, NULL) == EFI_SUCCESS &&
 		fixture.last_open_guid == &ata_guid && fixture.last_attribute == 0x02U);
 	CHECK(entry.driver.start(&entry.driver, (void *)2, NULL) == EFI_SUCCESS &&
-		entry.binding.controller_count == 1 && fixture.child_links == 1);
+		entry.binding.controller_count == 1 && fixture.child_links == 1 &&
+		entry.binding.controllers[0]->children[0]->full_device_path_size == 20 &&
+		fixture.installed_path ==
+			entry.binding.controllers[0]->children[0]->full_device_path &&
+		((UINT8 *)fixture.installed_path)[16] == 0x7f);
 	CHECK(entry.driver.start(&entry.driver, (void *)2, NULL) == EFI_ALREADY_STARTED);
 	CHECK(entry.driver.start(&entry.driver, (void *)2,
 		entry.binding.controllers[0]->children[0]->model.device_path) ==

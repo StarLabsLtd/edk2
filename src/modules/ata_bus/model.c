@@ -25,6 +25,7 @@ EFI_STATUS cdk2_ata_bus_parse_identify(const UINT8 identify[512],
 	UINT16 word49, word83, word106, word209;
 	UINT64 blocks;
 	UINT32 block_size = 512U;
+	BOOLEAN lba48;
 
 	if (identify == NULL || media == NULL)
 		return EFI_INVALID_PARAMETER;
@@ -32,7 +33,7 @@ EFI_STATUS cdk2_ata_bus_parse_identify(const UINT8 identify[512],
 	word83 = get16(identify + 83U * 2U);
 	word106 = get16(identify + 106U * 2U);
 	word209 = get16(identify + 209U * 2U);
-	if ((word49 & (1U << 9)) == 0U || (word83 & 0xc000U) != 0x4000U)
+	if ((word49 & (1U << 9)) == 0U)
 		return EFI_UNSUPPORTED;
 	if ((word106 & 0xc000U) == 0x4000U && (word106 & (1U << 12)) != 0U) {
 		UINT32 words = get32(identify + 117U * 2U);
@@ -40,13 +41,17 @@ EFI_STATUS cdk2_ata_bus_parse_identify(const UINT8 identify[512],
 			return EFI_COMPROMISED_DATA;
 		block_size = words * 2U;
 	}
-	blocks = (word83 & (1U << 10)) != 0U ? get64(identify + 100U * 2U) :
+	lba48 = (word83 & 0xc000U) == 0x4000U &&
+		(word83 & (1U << 10)) != 0U;
+	blocks = lba48 ? get64(identify + 100U * 2U) :
 		get32(identify + 60U * 2U);
 	if (blocks == 0U)
 		return CDK2_EFI_NO_MEDIA;
 	memset(media, 0, sizeof(*media));
 	media->blocks = blocks; media->block_size = block_size;
-	media->lba48 = (word83 & (1U << 10)) != 0U;
+	media->lba48 = lba48;
+	media->udma = (get16(identify + 53U * 2U) & (1U << 2)) != 0U &&
+		(get16(identify + 88U * 2U) & 0x7fU) != 0U;
 	media->removable = (get16(identify) & (1U << 7)) != 0U;
 	media->write_caching = (get16(identify + 85U * 2U) & (1U << 5)) != 0U;
 	media->trusted = (get16(identify + 48U * 2U) & 1U) != 0U;
@@ -77,10 +82,13 @@ static EFI_STATUS identify_device(struct cdk2_ata_pass_thru_protocol *protocol,
 
 	status = protocol->pass_thru(protocol, port, multiplier, &packet, NULL);
 	if (EFI_ERROR(status))
+		status = protocol->pass_thru(protocol, port, multiplier, &packet, NULL);
+	if (EFI_ERROR(status))
 		return status;
 	status = cdk2_ata_bus_parse_identify(child->identify, &child->geometry);
 	if (EFI_ERROR(status))
 		return status;
+	child->geometry.io_align = protocol->mode == NULL ? 0U : protocol->mode->io_align;
 	status = protocol->build_device_path(protocol, port, multiplier, &path);
 	if (EFI_ERROR(status) || path == NULL)
 		return EFI_ERROR(status) ? status : EFI_DEVICE_ERROR;
@@ -129,7 +137,7 @@ EFI_STATUS cdk2_ata_bus_add_controller(struct cdk2_ata_bus *bus,
 			status = identify_device(pass_thru, port, multiplier, child,
 				release_path, release_context);
 			if (EFI_ERROR(status))
-				return status;
+				continue;
 			staged.child_count++; controller->child_count++;
 		}
 		if (status != EFI_NOT_FOUND)

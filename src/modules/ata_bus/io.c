@@ -36,11 +36,12 @@ static EFI_STATUS validate(const struct cdk2_ata_bus_request *request)
 }
 
 static void encode_lba(struct cdk2_ata_command_block *acb, UINT64 lba,
-	UINT32 blocks, BOOLEAN lba48, BOOLEAN write)
+	UINT32 blocks, BOOLEAN lba48, BOOLEAN udma, BOOLEAN write)
 {
 	memset(acb, 0, sizeof(*acb));
-	acb->command = lba48 ? (write ? 0x35U : 0x25U) :
-		(write ? 0xcaU : 0xc8U);
+	acb->command = lba48 ? (write ? (udma ? 0x35U : 0x34U) :
+		(udma ? 0x25U : 0x24U)) : (write ? (udma ? 0xcaU : 0x30U) :
+		(udma ? 0xc8U : 0x20U));
 	acb->sector_number = (UINT8)lba;
 	acb->cylinder_low = (UINT8)(lba >> 8);
 	acb->cylinder_high = (UINT8)(lba >> 16);
@@ -70,10 +71,7 @@ static EFI_STATUS execute_request(struct cdk2_ata_bus_scheduler *scheduler,
 	if (EFI_ERROR(status))
 		return status;
 	if (request->operation == CDK2_ATA_BUS_FLUSH) {
-		memset(&acb, 0, sizeof(acb)); acb.command = 0xe7U;
-		packet.protocol = 2U; packet.length = 0U;
-		return scheduler->transport.execute(scheduler->transport.context,
-			request->child, &packet);
+		return EFI_SUCCESS;
 	}
 	if (remaining == 0U)
 		return EFI_SUCCESS;
@@ -83,12 +81,15 @@ static EFI_STATUS execute_request(struct cdk2_ata_bus_scheduler *scheduler,
 		UINT32 chunk = blocks > maximum ? maximum : (UINT32)blocks;
 		UINTN bytes = (UINTN)chunk * request->child->geometry.block_size;
 		encode_lba(&acb, lba, chunk, request->child->geometry.lba48,
+			request->child->geometry.udma,
 			request->operation == CDK2_ATA_BUS_WRITE);
 		packet.in_data = request->operation == CDK2_ATA_BUS_READ ? buffer : NULL;
 		packet.out_data = request->operation == CDK2_ATA_BUS_WRITE ? buffer : NULL;
 		packet.in_length = request->operation == CDK2_ATA_BUS_READ ? chunk : 0U;
 		packet.out_length = request->operation == CDK2_ATA_BUS_WRITE ? chunk : 0U;
-		packet.protocol = request->operation == CDK2_ATA_BUS_READ ? 0x0aU : 0x0bU;
+		packet.protocol = request->child->geometry.udma ?
+			(request->operation == CDK2_ATA_BUS_READ ? 0x0aU : 0x0bU) :
+			(request->operation == CDK2_ATA_BUS_READ ? 4U : 5U);
 		status = scheduler->transport.execute(scheduler->transport.context,
 			request->child, &packet);
 		if (EFI_ERROR(status))

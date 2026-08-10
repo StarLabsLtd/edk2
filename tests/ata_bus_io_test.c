@@ -11,7 +11,7 @@
 
 struct fixture {
 	UINTN calls, fail_call, resets, signals;
-	UINT8 commands[16]; UINT16 counts[16]; UINT64 lbas[16];
+	UINT8 commands[16], protocols[16]; UINT16 counts[16]; UINT64 lbas[16];
 	void *events[16]; struct cdk2_ata_bus_scheduler *scheduler;
 };
 
@@ -21,6 +21,7 @@ static EFI_STATUS execute(void *opaque, struct cdk2_ata_bus_child *child,
 	struct fixture *fixture = opaque; struct cdk2_ata_command_block *acb = packet->acb;
 	UINTN index = fixture->calls++; (void)child;
 	fixture->commands[index] = acb->command;
+	fixture->protocols[index] = packet->protocol;
 	fixture->counts[index] = acb->sector_count |
 		((UINT16)acb->sector_count_exp << 8);
 	fixture->lbas[index] = acb->sector_number |
@@ -42,7 +43,7 @@ static void init_child(struct cdk2_ata_bus_child *child, UINT64 blocks,
 {
 	memset(child, 0, sizeof(*child)); child->geometry.blocks = blocks;
 	child->geometry.block_size = 512; child->geometry.io_align = 16;
-	child->geometry.lba48 = lba48;
+	child->geometry.lba48 = lba48; child->geometry.udma = 1;
 }
 
 int main(void)
@@ -74,7 +75,7 @@ int main(void)
 		one.transaction_status == EFI_SUCCESS && fixture.events[0] == (void *)1);
 	CHECK(cdk2_ata_bus_worker(&scheduler) == EFI_SUCCESS &&
 		two.transaction_status == EFI_SUCCESS && fixture.events[1] == (void *)2);
-	CHECK(cdk2_ata_bus_worker(&scheduler) == EFI_SUCCESS && fixture.commands[2] == 0xe7 &&
+	CHECK(cdk2_ata_bus_worker(&scheduler) == EFI_SUCCESS && fixture.calls == 2 &&
 		three.transaction_status == EFI_SUCCESS && fixture.events[2] == (void *)3);
 	CHECK(fixture.commands[0] == 0x25 && fixture.counts[0] == 1 &&
 		fixture.lbas[0] == 7 && fixture.commands[1] == 0xca);
@@ -84,9 +85,12 @@ int main(void)
 	sync = (struct cdk2_ata_bus_request) { &second, CDK2_ATA_BUS_READ, NULL, 0,
 		1, 512, data };
 	CHECK(cdk2_ata_bus_execute_sync(&scheduler, &sync) == EFI_SUCCESS);
-	CHECK(fixture.commands[3] == 0x25 && fixture.counts[3] == 0 &&
-		fixture.commands[4] == 0x25 && fixture.counts[4] == 0 &&
-		fixture.lbas[4] == 0x11234 && fixture.commands[5] == 0xc8);
+	CHECK(fixture.commands[2] == 0x25 && fixture.counts[2] == 0 &&
+		fixture.commands[3] == 0x25 && fixture.counts[3] == 0 &&
+		fixture.lbas[3] == 0x11234 && fixture.commands[4] == 0xc8);
+	second.geometry.udma = 0; fixture.fail_call = 0;
+	CHECK(cdk2_ata_bus_execute_sync(&scheduler, &sync) == EFI_SUCCESS &&
+		fixture.commands[5] == 0x20 && fixture.protocols[5] == 4);
 
 	fixture.fail_call = fixture.calls + 2U; read.token = &one; read.bytes = 0x10001U * 512U;
 	CHECK(cdk2_ata_bus_submit(&scheduler, &read) == EFI_SUCCESS);
