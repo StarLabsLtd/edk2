@@ -6,6 +6,17 @@
 
 static void dispatch(struct cdk2_scsi_disk_async *async);
 
+static UINTN lock_scheduler(struct cdk2_scsi_disk_async *async)
+{
+	return async->lock == NULL ? 0U : async->lock(async->lock_context);
+}
+
+static void unlock_scheduler(struct cdk2_scsi_disk_async *async, UINTN state)
+{
+	if (async->unlock != NULL)
+		async->unlock(async->lock_context, state);
+}
+
 static void finish_head(struct cdk2_scsi_disk_async *async, EFI_STATUS status)
 {
 	struct cdk2_scsi_disk_async_task *task = &async->queue[async->head];
@@ -21,6 +32,7 @@ static void parent_complete(void *opaque, EFI_STATUS status, UINT8 host_status,
 	UINT8 target_status)
 {
 	struct cdk2_scsi_disk_async *async = opaque;
+	UINTN state = lock_scheduler(async);
 
 	async->parent_active = FALSE;
 	async->completion_status = status;
@@ -29,6 +41,7 @@ static void parent_complete(void *opaque, EFI_STATUS status, UINT8 host_status,
 	async->completion_pending = TRUE;
 	if (!async->dispatching && !async->aborting)
 		dispatch(async);
+	unlock_scheduler(async, state);
 }
 
 static EFI_STATUS submit_chunk(struct cdk2_scsi_disk_async *async)
@@ -123,6 +136,17 @@ EFI_STATUS cdk2_scsi_disk_async_init(struct cdk2_scsi_disk_async *async,
 	return EFI_SUCCESS;
 }
 
+EFI_STATUS cdk2_scsi_disk_async_set_lock(struct cdk2_scsi_disk_async *async,
+	void *context, UINTN (*lock)(void *), void (*unlock)(void *, UINTN))
+{
+	if (async == NULL || (lock == NULL) != (unlock == NULL) || async->count != 0U)
+		return EFI_INVALID_PARAMETER;
+	async->lock_context = context;
+	async->lock = lock;
+	async->unlock = unlock;
+	return EFI_SUCCESS;
+}
+
 EFI_STATUS cdk2_scsi_disk_async_submit(struct cdk2_scsi_disk_async *async,
 	UINT32 media_id, UINT64 lba, UINTN size, void *buffer, BOOLEAN write,
 	struct cdk2_block_io2_token *token)
@@ -131,26 +155,34 @@ EFI_STATUS cdk2_scsi_disk_async_submit(struct cdk2_scsi_disk_async *async,
 	UINT32 maximum;
 	EFI_STATUS original_status;
 	EFI_STATUS status;
+	UINTN state;
 
 	if (async == NULL || token == NULL || token->event == NULL)
 		return EFI_INVALID_PARAMETER;
+	state = lock_scheduler(async);
 	status = cdk2_scsi_disk_validate(&async->disk->media, media_id, lba, size,
 		buffer, write);
 	if (EFI_ERROR(status))
-		return status;
+		goto done;
 	if (async->stopping)
-		return EFI_NOT_READY;
-	if (async->count == CDK2_SCSI_DISK_ASYNC_DEPTH)
-		return EFI_OUT_OF_RESOURCES;
+		status = EFI_NOT_READY;
+	else if (async->count == CDK2_SCSI_DISK_ASYNC_DEPTH)
+		status = EFI_OUT_OF_RESOURCES;
+	if (EFI_ERROR(status))
+		goto done;
 	for (UINTN index = 0; index < async->count; index++)
 		if (async->queue[(async->head + index) %
-		    CDK2_SCSI_DISK_ASYNC_DEPTH].token == token)
-			return EFI_ALREADY_STARTED;
+		    CDK2_SCSI_DISK_ASYNC_DEPTH].token == token) {
+			status = EFI_ALREADY_STARTED;
+			goto done;
+		}
 	maximum = async->disk->cdb16 ? UINT32_MAX : UINT16_MAX;
 	if (maximum > UINT32_MAX / async->disk->media.block_size)
 		maximum = UINT32_MAX / async->disk->media.block_size;
 	if (maximum == 0U)
-		return EFI_BAD_BUFFER_SIZE;
+		status = EFI_BAD_BUFFER_SIZE;
+	if (EFI_ERROR(status))
+		goto done;
 	task = &async->queue[(async->head + async->count) %
 		CDK2_SCSI_DISK_ASYNC_DEPTH];
 	*task = (struct cdk2_scsi_disk_async_task) { .token = token,
@@ -165,24 +197,34 @@ EFI_STATUS cdk2_scsi_disk_async_submit(struct cdk2_scsi_disk_async *async,
 		dispatch(async);
 	if (EFI_ERROR(async->submission_status))
 		token->transaction_status = original_status;
-	return async->submission_status;
+	status = async->submission_status;
+done:
+	unlock_scheduler(async, state);
+	return status;
 }
 
 EFI_STATUS cdk2_scsi_disk_async_flush(struct cdk2_scsi_disk_async *async,
 	struct cdk2_block_io2_token *token)
 {
 	struct cdk2_scsi_disk_async_task *task;
+	EFI_STATUS status = EFI_SUCCESS;
+	UINTN state;
 
 	if (async == NULL || token == NULL || token->event == NULL)
 		return EFI_INVALID_PARAMETER;
+	state = lock_scheduler(async);
 	if (async->stopping)
-		return EFI_NOT_READY;
-	if (async->count == CDK2_SCSI_DISK_ASYNC_DEPTH)
-		return EFI_OUT_OF_RESOURCES;
+		status = EFI_NOT_READY;
+	else if (async->count == CDK2_SCSI_DISK_ASYNC_DEPTH)
+		status = EFI_OUT_OF_RESOURCES;
+	if (EFI_ERROR(status))
+		goto done;
 	for (UINTN index = 0; index < async->count; index++)
 		if (async->queue[(async->head + index) %
-		    CDK2_SCSI_DISK_ASYNC_DEPTH].token == token)
-			return EFI_ALREADY_STARTED;
+		    CDK2_SCSI_DISK_ASYNC_DEPTH].token == token) {
+			status = EFI_ALREADY_STARTED;
+			goto done;
+		}
 	task = &async->queue[(async->head + async->count) %
 		CDK2_SCSI_DISK_ASYNC_DEPTH];
 	*task = (struct cdk2_scsi_disk_async_task) { .token = token, .flush = TRUE,
@@ -191,7 +233,9 @@ EFI_STATUS cdk2_scsi_disk_async_flush(struct cdk2_scsi_disk_async *async,
 	async->count++;
 	if (async->count == 1U)
 		dispatch(async);
-	return EFI_SUCCESS;
+done:
+	unlock_scheduler(async, state);
+	return status;
 }
 
 static EFI_STATUS abort_all(struct cdk2_scsi_disk_async *async, BOOLEAN stop)
@@ -225,10 +269,26 @@ static EFI_STATUS abort_all(struct cdk2_scsi_disk_async *async, BOOLEAN stop)
 
 EFI_STATUS cdk2_scsi_disk_async_reset(struct cdk2_scsi_disk_async *async)
 {
-	return abort_all(async, FALSE);
+	EFI_STATUS status;
+	UINTN state;
+
+	if (async == NULL)
+		return EFI_INVALID_PARAMETER;
+	state = lock_scheduler(async);
+	status = abort_all(async, FALSE);
+	unlock_scheduler(async, state);
+	return status;
 }
 
 EFI_STATUS cdk2_scsi_disk_async_stop(struct cdk2_scsi_disk_async *async)
 {
-	return abort_all(async, TRUE);
+	EFI_STATUS status;
+	UINTN state;
+
+	if (async == NULL)
+		return EFI_INVALID_PARAMETER;
+	state = lock_scheduler(async);
+	status = abort_all(async, TRUE);
+	unlock_scheduler(async, state);
+	return status;
 }

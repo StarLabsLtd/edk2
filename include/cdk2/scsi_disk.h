@@ -59,6 +59,9 @@ struct cdk2_scsi_disk_async {
 	struct cdk2_scsi_disk_async_task queue[CDK2_SCSI_DISK_ASYNC_DEPTH];
 	void *signal_context;
 	EFI_STATUS (*signal)(void *context, void *event);
+	void *lock_context;
+	UINTN (*lock)(void *context);
+	void (*unlock)(void *context, UINTN state);
 	UINTN head, count;
 	BOOLEAN parent_active, dispatching, completion_pending, stopping, aborting;
 	EFI_STATUS submission_status;
@@ -143,6 +146,8 @@ EFI_STATUS cdk2_scsi_disk_write(struct cdk2_scsi_disk *disk, UINT32 media_id,
 EFI_STATUS cdk2_scsi_disk_async_init(struct cdk2_scsi_disk_async *async,
 	struct cdk2_scsi_disk *disk, void *signal_context,
 	EFI_STATUS (*signal)(void *, void *));
+EFI_STATUS cdk2_scsi_disk_async_set_lock(struct cdk2_scsi_disk_async *async,
+	void *context, UINTN (*lock)(void *), void (*unlock)(void *, UINTN));
 EFI_STATUS cdk2_scsi_disk_async_submit(struct cdk2_scsi_disk_async *async,
 	UINT32 media_id, UINT64 lba, UINTN size, void *buffer, BOOLEAN write,
 	struct cdk2_block_io2_token *token);

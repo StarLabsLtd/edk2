@@ -14,9 +14,25 @@ struct fixture {
 	void *complete_context;
 	UINT32 calls, signals, blocks[8];
 	UINT32 cancels;
+	UINT32 locks, unlocks, locked;
 	UINT8 opcodes[8];
 	EFI_STATUS submit_status;
 };
+
+static UINTN lock(void *opaque)
+{
+	struct fixture *fixture = opaque;
+	UINTN old = fixture->locked;
+
+	fixture->locks++; fixture->locked = 1U; return old;
+}
+
+static void unlock(void *opaque, UINTN state)
+{
+	struct fixture *fixture = opaque;
+
+	fixture->unlocks++; fixture->locked = (UINT32)state;
+}
 
 static EFI_STATUS cancel(void *opaque)
 {
@@ -77,7 +93,8 @@ int main(void)
 	UINT8 *buffer = malloc(0x10001ULL * 512U);
 
 	CHECK(buffer != NULL && cdk2_scsi_disk_async_init(&async, &disk, &fixture,
-		signal) == EFI_SUCCESS);
+		signal) == EFI_SUCCESS && cdk2_scsi_disk_async_set_lock(&async, &fixture,
+		lock, unlock) == EFI_SUCCESS);
 	CHECK(cdk2_scsi_disk_async_submit(&async, 7, 0, 0x10000ULL * 512U,
 		buffer, FALSE, &first) == EFI_SUCCESS && fixture.calls == 1U &&
 		fixture.signals == 0U && first.transaction_status == EFI_NOT_READY &&
@@ -120,6 +137,7 @@ int main(void)
 		EFI_SUCCESS && first.transaction_status == EFI_ABORTED && async.stopping);
 	CHECK(cdk2_scsi_disk_async_submit(&async, 7, 0, 512U, buffer, FALSE,
 		&first) == EFI_NOT_READY);
+	CHECK(fixture.locks == fixture.unlocks && fixture.locked == 0U);
 	free(buffer);
 	puts("scsi disk async tests: PASS");
 	return 0;
