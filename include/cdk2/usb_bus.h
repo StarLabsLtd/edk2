@@ -7,6 +7,8 @@
 
 #define CDK2_USB_MAX_INTERFACES 32U
 #define CDK2_USB_MAX_ENDPOINTS 16U
+#define CDK2_USB_MAX_CHILDREN 32U
+#define CDK2_USB_MAX_CONFIG_LENGTH 4096U
 
 struct cdk2_usb_endpoint {
 	UINT8 address, attributes, interval;
@@ -85,6 +87,23 @@ struct cdk2_usb_io_device {
 	CHAR16 string[127];
 };
 
+struct cdk2_usb_child {
+	struct cdk2_usb_io_device io;
+	struct cdk2_usb_device_path_node path;
+	UINT8 port, address, interface;
+	BOOLEAN active;
+};
+
+typedef void cdk2_usb_delay_fn(void *context, UINTN microseconds);
+struct cdk2_usb_bus {
+	struct cdk2_usb2_hc_protocol *host;
+	struct cdk2_usb_address_pool addresses;
+	struct cdk2_usb_child children[CDK2_USB_MAX_CHILDREN];
+	void *delay_context;
+	cdk2_usb_delay_fn *delay;
+	UINT8 child_count;
+};
+
 EFI_STATUS cdk2_usb_parse_configuration(const void *data, UINTN length,
 	struct cdk2_usb_configuration *configuration);
 EFI_STATUS cdk2_usb_find_interface(const struct cdk2_usb_configuration *configuration,
@@ -102,5 +121,10 @@ EFI_STATUS cdk2_usb_io_init(struct cdk2_usb_io_device *device,
 	UINT16 maximum_packet, const UINT8 descriptor[18],
 	const struct cdk2_usb_configuration *configuration, UINT8 interface_number,
 	UINT8 alternate);
+EFI_STATUS cdk2_usb_bus_init(struct cdk2_usb_bus *bus,
+	struct cdk2_usb2_hc_protocol *host, void *delay_context,
+	cdk2_usb_delay_fn *delay);
+EFI_STATUS cdk2_usb_bus_enumerate_port(struct cdk2_usb_bus *bus, UINT8 port);
+EFI_STATUS cdk2_usb_bus_remove_port(struct cdk2_usb_bus *bus, UINT8 port);
 
 #endif
