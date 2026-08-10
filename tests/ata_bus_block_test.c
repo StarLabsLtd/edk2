@@ -24,7 +24,8 @@ static EFI_STATUS submit(void *opaque, struct cdk2_ata_bus_child *child,
 	struct cdk2_ata_command_packet *packet, cdk2_ata_bus_complete_fn *complete,
 	void *complete_context)
 { struct fixture *fixture = opaque; EFI_STATUS status = execute(opaque, child, packet);
-	if (EFI_ERROR(status)) return status;
+	if (EFI_ERROR(status))
+		return status;
 	CHECK(fixture->complete == NULL);
 	fixture->complete = complete; fixture->complete_context = complete_context;
 	return EFI_SUCCESS; }

@@ -168,7 +168,8 @@ static EFI_STATUS submit(void *context, struct cdk2_ata_bus_child *child,
 	struct cdk2_ata_command_packet *packet, cdk2_ata_bus_complete_fn *complete,
 	void *complete_context)
 { EFI_STATUS status = execute(context, child, packet);
-	if (!EFI_ERROR(status)) complete(complete_context, EFI_SUCCESS);
+	if (!EFI_ERROR(status))
+		complete(complete_context, EFI_SUCCESS);
 	return status; }
 static EFI_STATUS wait_idle(void *context, struct cdk2_ata_bus_scheduler *scheduler)
 { (void)context; (void)scheduler; return EFI_NOT_READY; }
