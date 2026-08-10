@@ -73,10 +73,9 @@ int main(void)
 	CHECK(cdk2_ata_async_init(&async, &controller, &services) == EFI_SUCCESS &&
 		cdk2_ata_async_submit(&async, 0, 0, &packet, (void *)1) == EFI_SUCCESS);
 	CHECK(cdk2_ata_async_poll(&async) == EFI_SUCCESS);
-	CHECK(cdk2_ata_async_poll(&async) == EFI_NOT_READY && async.count == 1 &&
+	CHECK(cdk2_ata_async_poll(&async) == EFI_NOT_READY && async.count == 0 &&
 		f.signals == 1);
-	CHECK(cdk2_ata_async_poll(&async) == EFI_SUCCESS && async.count == 0 &&
-		f.signals == 2);
+	CHECK(cdk2_ata_async_poll(&async) == EFI_NOT_READY && f.signals == 1);
 	puts("ata async controller tests: PASS");
 	return 0;
 }
