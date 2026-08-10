@@ -110,6 +110,8 @@ EFI_STATUS cdk2_ata_get_device(const struct cdk2_ata_topology *topology,
 EFI_STATUS cdk2_ata_validate_transfer(UINT8 protocol, UINT8 length,
 	const void *in_buffer, UINT32 in_length, const void *out_buffer,
 	UINT32 out_length, UINT32 io_align);
+EFI_STATUS cdk2_ata_normalize_transfer(const struct cdk2_ata_device *device,
+	struct cdk2_ata_command_packet *packet);
 
 struct cdk2_ata_controller;
 struct cdk2_ata_protocol_bundle;

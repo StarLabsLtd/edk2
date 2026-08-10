@@ -80,6 +80,20 @@ int main(void)
 	CHECK(cdk2_ata_topology_init(&controller.topology, CDK2_ATA_IDE) == EFI_SUCCESS);
 	CHECK(cdk2_ata_add_device(&controller.topology, 0, 0, CDK2_ATA_DISK) == EFI_SUCCESS);
 	CHECK(cdk2_ata_add_device(&controller.topology, 0, 1, CDK2_ATAPI_DEVICE) == EFI_SUCCESS);
+	controller.topology.devices[0].block_size = 512;
+	{
+		UINT8 transfer[1024];
+		struct cdk2_ata_command_packet sectors = { .in_data = transfer,
+			.in_length = 2, .length = 0x20 };
+		CHECK(cdk2_ata_normalize_transfer(&controller.topology.devices[0],
+			&sectors) == EFI_SUCCESS && sectors.in_length == sizeof(transfer));
+		sectors.in_length = UINT32_MAX; sectors.out_length = 0;
+		CHECK(cdk2_ata_normalize_transfer(&controller.topology.devices[0],
+			&sectors) == EFI_BAD_BUFFER_SIZE && sectors.in_length == UINT32_MAX);
+		sectors.in_length = 7; sectors.length = 0xa0;
+		CHECK(cdk2_ata_normalize_transfer(&controller.topology.devices[0],
+			&sectors) == EFI_SUCCESS && sectors.in_length == 7);
+	}
 	CHECK(cdk2_ide_engine_init(&engine, &ide_services, &channel, 1) == EFI_SUCCESS);
 	controller.ide_engine = &engine; controller.started = 1;
 	CHECK(cdk2_ata_protocol_init(&instance, &controller, &services, 4) == EFI_SUCCESS);

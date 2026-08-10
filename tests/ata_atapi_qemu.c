@@ -75,19 +75,22 @@ EFI_STATUS CDK2_MS_ABI ata_atapi_qemu_entry(void *image, void *table)
 	path = NULL;
 	serial("ATA_STAGE_PATH_OK\r\n");
 	acb.command = 0xecU; packet.in_data = identify;
-	packet.in_length = sizeof(identify);
+	packet.in_length = sizeof(identify); packet.length = 0xa0U;
 	if (EFI_ERROR(ata->pass_thru(ata, port, device, &packet, NULL)) ||
 	    (identify[0] == 0U && identify[1] == 0U))
 		goto bad;
 	serial("ATA_STAGE_IDENTIFY_OK\r\n");
 	acb = (struct cdk2_ata_command_block) { .command = 0x25U,
-		.sector_count = 1U };
-	packet.in_data = first; packet.in_length = sizeof(first);
+		.device_head = 0x40U, .sector_count = 1U };
+	packet.in_data = first; packet.in_length = 1U; packet.length = 0x20U;
 	if (EFI_ERROR(ata->pass_thru(ata, port, device, &packet, NULL)))
 		goto bad;
-	packet.in_data = second; packet.in_length = sizeof(second);
-	if (EFI_ERROR(ata->pass_thru(ata, port, device, &packet, NULL)) ||
-	    !same(first, second, sizeof(first)))
+	serial("ATA_STAGE_READ1_OK\r\n");
+	packet.in_data = second; packet.in_length = 1U;
+	if (EFI_ERROR(ata->pass_thru(ata, port, device, &packet, NULL)))
+		goto bad;
+	serial("ATA_STAGE_READ2_OK\r\n");
+	if (!same(first, second, sizeof(first)))
 		goto bad;
 	serial("ATA_STAGE_READ_OK\r\n");
 	if (ata->reset_port == NULL || ata->reset_device == NULL ||

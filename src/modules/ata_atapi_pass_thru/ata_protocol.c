@@ -24,6 +24,16 @@ static int device_exists(const struct cdk2_ata_topology *topology, UINT16 port,
 	return 0;
 }
 
+static const struct cdk2_ata_device *find_device(
+	const struct cdk2_ata_topology *topology, UINT16 port, UINT16 multiplier)
+{
+	for (size_t index = 0; index < topology->count; index++)
+		if (topology->devices[index].port == port &&
+		    topology->devices[index].multiplier == multiplier)
+			return &topology->devices[index];
+	return NULL;
+}
+
 static EFI_STATUS CDK2_MS_ABI pass_thru(
 	struct cdk2_ata_pass_thru_protocol *protocol, UINT16 port,
 	UINT16 multiplier, struct cdk2_ata_command_packet *packet, void *event)
@@ -31,18 +41,23 @@ static EFI_STATUS CDK2_MS_ABI pass_thru(
 	struct cdk2_ata_protocol_instance *instance =
 		instance_from_protocol(protocol);
 	struct cdk2_ata_controller *controller;
+	const struct cdk2_ata_device *device;
 	EFI_STATUS status;
 
 	if (instance == NULL || packet == NULL || packet->acb == NULL)
 		return EFI_INVALID_PARAMETER;
 	(void)event;
 	controller = instance->controller;
-	if (controller == NULL || !controller->started ||
-	    !device_exists(&controller->topology, port, multiplier))
+	device = controller == NULL ? NULL : find_device(&controller->topology, port,
+		multiplier);
+	if (controller == NULL || !controller->started || device == NULL)
 		return EFI_NOT_FOUND;
 	status = cdk2_ata_validate_transfer(packet->protocol, packet->length,
 		packet->in_data, packet->in_length, packet->out_data,
 		packet->out_length, instance->mode.io_align);
+	if (EFI_ERROR(status))
+		return status;
+	status = cdk2_ata_normalize_transfer(device, packet);
 	if (EFI_ERROR(status))
 		return status;
 	if (controller->topology.mode == CDK2_ATA_AHCI) {

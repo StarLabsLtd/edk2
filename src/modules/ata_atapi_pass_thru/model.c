@@ -179,3 +179,24 @@ EFI_STATUS cdk2_ata_validate_transfer(UINT8 protocol, UINT8 length,
 		return EFI_INVALID_PARAMETER;
 	return EFI_SUCCESS;
 }
+
+EFI_STATUS cdk2_ata_normalize_transfer(const struct cdk2_ata_device *device,
+	struct cdk2_ata_command_packet *packet)
+{
+	UINT32 in_length, out_length;
+
+	if (device == NULL || packet == NULL || device->block_size == 0U)
+		return EFI_INVALID_PARAMETER;
+	if ((packet->length & 0x80U) != 0U)
+		return EFI_SUCCESS;
+	if ((packet->in_length != 0U &&
+	     packet->in_length > UINT32_MAX / device->block_size) ||
+	    (packet->out_length != 0U &&
+	     packet->out_length > UINT32_MAX / device->block_size))
+		return EFI_BAD_BUFFER_SIZE;
+	in_length = packet->in_length * device->block_size;
+	out_length = packet->out_length * device->block_size;
+	packet->in_length = in_length;
+	packet->out_length = out_length;
+	return EFI_SUCCESS;
+}
