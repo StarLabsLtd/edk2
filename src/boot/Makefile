@@ -53,6 +53,11 @@ CDK2_NATIVE_SCSI_DISK_QEMU_PE ?= $(CDK2_NATIVE_BUILD_DIR)/scsi-disk-qemu.efi
 CDK2_NATIVE_XHCI_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/xhci-model-test
 CDK2_NATIVE_XHCI_CONTROLLER_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/xhci-controller-test
 CDK2_NATIVE_XHCI_PCI_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/xhci-pci-test
+CDK2_NATIVE_XHCI_OBJS := $(addprefix $(CDK2_NATIVE_BUILD_DIR)/xhci-,\
+	model.o controller.o pci_adapter.o usb2_abi.o entry.o)
+CDK2_NATIVE_XHCI_PE ?= $(CDK2_NATIVE_BUILD_DIR)/XhciDxe.efi
+CDK2_NATIVE_XHCI_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/XhciDxe.ffs
+CDK2_NATIVE_XHCI_PACKAGE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/xhci-package-test
 CDK2_NATIVE_SATA_CONTROLLER_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-sata-controller-test
 CDK2_NATIVE_ATA_ATAPI_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-atapi-test
 CDK2_NATIVE_ATA_ATAPI_BINDING_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-atapi-binding-test
@@ -1131,6 +1136,10 @@ native-xhci-test: $(CDK2_NATIVE_XHCI_TEST) $(CDK2_NATIVE_XHCI_CONTROLLER_TEST) \
 	@"$(CDK2_NATIVE_XHCI_PCI_TEST)"
 	@"$(CDK2_NATIVE_BUILD_DIR)/xhci-entry-test"
 
+.PHONY: native-xhci-package
+native-xhci-package: $(CDK2_NATIVE_XHCI_FFS) $(CDK2_NATIVE_XHCI_PACKAGE_TEST)
+	@"$(CDK2_NATIVE_XHCI_PACKAGE_TEST)" "$(CDK2_NATIVE_XHCI_FFS)"
+
 $(CDK2_NATIVE_BUILD_DIR)/xhci-entry-test: $(CDK2_DIR)/tests/xhci_entry_test.c \
 		$(CDK2_DIR)/src/modules/xhci/model.c \
 		$(CDK2_DIR)/src/modules/xhci/controller.c \
@@ -1169,6 +1178,33 @@ $(CDK2_NATIVE_XHCI_PCI_TEST): $(CDK2_DIR)/tests/xhci_pci_test.c \
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -fsanitize=address,undefined \
 		$(CDK2_NATIVE_INCLUDES) -o "$@" $(CDK2_DIR)/tests/xhci_pci_test.c \
 		$(CDK2_DIR)/src/modules/xhci/pci_adapter.c
+
+$(CDK2_NATIVE_BUILD_DIR)/xhci-%.o: $(CDK2_DIR)/src/modules/xhci/%.c \
+		$(CDK2_DIR)/include/cdk2/xhci.h \
+		$(CDK2_DIR)/include/cdk2/pci_io_abi.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,\
+		$(CDK2_NATIVE_CFLAGS)) -mcmodel=large -fno-ident -fcf-protection=none \
+		-maccumulate-outgoing-args $(CDK2_NATIVE_INCLUDES) -MMD -MP \
+		-MF "$(@:.o=.d)" -MT "$@" -c "$<" -o "$@"
+
+$(CDK2_NATIVE_XHCI_PE): $(CDK2_NATIVE_XHCI_OBJS) \
+		$(CDK2_DIR)/src/modules/xhci/xhci.ld $(CDK2_NATIVE_PERELOCCHECK)
+	@$(LD) -mi386pep --subsystem 11 --entry cdk2_xhci_entry --image-base 0 \
+		--section-alignment 0x1000 --file-alignment 0x1000 --build-id=none \
+		--no-insert-timestamp -s --nxcompat \
+		-T "$(CDK2_DIR)/src/modules/xhci/xhci.ld" \
+		-o "$@" $(CDK2_NATIVE_XHCI_OBJS)
+	@"$(CDK2_NATIVE_PERELOCCHECK)" --subsystem 11 "$@"
+
+$(CDK2_NATIVE_XHCI_FFS): $(CDK2_NATIVE_XHCI_PE) $(CDK2_NATIVE_FFSBUILD)
+	@"$(CDK2_NATIVE_FFSBUILD)" b7f50e91-a759-412c-ade4-dcd03e7f7c28 \
+		XhciDxe 1.0 0x1103e "$<" "$@" -
+
+$(CDK2_NATIVE_XHCI_PACKAGE_TEST): $(CDK2_DIR)/tests/xhci_package_test.c | \
+		$(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -MMD -MP \
+		-MF "$(CDK2_NATIVE_BUILD_DIR)/xhci-package-test.d" -MT "$@" \
+		-o "$@" "$<"
 
 .PHONY: native-scsi-disk-package
 native-scsi-disk-package: $(CDK2_NATIVE_SCSI_DISK_FFS) \

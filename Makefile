@@ -71,7 +71,7 @@ CDK2_CONFIG_TARGETS := build check manifest modules native-stage \
 	native-scsi-bus-test native-scsi-bus-package native-scsi-bus-fv \
 	native-scsi-disk-test native-scsi-disk-package native-scsi-disk-fv \
 	native-scsi-disk-fv-exact native-scsi-disk-oracle \
-	native-xhci-test \
+	native-xhci-test native-xhci-package \
 	native-scsi-bus-fv-exact native-scsi-bus-oracle \
 	native-capsule-runtime-test native-capsule-runtime-fv \
 	native-tcg2-transport-test native-tcg2-commands-test native-tcg2-event-log-test \
@@ -158,7 +158,7 @@ CDK2_RECURSIVE_ARGS := \
 	native-scsi-bus-test native-scsi-bus-package native-scsi-bus-fv \
 	native-scsi-disk-test native-scsi-disk-package native-scsi-disk-fv \
 	native-scsi-disk-fv-exact native-scsi-disk-oracle \
-	native-xhci-test \
+	native-xhci-test native-xhci-package \
 	native-scsi-bus-fv-exact native-scsi-bus-oracle \
 	native-capsule-runtime-test native-capsule-runtime-fv \
 	native-tcg2-transport-test native-tcg2-commands-test native-tcg2-event-log-test \
