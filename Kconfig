@@ -313,6 +313,13 @@ config CDK2_NATIVE_USB_BUS
 	help
 	  Enumerate USB devices and publish USB I/O interface children.
 
+config CDK2_NATIVE_USB_MASS_STORAGE
+	bool "Build native USB mass-storage driver"
+	default y
+	depends on CDK2_NATIVE_USB_BUS
+	help
+	  Publish block devices for USB bulk-only mass-storage interfaces.
+
 config CDK2_NATIVE_STATUS_CODE_HANDLER
 	bool "Build the native release status-code handler"
 	default y

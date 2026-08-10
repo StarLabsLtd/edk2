@@ -69,6 +69,7 @@ CDK2_NATIVE_USB_MASS_OBJS := $(addprefix $(CDK2_NATIVE_BUILD_DIR)/usb-mass-,\
 	model.o transport.o scsi.o block.o binding.o entry.o)
 CDK2_NATIVE_USB_MASS_PE ?= $(CDK2_NATIVE_BUILD_DIR)/UsbMassStorageDxe.efi
 CDK2_NATIVE_USB_MASS_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/UsbMassStorageDxe.ffs
+CDK2_NATIVE_USB_MASS_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-usb-mass.fv
 CDK2_NATIVE_USB_MASS_PACKAGE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/usb-mass-package-test
 CDK2_NATIVE_SATA_CONTROLLER_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-sata-controller-test
 CDK2_NATIVE_ATA_ATAPI_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-atapi-test
@@ -1178,6 +1179,15 @@ native-usb-mass-test: $(CDK2_NATIVE_BUILD_DIR)/usb-mass-model-test \
 native-usb-mass-package: $(CDK2_NATIVE_USB_MASS_FFS) \
 		$(CDK2_NATIVE_USB_MASS_PACKAGE_TEST)
 	@"$(CDK2_NATIVE_USB_MASS_PACKAGE_TEST)" "$(CDK2_NATIVE_USB_MASS_FFS)"
+
+.PHONY: native-usb-mass-fv-exact
+native-usb-mass-fv-exact: $(CDK2_NATIVE_USB_MASS_FFS) \
+		$(CDK2_NATIVE_FVREPLACE) $(CDK2_NATIVE_FVINFO)
+	@test -n "$(CDK2_NATIVE_PRE_USB_MASS_FV)"
+	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_PRE_USB_MASS_FV)" 0x3e3ab8 \
+		"$(CDK2_NATIVE_USB_MASS_FFS)" "$(CDK2_NATIVE_USB_MASS_FV)"
+	@"$(CDK2_NATIVE_FVINFO)" "$(CDK2_NATIVE_USB_MASS_FV)" | grep -q \
+		'^9fb4b4a7-42c0-4bcd-8540-9bcc6711f83e[[:space:]]0x003e3ab8[[:space:]]0x00009052[[:space:]]0x07[[:space:]]UsbMassStorageDxe$$'
 
 $(CDK2_NATIVE_BUILD_DIR)/usb-mass-%.o: \
 		$(CDK2_DIR)/src/modules/usb_mass/%.c \
@@ -2529,6 +2539,19 @@ native-usb-bus-fv: $(CDK2_NATIVE_USB_BUS_FV)
 else
 native-usb-bus-fv:
 	@printf '%s\n' 'native USB bus: disabled by Kconfig'
+endif
+
+ifeq ($(CONFIG_CDK2_NATIVE_USB_MASS_STORAGE),y)
+CDK2_NATIVE_PRE_USB_MASS_FV ?= $(CDK2_NATIVE_FINAL_FV)
+CDK2_NATIVE_FINAL_FV := $(CDK2_NATIVE_USB_MASS_FV)
+
+$(CDK2_NATIVE_USB_MASS_FV): $(CDK2_NATIVE_PRE_USB_MASS_FV) \
+		$(CDK2_NATIVE_USB_MASS_FFS) $(CDK2_NATIVE_FVREPLACE)
+	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_PRE_USB_MASS_FV)" 0x3e3ab8 \
+		"$(CDK2_NATIVE_USB_MASS_FFS)" "$@"
+else
+$(CDK2_NATIVE_USB_MASS_FV): $(CDK2_NATIVE_PRE_USB_MASS_FV)
+	@cp "$<" "$@"
 endif
 
 ifeq ($(CONFIG_CDK2_NATIVE_ENGLISH),y)

@@ -73,7 +73,7 @@ CDK2_CONFIG_TARGETS := build check manifest modules native-stage \
 	native-scsi-disk-fv-exact native-scsi-disk-oracle \
 	native-xhci-test native-xhci-package native-xhci-fv native-xhci-fv-exact \
 	native-usb-bus-test native-usb-bus-package native-usb-bus-fv \
-	native-usb-mass-test native-usb-mass-package \
+	native-usb-mass-test native-usb-mass-package native-usb-mass-fv-exact \
 	native-usb-bus-fv-exact \
 	native-scsi-bus-fv-exact native-scsi-bus-oracle \
 	native-capsule-runtime-test native-capsule-runtime-fv \
@@ -125,6 +125,7 @@ CDK2_RECURSIVE_ARGS := \
 	$(if $(CDK2_NATIVE_PRE_SCSI_DISK_FV),CDK2_NATIVE_PRE_SCSI_DISK_FV="$(CDK2_NATIVE_PRE_SCSI_DISK_FV)") \
 	$(if $(CDK2_NATIVE_PRE_XHCI_FV),CDK2_NATIVE_PRE_XHCI_FV="$(CDK2_NATIVE_PRE_XHCI_FV)") \
 	$(if $(CDK2_NATIVE_PRE_USB_BUS_FV),CDK2_NATIVE_PRE_USB_BUS_FV="$(CDK2_NATIVE_PRE_USB_BUS_FV)") \
+	$(if $(CDK2_NATIVE_PRE_USB_MASS_FV),CDK2_NATIVE_PRE_USB_MASS_FV="$(CDK2_NATIVE_PRE_USB_MASS_FV)") \
 	$(if $(CDK2_NATIVE_PCD_DATABASE),CDK2_NATIVE_PCD_DATABASE="$(CDK2_NATIVE_PCD_DATABASE)") \
 	CDK2_NATIVE_DIR="$(CDK2_NATIVE_DIR)" \
 	$(if $(HOSTCC),HOSTCC="$(HOSTCC)") \
@@ -165,7 +166,7 @@ CDK2_RECURSIVE_ARGS := \
 	native-scsi-disk-fv-exact native-scsi-disk-oracle \
 	native-xhci-test native-xhci-package native-xhci-fv native-xhci-fv-exact \
 	native-usb-bus-test native-usb-bus-package native-usb-bus-fv \
-	native-usb-mass-test native-usb-mass-package \
+	native-usb-mass-test native-usb-mass-package native-usb-mass-fv-exact \
 	native-usb-bus-fv-exact \
 	native-scsi-bus-fv-exact native-scsi-bus-oracle \
 	native-capsule-runtime-test native-capsule-runtime-fv \
