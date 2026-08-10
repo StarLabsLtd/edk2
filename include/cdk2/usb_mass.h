@@ -3,6 +3,10 @@
 #define CDK2_USB_MASS_H
 
 #include <cdk2/usb_bus.h>
+
+#define CDK2_USB_DATA_IN 0U
+#define CDK2_USB_DATA_OUT 1U
+#define CDK2_USB_NO_DATA 2U
 #include <cdk2/partition.h>
 
 #define CDK2_USB_MASS_CBW_SIGNATURE 0x43425355U

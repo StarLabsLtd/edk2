@@ -16,11 +16,16 @@ static EFI_STATUS CDK2_MS_ABI control(struct cdk2_usb_io_protocol *usb,
 	UINTN * length, UINT32 * result)
 { (void)usb; (void)direction; (void)timeout; *result = 0U; fixture.controls++;
 	if (request->request == 0xfeU) {
+		CHECK(direction == CDK2_USB_DATA_IN);
 		*(UINT8 *)data = 2U;
 		*length = 1U;
 	}
-	if (request->request == 0xffU)
+	if (request->request == 0xffU) {
+		CHECK(direction == CDK2_USB_NO_DATA);
 		fixture.resets++;
+	}
+	if (request->request == 1U)
+		CHECK(direction == CDK2_USB_NO_DATA);
 	return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI bulk(struct cdk2_usb_io_protocol *usb,
 	UINT8 endpoint, void *data, UINTN * length, UINTN timeout, UINT32 * result)

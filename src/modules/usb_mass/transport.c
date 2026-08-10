@@ -10,7 +10,8 @@ static EFI_STATUS clear_halt(struct cdk2_usb_mass_device *device, UINT8 endpoint
 	UINTN length = 0U;
 	UINT32 result;
 
-	return device->usb->control_transfer(device->usb, &request, 0U, 1000U,
+	return device->usb->control_transfer(device->usb, &request,
+		CDK2_USB_NO_DATA, 1000U,
 		NULL, &length, &result);
 }
 
@@ -23,7 +24,8 @@ EFI_STATUS cdk2_usb_mass_reset(struct cdk2_usb_mass_device *device)
 
 	if (device == NULL || device->usb == NULL)
 		return EFI_INVALID_PARAMETER;
-	status = device->usb->control_transfer(device->usb, &request, 0U, 1000U,
+	status = device->usb->control_transfer(device->usb, &request,
+		CDK2_USB_NO_DATA, 1000U,
 		NULL, &length, &result);
 	if (!EFI_ERROR(status))
 		status = clear_halt(device, device->bulk_in);
@@ -42,7 +44,8 @@ EFI_STATUS cdk2_usb_mass_get_max_lun(struct cdk2_usb_mass_device *device)
 
 	if (device == NULL || device->usb == NULL)
 		return EFI_INVALID_PARAMETER;
-	status = device->usb->control_transfer(device->usb, &request, 1U, 1000U,
+	status = device->usb->control_transfer(device->usb, &request,
+		CDK2_USB_DATA_IN, 1000U,
 		&value, &length, &result);
 	if (status == EFI_DEVICE_ERROR) {
 		device->maximum_lun = 0U;
