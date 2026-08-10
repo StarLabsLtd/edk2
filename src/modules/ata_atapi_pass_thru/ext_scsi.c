@@ -289,7 +289,12 @@ static EFI_STATUS reset_one(struct cdk2_ext_scsi_instance *instance,
 	if (validate && !atapi_exists(&instance->controller->topology, port,
 		multiplier))
 		return EFI_INVALID_PARAMETER;
-	if (instance->services.wait != NULL) {
+	if (instance->services.cancel_scope != NULL) {
+		status = instance->services.cancel_scope(instance->services.context,
+			instance->controller, port, multiplier, validate);
+		if (EFI_ERROR(status))
+			return status;
+	} else if (instance->services.wait != NULL) {
 		status = instance->services.wait(instance->services.context,
 			instance->controller);
 		if (EFI_ERROR(status))
@@ -300,7 +305,7 @@ static EFI_STATUS reset_one(struct cdk2_ext_scsi_instance *instance,
 	else
 		status = cdk2_ide_reset(instance->controller->ide_engine, (UINT8)port,
 			5000000U);
-	if (instance->services.done != NULL)
+	if (instance->services.done != NULL && instance->services.cancel_scope == NULL)
 		instance->services.done(instance->services.context, instance->controller);
 	return status;
 }

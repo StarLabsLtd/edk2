@@ -170,12 +170,19 @@ static EFI_STATUS reset(struct cdk2_ata_protocol_instance *instance, UINT16 port
 	controller = instance->controller;
 	if (check_device && !device_exists(&controller->topology, port, multiplier))
 		return EFI_NOT_FOUND;
-	if (instance->services.wait != NULL) {
-		EFI_STATUS status = instance->services.wait(instance->services.context,
+	if (instance->services.cancel_scope != NULL) {
+		EFI_STATUS cancel_status = instance->services.cancel_scope(
+			instance->services.context, controller, port, multiplier,
+			check_device);
+
+		if (EFI_ERROR(cancel_status))
+			return cancel_status;
+	} else if (instance->services.wait != NULL) {
+		EFI_STATUS wait_status = instance->services.wait(instance->services.context,
 			controller);
 
-		if (EFI_ERROR(status))
-			return status;
+		if (EFI_ERROR(wait_status))
+			return wait_status;
 	}
 	if (controller->topology.mode == CDK2_ATA_AHCI)
 		status = controller->ahci == NULL ? EFI_UNSUPPORTED :
@@ -184,7 +191,7 @@ static EFI_STATUS reset(struct cdk2_ata_protocol_instance *instance, UINT16 port
 		status = EFI_UNSUPPORTED;
 	else
 		status = cdk2_ide_reset(controller->ide_engine, (UINT8)port, 5000000U);
-	if (instance->services.done != NULL)
+	if (instance->services.done != NULL && instance->services.cancel_scope == NULL)
 		instance->services.done(instance->services.context, controller);
 	return status;
 }

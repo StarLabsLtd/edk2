@@ -83,7 +83,7 @@ int main(void)
 	struct cdk2_ide_services ide_services = { &fixture, read8, read16,
 		write8, write16, write32, map, unmap, flush, timing, get_time, delay };
 	struct cdk2_ata_protocol_services services = {
-		&fixture, allocate, release, NULL, NULL, NULL, NULL };
+		&fixture, allocate, release, NULL, NULL, NULL, NULL, NULL };
 	struct cdk2_ata_controller controller = { 0 };
 	struct cdk2_ata_protocol_instance instance;
 	struct cdk2_ext_scsi_instance scsi;

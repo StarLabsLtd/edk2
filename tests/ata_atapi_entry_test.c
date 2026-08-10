@@ -344,7 +344,7 @@ int main(void)
 			(void *)0xa004U) == EFI_SUCCESS);
 		for (unsigned int step = 0; step < 40U && pending_event != NULL; step++)
 			tick();
-		CHECK(pending_event == NULL && fixture.signals == fixture.fail_signal);
+		CHECK(pending_event == NULL && fixture.signals == fixture.fail_signal + 1U);
 		fixture.fail_signal = 0;
 		CHECK(installed_ata->pass_thru(installed_ata, 0, 0xffffU, &first,
 			(void *)0xa005U) == EFI_SUCCESS && pending_event != NULL);

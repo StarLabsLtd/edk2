@@ -294,6 +294,21 @@ static EFI_STATUS protocol_async_cancel(void *opaque,
 		async->stopping = 0;
 	return status;
 }
+static EFI_STATUS protocol_async_cancel_scope(void *opaque,
+	struct cdk2_ata_controller *controller, UINT16 port, UINT16 multiplier,
+	BOOLEAN match_multiplier)
+{
+	struct cdk2_ata_controller_backend *backend = controller->backend;
+	EFI_STATUS status;
+	UINTN tpl;
+
+	(void)opaque;
+	tpl = active_entry->boot->raise_tpl(8U);
+	status = cdk2_ata_async_cancel(&backend->async, port, multiplier,
+		match_multiplier);
+	active_entry->boot->restore_tpl(tpl);
+	return status;
+}
 static EFI_STATUS service_quiesce(void *opaque, struct cdk2_ata_controller *controller)
 { return protocol_async_cancel(opaque, controller); }
 static void cancel_async_event(struct cdk2_ata_controller_backend *backend)
@@ -354,7 +369,7 @@ static EFI_STATUS service_create_protocols(void *opaque,
 	struct cdk2_ata_protocol_bundle **protocols)
 {
 	struct cdk2_ata_protocol_services services = {
-		opaque, protocol_allocate, protocol_release, NULL, NULL, NULL, NULL };
+		opaque, protocol_allocate, protocol_release, NULL, NULL, NULL, NULL, NULL };
 	EFI_STATUS status;
 	if (controller->backend != NULL &&
 	    ((controller->topology.mode == CDK2_ATA_AHCI && controller->ahci != NULL) ||
@@ -370,6 +385,7 @@ static EFI_STATUS service_create_protocols(void *opaque,
 		if (EFI_ERROR(status))
 			return status;
 		services.submit = protocol_async_submit; services.cancel = protocol_async_cancel;
+		services.cancel_scope = protocol_async_cancel_scope;
 		services.wait = protocol_async_wait;
 		services.done = protocol_async_done;
 	}

@@ -193,6 +193,8 @@ EFI_STATUS cdk2_ata_async_submit(struct cdk2_ata_async_controller *async,
 	UINT16 port, UINT16 multiplier, struct cdk2_ata_command_packet *packet,
 	void *event);
 EFI_STATUS cdk2_ata_async_poll(struct cdk2_ata_async_controller *async);
+EFI_STATUS cdk2_ata_async_cancel(struct cdk2_ata_async_controller *async,
+	UINT16 port, UINT16 multiplier, BOOLEAN match_multiplier);
 EFI_STATUS cdk2_ata_async_stop(struct cdk2_ata_async_controller *async);
 struct cdk2_ata_binding {
 	struct cdk2_ata_binding_services services;
@@ -208,6 +210,9 @@ struct cdk2_ata_protocol_services {
 		UINT16 port, UINT16 multiplier, struct cdk2_ata_command_packet *packet,
 		void *event);
 	EFI_STATUS (*cancel)(void *context, struct cdk2_ata_controller *controller);
+	EFI_STATUS (*cancel_scope)(void *context,
+		struct cdk2_ata_controller *controller, UINT16 port, UINT16 multiplier,
+		BOOLEAN match_multiplier);
 	EFI_STATUS (*wait)(void *context, struct cdk2_ata_controller *controller);
 	void (*done)(void *context, struct cdk2_ata_controller *controller);
 };

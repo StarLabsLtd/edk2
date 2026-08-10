@@ -49,19 +49,24 @@ EFI_STATUS cdk2_ata_async_submit(struct cdk2_ata_async_controller *async,
 static BOOLEAN finish(struct cdk2_ata_async_controller *async,
 	struct cdk2_ata_async_task *task, EFI_STATUS status)
 {
-	BOOLEAN signaled = 1;
-
+	if (!task->completed && EFI_ERROR(status) && task->packet != NULL) {
+		task->packet->in_length = 0;
+		task->packet->out_length = 0;
+		if (task->packet->asb != NULL) {
+			task->packet->asb->status = 0x41U;
+			task->packet->asb->error = 0x04U;
+		}
+	}
 	task->status = status; task->completed = 1;
 	if (!task->signaled) {
 		if (EFI_ERROR(async->services.signal(async->services.context, task->event)))
-			signaled = 0;
-		else
-			task->signaled = 1;
+			return 0;
+		task->signaled = 1;
 	}
 	memset(task, 0, sizeof(*task));
 	async->head = (async->head + 1U) % CDK2_ATA_ASYNC_DEPTH;
 	async->count--;
-	return signaled;
+	return 1;
 }
 
 EFI_STATUS cdk2_ata_async_poll(struct cdk2_ata_async_controller *async)
@@ -95,15 +100,23 @@ EFI_STATUS cdk2_ata_async_poll(struct cdk2_ata_async_controller *async)
 		status = EFI_NOT_READY;
 	async->polling = 0;
 	if (async->count != 0U && !async->stopping) {
-		EFI_STATUS arm_status;
+		while (async->count != 0U) {
+			EFI_STATUS arm_status;
 
-		async->armed = 1;
-		arm_status = async->services.arm(async->services.context, async->controller);
-		if (EFI_ERROR(arm_status)) {
+			async->armed = 1;
+			arm_status = async->services.arm(async->services.context,
+				async->controller);
+			if (!EFI_ERROR(arm_status))
+				break;
 			async->armed = 0;
-			finish(async, &async->queue[async->head], arm_status);
 			if (!EFI_ERROR(status))
 				status = arm_status;
+			if (!finish(async, &async->queue[async->head], arm_status)) {
+				async->armed = 1;
+				(void)async->services.arm(async->services.context,
+					async->controller);
+				break;
+			}
 		}
 	}
 	return status;
@@ -118,7 +131,16 @@ EFI_STATUS cdk2_ata_async_stop(struct cdk2_ata_async_controller *async)
 	async->stopping = 1; async->armed = 0;
 	while (async->count != 0U) {
 		struct cdk2_ata_async_task *task = &async->queue[async->head];
-		EFI_STATUS status = task->active ? async->services.abort(
+		EFI_STATUS status;
+
+		if (task->completed) {
+			if (!finish(async, task, task->status)) {
+				async->stopping = 0;
+				return EFI_DEVICE_ERROR;
+			}
+			continue;
+		}
+		status = task->active ? async->services.abort(
 			async->services.context, async->controller, task) : EFI_SUCCESS;
 
 		if (status == EFI_NOT_READY) {
@@ -128,9 +150,36 @@ EFI_STATUS cdk2_ata_async_stop(struct cdk2_ata_async_controller *async)
 		if (EFI_ERROR(status) && !EFI_ERROR(first))
 			first = status;
 		if (!finish(async, task, CDK2_ASYNC_ABORTED)) {
-			if (!EFI_ERROR(first))
-				first = EFI_DEVICE_ERROR;
+			async->stopping = 0;
+			return EFI_DEVICE_ERROR;
 		}
 	}
 	return first;
+}
+
+EFI_STATUS cdk2_ata_async_cancel(struct cdk2_ata_async_controller *async,
+	UINT16 port, UINT16 multiplier, BOOLEAN match_multiplier)
+{
+	if (async == NULL || async->polling)
+		return EFI_INVALID_PARAMETER;
+	for (UINTN offset = 0; offset < async->count; offset++) {
+		struct cdk2_ata_async_task *task =
+			&async->queue[(async->head + offset) % CDK2_ATA_ASYNC_DEPTH];
+
+		if (task->port != port || (match_multiplier &&
+		    task->multiplier != multiplier))
+			continue;
+		if (task->active) {
+			EFI_STATUS status = async->services.abort(async->services.context,
+				async->controller, task);
+
+			if (status == EFI_NOT_READY)
+				return status;
+			if (EFI_ERROR(status))
+				return status;
+		}
+		task->status = CDK2_ASYNC_ABORTED;
+		task->completed = 1;
+	}
+	return EFI_SUCCESS;
 }
