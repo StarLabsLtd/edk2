@@ -6,7 +6,6 @@ hardware-gated	MdeModulePkg/Bus/Pci/EhciDxe/EhciDxe
 hardware-gated	MdeModulePkg/Bus/Pci/NvmExpressDxe/NvmExpressDxe
 hardware-gated	MdeModulePkg/Bus/Pci/SdMmcPciHcDxe/SdMmcPciHcDxe
 hardware-gated	MdeModulePkg/Bus/Pci/UhciDxe/UhciDxe
-native	MdeModulePkg/Bus/Pci/XhciDxe/XhciDxe
 hardware-gated	MdeModulePkg/Bus/Sd/EmmcDxe/EmmcDxe
 hardware-gated	MdeModulePkg/Bus/Sd/SdDxe/SdDxe
 subsystem-sized	MdeModulePkg/Bus/Usb/UsbBusDxe/UsbBusDxe
