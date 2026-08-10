@@ -24,7 +24,8 @@ typedef EFI_STATUS CDK2_MS_ABI wait_fn(UINTN, void **, UINTN *);
 
 struct cdk2_ata_bus_boot_services {
 	UINT8 header[24];
-	raise_tpl_fn *raise_tpl; restore_tpl_fn *restore_tpl;
+	raise_tpl_fn *raise_tpl;
+	restore_tpl_fn *restore_tpl;
 	void *allocate_pages, *free_pages, *get_memory_map;
 	allocate_fn *allocate_pool;
 	free_fn *free_pool;
@@ -297,7 +298,10 @@ static void CDK2_MS_ABI parent_notify(void *event, void *context)
 	tpl = call->entry->boot->raise_tpl(8U);
 	for (link = (struct parent_call **)&call->entry->parent_calls;
 	    *link != NULL; link = &(*link)->next)
-		if (*link == call) { *link = call->next; break; }
+		if (*link == call) {
+			*link = call->next;
+			break;
+		}
 	if (!call->waiting)
 		close_parent_event(call);
 	call->entry->boot->restore_tpl(tpl);
@@ -335,7 +339,10 @@ static EFI_STATUS service_submit(void *context, struct cdk2_ata_bus_child *child
 			UINTN tpl = entry->boot->raise_tpl(8U);
 			for (link = (struct parent_call **)&entry->parent_calls;
 			    *link != NULL; link = &(*link)->next)
-				if (*link == call) { *link = call->next; break; }
+				if (*link == call) {
+					*link = call->next;
+					break;
+				}
 			close_parent_event(call);
 			entry->boot->restore_tpl(tpl);
 			release_parent_call(call);

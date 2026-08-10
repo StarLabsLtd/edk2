@@ -180,7 +180,8 @@ static EFI_STATUS dispatch(struct cdk2_ata_bus_scheduler *scheduler)
 					CDK2_ATA_BUS_QUEUE_DEPTH;
 				scheduler->count--; scheduler->worker_active = 0;
 				scheduler->abort_active = 0;
-				if (EFI_ERROR(status) && !EFI_ERROR(first)) first = status;
+				if (EFI_ERROR(status) && !EFI_ERROR(first))
+					first = status;
 				scheduler->transport.signal(scheduler->transport.context,
 					request->token->event);
 			}
@@ -213,12 +214,14 @@ static EFI_STATUS dispatch(struct cdk2_ata_bus_scheduler *scheduler)
 					scheduler->head = (scheduler->head + 1U) %
 						CDK2_ATA_BUS_QUEUE_DEPTH;
 					scheduler->count--; scheduler->worker_active = 0;
-					if (!EFI_ERROR(first)) first = status;
+					if (!EFI_ERROR(first))
+						first = status;
 					continue;
 				}
 				scheduler->active_status = status;
 				scheduler->completion_pending = 1;
-				if (!EFI_ERROR(first)) first = status;
+				if (!EFI_ERROR(first))
+					first = status;
 			}
 		}
 	}
