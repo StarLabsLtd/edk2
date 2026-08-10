@@ -234,6 +234,10 @@ static void release_device_dma(struct cdk2_xhci_device *device)
 {
 	struct cdk2_xhci_controller *controller = device->controller;
 
+	for (UINTN index = 0U; index < 31U; index++)
+		if (device->endpoints[index].dma.host != NULL)
+			controller->services.release_dma(controller->services.context,
+				&device->endpoints[index].dma);
 	if (device->endpoint_dma.host != NULL)
 		controller->services.release_dma(controller->services.context,
 			&device->endpoint_dma);
@@ -263,7 +267,7 @@ EFI_STATUS cdk2_xhci_device_enable(struct cdk2_xhci_controller *controller,
 	device->speed = speed;
 	context_size = controller->capability.context_64 ? 64U : 32U;
 	status = controller->services.allocate_dma(controller->services.context,
-		context_size * 3U, 64U, &device->input_context);
+		context_size * 33U, 64U, &device->input_context);
 	if (!EFI_ERROR(status))
 		status = controller->services.allocate_dma(controller->services.context,
 			context_size * 32U, 64U, &device->device_context);
@@ -476,5 +480,122 @@ EFI_STATUS cdk2_xhci_control_transfer(struct cdk2_xhci_device *device,
 		status = EFI_TIMEOUT;
 	if (mapping.count != 0U)
 		controller->services.unmap_buffer(controller->services.context, &mapping);
+	return status;
+}
+
+EFI_STATUS cdk2_xhci_device_configure_endpoint(struct cdk2_xhci_device *device,
+	UINT8 endpoint_address, UINT8 transfer_type, UINT16 maximum_packet)
+{
+	struct cdk2_xhci_controller *controller;
+	struct cdk2_xhci_endpoint *endpoint;
+	UINTN context_size;
+	UINT32 *control;
+	UINT32 *context;
+	UINT8 number = endpoint_address & 0xfU;
+	UINT8 dci = number * 2U + ((endpoint_address & 0x80U) != 0U ? 1U : 0U);
+	UINT8 xhci_type;
+	UINT8 result_slot;
+	EFI_STATUS status;
+
+	if (device == NULL || !device->enabled || number == 0U || dci > 31U ||
+	    maximum_packet == 0U || transfer_type < 2U || transfer_type > 3U)
+		return EFI_INVALID_PARAMETER;
+	xhci_type = transfer_type == 2U ?
+		((endpoint_address & 0x80U) != 0U ? 6U : 2U) :
+		((endpoint_address & 0x80U) != 0U ? 7U : 3U);
+	controller = device->controller;
+	endpoint = &device->endpoints[dci - 1U];
+	if (endpoint->enabled)
+		return endpoint->maximum_packet == maximum_packet &&
+			endpoint->type == xhci_type ? EFI_ALREADY_STARTED : EFI_UNSUPPORTED;
+	status = controller->services.allocate_dma(controller->services.context,
+		sizeof(struct cdk2_xhci_trb) * CDK2_XHCI_RING_TRBS, 64U, &endpoint->dma);
+	if (!EFI_ERROR(status))
+		status = cdk2_xhci_ring_init(&endpoint->ring, endpoint->dma.host,
+			endpoint->dma.device);
+	if (EFI_ERROR(status))
+		return status;
+	context_size = controller->capability.context_64 ? 64U : 32U;
+	memset(device->input_context.host, 0, device->input_context.size);
+	control = device->input_context.host;
+	control[1] = 1U << dci;
+	context = (void *)((UINT8 *)device->input_context.host +
+		context_size * (dci + 1U));
+	context[1] = (UINT32)xhci_type << 3 | (UINT32)maximum_packet << 16;
+	context[2] = (UINT32)endpoint->dma.device | 1U;
+	context[3] = endpoint->dma.device >> 32;
+	context[4] = maximum_packet;
+	status = controller->services.flush(controller->services.context);
+	if (!EFI_ERROR(status))
+		status = cdk2_xhci_controller_command(controller, 12U, device->slot,
+			device->input_context.device, &result_slot);
+	if (EFI_ERROR(status)) {
+		controller->services.release_dma(controller->services.context,
+			&endpoint->dma);
+		memset(endpoint, 0, sizeof(*endpoint));
+		return status;
+	}
+	endpoint->maximum_packet = maximum_packet;
+	endpoint->dci = dci;
+	endpoint->type = xhci_type;
+	endpoint->enabled = TRUE;
+	return EFI_SUCCESS;
+}
+
+EFI_STATUS cdk2_xhci_bulk_transfer(struct cdk2_xhci_device *device,
+	UINT8 endpoint_address, void *buffer, UINTN *length)
+{
+	struct cdk2_xhci_controller *controller;
+	struct cdk2_xhci_mapping mapping;
+	struct cdk2_xhci_endpoint *endpoint;
+	struct cdk2_xhci_trb event;
+	UINT64 last_address;
+	UINT16 first, count;
+	UINT8 dci;
+	EFI_STATUS status;
+
+	if (device == NULL || !device->enabled || buffer == NULL || length == NULL ||
+	    *length == 0U)
+		return EFI_INVALID_PARAMETER;
+	dci = (endpoint_address & 0xfU) * 2U +
+		((endpoint_address & 0x80U) != 0U ? 1U : 0U);
+	if (dci == 0U || dci > 31U || !device->endpoints[dci - 1U].enabled)
+		return EFI_NOT_FOUND;
+	controller = device->controller;
+	endpoint = &device->endpoints[dci - 1U];
+	status = controller->services.map_buffer(controller->services.context,
+		buffer, *length, (endpoint_address & 0x80U) != 0U, &mapping);
+	if (EFI_ERROR(status))
+		return status;
+	status = cdk2_xhci_build_bulk_transfer(&endpoint->ring, mapping.segments,
+		mapping.count, &first, &count);
+	if (!EFI_ERROR(status))
+		status = controller->services.flush(controller->services.context);
+	if (!EFI_ERROR(status))
+		status = controller->services.write32(controller->services.context,
+			controller->capability.doorbell_offset + (UINT32)device->slot * 4U, dci);
+	last_address = endpoint->ring.device_address +
+		((first + count - 1U) % (CDK2_XHCI_RING_TRBS - 1U)) * 16U;
+	for (UINTN retry = 0U; !EFI_ERROR(status) && retry < 1000U; retry++) {
+		status = next_event(controller, &event);
+		if (status == EFI_NOT_READY) {
+			controller->services.delay(controller->services.context, 1000U);
+			status = EFI_SUCCESS;
+			continue;
+		}
+		if (!EFI_ERROR(status) && (event.control >> 10 & 0x3fU) == 32U &&
+		    (event.parameter & ~0xfULL) == last_address) {
+			UINT32 residual = event.status & 0xffffffU;
+
+			status = (event.status >> 24) == 1U ? EFI_SUCCESS : EFI_DEVICE_ERROR;
+			*length = residual <= *length ? *length - residual : 0U;
+			break;
+		}
+		if (!EFI_ERROR(status))
+			status = EFI_NOT_READY;
+	}
+	if (status == EFI_NOT_READY)
+		status = EFI_TIMEOUT;
+	controller->services.unmap_buffer(controller->services.context, &mapping);
 	return status;
 }

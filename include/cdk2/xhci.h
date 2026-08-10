@@ -124,10 +124,19 @@ struct cdk2_xhci_controller {
 	BOOLEAN running;
 };
 
+struct cdk2_xhci_endpoint {
+	struct cdk2_xhci_dma dma;
+	struct cdk2_xhci_ring ring;
+	UINT16 maximum_packet;
+	UINT8 dci, type;
+	BOOLEAN enabled;
+};
+
 struct cdk2_xhci_device {
 	struct cdk2_xhci_controller *controller;
 	struct cdk2_xhci_dma input_context, device_context, endpoint_dma;
 	struct cdk2_xhci_ring endpoint_ring;
+	struct cdk2_xhci_endpoint endpoints[31];
 	UINT8 slot, root_port, speed;
 	BOOLEAN enabled;
 };
@@ -190,6 +199,10 @@ EFI_STATUS cdk2_xhci_controller_set_port(struct cdk2_xhci_controller *controller
 EFI_STATUS cdk2_xhci_control_transfer(struct cdk2_xhci_device *device,
 	const struct cdk2_usb_request *request, void *buffer, UINTN *length,
 	BOOLEAN data_in);
+EFI_STATUS cdk2_xhci_device_configure_endpoint(struct cdk2_xhci_device *device,
+	UINT8 endpoint_address, UINT8 transfer_type, UINT16 maximum_packet);
+EFI_STATUS cdk2_xhci_bulk_transfer(struct cdk2_xhci_device *device,
+	UINT8 endpoint_address, void *buffer, UINTN *length);
 EFI_STATUS cdk2_xhci_pci_adapter_init(struct cdk2_xhci_pci_adapter *adapter,
 	struct cdk2_efi_pci_io_protocol *pci, UINT8 bar, void *delay_context,
 	cdk2_xhci_delay_fn *delay);

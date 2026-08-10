@@ -47,7 +47,9 @@ static EFI_STATUS write32(void *opaque, UINT32 offset, UINT32 value)
 				(events->cycle ? 1U : 0U) };
 	}
 	if (offset == 0x1000U + 5U * 4U && fixture->controller != NULL) {
-		struct cdk2_xhci_ring *ring = &fixture->device->endpoint_ring;
+		struct cdk2_xhci_ring *ring = value == 1U ?
+			&fixture->device->endpoint_ring :
+			&fixture->device->endpoints[value - 1U].ring;
 		struct cdk2_xhci_event_ring *events = &fixture->controller->event_ring;
 		struct cdk2_xhci_trb *event = fixture->controller->event_dma.host;
 		UINT16 transfer = ring->enqueue == 0U ? 254U : ring->enqueue - 1U;
@@ -158,6 +160,11 @@ int main(void)
 
 		CHECK(cdk2_xhci_control_transfer(&device, &request, buffer, &length,
 			TRUE) == EFI_SUCCESS && length == sizeof(buffer));
+		CHECK(cdk2_xhci_device_configure_endpoint(&device, 0x81U, 2U, 512U) ==
+			EFI_SUCCESS && device.endpoints[2].enabled);
+		length = sizeof(buffer);
+		CHECK(cdk2_xhci_bulk_transfer(&device, 0x81U, buffer, &length) ==
+			EFI_SUCCESS && length == sizeof(buffer));
 	}
 	CHECK(cdk2_xhci_device_disable(&device) == EFI_SUCCESS && !device.enabled &&
 		fixture.allocations == fixture.releases + 4U);
