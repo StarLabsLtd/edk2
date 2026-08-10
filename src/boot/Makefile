@@ -52,6 +52,7 @@ CDK2_NATIVE_SCSI_DISK_QEMU_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/scsi-disk-qemu.o
 CDK2_NATIVE_SCSI_DISK_QEMU_PE ?= $(CDK2_NATIVE_BUILD_DIR)/scsi-disk-qemu.efi
 CDK2_NATIVE_XHCI_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/xhci-model-test
 CDK2_NATIVE_XHCI_CONTROLLER_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/xhci-controller-test
+CDK2_NATIVE_XHCI_PCI_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/xhci-pci-test
 CDK2_NATIVE_SATA_CONTROLLER_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-sata-controller-test
 CDK2_NATIVE_ATA_ATAPI_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-atapi-test
 CDK2_NATIVE_ATA_ATAPI_BINDING_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-atapi-binding-test
@@ -1123,9 +1124,11 @@ native-scsi-disk-test: $(CDK2_NATIVE_SCSI_DISK_ENTRY_TEST)
 	@"$(CDK2_NATIVE_SCSI_DISK_ENTRY_TEST)"
 
 .PHONY: native-xhci-test
-native-xhci-test: $(CDK2_NATIVE_XHCI_TEST) $(CDK2_NATIVE_XHCI_CONTROLLER_TEST)
+native-xhci-test: $(CDK2_NATIVE_XHCI_TEST) $(CDK2_NATIVE_XHCI_CONTROLLER_TEST) \
+		$(CDK2_NATIVE_XHCI_PCI_TEST)
 	@"$(CDK2_NATIVE_XHCI_TEST)"
 	@"$(CDK2_NATIVE_XHCI_CONTROLLER_TEST)"
+	@"$(CDK2_NATIVE_XHCI_PCI_TEST)"
 
 $(CDK2_NATIVE_XHCI_TEST): $(CDK2_DIR)/tests/xhci_model_test.c \
 		$(CDK2_DIR)/src/modules/xhci/model.c $(CDK2_DIR)/include/cdk2/xhci.h | \
@@ -1142,6 +1145,13 @@ $(CDK2_NATIVE_XHCI_CONTROLLER_TEST): $(CDK2_DIR)/tests/xhci_controller_test.c \
 		$(CDK2_NATIVE_INCLUDES) -o "$@" $(CDK2_DIR)/tests/xhci_controller_test.c \
 		$(CDK2_DIR)/src/modules/xhci/model.c \
 		$(CDK2_DIR)/src/modules/xhci/controller.c
+
+$(CDK2_NATIVE_XHCI_PCI_TEST): $(CDK2_DIR)/tests/xhci_pci_test.c \
+		$(CDK2_DIR)/src/modules/xhci/pci_adapter.c \
+		$(CDK2_DIR)/include/cdk2/xhci.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -fsanitize=address,undefined \
+		$(CDK2_NATIVE_INCLUDES) -o "$@" $(CDK2_DIR)/tests/xhci_pci_test.c \
+		$(CDK2_DIR)/src/modules/xhci/pci_adapter.c
 
 .PHONY: native-scsi-disk-package
 native-scsi-disk-package: $(CDK2_NATIVE_SCSI_DISK_FFS) \

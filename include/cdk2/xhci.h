@@ -3,6 +3,7 @@
 #define CDK2_XHCI_H_
 
 #include <uefi.h>
+#include <cdk2/pci_io_abi.h>
 
 #define CDK2_XHCI_RING_TRBS 256U
 #define CDK2_XHCI_LINK_TYPE 6U
@@ -81,6 +82,21 @@ struct cdk2_xhci_controller {
 	BOOLEAN running;
 };
 
+#define CDK2_XHCI_PCI_ALLOCATIONS 32U
+struct cdk2_xhci_pci_allocation {
+	void *host, *mapping;
+	UINTN pages;
+};
+struct cdk2_xhci_pci_adapter {
+	struct cdk2_efi_pci_io_protocol *pci;
+	struct cdk2_xhci_pci_allocation allocations[CDK2_XHCI_PCI_ALLOCATIONS];
+	void *delay_context;
+	cdk2_xhci_delay_fn *delay;
+	UINT64 original_attributes;
+	UINT8 bar;
+	BOOLEAN attributes_owned;
+};
+
 EFI_STATUS cdk2_xhci_parse_capabilities(UINT32 capability0, UINT32 hcs1,
 	UINT32 hcs2, UINT32 hcc1, UINT32 doorbell, UINT32 runtime,
 	UINT32 page_size_mask, struct cdk2_xhci_capabilities *capabilities);
@@ -96,5 +112,11 @@ EFI_STATUS cdk2_xhci_controller_init(struct cdk2_xhci_controller *controller,
 	const struct cdk2_xhci_controller_services *services,
 	const struct cdk2_xhci_capabilities *capability);
 void cdk2_xhci_controller_destroy(struct cdk2_xhci_controller *controller);
+EFI_STATUS cdk2_xhci_pci_adapter_init(struct cdk2_xhci_pci_adapter *adapter,
+	struct cdk2_efi_pci_io_protocol *pci, UINT8 bar, void *delay_context,
+	cdk2_xhci_delay_fn *delay);
+void cdk2_xhci_pci_controller_services(struct cdk2_xhci_pci_adapter *adapter,
+	struct cdk2_xhci_controller_services *services);
+EFI_STATUS cdk2_xhci_pci_adapter_release(struct cdk2_xhci_pci_adapter *adapter);
 
 #endif
