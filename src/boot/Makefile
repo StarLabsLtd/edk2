@@ -1125,10 +1125,25 @@ native-scsi-disk-test: $(CDK2_NATIVE_SCSI_DISK_ENTRY_TEST)
 
 .PHONY: native-xhci-test
 native-xhci-test: $(CDK2_NATIVE_XHCI_TEST) $(CDK2_NATIVE_XHCI_CONTROLLER_TEST) \
-		$(CDK2_NATIVE_XHCI_PCI_TEST)
+		$(CDK2_NATIVE_XHCI_PCI_TEST) $(CDK2_NATIVE_BUILD_DIR)/xhci-entry-test
 	@"$(CDK2_NATIVE_XHCI_TEST)"
 	@"$(CDK2_NATIVE_XHCI_CONTROLLER_TEST)"
 	@"$(CDK2_NATIVE_XHCI_PCI_TEST)"
+	@"$(CDK2_NATIVE_BUILD_DIR)/xhci-entry-test"
+
+$(CDK2_NATIVE_BUILD_DIR)/xhci-entry-test: $(CDK2_DIR)/tests/xhci_entry_test.c \
+		$(CDK2_DIR)/src/modules/xhci/model.c \
+		$(CDK2_DIR)/src/modules/xhci/controller.c \
+		$(CDK2_DIR)/src/modules/xhci/pci_adapter.c \
+		$(CDK2_DIR)/src/modules/xhci/usb2_abi.c \
+		$(CDK2_DIR)/src/modules/xhci/entry.c $(CDK2_DIR)/include/cdk2/xhci.h | \
+		$(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -fsanitize=address,undefined \
+		$(CDK2_NATIVE_INCLUDES) -o "$@" $(CDK2_DIR)/tests/xhci_entry_test.c \
+		$(CDK2_DIR)/src/modules/xhci/model.c \
+		$(CDK2_DIR)/src/modules/xhci/controller.c \
+		$(CDK2_DIR)/src/modules/xhci/pci_adapter.c \
+		$(CDK2_DIR)/src/modules/xhci/usb2_abi.c
 
 $(CDK2_NATIVE_XHCI_TEST): $(CDK2_DIR)/tests/xhci_model_test.c \
 		$(CDK2_DIR)/src/modules/xhci/model.c $(CDK2_DIR)/include/cdk2/xhci.h | \
