@@ -84,9 +84,9 @@ typedef EFI_STATUS CDK2_MS_ABI cdk2_scsi_start_fn(
 typedef EFI_STATUS CDK2_MS_ABI cdk2_scsi_stop_fn(
 	struct cdk2_scsi_driver_binding *, void *, UINTN, void **);
 typedef EFI_STATUS CDK2_MS_ABI cdk2_scsi_name_fn(struct cdk2_scsi_component_name *,
-	CHAR8 *, CHAR16 **);
+	CHAR8 *, CHAR16 * *);
 typedef EFI_STATUS CDK2_MS_ABI cdk2_scsi_controller_name_fn(
-	struct cdk2_scsi_component_name *, void *, void *, CHAR8 *, CHAR16 **);
+	struct cdk2_scsi_component_name *, void *, void *, CHAR8 *, CHAR16 * *);
 
 struct cdk2_scsi_driver_binding {
 	cdk2_scsi_supported_fn *supported;
