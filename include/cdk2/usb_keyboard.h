@@ -2,7 +2,7 @@
 #ifndef CDK2_USB_KEYBOARD_H
 #define CDK2_USB_KEYBOARD_H
 
-#include <cdk2/partition.h>
+#include <cdk2/usb_bus.h>
 
 #define CDK2_USB_KEYBOARD_KEYS 6U
 #define CDK2_USB_KEYBOARD_QUEUE 32U
@@ -30,10 +30,21 @@ struct cdk2_usb_keyboard {
 	BOOLEAN caps_lock, num_lock, scroll_lock;
 };
 
+struct cdk2_usb_keyboard_device {
+	struct cdk2_usb_keyboard keyboard;
+	struct cdk2_usb_io_protocol *usb;
+	UINT8 endpoint, interval;
+	UINT16 packet_size;
+	BOOLEAN active;
+};
+
 EFI_STATUS cdk2_usb_keyboard_init(struct cdk2_usb_keyboard *keyboard);
 EFI_STATUS cdk2_usb_keyboard_report(struct cdk2_usb_keyboard *keyboard,
 	const void *report, UINTN length);
 EFI_STATUS cdk2_usb_keyboard_read(struct cdk2_usb_keyboard *keyboard,
 	struct cdk2_usb_keyboard_key *key);
+EFI_STATUS cdk2_usb_keyboard_start_io(struct cdk2_usb_keyboard_device *device,
+	struct cdk2_usb_io_protocol *usb);
+EFI_STATUS cdk2_usb_keyboard_stop_io(struct cdk2_usb_keyboard_device *device);
 
 #endif
