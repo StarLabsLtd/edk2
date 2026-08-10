@@ -72,7 +72,8 @@ EFI_STATUS cdk2_xhci_controller_init(struct cdk2_xhci_controller *controller,
 	    services->read32 == NULL || services->write32 == NULL ||
 	    services->write64 == NULL || services->flush == NULL ||
 	    services->delay == NULL ||
-	    services->allocate_dma == NULL || services->release_dma == NULL)
+	    services->allocate_dma == NULL || services->release_dma == NULL ||
+	    services->map_buffer == NULL || services->unmap_buffer == NULL)
 		return EFI_INVALID_PARAMETER;
 	memset(controller, 0, sizeof(*controller));
 	controller->services = *services;
@@ -413,4 +414,67 @@ EFI_STATUS cdk2_xhci_controller_set_port(struct cdk2_xhci_controller *controller
 			return status;
 	}
 	return EFI_TIMEOUT;
+}
+
+EFI_STATUS cdk2_xhci_control_transfer(struct cdk2_xhci_device *device,
+	const struct cdk2_usb_request *request, void *buffer, UINTN *length,
+	BOOLEAN data_in)
+{
+	struct cdk2_xhci_controller *controller;
+	struct cdk2_xhci_mapping mapping;
+	struct cdk2_xhci_trb event;
+	UINT64 last_address;
+	UINT16 first, count;
+	EFI_STATUS status;
+
+	if (device == NULL || !device->enabled || request == NULL || length == NULL ||
+	    *length > UINT32_MAX || request->length != *length ||
+	    (*length != 0U && buffer == NULL))
+		return EFI_INVALID_PARAMETER;
+	controller = device->controller;
+	memset(&mapping, 0, sizeof(mapping));
+	if (*length != 0U) {
+		status = controller->services.map_buffer(controller->services.context,
+			buffer, *length, data_in, &mapping);
+		if (EFI_ERROR(status))
+			return status;
+		if (mapping.count != 1U) {
+			controller->services.unmap_buffer(controller->services.context,
+				&mapping);
+			return EFI_BAD_BUFFER_SIZE;
+		}
+	}
+	status = cdk2_xhci_build_control_transfer(&device->endpoint_ring, request,
+		*length == 0U ? 0U : mapping.segments[0].device, *length, data_in,
+		&first, &count);
+	if (!EFI_ERROR(status))
+		status = controller->services.flush(controller->services.context);
+	if (!EFI_ERROR(status))
+		status = controller->services.write32(controller->services.context,
+			controller->capability.doorbell_offset + (UINT32)device->slot * 4U, 1U);
+	last_address = device->endpoint_ring.device_address +
+		((first + count - 1U) % (CDK2_XHCI_RING_TRBS - 1U)) * 16U;
+	for (UINTN retry = 0U; !EFI_ERROR(status) && retry < 1000U; retry++) {
+		status = next_event(controller, &event);
+		if (status == EFI_NOT_READY) {
+			controller->services.delay(controller->services.context, 1000U);
+			status = EFI_SUCCESS;
+			continue;
+		}
+		if (!EFI_ERROR(status) && (event.control >> 10 & 0x3fU) == 32U &&
+		    (event.parameter & ~0xfULL) == last_address) {
+			UINT32 residual = event.status & 0xffffffU;
+
+			status = (event.status >> 24) == 1U ? EFI_SUCCESS : EFI_DEVICE_ERROR;
+			*length = residual <= *length ? *length - residual : 0U;
+			break;
+		}
+		if (!EFI_ERROR(status))
+			status = EFI_NOT_READY;
+	}
+	if (status == EFI_NOT_READY)
+		status = EFI_TIMEOUT;
+	if (mapping.count != 0U)
+		controller->services.unmap_buffer(controller->services.context, &mapping);
+	return status;
 }

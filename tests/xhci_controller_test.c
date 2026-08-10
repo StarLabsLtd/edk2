@@ -14,6 +14,7 @@ struct fixture {
 	UINTN allocations, releases, fail_allocation, writes;
 	UINT64 next_device;
 	struct cdk2_xhci_controller *controller;
+	struct cdk2_xhci_device *device;
 	UINT8 next_slot;
 };
 
@@ -33,7 +34,7 @@ static EFI_STATUS write32(void *opaque, UINT32 offset, UINT32 value)
 	if (offset == 0x40U && (value & 2U) != 0U)
 		value &= ~2U;
 	fixture->registers[offset / 4U] = value;
-	if (offset == 0x1000U && fixture->controller != NULL) {
+	if (offset == 0x1000U && value == 0U && fixture->controller != NULL) {
 		struct cdk2_xhci_ring *ring = &fixture->controller->command_ring;
 		UINT16 command = ring->enqueue == 0U ? 254U : ring->enqueue - 1U;
 		struct cdk2_xhci_event_ring *events = &fixture->controller->event_ring;
@@ -43,6 +44,17 @@ static EFI_STATUS write32(void *opaque, UINT32 offset, UINT32 value)
 			.parameter = ring->device_address + command * 16U,
 			.status = 1U << 24, .control = 33U << 10 |
 				(UINT32)fixture->next_slot << 24 |
+				(events->cycle ? 1U : 0U) };
+	}
+	if (offset == 0x1000U + 5U * 4U && fixture->controller != NULL) {
+		struct cdk2_xhci_ring *ring = &fixture->device->endpoint_ring;
+		struct cdk2_xhci_event_ring *events = &fixture->controller->event_ring;
+		struct cdk2_xhci_trb *event = fixture->controller->event_dma.host;
+		UINT16 transfer = ring->enqueue == 0U ? 254U : ring->enqueue - 1U;
+
+		event[events->dequeue] = (struct cdk2_xhci_trb) {
+			.parameter = ring->device_address + transfer * 16U,
+			.status = 1U << 24, .control = 32U << 10 |
 				(events->cycle ? 1U : 0U) };
 	}
 	return EFI_SUCCESS;
@@ -97,11 +109,27 @@ static void release_dma(void *opaque, struct cdk2_xhci_dma *dma)
 	free(dma->host);
 }
 
+static EFI_STATUS map_buffer(void *opaque, void *buffer, UINTN length,
+	BOOLEAN device_writes, struct cdk2_xhci_mapping *mapping)
+{
+	(void)opaque;
+	(void)device_writes;
+	*mapping = (struct cdk2_xhci_mapping) { .segments = {
+		{ (UINTN)buffer, length } }, .count = 1U, .length = length };
+	return EFI_SUCCESS;
+}
+
+static void unmap_buffer(void *opaque, struct cdk2_xhci_mapping *mapping)
+{
+	(void)opaque;
+	memset(mapping, 0, sizeof(*mapping));
+}
+
 int main(void)
 {
 	struct fixture fixture = { .next_device = 0x100000U };
 	struct cdk2_xhci_controller_services services = { &fixture, read32, write32,
-		write64, flush, delay, allocate_dma, release_dma };
+		write64, flush, delay, allocate_dma, release_dma, map_buffer, unmap_buffer };
 	struct cdk2_xhci_capabilities capability = { .capability_length = 0x40U,
 		.maximum_slots = 8U, .maximum_ports = 4U, .runtime_offset = 0x2000U,
 		.doorbell_offset = 0x1000U, .page_size = 4096U };
@@ -122,6 +150,15 @@ int main(void)
 	CHECK(cdk2_xhci_device_enable(&controller, 2U, 3U, 64U, &device) ==
 		EFI_SUCCESS && device.enabled && device.slot == 5U &&
 		((UINT64 *)controller.dcbaa.host)[5] == device.device_context.device);
+	fixture.device = &device;
+	{
+		struct cdk2_usb_request request = { 0x80U, 6U, 0x100U, 0U, 8U };
+		UINT8 buffer[8];
+		UINTN length = sizeof(buffer);
+
+		CHECK(cdk2_xhci_control_transfer(&device, &request, buffer, &length,
+			TRUE) == EFI_SUCCESS && length == sizeof(buffer));
+	}
 	CHECK(cdk2_xhci_device_disable(&device) == EFI_SUCCESS && !device.enabled &&
 		fixture.allocations == fixture.releases + 4U);
 	fixture.registers[(0x40U + 0x400U + 0x10U) / 4U] =

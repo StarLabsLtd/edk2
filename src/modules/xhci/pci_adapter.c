@@ -12,6 +12,8 @@
 #define PCI_ATTRIBUTE_SET 4U
 #define PCI_DEVICE_ENABLE 0x700U
 #define PCI_MAP_COMMON_BUFFER 2U
+#define PCI_MAP_BUS_MASTER_READ 0U
+#define PCI_MAP_BUS_MASTER_WRITE 1U
 
 static EFI_STATUS read32(void *opaque, UINT32 offset, UINT32 *value)
 {
@@ -109,6 +111,50 @@ static void release_dma(void *opaque, struct cdk2_xhci_dma *dma)
 	}
 }
 
+static void unmap_buffer(void *opaque, struct cdk2_xhci_mapping *mapping)
+{
+	struct cdk2_xhci_pci_adapter *adapter = opaque;
+
+	for (UINTN index = mapping->count; index > 0U; index--)
+		(void)adapter->pci->unmap(adapter->pci, mapping->tokens[index - 1U]);
+	memset(mapping, 0, sizeof(*mapping));
+}
+
+static EFI_STATUS map_buffer(void *opaque, void *buffer, UINTN length,
+	BOOLEAN device_writes, struct cdk2_xhci_mapping *mapping)
+{
+	struct cdk2_xhci_pci_adapter *adapter = opaque;
+	UINT8 *cursor = buffer;
+	UINTN remaining = length;
+	EFI_STATUS status;
+
+	if (buffer == NULL || mapping == NULL || length == 0U)
+		return EFI_INVALID_PARAMETER;
+	memset(mapping, 0, sizeof(*mapping));
+	while (remaining != 0U && mapping->count < CDK2_XHCI_TRANSFER_SEGMENTS) {
+		UINTN bytes = remaining;
+		UINTN index = mapping->count;
+
+		status = adapter->pci->map(adapter->pci, device_writes ?
+			PCI_MAP_BUS_MASTER_WRITE : PCI_MAP_BUS_MASTER_READ, cursor,
+			&bytes, &mapping->segments[index].device, &mapping->tokens[index]);
+		if (EFI_ERROR(status) || bytes == 0U || bytes > remaining) {
+			unmap_buffer(adapter, mapping);
+			return EFI_ERROR(status) ? status : EFI_DEVICE_ERROR;
+		}
+		mapping->segments[index].length = bytes;
+		mapping->count++;
+		mapping->length += bytes;
+		cursor += bytes;
+		remaining -= bytes;
+	}
+	if (remaining != 0U) {
+		unmap_buffer(adapter, mapping);
+		return EFI_BAD_BUFFER_SIZE;
+	}
+	return EFI_SUCCESS;
+}
+
 EFI_STATUS cdk2_xhci_pci_adapter_init(struct cdk2_xhci_pci_adapter *adapter,
 	struct cdk2_efi_pci_io_protocol *pci, UINT8 bar, void *delay_context,
 	cdk2_xhci_delay_fn *delay_service)
@@ -150,7 +196,7 @@ void cdk2_xhci_pci_controller_services(struct cdk2_xhci_pci_adapter *adapter,
 	struct cdk2_xhci_controller_services *services)
 {
 	*services = (struct cdk2_xhci_controller_services) { adapter, read32, write32,
-		write64, flush, delay, allocate_dma, release_dma };
+		write64, flush, delay, allocate_dma, release_dma, map_buffer, unmap_buffer };
 }
 
 EFI_STATUS cdk2_xhci_pci_adapter_release(struct cdk2_xhci_pci_adapter *adapter)

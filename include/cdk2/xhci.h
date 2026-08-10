@@ -74,6 +74,13 @@ struct cdk2_xhci_dma {
 	UINTN size;
 };
 
+#define CDK2_XHCI_TRANSFER_SEGMENTS 64U
+struct cdk2_xhci_mapping {
+	struct cdk2_xhci_segment segments[CDK2_XHCI_TRANSFER_SEGMENTS];
+	void *tokens[CDK2_XHCI_TRANSFER_SEGMENTS];
+	UINTN count, length;
+};
+
 typedef EFI_STATUS cdk2_xhci_read32_fn(void *context, UINT32 offset,
 	UINT32 *value);
 typedef EFI_STATUS cdk2_xhci_write32_fn(void *context, UINT32 offset,
@@ -85,6 +92,10 @@ typedef void cdk2_xhci_delay_fn(void *context, UINTN microseconds);
 typedef EFI_STATUS cdk2_xhci_allocate_dma_fn(void *context, UINTN size,
 	UINTN alignment, struct cdk2_xhci_dma *dma);
 typedef void cdk2_xhci_release_dma_fn(void *context, struct cdk2_xhci_dma *dma);
+typedef EFI_STATUS cdk2_xhci_map_buffer_fn(void *context, void *buffer,
+	UINTN length, BOOLEAN device_writes, struct cdk2_xhci_mapping *mapping);
+typedef void cdk2_xhci_unmap_buffer_fn(void *context,
+	struct cdk2_xhci_mapping *mapping);
 
 struct cdk2_xhci_controller_services {
 	void *context;
@@ -95,6 +106,8 @@ struct cdk2_xhci_controller_services {
 	cdk2_xhci_delay_fn *delay;
 	cdk2_xhci_allocate_dma_fn *allocate_dma;
 	cdk2_xhci_release_dma_fn *release_dma;
+	cdk2_xhci_map_buffer_fn *map_buffer;
+	cdk2_xhci_unmap_buffer_fn *unmap_buffer;
 };
 
 struct cdk2_xhci_controller {
@@ -174,6 +187,9 @@ EFI_STATUS cdk2_xhci_controller_get_port(struct cdk2_xhci_controller *controller
 	UINT8 port, struct cdk2_xhci_port_status *status);
 EFI_STATUS cdk2_xhci_controller_set_port(struct cdk2_xhci_controller *controller,
 	UINT8 port, enum cdk2_xhci_port_feature feature, BOOLEAN set);
+EFI_STATUS cdk2_xhci_control_transfer(struct cdk2_xhci_device *device,
+	const struct cdk2_usb_request *request, void *buffer, UINTN *length,
+	BOOLEAN data_in);
 EFI_STATUS cdk2_xhci_pci_adapter_init(struct cdk2_xhci_pci_adapter *adapter,
 	struct cdk2_efi_pci_io_protocol *pci, UINT8 bar, void *delay_context,
 	cdk2_xhci_delay_fn *delay);
