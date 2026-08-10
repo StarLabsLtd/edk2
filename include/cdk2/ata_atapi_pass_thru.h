@@ -167,7 +167,8 @@ struct cdk2_ata_async_task {
 	void *event;
 	UINT16 port, multiplier;
 	EFI_STATUS status;
-	UINT8 active, issued, completed, signaled;
+	UINT8 active, issued, completed, signaled, atapi, cdb_size;
+	UINT8 cdb[16];
 };
 struct cdk2_ata_async_services {
 	void *context;
@@ -193,6 +194,9 @@ EFI_STATUS cdk2_ata_async_init(struct cdk2_ata_async_controller *async,
 EFI_STATUS cdk2_ata_async_submit(struct cdk2_ata_async_controller *async,
 	UINT16 port, UINT16 multiplier, struct cdk2_ata_command_packet *packet,
 	void *event);
+EFI_STATUS cdk2_ata_async_submit_atapi(struct cdk2_ata_async_controller *async,
+	UINT16 port, UINT16 multiplier, struct cdk2_ata_command_packet *packet,
+	const UINT8 *cdb, UINT8 cdb_size, void *event);
 EFI_STATUS cdk2_ata_async_poll(struct cdk2_ata_async_controller *async);
 EFI_STATUS cdk2_ata_async_rearm(struct cdk2_ata_async_controller *async);
 EFI_STATUS cdk2_ata_async_cancel(struct cdk2_ata_async_controller *async,
@@ -358,6 +362,10 @@ struct cdk2_ahci_async_request {
 EFI_STATUS cdk2_ahci_async_prepare(struct cdk2_ahci_async_request *request,
 	struct cdk2_ahci_engine *engine, UINT16 port,
 	struct cdk2_ata_command_packet *packet, UINT64 timeout);
+EFI_STATUS cdk2_ahci_atapi_async_prepare(struct cdk2_ahci_async_request *request,
+	struct cdk2_ahci_engine *engine, UINT16 port,
+	struct cdk2_ata_command_packet *packet, const UINT8 *cdb, size_t cdb_size,
+	UINT64 timeout);
 EFI_STATUS cdk2_ahci_async_step(struct cdk2_ahci_async_request *request,
 	BOOLEAN *complete);
 EFI_STATUS cdk2_ahci_async_abort(struct cdk2_ahci_async_request *request,

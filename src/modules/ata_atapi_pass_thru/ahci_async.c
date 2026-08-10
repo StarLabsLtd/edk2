@@ -42,9 +42,10 @@ static EFI_STATUS expired(struct cdk2_ahci_async_request *request)
 		request->engine->services.context) - request->deadline >= request->timeout;
 }
 
-EFI_STATUS cdk2_ahci_async_prepare(struct cdk2_ahci_async_request *request,
+static EFI_STATUS prepare(struct cdk2_ahci_async_request *request,
 	struct cdk2_ahci_engine *engine, UINT16 port,
-	struct cdk2_ata_command_packet *packet, UINT64 timeout)
+	struct cdk2_ata_command_packet *packet, const UINT8 *cdb, size_t cdb_size,
+	UINT64 timeout)
 {
 	EFI_STATUS status;
 
@@ -54,7 +55,7 @@ EFI_STATUS cdk2_ahci_async_prepare(struct cdk2_ahci_async_request *request,
 		return EFI_INVALID_PARAMETER;
 	memset(request, 0, sizeof(*request)); request->engine = engine;
 	request->packet = packet; request->port = port;
-	status = cdk2_ahci_build_command(packet, 0, NULL, 0, &request->command);
+	status = cdk2_ahci_build_command(packet, 0, cdb, cdb_size, &request->command);
 	if (EFI_ERROR(status))
 		return status;
 	request->buffer = packet->out_length != 0U ? packet->out_data : packet->in_data;
@@ -65,6 +66,21 @@ EFI_STATUS cdk2_ahci_async_prepare(struct cdk2_ahci_async_request *request,
 	request->timeout = timeout;
 	request->phase = CDK2_AHCI_ASYNC_SLOT;
 	return EFI_SUCCESS;
+}
+
+EFI_STATUS cdk2_ahci_async_prepare(struct cdk2_ahci_async_request *request,
+	struct cdk2_ahci_engine *engine, UINT16 port,
+	struct cdk2_ata_command_packet *packet, UINT64 timeout)
+{
+	return prepare(request, engine, port, packet, NULL, 0U, timeout);
+}
+
+EFI_STATUS cdk2_ahci_atapi_async_prepare(struct cdk2_ahci_async_request *request,
+	struct cdk2_ahci_engine *engine, UINT16 port,
+	struct cdk2_ata_command_packet *packet, const UINT8 *cdb, size_t cdb_size,
+	UINT64 timeout)
+{
+	return prepare(request, engine, port, packet, cdb, cdb_size, timeout);
 }
 
 static EFI_STATUS program_port(struct cdk2_ahci_async_request *request)
@@ -217,6 +233,9 @@ EFI_STATUS cdk2_ahci_async_step(struct cdk2_ahci_async_request *request,
 		request->table_offset += bytes;
 		if (request->table_offset == engine->command_tables[request->slot].size) {
 			memcpy(table, request->command.fis, 20U);
+			if (request->command.atapi_command)
+				memcpy(table + 0x40U, request->command.atapi,
+					sizeof(request->command.atapi));
 			request->phase = CDK2_AHCI_ASYNC_TABLE_BUILD;
 		}
 		break;
@@ -239,7 +258,8 @@ EFI_STATUS cdk2_ahci_async_step(struct cdk2_ahci_async_request *request,
 		break;
 	case CDK2_AHCI_ASYNC_HEADER_BUILD: {
 		UINT8 *header = (UINT8 *)engine->command_list.host + request->slot * 32U;
-		UINT32 flags = 5U | (request->command.write ? 0x40U : 0U) |
+		UINT32 flags = 5U | (request->command.atapi_command ? 0x20U : 0U) |
+			(request->command.write ? 0x40U : 0U) |
 			((UINT32)request->command.prdt_count << 16);
 
 		memset(header, 0, 32U); put32(header, flags);

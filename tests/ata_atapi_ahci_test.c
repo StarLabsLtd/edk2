@@ -154,8 +154,15 @@ int main(void)
 		unsigned int before_unmaps = fixture.unmaps;
 
 		fixture.ci_reads = 0; fixture.now = 0; packet.in_length = 512;
-		CHECK(cdk2_ahci_async_prepare(&request, &engine, 0, &packet, 100) ==
+		acb.command = 0xa0U; acb.features = CDK2_ATAPI_FEATURE_DMA;
+		CHECK(cdk2_ahci_atapi_async_prepare(&request, &engine, 0, &packet,
+			atapi, sizeof(atapi), 100) ==
 			EFI_SUCCESS && request.mapping_count == 0 && engine.active_slots == 0);
+		while (request.phase != CDK2_AHCI_ASYNC_PREP_FLUSH)
+			CHECK(cdk2_ahci_async_step(&request, &complete) == EFI_SUCCESS);
+		CHECK((get32(engine.command_list.host) & 0x20U) != 0U &&
+			memcmp((UINT8 *)engine.command_tables[0].host + 0x40U, atapi,
+			sizeof(atapi)) == 0);
 		for (unsigned int tick = 0; tick < 512 && !complete; tick++)
 			CHECK(cdk2_ahci_async_step(&request, &complete) == EFI_SUCCESS);
 		CHECK(complete && request.cleaned && engine.active_slots == 0 &&

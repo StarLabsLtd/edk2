@@ -207,6 +207,15 @@ static EFI_STATUS hardware_discover_ahci(void *opaque,
 static EFI_STATUS async_begin(void *opaque, struct cdk2_ata_controller *controller,
 	struct cdk2_ata_async_task *task)
 { struct cdk2_ata_controller_backend *backend = controller->backend; (void)opaque;
+	if (task->atapi)
+		return controller->topology.mode == CDK2_ATA_AHCI ?
+			cdk2_ahci_atapi_async_prepare(&backend->async_request,
+				controller->ahci, task->port, task->packet, task->cdb,
+				task->cdb_size, task->packet->timeout) :
+			cdk2_ide_atapi_async_prepare(&backend->ide_async_request,
+				controller->ide_engine, (UINT8)task->port,
+				(UINT8)task->multiplier, task->packet, task->cdb,
+				task->cdb_size, task->packet->timeout);
 	return controller->topology.mode == CDK2_ATA_AHCI ?
 		cdk2_ahci_async_prepare(&backend->async_request, controller->ahci,
 			task->port, task->packet, task->packet->timeout) :

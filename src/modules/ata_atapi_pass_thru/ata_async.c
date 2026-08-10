@@ -19,14 +19,15 @@ EFI_STATUS cdk2_ata_async_init(struct cdk2_ata_async_controller *async,
 	return EFI_SUCCESS;
 }
 
-EFI_STATUS cdk2_ata_async_submit(struct cdk2_ata_async_controller *async,
+static EFI_STATUS submit(struct cdk2_ata_async_controller *async,
 	UINT16 port, UINT16 multiplier, struct cdk2_ata_command_packet *packet,
-	void *event)
+	const UINT8 *cdb, UINT8 cdb_size, void *event)
 {
 	struct cdk2_ata_async_task *task;
 	EFI_STATUS status;
 
-	if (async == NULL || packet == NULL || event == NULL)
+	if (async == NULL || packet == NULL || event == NULL ||
+	    (cdb_size != 0U && (cdb == NULL || (cdb_size != 12U && cdb_size != 16U))))
 		return EFI_INVALID_PARAMETER;
 	if (async->stopping)
 		return EFI_NOT_READY;
@@ -34,7 +35,10 @@ EFI_STATUS cdk2_ata_async_submit(struct cdk2_ata_async_controller *async,
 		return EFI_OUT_OF_RESOURCES;
 	task = &async->queue[(async->head + async->count) % CDK2_ATA_ASYNC_DEPTH];
 	*task = (struct cdk2_ata_async_task) {
-		packet, event, port, multiplier, EFI_NOT_READY, 0, 0, 0, 0 };
+		.packet = packet, .event = event, .port = port, .multiplier = multiplier,
+		.status = EFI_NOT_READY, .atapi = cdb_size != 0U, .cdb_size = cdb_size };
+	if (cdb_size != 0U)
+		memcpy(task->cdb, cdb, cdb_size);
 	async->count++;
 	if (async->armed)
 		return EFI_SUCCESS;
@@ -44,6 +48,20 @@ EFI_STATUS cdk2_ata_async_submit(struct cdk2_ata_async_controller *async,
 		async->armed = 0; async->count--; memset(task, 0, sizeof(*task));
 	}
 	return status;
+}
+
+EFI_STATUS cdk2_ata_async_submit(struct cdk2_ata_async_controller *async,
+	UINT16 port, UINT16 multiplier, struct cdk2_ata_command_packet *packet,
+	void *event)
+{
+	return submit(async, port, multiplier, packet, NULL, 0U, event);
+}
+
+EFI_STATUS cdk2_ata_async_submit_atapi(struct cdk2_ata_async_controller *async,
+	UINT16 port, UINT16 multiplier, struct cdk2_ata_command_packet *packet,
+	const UINT8 *cdb, UINT8 cdb_size, void *event)
+{
+	return submit(async, port, multiplier, packet, cdb, cdb_size, event);
 }
 
 static BOOLEAN finish(struct cdk2_ata_async_controller *async,
