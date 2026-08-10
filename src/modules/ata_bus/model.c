@@ -65,7 +65,7 @@ EFI_STATUS cdk2_ata_bus_parse_identify(const UINT8 identify[512],
 
 static EFI_STATUS identify_device(struct cdk2_ata_pass_thru_protocol *protocol,
 	UINT16 port, UINT16 multiplier, struct cdk2_ata_bus_child *child,
-	void (*release_path)(void *))
+	void (*release_path)(void *, void *), void *release_context)
 {
 	struct cdk2_ata_command_block acb = { .command = 0xecU };
 	struct cdk2_ata_status_block asb;
@@ -87,17 +87,17 @@ static EFI_STATUS identify_device(struct cdk2_ata_pass_thru_protocol *protocol,
 	child->device_path_size = ((UINT8 *)path)[2] | ((UINTN)((UINT8 *)path)[3] << 8);
 	if (child->device_path_size > sizeof(child->device_path) ||
 	    child->device_path_size < 4U) {
-		release_path(path);
+		release_path(release_context, path);
 		return EFI_COMPROMISED_DATA;
 	}
 	memcpy(child->device_path, path, child->device_path_size);
-	release_path(path);
+	release_path(release_context, path);
 	return EFI_SUCCESS;
 }
 
 EFI_STATUS cdk2_ata_bus_add_controller(struct cdk2_ata_bus *bus,
 	void *handle, struct cdk2_ata_pass_thru_protocol *pass_thru,
-	void (*release_path)(void *))
+	void (*release_path)(void *, void *), void *release_context)
 {
 	struct cdk2_ata_bus staged;
 	struct cdk2_ata_bus_controller *controller;
@@ -127,7 +127,7 @@ EFI_STATUS cdk2_ata_bus_add_controller(struct cdk2_ata_bus *bus,
 				sizeof(*child)); child->controller = handle; child->port = port;
 			child->multiplier = multiplier; child->type = CDK2_ATA_DISK;
 			status = identify_device(pass_thru, port, multiplier, child,
-				release_path);
+				release_path, release_context);
 			if (EFI_ERROR(status))
 				return status;
 			staged.child_count++; controller->child_count++;

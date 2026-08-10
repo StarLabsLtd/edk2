@@ -67,8 +67,8 @@ static EFI_STATUS CDK2_MS_ABI build_path(struct cdk2_ata_pass_thru_protocol *p,
 	node[2] = active->bad_path ? 17 : 10; node[4] = (UINT8)port;
 	node[6] = (UINT8)device; *path = node; return EFI_SUCCESS;
 }
-static void release_path(void *path)
-{ active->releases++; free(path); }
+static void release_path(void *context, void *path)
+{ struct fixture *fixture = context; fixture->releases++; free(path); }
 static void init(struct fixture *fixture, UINTN devices)
 {
 	memset(fixture, 0, sizeof(*fixture)); active = fixture; fixture->devices = devices;
@@ -105,17 +105,17 @@ int main(void)
 
 	init(&first, 2);
 	CHECK(cdk2_ata_bus_add_controller(&bus, (void *)1, &first.protocol,
-		release_path) == EFI_SUCCESS);
+		release_path, &first) == EFI_SUCCESS);
 	CHECK(bus.controller_count == 1 && bus.child_count == 2 && first.releases == 2 &&
 		bus.children[0].port == 3 && bus.children[1].multiplier == 1);
 	CHECK(cdk2_ata_bus_add_controller(&bus, (void *)1, &first.protocol,
-		release_path) == EFI_ALREADY_STARTED);
+		release_path, &first) == EFI_ALREADY_STARTED);
 	before = bus; init(&second, 2); second.fail_identify = 2;
 	CHECK(cdk2_ata_bus_add_controller(&bus, (void *)2, &second.protocol,
-		release_path) == EFI_DEVICE_ERROR && memcmp(&bus, &before, sizeof(bus)) == 0);
+		release_path, &second) == EFI_DEVICE_ERROR && memcmp(&bus, &before, sizeof(bus)) == 0);
 	init(&second, 1); second.bad_path = 1;
 	CHECK(cdk2_ata_bus_add_controller(&bus, (void *)2, &second.protocol,
-		release_path) == EFI_COMPROMISED_DATA && second.releases == 1 &&
+		release_path, &second) == EFI_COMPROMISED_DATA && second.releases == 1 &&
 		memcmp(&bus, &before, sizeof(bus)) == 0);
 	CHECK(cdk2_ata_bus_remove_controller(&bus, (void *)1) == EFI_SUCCESS &&
 		bus.controller_count == 0 && bus.child_count == 0);

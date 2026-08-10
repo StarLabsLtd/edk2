@@ -110,6 +110,58 @@ struct cdk2_ata_bus_block_instance {
 	cdk2_ata_bus_defer_fn *defer;
 };
 
+struct cdk2_ata_bus_binding;
+struct cdk2_ata_bus_bound_child;
+typedef EFI_STATUS cdk2_ata_bus_parent_fn(void *context, void *controller,
+	BOOLEAN by_driver, struct cdk2_ata_pass_thru_protocol **protocol);
+typedef EFI_STATUS cdk2_ata_bus_close_parent_fn(void *context, void *controller,
+	BOOLEAN by_driver);
+typedef EFI_STATUS cdk2_ata_bus_marker_fn(void *context, void *controller,
+	BOOLEAN install);
+typedef EFI_STATUS cdk2_ata_bus_allocate_fn(void *context, UINTN size,
+	void **buffer);
+typedef void cdk2_ata_bus_release_fn(void *context, void *buffer);
+typedef EFI_STATUS cdk2_ata_bus_child_protocol_fn(void *context, void **handle,
+	struct cdk2_ata_bus_bound_child *child, BOOLEAN security);
+typedef EFI_STATUS cdk2_ata_bus_uninstall_protocol_fn(void *context, void *handle,
+	struct cdk2_ata_bus_bound_child *child, BOOLEAN security);
+typedef EFI_STATUS cdk2_ata_bus_child_link_fn(void *context, void *controller,
+	void *child, BOOLEAN open);
+struct cdk2_ata_bus_bound_child {
+	void *handle;
+	struct cdk2_ata_bus_child model;
+	struct cdk2_ata_bus_block_instance block;
+	struct cdk2_ata_bus_disk_info disk_info;
+	struct cdk2_ata_bus_security security;
+	BOOLEAN installed, by_child;
+};
+struct cdk2_ata_bus_bound_controller {
+	void *handle;
+	struct cdk2_ata_pass_thru_protocol *pass_thru;
+	struct cdk2_ata_bus_scheduler scheduler;
+	struct cdk2_ata_bus_bound_child *children[CDK2_ATA_BUS_MAX_CHILDREN];
+	UINTN child_count;
+	BOOLEAN marker, parent_open, path_open;
+};
+struct cdk2_ata_bus_binding_services {
+	void *context;
+	cdk2_ata_bus_parent_fn *open_parent;
+	cdk2_ata_bus_close_parent_fn *close_parent;
+	cdk2_ata_bus_marker_fn *marker;
+	cdk2_ata_bus_allocate_fn *allocate;
+	cdk2_ata_bus_release_fn *release;
+	cdk2_ata_bus_child_protocol_fn *install_child;
+	cdk2_ata_bus_uninstall_protocol_fn *uninstall_child;
+	cdk2_ata_bus_child_link_fn *child_link;
+	cdk2_ata_bus_defer_fn *defer;
+	struct cdk2_ata_bus_transport transport;
+};
+struct cdk2_ata_bus_binding {
+	struct cdk2_ata_bus_binding_services services;
+	struct cdk2_ata_bus_bound_controller *controllers[CDK2_ATA_BUS_MAX_CONTROLLERS];
+	UINTN controller_count;
+};
+
 struct cdk2_ata_bus_controller {
 	void *handle;
 	struct cdk2_ata_pass_thru_protocol *pass_thru;
@@ -126,7 +178,7 @@ EFI_STATUS cdk2_ata_bus_parse_identify(const UINT8 identify[512],
 	struct cdk2_ata_bus_media *media);
 EFI_STATUS cdk2_ata_bus_add_controller(struct cdk2_ata_bus *bus,
 	void *handle, struct cdk2_ata_pass_thru_protocol *pass_thru,
-	void (*release_path)(void *));
+	void (*release_path)(void *, void *), void *release_context);
 EFI_STATUS cdk2_ata_bus_remove_controller(struct cdk2_ata_bus *bus, void *handle);
 EFI_STATUS cdk2_ata_bus_scheduler_init(struct cdk2_ata_bus_scheduler *scheduler,
 	const struct cdk2_ata_bus_transport *transport);
@@ -138,11 +190,20 @@ EFI_STATUS cdk2_ata_bus_worker(struct cdk2_ata_bus_scheduler *scheduler);
 EFI_STATUS cdk2_ata_bus_reset(struct cdk2_ata_bus_scheduler *scheduler,
 	struct cdk2_ata_bus_child *child, BOOLEAN extended_verification);
 EFI_STATUS cdk2_ata_bus_stop_scheduler(struct cdk2_ata_bus_scheduler *scheduler);
+EFI_STATUS cdk2_ata_bus_drain_scheduler(struct cdk2_ata_bus_scheduler *scheduler);
 EFI_STATUS cdk2_ata_bus_cancel_token(struct cdk2_ata_bus_scheduler *scheduler,
 	struct cdk2_block_io2_token *token);
 EFI_STATUS cdk2_ata_bus_block_init(struct cdk2_ata_bus_block_instance *instance,
 	struct cdk2_ata_bus_child *child, struct cdk2_ata_bus_scheduler *scheduler,
 	cdk2_ata_bus_defer_fn *defer, void *defer_context);
 EFI_STATUS cdk2_ata_bus_block_worker(struct cdk2_ata_bus_block_instance *instance);
+EFI_STATUS cdk2_ata_bus_binding_init(struct cdk2_ata_bus_binding *binding,
+	const struct cdk2_ata_bus_binding_services *services);
+EFI_STATUS cdk2_ata_bus_binding_supported(struct cdk2_ata_bus_binding *binding,
+	void *controller, void *remaining_device_path);
+EFI_STATUS cdk2_ata_bus_binding_start(struct cdk2_ata_bus_binding *binding,
+	void *controller, void *remaining_device_path);
+EFI_STATUS cdk2_ata_bus_binding_stop(struct cdk2_ata_bus_binding *binding,
+	void *controller, UINTN child_count, void **children);
 
 #endif

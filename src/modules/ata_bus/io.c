@@ -196,9 +196,22 @@ EFI_STATUS cdk2_ata_bus_stop_scheduler(struct cdk2_ata_bus_scheduler *scheduler)
 	if (scheduler == NULL)
 		return EFI_INVALID_PARAMETER;
 	scheduler->stopping = 1;
-	while (scheduler->count != 0U)
-		(void)cdk2_ata_bus_worker(scheduler);
-	return EFI_SUCCESS;
+	return cdk2_ata_bus_drain_scheduler(scheduler);
+}
+
+EFI_STATUS cdk2_ata_bus_drain_scheduler(struct cdk2_ata_bus_scheduler *scheduler)
+{
+	EFI_STATUS first = EFI_SUCCESS;
+
+	if (scheduler == NULL)
+		return EFI_INVALID_PARAMETER;
+	while (scheduler->count != 0U) {
+		EFI_STATUS status = cdk2_ata_bus_worker(scheduler);
+
+		if (EFI_ERROR(status) && !EFI_ERROR(first))
+			first = status;
+	}
+	return first;
 }
 
 EFI_STATUS cdk2_ata_bus_cancel_token(struct cdk2_ata_bus_scheduler *scheduler,
