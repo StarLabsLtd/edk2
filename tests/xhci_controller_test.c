@@ -14,6 +14,7 @@ struct fixture {
 	UINTN allocations, releases, fail_allocation, writes;
 	UINT64 next_device;
 	struct cdk2_xhci_controller *controller;
+	UINT8 next_slot;
 };
 
 static EFI_STATUS read32(void *opaque, UINT32 offset, UINT32 *value)
@@ -35,11 +36,14 @@ static EFI_STATUS write32(void *opaque, UINT32 offset, UINT32 value)
 	if (offset == 0x1000U && fixture->controller != NULL) {
 		struct cdk2_xhci_ring *ring = &fixture->controller->command_ring;
 		UINT16 command = ring->enqueue == 0U ? 254U : ring->enqueue - 1U;
+		struct cdk2_xhci_event_ring *events = &fixture->controller->event_ring;
 		struct cdk2_xhci_trb *event = fixture->controller->event_dma.host;
 
-		event[0] = (struct cdk2_xhci_trb) {
+		event[events->dequeue] = (struct cdk2_xhci_trb) {
 			.parameter = ring->device_address + command * 16U,
-			.status = 1U << 24, .control = 33U << 10 | 5U << 24 | 1U };
+			.status = 1U << 24, .control = 33U << 10 |
+				(UINT32)fixture->next_slot << 24 |
+				(events->cycle ? 1U : 0U) };
 	}
 	return EFI_SUCCESS;
 }
@@ -102,6 +106,7 @@ int main(void)
 		.maximum_slots = 8U, .maximum_ports = 4U, .runtime_offset = 0x2000U,
 		.doorbell_offset = 0x1000U, .page_size = 4096U };
 	struct cdk2_xhci_controller controller;
+	struct cdk2_xhci_device device;
 	UINT8 slot;
 
 	fixture.registers[0x44U / 4U] = 1U;
@@ -110,10 +115,17 @@ int main(void)
 		fixture.registers[0x40U / 4U] == 5U &&
 		fixture.registers[0x2038U / 4U] == controller.event_dma.device);
 	fixture.controller = &controller;
+	fixture.next_slot = 5U;
 	CHECK(cdk2_xhci_controller_command(&controller, 9U, 0U, 0U, &slot) ==
 		EFI_SUCCESS && slot == 5U);
+	CHECK(cdk2_xhci_device_enable(&controller, 2U, 3U, 64U, &device) ==
+		EFI_SUCCESS && device.enabled && device.slot == 5U &&
+		((UINT64 *)controller.dcbaa.host)[5] == device.device_context.device);
+	CHECK(cdk2_xhci_device_disable(&device) == EFI_SUCCESS && !device.enabled &&
+		fixture.allocations == fixture.releases + 4U);
 	cdk2_xhci_controller_destroy(&controller);
-	CHECK(fixture.releases == 4U && fixture.registers[0x40U / 4U] == 0U);
+	CHECK(fixture.releases == fixture.allocations &&
+		fixture.registers[0x40U / 4U] == 0U);
 	for (UINTN fault = 1U; fault <= 4U; fault++) {
 		memset(&fixture, 0, sizeof(fixture));
 		fixture.next_device = 0x100000U;

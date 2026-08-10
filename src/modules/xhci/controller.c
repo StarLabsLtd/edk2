@@ -227,3 +227,102 @@ EFI_STATUS cdk2_xhci_controller_command(struct cdk2_xhci_controller *controller,
 	}
 	return EFI_TIMEOUT;
 }
+
+static void release_device_dma(struct cdk2_xhci_device *device)
+{
+	struct cdk2_xhci_controller *controller = device->controller;
+
+	if (device->endpoint_dma.host != NULL)
+		controller->services.release_dma(controller->services.context,
+			&device->endpoint_dma);
+	if (device->device_context.host != NULL)
+		controller->services.release_dma(controller->services.context,
+			&device->device_context);
+	if (device->input_context.host != NULL)
+		controller->services.release_dma(controller->services.context,
+			&device->input_context);
+}
+
+EFI_STATUS cdk2_xhci_device_enable(struct cdk2_xhci_controller *controller,
+	UINT8 root_port, UINT8 speed, UINT16 maximum_packet,
+	struct cdk2_xhci_device *device)
+{
+	UINTN context_size;
+	UINT8 result_slot;
+	EFI_STATUS status;
+
+	if (controller == NULL || device == NULL || !controller->running ||
+	    root_port == 0U || root_port > controller->capability.maximum_ports ||
+	    speed == 0U || speed > 5U || maximum_packet == 0U)
+		return EFI_INVALID_PARAMETER;
+	memset(device, 0, sizeof(*device));
+	device->controller = controller;
+	device->root_port = root_port;
+	device->speed = speed;
+	context_size = controller->capability.context_64 ? 64U : 32U;
+	status = controller->services.allocate_dma(controller->services.context,
+		context_size * 3U, 64U, &device->input_context);
+	if (!EFI_ERROR(status))
+		status = controller->services.allocate_dma(controller->services.context,
+			context_size * 32U, 64U, &device->device_context);
+	if (!EFI_ERROR(status))
+		status = controller->services.allocate_dma(controller->services.context,
+			sizeof(struct cdk2_xhci_trb) * CDK2_XHCI_RING_TRBS, 64U,
+			&device->endpoint_dma);
+	if (!EFI_ERROR(status))
+		status = cdk2_xhci_ring_init(&device->endpoint_ring,
+			device->endpoint_dma.host, device->endpoint_dma.device);
+	if (!EFI_ERROR(status))
+		status = cdk2_xhci_build_address_context(device->input_context.host,
+			device->input_context.size, device->device_context.host,
+			device->device_context.size, controller->capability.context_64,
+			speed, root_port, maximum_packet, device->endpoint_dma.device);
+	if (EFI_ERROR(status))
+		goto fail;
+	status = cdk2_xhci_controller_command(controller, 9U, 0U, 0U,
+		&result_slot);
+	if (EFI_ERROR(status))
+		goto fail;
+	if (result_slot == 0U || result_slot > controller->capability.maximum_slots) {
+		status = EFI_COMPROMISED_DATA;
+		goto fail;
+	}
+	device->slot = result_slot;
+	((UINT64 *)controller->dcbaa.host)[device->slot] = device->device_context.device;
+	status = controller->services.flush(controller->services.context);
+	if (!EFI_ERROR(status))
+		status = cdk2_xhci_controller_command(controller, 11U, device->slot,
+			device->input_context.device, &result_slot);
+	if (EFI_ERROR(status)) {
+		cdk2_xhci_controller_command(controller, 10U, device->slot, 0U,
+			&result_slot);
+		((UINT64 *)controller->dcbaa.host)[device->slot] = 0U;
+		goto fail;
+	}
+	device->enabled = TRUE;
+	return EFI_SUCCESS;
+fail:
+	release_device_dma(device);
+	memset(device, 0, sizeof(*device));
+	return status;
+}
+
+EFI_STATUS cdk2_xhci_device_disable(struct cdk2_xhci_device *device)
+{
+	struct cdk2_xhci_controller *controller;
+	UINT8 result_slot;
+	EFI_STATUS status;
+
+	if (device == NULL || !device->enabled || device->controller == NULL)
+		return EFI_INVALID_PARAMETER;
+	controller = device->controller;
+	status = cdk2_xhci_controller_command(controller, 10U, device->slot, 0U,
+		&result_slot);
+	if (EFI_ERROR(status))
+		return status;
+	((UINT64 *)controller->dcbaa.host)[device->slot] = 0U;
+	controller->services.flush(controller->services.context);
+	release_device_dma(device);
+	memset(device, 0, sizeof(*device));
+	return EFI_SUCCESS;
+}

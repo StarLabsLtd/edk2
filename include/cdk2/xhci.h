@@ -102,6 +102,14 @@ struct cdk2_xhci_controller {
 	BOOLEAN running;
 };
 
+struct cdk2_xhci_device {
+	struct cdk2_xhci_controller *controller;
+	struct cdk2_xhci_dma input_context, device_context, endpoint_dma;
+	struct cdk2_xhci_ring endpoint_ring;
+	UINT8 slot, root_port, speed;
+	BOOLEAN enabled;
+};
+
 #define CDK2_XHCI_PCI_ALLOCATIONS 32U
 struct cdk2_xhci_pci_allocation {
 	void *host, *mapping;
@@ -149,6 +157,10 @@ EFI_STATUS cdk2_xhci_controller_init(struct cdk2_xhci_controller *controller,
 void cdk2_xhci_controller_destroy(struct cdk2_xhci_controller *controller);
 EFI_STATUS cdk2_xhci_controller_command(struct cdk2_xhci_controller *controller,
 	UINT8 type, UINT8 slot, UINT64 parameter, UINT8 *result_slot);
+EFI_STATUS cdk2_xhci_device_enable(struct cdk2_xhci_controller *controller,
+	UINT8 root_port, UINT8 speed, UINT16 maximum_packet,
+	struct cdk2_xhci_device *device);
+EFI_STATUS cdk2_xhci_device_disable(struct cdk2_xhci_device *device);
 EFI_STATUS cdk2_xhci_pci_adapter_init(struct cdk2_xhci_pci_adapter *adapter,
 	struct cdk2_efi_pci_io_protocol *pci, UINT8 bar, void *delay_context,
 	cdk2_xhci_delay_fn *delay);
