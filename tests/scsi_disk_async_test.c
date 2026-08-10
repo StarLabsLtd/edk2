@@ -72,15 +72,15 @@ int main(void)
 		0x40000U }, .transport = { .context = &fixture, .submit = submit,
 		.cancel = cancel } };
 	struct cdk2_scsi_disk_async async;
-	struct cdk2_scsi_disk_token first = { (void *)1, EFI_SUCCESS };
-	struct cdk2_scsi_disk_token second = { (void *)2, EFI_SUCCESS };
+	struct cdk2_block_io2_token first = { (void *)1, EFI_SUCCESS };
+	struct cdk2_block_io2_token second = { (void *)2, EFI_SUCCESS };
 	UINT8 *buffer = malloc(0x10001ULL * 512U);
 
 	CHECK(buffer != NULL && cdk2_scsi_disk_async_init(&async, &disk, &fixture,
 		signal) == EFI_SUCCESS);
 	CHECK(cdk2_scsi_disk_async_submit(&async, 7, 0, 0x10000ULL * 512U,
 		buffer, FALSE, &first) == EFI_SUCCESS && fixture.calls == 1U &&
-		fixture.signals == 0U && first.status == EFI_NOT_READY &&
+		fixture.signals == 0U && first.transaction_status == EFI_NOT_READY &&
 		fixture.blocks[0] == UINT16_MAX);
 	CHECK(cdk2_scsi_disk_async_submit(&async, 7, 0x10000U, 512U,
 		buffer, TRUE, &second) == EFI_SUCCESS && fixture.calls == 1U);
@@ -90,33 +90,34 @@ int main(void)
 	CHECK(fixture.calls == 2U && fixture.signals == 0U &&
 		fixture.blocks[1] == 1U);
 	complete(&fixture, EFI_SUCCESS, 0, 0);
-	CHECK(first.status == EFI_SUCCESS && fixture.signals == 1U &&
+	CHECK(first.transaction_status == EFI_SUCCESS && fixture.signals == 1U &&
 		fixture.calls == 3U && fixture.opcodes[2] == 0x2aU);
 	complete(&fixture, EFI_SUCCESS, 0, 2);
-	CHECK(second.status == EFI_DEVICE_ERROR && fixture.signals == 2U &&
+	CHECK(second.transaction_status == EFI_DEVICE_ERROR && fixture.signals == 2U &&
 		async.count == 0U);
 	fixture.submit_status = EFI_TIMEOUT;
-	first.status = EFI_SUCCESS;
+	first.transaction_status = EFI_SUCCESS;
 	CHECK(cdk2_scsi_disk_async_submit(&async, 7, 0, 512U, buffer, FALSE,
-		&first) == EFI_TIMEOUT && first.status == EFI_SUCCESS &&
+		&first) == EFI_TIMEOUT && first.transaction_status == EFI_SUCCESS &&
 		fixture.signals == 2U && async.count == 0U);
 	fixture.submit_status = EFI_SUCCESS;
-	second.status = EFI_NOT_READY;
+	second.transaction_status = EFI_NOT_READY;
 	CHECK(cdk2_scsi_disk_async_submit(&async, 7, 0, 0, NULL, FALSE, &second) ==
-		EFI_SUCCESS && second.status == EFI_SUCCESS && fixture.signals == 3U);
-	first.status = EFI_SUCCESS;
-	second.status = EFI_SUCCESS;
+		EFI_SUCCESS && second.transaction_status == EFI_SUCCESS &&
+		fixture.signals == 3U);
+	first.transaction_status = EFI_SUCCESS;
+	second.transaction_status = EFI_SUCCESS;
 	CHECK(cdk2_scsi_disk_async_submit(&async, 7, 0, 512U, buffer, FALSE,
 		&first) == EFI_SUCCESS && cdk2_scsi_disk_async_submit(&async, 7, 1,
 		512U, buffer, TRUE, &second) == EFI_SUCCESS);
 	CHECK(cdk2_scsi_disk_async_reset(&async) == EFI_SUCCESS &&
-		fixture.cancels == 1U && first.status == EFI_ABORTED &&
-		second.status == EFI_ABORTED && fixture.signals == 5U &&
+		fixture.cancels == 1U && first.transaction_status == EFI_ABORTED &&
+		second.transaction_status == EFI_ABORTED && fixture.signals == 5U &&
 		async.count == 0U && !async.stopping);
-	first.status = EFI_SUCCESS;
+	first.transaction_status = EFI_SUCCESS;
 	CHECK(cdk2_scsi_disk_async_submit(&async, 7, 0, 512U, buffer, FALSE,
 		&first) == EFI_SUCCESS && cdk2_scsi_disk_async_stop(&async) ==
-		EFI_SUCCESS && first.status == EFI_ABORTED && async.stopping);
+		EFI_SUCCESS && first.transaction_status == EFI_ABORTED && async.stopping);
 	CHECK(cdk2_scsi_disk_async_submit(&async, 7, 0, 512U, buffer, FALSE,
 		&first) == EFI_NOT_READY);
 	free(buffer);

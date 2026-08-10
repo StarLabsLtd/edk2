@@ -2,6 +2,7 @@
 #ifndef CDK2_SCSI_DISK_H_
 #define CDK2_SCSI_DISK_H_
 
+#include <cdk2/partition.h>
 #include <uefi.h>
 
 #define CDK2_SCSI_DISK_CDB_MAX 16U
@@ -44,17 +45,12 @@ struct cdk2_scsi_disk_transport {
 	EFI_STATUS (*cancel)(void *context);
 };
 
-struct cdk2_scsi_disk_token {
-	void *event;
-	EFI_STATUS status;
-};
-
 struct cdk2_scsi_disk_async_task {
-	struct cdk2_scsi_disk_token *token;
+	struct cdk2_block_io2_token *token;
 	UINT8 *buffer;
 	UINT64 lba, remaining;
 	UINT32 maximum;
-	BOOLEAN write, accepted;
+	BOOLEAN write, accepted, flush;
 };
 
 struct cdk2_scsi_disk_async {
@@ -75,6 +71,14 @@ struct cdk2_scsi_disk {
 	BOOLEAN cdb16;
 };
 
+struct cdk2_scsi_disk_block {
+	struct cdk2_block_io block;
+	struct cdk2_block_io2 block2;
+	struct cdk2_block_media media;
+	struct cdk2_scsi_disk *disk;
+	struct cdk2_scsi_disk_async *async;
+};
+
 EFI_STATUS cdk2_scsi_disk_parse_capacity10(const UINT8 response[8],
 	UINT64 *last_block, UINT32 *block_size, BOOLEAN *needs_capacity16);
 EFI_STATUS cdk2_scsi_disk_parse_capacity16(const UINT8 response[32],
@@ -92,8 +96,12 @@ EFI_STATUS cdk2_scsi_disk_async_init(struct cdk2_scsi_disk_async *async,
 	EFI_STATUS (*signal)(void *, void *));
 EFI_STATUS cdk2_scsi_disk_async_submit(struct cdk2_scsi_disk_async *async,
 	UINT32 media_id, UINT64 lba, UINTN size, void *buffer, BOOLEAN write,
-	struct cdk2_scsi_disk_token *token);
+	struct cdk2_block_io2_token *token);
+EFI_STATUS cdk2_scsi_disk_async_flush(struct cdk2_scsi_disk_async *async,
+	struct cdk2_block_io2_token *token);
 EFI_STATUS cdk2_scsi_disk_async_reset(struct cdk2_scsi_disk_async *async);
 EFI_STATUS cdk2_scsi_disk_async_stop(struct cdk2_scsi_disk_async *async);
+EFI_STATUS cdk2_scsi_disk_block_init(struct cdk2_scsi_disk_block *instance,
+	struct cdk2_scsi_disk *disk, struct cdk2_scsi_disk_async *async);
 
 #endif
