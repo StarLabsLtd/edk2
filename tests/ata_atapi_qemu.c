@@ -116,18 +116,33 @@ EFI_STATUS CDK2_MS_ABI ata_atapi_qemu_entry(void *image, void *table)
 	if ((ata->mode->attributes & CDK2_ATA_PASS_THRU_ATTRIBUTES_NONBLOCKIO) == 0U ||
 	    system->boot->create_event == NULL || system->boot->wait_for_event == NULL ||
 	    system->boot->close_event == NULL || EFI_ERROR(system->boot->create_event(
-	    0x200U, 8U, async_notify, (void *)&signaled, &event)))
+	    0x100U, 8U, async_notify, (void *)&signaled, &event)))
 		goto bad;
 	packet.in_data = asynchronous; packet.in_length = 1U;
 	memset(&asb, 0xff, sizeof(asb));
 	if (EFI_ERROR(ata->pass_thru(ata, port, device, &packet, event)) || signaled != 0U)
 		goto bad;
 	serial("ATA_STAGE_ASYNC_RETURN_OK\r\n");
-	if (EFI_ERROR(system->boot->wait_for_event(1U, &event, &event_index)) ||
-	    event_index != 0U || signaled == 0U || asb.status == 0xffU ||
-	    packet.in_length != sizeof(asynchronous) ||
-	    !same(first, asynchronous, sizeof(first)) ||
-	    EFI_ERROR(system->boot->close_event(event)))
+	status = system->boot->wait_for_event(1U, &event, &event_index);
+	if (EFI_ERROR(status))
+		goto bad;
+	serial("ATA_STAGE_ASYNC_WAIT_OK\r\n");
+	if (event_index != 0U)
+		goto bad;
+	serial("ATA_STAGE_ASYNC_INDEX_OK\r\n");
+	if (signaled == 0U)
+		goto bad;
+	serial("ATA_STAGE_ASYNC_SIGNAL_OK\r\n");
+	if (asb.status == 0xffU)
+		goto bad;
+	serial("ATA_STAGE_ASYNC_ASB_OK\r\n");
+	if (packet.in_length != sizeof(asynchronous))
+		goto bad;
+	serial("ATA_STAGE_ASYNC_LENGTH_OK\r\n");
+	if (!same(first, asynchronous, sizeof(first)))
+		goto bad;
+	serial("ATA_STAGE_ASYNC_DATA_OK\r\n");
+	if (EFI_ERROR(system->boot->close_event(event)))
 		goto bad;
 	event = NULL;
 	serial("ATA_STAGE_ASYNC_OK\r\n");
