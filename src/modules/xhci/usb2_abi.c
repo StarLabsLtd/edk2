@@ -227,15 +227,15 @@ static EFI_STATUS CDK2_MS_ABI get_port(struct cdk2_usb2_hc_protocol *this,
 	if (EFI_ERROR(result))
 		return result;
 	status->status = (native.connected ? 1U : 0U) |
-		(native.enabled ? 1U << 1 : 0U) | (native.powered ? 1U << 8 : 0U);
+		(native.enabled ? 1U << 1 : 0U) | (native.resetting ? 1U << 4 : 0U) |
+		(native.powered ? 1U << 8 : 0U);
 	if (native.speed == 2U)
 		status->status |= 1U << 9;
 	else if (native.speed == 3U)
 		status->status |= 1U << 10;
 	else if (native.speed >= 4U)
 		status->status |= 1U << 11;
-	status->change = (native.changes & 1U) | (native.changes & 2U) << 1 |
-		(native.changes & 0x10U) << 1;
+	status->change = native.changes & 0x13U;
 	return EFI_SUCCESS;
 }
 

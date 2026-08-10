@@ -168,6 +168,7 @@ int main(void)
 	struct boot_services boot = { 0 };
 	struct system_table system = { .boot = &boot };
 	void *image = &fixture;
+	CHAR16 *name;
 
 	boot.allocate_pool = allocate_pool; boot.free_pool = free_pool;
 	boot.create_event = create_event; boot.set_timer = set_timer;
@@ -193,6 +194,12 @@ int main(void)
 	CHECK(fixture.binding->supported(fixture.binding, image, NULL) == EFI_SUCCESS);
 	CHECK(fixture.binding->start(fixture.binding, image, NULL) == EFI_SUCCESS &&
 		fixture.usb2 != NULL && fixture.attributes == 0x700U);
+	CHECK(component.driver_name(&component, "eng", &name) == EFI_SUCCESS &&
+		name == driver_name && component.driver_name(&component, "en", &name) ==
+		EFI_UNSUPPORTED && component2.controller_name(&component2, image, NULL,
+			"en", &name) == EFI_SUCCESS && name == controller_name &&
+		component2.controller_name(&component2, &boot, NULL, "en", &name) ==
+		EFI_UNSUPPORTED);
 	CHECK(fixture.binding->stop(fixture.binding, image, 0U, NULL) == EFI_SUCCESS &&
 		fixture.usb2 == NULL && fixture.allocations == fixture.frees &&
 		fixture.events == fixture.event_closes);
