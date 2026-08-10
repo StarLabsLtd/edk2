@@ -12,7 +12,8 @@
 struct fixture {
 	UINTN calls, fail_call, resets, signals, locks, unlocks, lock_depth;
 	BOOLEAN fail_reset, complete_on_handoff;
-	UINT8 commands[16], protocols[16]; UINT16 counts[16]; UINT64 lbas[16];
+	UINT8 commands[16], protocols[16], lengths[16];
+	UINT16 counts[16]; UINT64 lbas[16]; UINTN transfers[16];
 	void *events[16]; struct cdk2_ata_bus_scheduler *scheduler;
 	cdk2_ata_bus_complete_fn *complete; void *complete_context;
 };
@@ -24,6 +25,9 @@ static EFI_STATUS execute(void *opaque, struct cdk2_ata_bus_child *child,
 	UINTN index = fixture->calls++; (void)child;
 	fixture->commands[index] = acb->command;
 	fixture->protocols[index] = packet->protocol;
+	fixture->lengths[index] = packet->length;
+	fixture->transfers[index] = packet->in_length != 0U ? packet->in_length :
+		packet->out_length;
 	fixture->counts[index] = acb->sector_count |
 		((UINT16)acb->sector_count_exp << 8);
 	fixture->lbas[index] = acb->sector_number |
@@ -125,7 +129,9 @@ int main(void)
 	CHECK(fixture.calls == 2 &&
 		three.transaction_status == EFI_SUCCESS && fixture.events[2] == (void *)3);
 	CHECK(fixture.commands[0] == 0x25 && fixture.counts[0] == 1 &&
-		fixture.lbas[0] == 7 && fixture.commands[1] == 0xca);
+		fixture.lbas[0] == 7 && fixture.lengths[0] == 0xa0U &&
+		fixture.transfers[0] == 512U && fixture.commands[1] == 0xca &&
+		fixture.transfers[1] == 512U);
 
 	read.token = &one; read.lba = 0x1234; read.bytes = 0x20000U * 512U;
 	CHECK(cdk2_ata_bus_submit(&scheduler, &read) == EFI_SUCCESS);

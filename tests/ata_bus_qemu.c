@@ -52,6 +52,16 @@ static void serial(const char *text)
 			"Nd"((UINT16)0x3f8));
 	}
 }
+static void serial_status(EFI_STATUS status)
+{
+	static const char hex[] = "0123456789abcdef";
+	char value[19] = "0x0000000000000000";
+
+	for (UINTN index = 0; index < 16U; index++)
+		value[17U - index] = hex[(status >> (index * 4U)) & 0xfU];
+	serial(value);
+	serial("\r\n");
+}
 static BOOLEAN same(const UINT8 *left, const UINT8 *right, UINTN size)
 {
 	for (UINTN index = 0; index < size; index++)
@@ -111,6 +121,13 @@ EFI_STATUS CDK2_MS_ABI ata_bus_qemu_entry(void *image, void *table)
 	    NULL, NULL, &event)))
 		goto bad;
 	serial("CDK2_ATA_BUS_SYNC_READ_OK\r\n");
+	if (EFI_ERROR(block->write_blocks(block, block->media->media_id, scratch,
+	    sizeof(pattern), pattern)) || EFI_ERROR(block->read_blocks(block,
+	    block->media->media_id, scratch, sizeof(readback), readback)) ||
+	    !same(pattern, readback, sizeof(pattern)) || EFI_ERROR(block->write_blocks(
+	    block, block->media->media_id, scratch, sizeof(saved), saved)))
+		goto bad;
+	serial("CDK2_ATA_BUS_SYNC_WRITE_OK\r\n");
 	token.event = event;
 	status = block2->write_blocks(block2, block->media->media_id, scratch, &token,
 		sizeof(pattern), pattern);
@@ -123,8 +140,11 @@ EFI_STATUS CDK2_MS_ABI ata_bus_qemu_entry(void *image, void *table)
 	if (EFI_ERROR(system->boot->wait_for_event(1U, &event, &index)))
 		goto restore;
 	serial("CDK2_ATA_BUS_WAIT_OK\r\n");
-	if (token.transaction_status != EFI_SUCCESS)
+	if (token.transaction_status != EFI_SUCCESS) {
+		serial("CDK2_ATA_BUS_TOKEN_STATUS=");
+		serial_status(token.transaction_status);
 		goto restore;
+	}
 	serial("CDK2_ATA_BUS_ASYNC_OK\r\n");
 	if (EFI_ERROR(block->read_blocks(block, block->media->media_id, scratch,
 	    sizeof(readback), readback)) || !same(pattern, readback, sizeof(pattern)) ||

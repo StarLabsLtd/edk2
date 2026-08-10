@@ -74,7 +74,7 @@ static EFI_STATUS execute_request(struct cdk2_ata_bus_scheduler *scheduler,
 	struct cdk2_ata_command_block acb;
 	struct cdk2_ata_status_block asb;
 	struct cdk2_ata_command_packet packet = { .asb = &asb, .acb = &acb,
-		.timeout = 300000000U, .protocol = 0x0aU, .length = 0x20U };
+		.timeout = 300000000U, .protocol = 0x0aU, .length = 0xa0U };
 	UINT64 lba = request->lba;
 	UINT8 *buffer = request->buffer;
 	UINTN remaining = request->bytes;
@@ -98,8 +98,8 @@ static EFI_STATUS execute_request(struct cdk2_ata_bus_scheduler *scheduler,
 			request->operation == CDK2_ATA_BUS_WRITE);
 		packet.in_data = request->operation == CDK2_ATA_BUS_READ ? buffer : NULL;
 		packet.out_data = request->operation == CDK2_ATA_BUS_WRITE ? buffer : NULL;
-		packet.in_length = request->operation == CDK2_ATA_BUS_READ ? chunk : 0U;
-		packet.out_length = request->operation == CDK2_ATA_BUS_WRITE ? chunk : 0U;
+		packet.in_length = request->operation == CDK2_ATA_BUS_READ ? bytes : 0U;
+		packet.out_length = request->operation == CDK2_ATA_BUS_WRITE ? bytes : 0U;
 		packet.protocol = request->child->geometry.udma ?
 			(request->operation == CDK2_ATA_BUS_READ ? 0x0aU : 0x0bU) :
 			(request->operation == CDK2_ATA_BUS_READ ? 4U : 5U);
@@ -146,13 +146,15 @@ static EFI_STATUS submit_active_chunk(struct cdk2_ata_bus_scheduler *scheduler)
 		.protocol = request->child->geometry.udma ?
 			(request->operation == CDK2_ATA_BUS_READ ? 0x0aU : 0x0bU) :
 			(request->operation == CDK2_ATA_BUS_READ ? 4U : 5U),
-		.length = 0x20U,
+		.length = 0xa0U,
 		.in_data = request->operation == CDK2_ATA_BUS_READ ?
 			scheduler->active_buffer : NULL,
 		.out_data = request->operation == CDK2_ATA_BUS_WRITE ?
 			scheduler->active_buffer : NULL,
-		.in_length = request->operation == CDK2_ATA_BUS_READ ? chunk : 0U,
-		.out_length = request->operation == CDK2_ATA_BUS_WRITE ? chunk : 0U };
+		.in_length = request->operation == CDK2_ATA_BUS_READ ?
+			(UINTN)chunk * request->child->geometry.block_size : 0U,
+		.out_length = request->operation == CDK2_ATA_BUS_WRITE ?
+			(UINTN)chunk * request->child->geometry.block_size : 0U };
 	scheduler->parent_active = 1;
 	EFI_STATUS status = scheduler->transport.submit(scheduler->transport.context,
 		request->child, &scheduler->active_packet, complete_active, scheduler);
@@ -186,7 +188,6 @@ static EFI_STATUS dispatch(struct cdk2_ata_bus_scheduler *scheduler)
 				transferred = request->operation == CDK2_ATA_BUS_READ ?
 					scheduler->active_packet.in_length :
 					scheduler->active_packet.out_length;
-				transferred *= request->child->geometry.block_size;
 				if (transferred == 0U || transferred > scheduler->active_remaining)
 					status = EFI_DEVICE_ERROR;
 				else {
