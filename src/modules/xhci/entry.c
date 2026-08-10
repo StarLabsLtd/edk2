@@ -99,11 +99,15 @@ static EFI_STATUS CDK2_MS_ABI supported(struct driver_binding *driver,
 	EFI_STATUS status;
 
 	(void)remaining;
-	status = bs->open_protocol(controller, &path_guid, &path, driver->handle,
+	status = bs->open_protocol(controller, &pci_guid, (void **)&pci, driver->handle,
 		controller, 0x10U);
 	if (EFI_ERROR(status))
 		return status;
-	(void)bs->close_protocol(controller, &path_guid, driver->handle, controller);
+	(void)bs->close_protocol(controller, &pci_guid, driver->handle, controller);
+	status = bs->open_protocol(controller, &path_guid, &path, driver->handle,
+		controller, 0x02U);
+	if (EFI_ERROR(status))
+		return status;
 	status = bs->open_protocol(controller, &pci_guid, (void **)&pci, driver->handle,
 		controller, 0x02U);
 	if (!EFI_ERROR(status))

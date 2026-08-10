@@ -132,7 +132,7 @@ static EFI_STATUS map_buffer(void *opaque, void *buffer, UINTN length,
 		return EFI_INVALID_PARAMETER;
 	memset(mapping, 0, sizeof(*mapping));
 	while (remaining != 0U && mapping->count < CDK2_XHCI_TRANSFER_SEGMENTS) {
-		UINTN bytes = remaining;
+		UINTN bytes = remaining > 0x1ffffU ? 0x1ffffU : remaining;
 		UINTN index = mapping->count;
 
 		status = adapter->pci->map(adapter->pci, device_writes ?

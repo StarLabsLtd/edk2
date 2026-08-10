@@ -143,6 +143,39 @@ static EFI_STATUS CDK2_MS_ABI unsupported(void)
 	return EFI_UNSUPPORTED;
 }
 
+static EFI_STATUS CDK2_MS_ABI async_interrupt(
+	struct cdk2_usb2_hc_protocol *this, UINT8 address, UINT8 endpoint,
+	UINT8 speed, UINTN maximum_packet, BOOLEAN new_transfer, UINT8 *toggle,
+	UINTN interval, UINTN length, void *translator, void *callback, void *context)
+{
+	(void)this; (void)address; (void)endpoint; (void)speed; (void)maximum_packet;
+	(void)new_transfer; (void)toggle; (void)interval; (void)length;
+	(void)translator; (void)callback; (void)context;
+	return EFI_UNSUPPORTED;
+}
+
+static EFI_STATUS CDK2_MS_ABI sync_interrupt(struct cdk2_usb2_hc_protocol *this,
+	UINT8 address, UINT8 endpoint, UINT8 speed, UINTN maximum_packet,
+	UINT8 buffers, void **data, UINTN * length, UINT8 *toggle, UINTN timeout,
+	void *translator, UINT32 * result)
+{
+	struct cdk2_xhci_device *device;
+	EFI_STATUS status;
+
+	(void)speed; (void)timeout; (void)translator;
+	if (this == NULL || buffers != 1U || data == NULL || data[0] == NULL ||
+	    length == NULL || toggle == NULL || result == NULL || *toggle > 1U ||
+	    maximum_packet == 0U || maximum_packet > UINT16_MAX)
+		return EFI_INVALID_PARAMETER;
+	device = &owner(this)->devices[address];
+	if (!device->enabled)
+		return EFI_NOT_FOUND;
+	status = cdk2_xhci_interrupt_transfer(device, endpoint, data[0], length,
+		maximum_packet);
+	*result = EFI_ERROR(status) ? CDK2_USB_ERR_SYSTEM : CDK2_USB_NOERROR;
+	return status;
+}
+
 static EFI_STATUS CDK2_MS_ABI get_port(struct cdk2_usb2_hc_protocol *this,
 	UINT8 port, struct cdk2_usb_port_status *status)
 {
@@ -239,7 +272,7 @@ EFI_STATUS cdk2_xhci_usb2_init(struct cdk2_xhci_usb2 *usb2,
 	usb2->state = 1U;
 	usb2->protocol = (struct cdk2_usb2_hc_protocol) {
 		get_capability, reset, get_state, set_state, control_transfer,
-		bulk_transfer, unsupported, unsupported, unsupported, unsupported,
+		bulk_transfer, async_interrupt, sync_interrupt, unsupported, unsupported,
 		get_port, set_port, clear_port, 3U, 0U };
 	return EFI_SUCCESS;
 }

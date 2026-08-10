@@ -599,3 +599,16 @@ EFI_STATUS cdk2_xhci_bulk_transfer(struct cdk2_xhci_device *device,
 	controller->services.unmap_buffer(controller->services.context, &mapping);
 	return status;
 }
+
+EFI_STATUS cdk2_xhci_interrupt_transfer(struct cdk2_xhci_device *device,
+	UINT8 endpoint_address, void *buffer, UINTN *length, UINT16 maximum_packet)
+{
+	EFI_STATUS status;
+
+	status = cdk2_xhci_device_configure_endpoint(device, endpoint_address, 3U,
+		maximum_packet);
+	if (status == EFI_ALREADY_STARTED)
+		status = EFI_SUCCESS;
+	return EFI_ERROR(status) ? status : cdk2_xhci_bulk_transfer(device,
+		endpoint_address, buffer, length);
+}

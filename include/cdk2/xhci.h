@@ -182,6 +182,11 @@ typedef EFI_STATUS CDK2_MS_ABI cdk2_usb2_bulk_fn(
 	UINT8 speed, UINTN maximum_packet, UINT8 buffers, void **data,
 	UINTN *length, UINT8 *toggle, UINTN timeout, void *translator,
 	UINT32 *result);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_usb2_async_interrupt_fn(
+	struct cdk2_usb2_hc_protocol *this, UINT8 address, UINT8 endpoint,
+	UINT8 speed, UINTN maximum_packet, BOOLEAN new_transfer, UINT8 *toggle,
+	UINTN interval, UINTN length, void *translator, void *callback,
+	void *context);
 typedef EFI_STATUS CDK2_MS_ABI cdk2_usb2_stub_fn(void);
 typedef EFI_STATUS CDK2_MS_ABI cdk2_usb2_get_port_fn(
 	struct cdk2_usb2_hc_protocol *this, UINT8 port,
@@ -196,8 +201,8 @@ struct cdk2_usb2_hc_protocol {
 	cdk2_usb2_set_state_fn *set_state;
 	cdk2_usb2_control_fn *control_transfer;
 	cdk2_usb2_bulk_fn *bulk_transfer;
-	cdk2_usb2_stub_fn *async_interrupt_transfer;
-	cdk2_usb2_stub_fn *sync_interrupt_transfer;
+	cdk2_usb2_async_interrupt_fn *async_interrupt_transfer;
+	cdk2_usb2_bulk_fn *sync_interrupt_transfer;
 	cdk2_usb2_stub_fn *isochronous_transfer;
 	cdk2_usb2_stub_fn *async_isochronous_transfer;
 	cdk2_usb2_get_port_fn *get_root_hub_port_status;
@@ -261,6 +266,8 @@ EFI_STATUS cdk2_xhci_device_configure_endpoint(struct cdk2_xhci_device *device,
 	UINT8 endpoint_address, UINT8 transfer_type, UINT16 maximum_packet);
 EFI_STATUS cdk2_xhci_bulk_transfer(struct cdk2_xhci_device *device,
 	UINT8 endpoint_address, void *buffer, UINTN *length);
+EFI_STATUS cdk2_xhci_interrupt_transfer(struct cdk2_xhci_device *device,
+	UINT8 endpoint_address, void *buffer, UINTN *length, UINT16 maximum_packet);
 EFI_STATUS cdk2_xhci_pci_adapter_init(struct cdk2_xhci_pci_adapter *adapter,
 	struct cdk2_efi_pci_io_protocol *pci, UINT8 bar, void *delay_context,
 	cdk2_xhci_delay_fn *delay);
