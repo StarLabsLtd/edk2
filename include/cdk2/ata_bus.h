@@ -94,7 +94,20 @@ struct cdk2_ata_bus_scheduler {
 	struct cdk2_ata_bus_transport transport;
 	struct cdk2_ata_bus_request queue[CDK2_ATA_BUS_QUEUE_DEPTH];
 	UINTN head, count;
-	BOOLEAN stopping, worker_active;
+	BOOLEAN stopping, worker_active, deferred;
+};
+
+struct cdk2_ata_bus_block_instance;
+typedef EFI_STATUS cdk2_ata_bus_defer_fn(void *context,
+	struct cdk2_ata_bus_block_instance *instance);
+struct cdk2_ata_bus_block_instance {
+	struct cdk2_block_io block;
+	struct cdk2_block_io2 block2;
+	struct cdk2_block_media media;
+	struct cdk2_ata_bus_child *child;
+	struct cdk2_ata_bus_scheduler *scheduler;
+	void *defer_context;
+	cdk2_ata_bus_defer_fn *defer;
 };
 
 struct cdk2_ata_bus_controller {
@@ -125,5 +138,11 @@ EFI_STATUS cdk2_ata_bus_worker(struct cdk2_ata_bus_scheduler *scheduler);
 EFI_STATUS cdk2_ata_bus_reset(struct cdk2_ata_bus_scheduler *scheduler,
 	struct cdk2_ata_bus_child *child, BOOLEAN extended_verification);
 EFI_STATUS cdk2_ata_bus_stop_scheduler(struct cdk2_ata_bus_scheduler *scheduler);
+EFI_STATUS cdk2_ata_bus_cancel_token(struct cdk2_ata_bus_scheduler *scheduler,
+	struct cdk2_block_io2_token *token);
+EFI_STATUS cdk2_ata_bus_block_init(struct cdk2_ata_bus_block_instance *instance,
+	struct cdk2_ata_bus_child *child, struct cdk2_ata_bus_scheduler *scheduler,
+	cdk2_ata_bus_defer_fn *defer, void *defer_context);
+EFI_STATUS cdk2_ata_bus_block_worker(struct cdk2_ata_bus_block_instance *instance);
 
 #endif

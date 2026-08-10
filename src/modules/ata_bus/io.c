@@ -200,3 +200,26 @@ EFI_STATUS cdk2_ata_bus_stop_scheduler(struct cdk2_ata_bus_scheduler *scheduler)
 		(void)cdk2_ata_bus_worker(scheduler);
 	return EFI_SUCCESS;
 }
+
+EFI_STATUS cdk2_ata_bus_cancel_token(struct cdk2_ata_bus_scheduler *scheduler,
+	struct cdk2_block_io2_token *token)
+{
+	struct cdk2_ata_bus_request retained[CDK2_ATA_BUS_QUEUE_DEPTH];
+	UINTN retained_count = 0;
+	BOOLEAN found = 0;
+	if (scheduler == NULL || token == NULL || scheduler->worker_active)
+		return EFI_INVALID_PARAMETER;
+	while (scheduler->count != 0U) {
+		struct cdk2_ata_bus_request request = scheduler->queue[scheduler->head];
+		scheduler->head = (scheduler->head + 1U) % CDK2_ATA_BUS_QUEUE_DEPTH;
+		scheduler->count--;
+		if (request.token == token && !found) {
+			found = 1;
+			continue;
+		}
+		retained[retained_count++] = request;
+	}
+	memcpy(scheduler->queue, retained, retained_count * sizeof(retained[0]));
+	scheduler->head = 0; scheduler->count = retained_count;
+	return found ? EFI_SUCCESS : EFI_NOT_FOUND;
+}
