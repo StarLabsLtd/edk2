@@ -419,18 +419,18 @@ EFI_STATUS cdk2_ide_async_step(struct cdk2_ide_async_request *request,
 		size_t budget = 128U;
 
 		while (request->phase_remaining != 0U && budget-- != 0U) {
-				UINT16 word;
+			UINT16 word;
 
-				if (request->phase_read) {
-					word = engine->services.read16(engine->services.context, base);
-					if (request->phase_transfer != 0U) {
-						request->buffer[0] = (UINT8)word;
-						if (request->phase_transfer != 1U)
-							request->buffer[1] = (UINT8)(word >> 8);
-					}
-				} else {
-					word = request->phase_transfer != 0U ? request->buffer[0] : 0U;
-					if (request->phase_transfer > 1U)
+			if (request->phase_read) {
+				word = engine->services.read16(engine->services.context, base);
+				if (request->phase_transfer != 0U) {
+					request->buffer[0] = (UINT8)word;
+					if (request->phase_transfer != 1U)
+						request->buffer[1] = (UINT8)(word >> 8);
+				}
+			} else {
+				word = request->phase_transfer != 0U ? request->buffer[0] : 0U;
+				if (request->phase_transfer > 1U)
 					word |= (UINT16)request->buffer[1] << 8;
 				status = engine->services.write16(engine->services.context, base, word);
 				if (EFI_ERROR(status))

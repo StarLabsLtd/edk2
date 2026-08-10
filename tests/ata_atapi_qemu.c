@@ -2,13 +2,24 @@
 
 #include <cdk2/ata_atapi_pass_thru.h>
 
+#include <string.h>
+
 struct guid { UINT32 a; UINT16 b, c; UINT8 d[8]; };
 typedef EFI_STATUS CDK2_MS_ABI locate_fn(const struct guid *, void *, void **);
 typedef EFI_STATUS CDK2_MS_ABI free_fn(void *);
+typedef EFI_STATUS CDK2_MS_ABI create_event_fn(UINT32, UINTN,
+	void (CDK2_MS_ABI *)(void *, void *), void *, void **);
+typedef EFI_STATUS CDK2_MS_ABI wait_event_fn(UINTN, void **, UINTN *);
+typedef EFI_STATUS CDK2_MS_ABI close_event_fn(void *);
 struct boot_view {
 	UINT8 before_free[72];
 	free_fn *free_pool;
-	UINT8 before_locate[240];
+	create_event_fn *create_event;
+	void *set_timer;
+	wait_event_fn *wait_for_event;
+	void *signal_event;
+	close_event_fn *close_event;
+	UINT8 before_locate[200];
 	locate_fn *locate_protocol;
 };
 struct system_view { UINT8 before_boot[96]; struct boot_view *boot; };
@@ -36,6 +47,13 @@ static int same(const UINT8 *left, const UINT8 *right, UINTN size)
 			return 0;
 	return 1;
 }
+static void CDK2_MS_ABI async_notify(void *event, void *context)
+{
+	volatile UINTN *signaled = context;
+
+	(void)event;
+	*signaled = 1U;
+}
 
 EFI_STATUS CDK2_MS_ABI ata_atapi_qemu_entry(void *image, void *table)
 {
@@ -49,9 +67,11 @@ EFI_STATUS CDK2_MS_ABI ata_atapi_qemu_entry(void *image, void *table)
 	UINT8 identify[512] __aligned(16) = { 0 };
 	UINT8 first[512] __aligned(16) = { 0 };
 	UINT8 second[512] __aligned(16) = { 0 };
+	UINT8 asynchronous[512] __aligned(16) = { 0 };
 	UINT8 target_data[CDK2_EXT_SCSI_TARGET_BYTES]; UINT8 *target = target_data;
 	UINT16 port = 0xffffU, device = 0xffffU, parsed_port, parsed_device;
-	UINT64 lun = 0; void *path = NULL; EFI_STATUS status;
+	UINT64 lun = 0; void *path = NULL, *event = NULL; EFI_STATUS status;
+	volatile UINTN signaled = 0U; UINTN event_index = ~(UINTN)0;
 	(void)image;
 
 	serial("CDK2_ATA_ATAPI_ORACLE_ENTRY\r\n");
@@ -93,6 +113,24 @@ EFI_STATUS CDK2_MS_ABI ata_atapi_qemu_entry(void *image, void *table)
 	if (!same(first, second, sizeof(first)))
 		goto bad;
 	serial("ATA_STAGE_READ_OK\r\n");
+	if ((ata->mode->attributes & CDK2_ATA_PASS_THRU_ATTRIBUTES_NONBLOCKIO) == 0U ||
+	    system->boot->create_event == NULL || system->boot->wait_for_event == NULL ||
+	    system->boot->close_event == NULL || EFI_ERROR(system->boot->create_event(
+	    0x200U, 8U, async_notify, (void *)&signaled, &event)))
+		goto bad;
+	packet.in_data = asynchronous; packet.in_length = 1U;
+	memset(&asb, 0xff, sizeof(asb));
+	if (EFI_ERROR(ata->pass_thru(ata, port, device, &packet, event)) || signaled != 0U)
+		goto bad;
+	serial("ATA_STAGE_ASYNC_RETURN_OK\r\n");
+	if (EFI_ERROR(system->boot->wait_for_event(1U, &event, &event_index)) ||
+	    event_index != 0U || signaled == 0U || asb.status == 0xffU ||
+	    packet.in_length != sizeof(asynchronous) ||
+	    !same(first, asynchronous, sizeof(first)) ||
+	    EFI_ERROR(system->boot->close_event(event)))
+		goto bad;
+	event = NULL;
+	serial("ATA_STAGE_ASYNC_OK\r\n");
 	if (ata->reset_port == NULL || ata->reset_device == NULL ||
 	    EFI_ERROR(ata->reset_device(ata, port, device)) ||
 	    ata->reset_device(ata, port, (UINT16)(device + 7U)) != EFI_NOT_FOUND)
@@ -111,6 +149,9 @@ EFI_STATUS CDK2_MS_ABI ata_atapi_qemu_entry(void *image, void *table)
 	serial("CDK2_ATA_ATAPI_ORACLE_OK\r\n");
 	return EFI_SUCCESS;
 bad:
+	if (event != NULL && system != NULL && system->boot != NULL &&
+	    system->boot->close_event != NULL)
+		(void)system->boot->close_event(event);
 	if (path != NULL)
 		(void)system->boot->free_pool(path);
 	serial("CDK2_ATA_ATAPI_ORACLE_BAD\r\n");
