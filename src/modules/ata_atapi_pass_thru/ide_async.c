@@ -63,19 +63,20 @@ static EFI_STATUS fail(struct cdk2_ide_async_request *request, EFI_STATUS status
 	return EFI_SUCCESS;
 }
 
-EFI_STATUS cdk2_ide_async_prepare(struct cdk2_ide_async_request *request,
+static EFI_STATUS prepare(struct cdk2_ide_async_request *request,
 	struct cdk2_ide_engine *engine, UINT8 channel, UINT8 device,
-	struct cdk2_ata_command_packet *packet, UINT64 timeout)
+	struct cdk2_ata_command_packet *packet,
+	const struct cdk2_ata_command_block *acb, UINT64 timeout)
 {
 	if (request == NULL || engine == NULL || !engine->initialized || packet == NULL ||
-	    packet->acb == NULL || channel >= engine->channel_count || device > 1U ||
+	    acb == NULL || channel >= engine->channel_count || device > 1U ||
 	    (packet->protocol != 2U && packet->protocol != 4U &&
 	     packet->protocol != 5U && packet->protocol != 6U &&
 	     packet->protocol != 0x0aU && packet->protocol != 0x0bU) ||
 	    (packet->in_length != 0U && packet->out_length != 0U))
 		return EFI_INVALID_PARAMETER;
 	memset(request, 0, sizeof(*request));
-	request->engine = engine; request->packet = packet;
+	request->engine = engine; request->packet = packet; request->acb = acb;
 	request->channel = channel; request->device = device;
 	request->buffer = packet->out_length != 0U ? packet->out_data : packet->in_data;
 	request->remaining = packet->out_length != 0U ? packet->out_length :
@@ -91,6 +92,37 @@ EFI_STATUS cdk2_ide_async_prepare(struct cdk2_ide_async_request *request,
 	request->reset_timeout = timeout == 0U ? 5000000U : timeout;
 	request->terminal_status = EFI_SUCCESS;
 	request->phase = request->dma ? CDK2_IDE_ASYNC_MAP : CDK2_IDE_ASYNC_READY;
+	return EFI_SUCCESS;
+}
+
+EFI_STATUS cdk2_ide_async_prepare(struct cdk2_ide_async_request *request,
+	struct cdk2_ide_engine *engine, UINT8 channel, UINT8 device,
+	struct cdk2_ata_command_packet *packet, UINT64 timeout)
+{
+	return prepare(request, engine, channel, device, packet,
+		packet == NULL ? NULL : packet->acb, timeout);
+}
+
+EFI_STATUS cdk2_ide_atapi_async_prepare(struct cdk2_ide_async_request *request,
+	struct cdk2_ide_engine *engine, UINT8 channel, UINT8 device,
+	struct cdk2_ata_command_packet *packet, const UINT8 *cdb, size_t cdb_size,
+	UINT64 timeout)
+{
+	struct cdk2_ata_command_block acb = { 0 };
+	EFI_STATUS status;
+
+	if (cdb == NULL || (cdb_size != 12U && cdb_size != 16U))
+		return EFI_INVALID_PARAMETER;
+	acb.command = 0xa0U;
+	acb.features = packet != NULL && (packet->protocol == 6U ||
+		packet->protocol == 0x0aU || packet->protocol == 0x0bU) ? 1U : 0U;
+	acb.cylinder_low = 0xfeU; acb.cylinder_high = 0xffU;
+	status = prepare(request, engine, channel, device, packet, &acb, timeout);
+	if (EFI_ERROR(status))
+		return status;
+	request->owned_acb = acb; request->acb = &request->owned_acb;
+	memcpy(request->cdb, cdb, cdb_size); request->cdb_size = (UINT8)cdb_size;
+	request->atapi = 1U;
 	return EFI_SUCCESS;
 }
 
@@ -237,7 +269,7 @@ EFI_STATUS cdk2_ide_async_step(struct cdk2_ide_async_request *request,
 		return EFI_INVALID_PARAMETER;
 	*complete = 0; engine = request->engine;
 	channel = &engine->channels[request->channel];
-	base = channel->command; acb = request->packet->acb;
+	base = channel->command; acb = (struct cdk2_ata_command_block *)request->acb;
 	if (request->phase >= CDK2_IDE_ASYNC_STOP)
 		return cleanup_step(request, complete);
 	if (request->phase < CDK2_IDE_ASYNC_RESET_ASSERT && timed_out(request))
@@ -297,7 +329,9 @@ EFI_STATUS cdk2_ide_async_step(struct cdk2_ide_async_request *request,
 		status = engine->services.write8(engine->services.context,
 			base + offsets[request->task_index], values[request->task_index]);
 		if (++request->task_index == sizeof(offsets)) {
-			if (request->dma)
+			if (request->atapi)
+				request->phase = CDK2_IDE_ASYNC_ATAPI_CDB_WAIT;
+			else if (request->dma)
 				request->phase = CDK2_IDE_ASYNC_BM_START;
 			else if (request->remaining != 0U)
 				request->phase = CDK2_IDE_ASYNC_PIO_WAIT;
@@ -328,6 +362,91 @@ EFI_STATUS cdk2_ide_async_step(struct cdk2_ide_async_request *request,
 		break;
 	case CDK2_IDE_ASYNC_PIO_TRANSFER:
 		return pio_words(request);
+	case CDK2_IDE_ASYNC_ATAPI_CDB_WAIT:
+		value = engine->services.read8(engine->services.context, base + ATA_STATUS);
+		if ((value & (ATA_ST_ERR | ATA_ST_DF)) != 0U)
+			return fail(request, EFI_DEVICE_ERROR);
+		if ((value & ATA_ST_BSY) == 0U && (value & ATA_ST_DRQ) != 0U) {
+			UINT8 reason = engine->services.read8(engine->services.context,
+				base + ATA_COUNT);
+
+			if ((reason & 3U) != 1U)
+				return fail(request, EFI_DEVICE_ERROR);
+			request->phase = CDK2_IDE_ASYNC_ATAPI_CDB;
+		}
+		break;
+	case CDK2_IDE_ASYNC_ATAPI_CDB:
+		status = engine->services.write16(engine->services.context, base,
+			(UINT16)request->cdb[request->cdb_index] |
+			((UINT16)request->cdb[request->cdb_index + 1U] << 8));
+		request->cdb_index += 2U;
+		if (request->cdb_index == request->cdb_size)
+			request->phase = request->dma ? CDK2_IDE_ASYNC_BM_START :
+				CDK2_IDE_ASYNC_ATAPI_DATA_WAIT;
+		break;
+	case CDK2_IDE_ASYNC_ATAPI_DATA_WAIT:
+		value = engine->services.read8(engine->services.context, base + ATA_STATUS);
+		if ((value & (ATA_ST_ERR | ATA_ST_DF)) != 0U)
+			return fail(request, EFI_DEVICE_ERROR);
+		if ((value & ATA_ST_BSY) != 0U)
+			break;
+		if ((value & ATA_ST_DRQ) == 0U) {
+			request->phase = CDK2_IDE_ASYNC_STOP;
+			break;
+		}
+		value = engine->services.read8(engine->services.context, base + ATA_COUNT);
+		if ((value & 1U) != 0U)
+			return fail(request, EFI_DEVICE_ERROR);
+		request->phase_read = (value & 2U) != 0U;
+		request->phase_remaining = engine->services.read8(
+			engine->services.context, base + ATA_LBA_MID) |
+			((size_t)engine->services.read8(engine->services.context,
+			base + ATA_LBA_HIGH) << 8);
+		if (request->phase_remaining == 0U)
+			request->phase_remaining = 0x10000U;
+		request->phase_transfer = request->phase_remaining < request->remaining ?
+			request->phase_remaining : request->remaining;
+		request->phase = CDK2_IDE_ASYNC_ATAPI_DATA;
+		break;
+	case CDK2_IDE_ASYNC_ATAPI_DATA: {
+		size_t budget = 128U;
+
+		while (request->phase_remaining != 0U && budget-- != 0U) {
+			size_t phase_offset = request->phase_remaining;
+			UINT16 word;
+
+			if (request->phase_read) {
+				word = engine->services.read16(engine->services.context, base);
+				if (phase_offset <= request->phase_transfer) {
+					request->buffer[0] = (UINT8)word;
+					if (phase_offset != 1U)
+						request->buffer[1] = (UINT8)(word >> 8);
+				}
+			} else {
+				word = phase_offset <= request->phase_transfer ? request->buffer[0] : 0U;
+				if (phase_offset <= request->phase_transfer && phase_offset != 1U)
+					word |= (UINT16)request->buffer[1] << 8;
+				status = engine->services.write16(engine->services.context, base, word);
+				if (EFI_ERROR(status))
+					return fail(request, EFI_DEVICE_ERROR);
+			}
+			{
+				size_t bytes = request->phase_remaining < 2U ?
+					request->phase_remaining : 2U;
+				if (request->phase_transfer != 0U) {
+					size_t used = bytes < request->phase_transfer ? bytes :
+						request->phase_transfer;
+					request->buffer += used; request->remaining -= used;
+					request->transferred += used;
+					request->phase_transfer -= used;
+				}
+				request->phase_remaining -= bytes;
+			}
+		}
+		if (request->phase_remaining == 0U)
+			request->phase = CDK2_IDE_ASYNC_ATAPI_DATA_WAIT;
+		break;
+	}
 	case CDK2_IDE_ASYNC_COMMAND_WAIT:
 		value = engine->services.read8(engine->services.context, base + ATA_STATUS);
 		if ((value & (ATA_ST_ERR | ATA_ST_DF)) != 0U)

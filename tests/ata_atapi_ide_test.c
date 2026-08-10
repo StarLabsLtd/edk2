@@ -14,7 +14,7 @@ struct fixture {
 	unsigned int writes8, writes16, writes32, maps, unmaps, flushes, timings;
 	unsigned int data_reads, clear_after_reads;
 	unsigned int fail_map, hold_busy, bm_reads;
-	unsigned int atapi, resets, prdt_ready, packet_issued, bm_starts;
+	unsigned int atapi, resets, prdt_ready, packet_issued, bm_starts, cdb_words;
 	unsigned int ordering_bad, fail_cdb;
 	UINT64 now; enum cdk2_ahci_dma_operation operations[8];
 };
@@ -24,7 +24,7 @@ static UINT8 read8(void *opaque, UINT16 port)
 		if ((port & 7U) == 7U)
 			return f->data_reads < 2U ? 0x08U : 0U;
 		if ((port & 7U) == 2U)
-			return 2U;
+			return f->cdb_words != 0U ? 1U : 2U;
 		if ((port & 7U) == 4U)
 			return 3U;
 		if ((port & 7U) == 5U)
@@ -51,6 +51,7 @@ static EFI_STATUS write8(void *opaque, UINT16 port, UINT8 value)
 			f->ordering_bad++;
 		f->packet_issued++;
 		f->atapi = 2;
+		f->cdb_words = 6U;
 	}
 	if (port >= 0xc000U && (port & 7U) == 0U && (value & 1U) != 0U) {
 		if (f->atapi != 0U && !f->packet_issued)
@@ -65,6 +66,8 @@ static EFI_STATUS write8(void *opaque, UINT16 port, UINT8 value)
 	return EFI_SUCCESS; }
 static EFI_STATUS write16(void *opaque, UINT16 port, UINT16 value)
 { struct fixture *f = opaque; (void)port; (void)value; f->writes16++;
+	if (f->atapi == 2U && f->cdb_words != 0U)
+		f->cdb_words--;
 	if (f->atapi == 2U && f->fail_cdb)
 		return EFI_DEVICE_ERROR;
 	if (f->writes16 == 256U)

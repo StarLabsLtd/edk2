@@ -12,7 +12,7 @@
 
 struct fixture {
 	UINT64 now;
-	unsigned int allocations, releases, resets, atapi, submits, cancels;
+	unsigned int allocations, releases, resets, atapi, cdb_words, submits, cancels;
 	void *submitted_event;
 };
 static EFI_STATUS allocate(void *opaque, size_t size, void **buffer)
@@ -26,6 +26,8 @@ static UINT8 read8(void *opaque, UINT16 port)
 		fixture->atapi = 2U;
 		return 0x08U;
 	}
+	if ((port & 7U) == 2U && fixture->atapi == 2U)
+		return 1U;
 	(void)port;
 	return 0; }
 static UINT16 read16(void *opaque, UINT16 port)
@@ -33,12 +35,15 @@ static UINT16 read16(void *opaque, UINT16 port)
 static EFI_STATUS write8(void *opaque, UINT16 port, UINT8 value)
 { struct fixture *fixture = opaque; (void)value;
 	if ((port & 7U) == 7U && value == 0xa0U)
-		fixture->atapi = 1U;
+		fixture->atapi = 1U, fixture->cdb_words = 6U;
 	if ((port & 7U) == 6U)
 		fixture->resets++;
 	return EFI_SUCCESS; }
 static EFI_STATUS write16(void *opaque, UINT16 port, UINT16 value)
-{ (void)opaque; (void)port; (void)value; return EFI_SUCCESS; }
+{ struct fixture *fixture = opaque; (void)port; (void)value;
+	if (fixture->cdb_words != 0U && --fixture->cdb_words == 0U)
+		fixture->atapi = 3U;
+	return EFI_SUCCESS; }
 static EFI_STATUS write32(void *opaque, UINT16 port, UINT32 value)
 { (void)opaque; (void)port; (void)value; return EFI_SUCCESS; }
 static EFI_STATUS map(void *opaque, enum cdk2_ahci_dma_operation operation,

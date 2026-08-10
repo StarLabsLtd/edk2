@@ -36,7 +36,7 @@ struct fixture { struct fake_boot boot; struct fake_system system;
 	struct cdk2_ata_loaded_image loaded; unsigned int installs, uninstalls;
 	unsigned int fail_install, fail_uninstall, fail_open, fail_close, releases;
 	unsigned int opens, closes, events, timers, signals, closes_event;
-	unsigned int fail_timer, fail_signal;
+	unsigned int fail_timer, fail_signal, mode_ide;
 	UINT32 open_guid[16], open_attributes[16];
 	UINT32 close_guid[16]; void *controller[16], *agent[16], *child[16]; };
 struct fake_event { void (CDK2_MS_ABI *notify)(void *, void *); void *context; };
@@ -128,8 +128,22 @@ static EFI_STATUS ahci_write(void *opaque, UINT16 port, UINT16 offset, UINT32 va
 { (void)opaque; (void)port; (void)offset; (void)value; return EFI_SUCCESS; }
 static UINT64 ahci_time(void *opaque) { static UINT64 now; (void)opaque; return now++; }
 static void ahci_delay(void *opaque, UINTN delay) { (void)opaque; (void)delay; }
+static UINT8 ide_read8(void *opaque, UINT16 port)
+{ (void)opaque; (void)port; return 0U; }
+static UINT16 ide_read16(void *opaque, UINT16 port)
+{ (void)opaque; (void)port; return 0U; }
+static EFI_STATUS ide_write8(void *opaque, UINT16 port, UINT8 value)
+{ (void)opaque; (void)port; (void)value; return EFI_SUCCESS; }
+static EFI_STATUS ide_write16(void *opaque, UINT16 port, UINT16 value)
+{ (void)opaque; (void)port; (void)value; return EFI_SUCCESS; }
+static EFI_STATUS ide_write32(void *opaque, UINT16 port, UINT32 value)
+{ (void)opaque; (void)port; (void)value; return EFI_SUCCESS; }
+static EFI_STATUS ide_timing(void *opaque, UINT8 channel, UINT8 device)
+{ (void)opaque; (void)channel; (void)device; return EFI_SUCCESS; }
 static EFI_STATUS read_class(void *context, void *pci, UINT8 code[3])
-{ (void)context; (void)pci; code[0] = 1; code[1] = 6; code[2] = 1;
+{ struct fixture *fixture = context; (void)pci;
+	code[0] = fixture->mode_ide ? 0U : 1U;
+	code[1] = fixture->mode_ide ? 1U : 6U; code[2] = 1;
 	return EFI_SUCCESS; }
 static EFI_STATUS get_attributes(void *context, void *pci, native_uint64_t *original,
 	native_uint64_t *supported)
@@ -139,7 +153,10 @@ static EFI_STATUS set_attributes(void *context, void *pci, UINT64 attributes)
 static EFI_STATUS discover_ide(void *context, struct cdk2_ata_controller *controller,
 	struct cdk2_ata_topology *topology)
 { (void)context; (void)controller;
-	return cdk2_ata_add_device(topology, 0, 0, CDK2_ATA_DISK); }
+	EFI_STATUS status = cdk2_ata_add_device(topology, 0, 0, CDK2_ATA_DISK);
+	if (!EFI_ERROR(status))
+		topology->devices[0].block_size = 512U;
+	return status; }
 static EFI_STATUS discover_ahci(void *context, struct cdk2_ata_controller *controller,
 	native_uint32_t *cap,
 	native_uint32_t *pi,
@@ -158,20 +175,35 @@ static EFI_STATUS prepare(void *context, struct cdk2_ata_controller *controller)
 	struct cdk2_ahci_dma_services services = { context, ahci_allocate, ahci_release,
 		ahci_map, ahci_unmap, ahci_flush, ahci_read, ahci_write, ahci_time, ahci_delay };
 	EFI_STATUS status; if (backend == NULL) return EFI_OUT_OF_RESOURCES;
-	status = cdk2_ahci_engine_init(&backend->ahci, &services, 0U, 3U);
+	if (controller->topology.mode == CDK2_ATA_IDE) {
+		struct cdk2_ide_channel channel = { 0x1f0U, 0x3f6U, 0xc000U };
+		struct cdk2_ide_services ide = { context, ide_read8, ide_read16,
+			ide_write8, ide_write16, ide_write32, ahci_map, ahci_unmap,
+			ahci_flush, ide_timing, ahci_time, ahci_delay };
+
+		status = cdk2_ide_engine_init(&backend->ide, &ide, &channel, 1U);
+		if (!EFI_ERROR(status)) {
+			backend->ide_initialized = 1; controller->ide_engine = &backend->ide;
+		}
+	} else {
+		status = cdk2_ahci_engine_init(&backend->ahci, &services, 0U, 3U);
+		if (!EFI_ERROR(status)) {
+			backend->ahci_initialized = 1; controller->ahci = &backend->ahci;
+		}
+	}
 	if (EFI_ERROR(status)) {
 		free(backend);
 		return status;
 	}
-	backend->ahci_initialized = 1; controller->backend = backend;
-	controller->ahci = &backend->ahci; return EFI_SUCCESS; }
+	controller->backend = backend; return EFI_SUCCESS; }
 static void release_engines(void *context, struct cdk2_ata_controller *controller)
 { struct cdk2_ata_controller_backend *backend = controller->backend;
 	if (backend != NULL) {
-		cdk2_ahci_engine_destroy(&backend->ahci);
+		if (backend->ahci_initialized)
+			cdk2_ahci_engine_destroy(&backend->ahci);
 		free(backend);
 	}
-	controller->backend = NULL; controller->ahci = NULL;
+	controller->backend = NULL; controller->ahci = NULL; controller->ide_engine = NULL;
 	((struct fixture *)context)->releases++; }
 static EFI_STATUS create_protocols(void *context,
 	struct cdk2_ata_controller *controller,
@@ -302,14 +334,36 @@ int main(void)
 		fixture.fail_signal = 0;
 		CHECK(installed_ata->pass_thru(installed_ata, 0, 0xffffU, &first,
 			(void *)0xa005U) == EFI_SUCCESS && pending_event != NULL);
+		while (pending_event != NULL)
+			tick();
 	}
-	fixture.fail_uninstall = fixture.uninstalls + 3U;
+	fixture.mode_ide = 1U;
+	CHECK(entry.driver.start(&entry.driver, (void *)3, NULL) == EFI_SUCCESS &&
+		binding.count == 3 && installed_ata != NULL &&
+		(installed_ata->mode->attributes &
+		 CDK2_ATA_PASS_THRU_ATTRIBUTES_NONBLOCKIO) != 0U);
+	{
+		struct cdk2_ata_command_block acb = { .command = 0xe7U };
+		struct cdk2_ata_status_block asb = { 0 };
+		struct cdk2_ata_command_packet packet = { .asb = &asb, .acb = &acb,
+			.timeout = 100U, .protocol = 2U };
+		unsigned int before = fixture.signals;
+
+		CHECK(installed_ata->pass_thru(installed_ata, 0, 0, &packet,
+			(void *)0xb001U) == EFI_SUCCESS && fixture.signals == before);
+		for (unsigned int step = 0; step < 32U && fixture.signals == before; step++)
+			tick();
+		CHECK(fixture.signals == before + 1U && asb.status == 0U);
+		CHECK(installed_ata->pass_thru(installed_ata, 0, 0, &packet,
+			(void *)0xb002U) == EFI_SUCCESS && pending_event != NULL);
+	}
+	fixture.fail_uninstall = fixture.uninstalls + 4U;
 	CHECK(entry.loaded->unload(&fixture) == EFI_DEVICE_ERROR);
 	CHECK(entry.published && binding.count == 0);
 	fixture.fail_uninstall = 0;
 	CHECK(entry.loaded->unload(&fixture) == EFI_SUCCESS);
 	CHECK(!entry.published && fixture.loaded.unload == old_unload);
-	CHECK(fixture.releases == 2 && fixture.closes >= 4);
+	CHECK(fixture.releases == 3 && fixture.closes >= 6);
 	CHECK(pending_event == NULL && fixture.closes_event == fixture.events);
 	CHECK(cdk2_ata_atapi_pass_thru_entry(&fixture, &fixture.system) == EFI_SUCCESS);
 	CHECK(fixture.loaded.unload(&fixture) == EFI_SUCCESS);

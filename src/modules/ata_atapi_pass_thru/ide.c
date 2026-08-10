@@ -305,7 +305,7 @@ EFI_STATUS cdk2_ide_execute(struct cdk2_ide_engine *engine, UINT8 channel,
 	return status;
 }
 
-EFI_STATUS cdk2_ide_atapi_execute(struct cdk2_ide_engine *engine, UINT8 channel,
+static EFI_STATUS ide_atapi_execute_legacy(struct cdk2_ide_engine *engine, UINT8 channel,
 	UINT8 device, struct cdk2_ata_command_packet *packet, const UINT8 *cdb,
 	size_t cdb_size, UINT64 timeout)
 {
@@ -432,4 +432,27 @@ complete:
 	if (EFI_ERROR(status))
 		(void)cdk2_ide_reset(engine, channel, timeout);
 	return status;
+}
+
+EFI_STATUS cdk2_ide_atapi_execute(struct cdk2_ide_engine *engine, UINT8 channel,
+	UINT8 device, struct cdk2_ata_command_packet *packet, const UINT8 *cdb,
+	size_t cdb_size, UINT64 timeout)
+{
+	struct cdk2_ide_async_request request;
+	BOOLEAN complete = 0;
+	EFI_STATUS status;
+
+	if (packet == NULL || (packet->protocol != 4U && packet->protocol != 5U &&
+	    packet->protocol != 6U && packet->protocol != 0x0aU &&
+	    packet->protocol != 0x0bU))
+		return ide_atapi_execute_legacy(engine, channel, device, packet, cdb,
+			cdb_size, timeout);
+	status = cdk2_ide_atapi_async_prepare(&request, engine, channel, device,
+		packet, cdb, cdb_size, timeout);
+	while (!EFI_ERROR(status) && !complete) {
+		status = cdk2_ide_async_step(&request, &complete);
+		if (!complete && !EFI_ERROR(status))
+			engine->services.delay(engine->services.context, 10U);
+	}
+	return complete ? request.terminal_status : status;
 }

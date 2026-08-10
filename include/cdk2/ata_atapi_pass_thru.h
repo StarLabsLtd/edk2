@@ -390,6 +390,8 @@ enum cdk2_ide_async_phase {
 	CDK2_IDE_ASYNC_TIMING, CDK2_IDE_ASYNC_TASKFILE,
 	CDK2_IDE_ASYNC_BM_START, CDK2_IDE_ASYNC_POLL,
 	CDK2_IDE_ASYNC_PIO_WAIT, CDK2_IDE_ASYNC_PIO_TRANSFER,
+	CDK2_IDE_ASYNC_ATAPI_CDB_WAIT, CDK2_IDE_ASYNC_ATAPI_CDB,
+	CDK2_IDE_ASYNC_ATAPI_DATA_WAIT, CDK2_IDE_ASYNC_ATAPI_DATA,
 	CDK2_IDE_ASYNC_COMMAND_WAIT, CDK2_IDE_ASYNC_RESET_ASSERT,
 	CDK2_IDE_ASYNC_RESET_DEASSERT, CDK2_IDE_ASYNC_RESET_WAIT,
 	CDK2_IDE_ASYNC_STOP, CDK2_IDE_ASYNC_UNMAP_PRD,
@@ -399,12 +401,16 @@ enum cdk2_ide_async_phase {
 struct cdk2_ide_async_request {
 	struct cdk2_ide_engine *engine;
 	struct cdk2_ata_command_packet *packet;
+	struct cdk2_ata_command_block owned_acb;
+	const struct cdk2_ata_command_block *acb;
 	void *mappings[CDK2_IDE_MAX_PRD], *prd_mapping;
-	UINT8 *buffer;
+	UINT8 *buffer, cdb[16];
 	UINT64 mapped_device, deadline, reset_deadline, reset_timeout;
 	size_t remaining, mapped_remaining, total, transferred;
+	size_t phase_remaining, phase_transfer;
 	UINT16 mapping_count, entries;
 	UINT8 channel, device, task_index, bm_command, started, cleaned, dma, write;
+	UINT8 atapi, cdb_size, cdb_index, phase_read;
 	EFI_STATUS terminal_status;
 	enum cdk2_ide_async_phase phase;
 };
@@ -412,6 +418,10 @@ struct cdk2_ide_async_request {
 EFI_STATUS cdk2_ide_async_prepare(struct cdk2_ide_async_request *request,
 	struct cdk2_ide_engine *engine, UINT8 channel, UINT8 device,
 	struct cdk2_ata_command_packet *packet, UINT64 timeout);
+EFI_STATUS cdk2_ide_atapi_async_prepare(struct cdk2_ide_async_request *request,
+	struct cdk2_ide_engine *engine, UINT8 channel, UINT8 device,
+	struct cdk2_ata_command_packet *packet, const UINT8 *cdb, size_t cdb_size,
+	UINT64 timeout);
 EFI_STATUS cdk2_ide_async_step(struct cdk2_ide_async_request *request,
 	BOOLEAN *complete);
 EFI_STATUS cdk2_ide_async_abort(struct cdk2_ide_async_request *request,
