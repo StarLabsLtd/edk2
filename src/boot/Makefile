@@ -39,6 +39,7 @@ CDK2_NATIVE_SCSI_BUS_PARENT_FV ?= \
 	$(CDK2_NATIVE_BUILD_DIR)/retained-native-scsi-bus-parent.fv
 CDK2_NATIVE_SCSI_BUS_QEMU_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/scsi-bus-qemu.o
 CDK2_NATIVE_SCSI_BUS_QEMU_PE ?= $(CDK2_NATIVE_BUILD_DIR)/scsi-bus-qemu.efi
+CDK2_NATIVE_SCSI_DISK_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-scsi-disk-test
 CDK2_NATIVE_SATA_CONTROLLER_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-sata-controller-test
 CDK2_NATIVE_ATA_ATAPI_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-atapi-test
 CDK2_NATIVE_ATA_ATAPI_BINDING_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-atapi-binding-test
@@ -1088,6 +1089,10 @@ native-scsi-bus-test: $(CDK2_NATIVE_SCSI_BUS_TEST) $(CDK2_NATIVE_SCSI_BINDING_TE
 	@"$(CDK2_NATIVE_SCSI_ENTRY_TEST)"
 	@"$(CDK2_NATIVE_SCSI_DEPENDENCY_TEST)" "$(MAKE)" "$(CDK2_DIR)" \
 		"$(CDK2_BUILD_DIR)"
+
+.PHONY: native-scsi-disk-test
+native-scsi-disk-test: $(CDK2_NATIVE_SCSI_DISK_TEST)
+	@"$<"
 
 native-scsi-bus-package: $(CDK2_NATIVE_SCSI_BUS_FFS) $(CDK2_NATIVE_SCSI_PACKAGE_TEST)
 	@"$(CDK2_NATIVE_SCSI_PACKAGE_TEST)" "$(CDK2_NATIVE_SCSI_BUS_FFS)"
@@ -2364,6 +2369,13 @@ $(CDK2_NATIVE_SCSI_BUS_TEST): $(CDK2_DIR)/tests/scsi_bus_test.c $(CDK2_DIR)/src/
 		-MMD -MP -MF "$(CDK2_NATIVE_BUILD_DIR)/scsi-bus-test.d" -MT "$@" \
 		-o "$@" $(CDK2_DIR)/tests/scsi_bus_test.c \
 		$(CDK2_DIR)/src/modules/scsi_bus/model.c
+
+$(CDK2_NATIVE_SCSI_DISK_TEST): $(CDK2_DIR)/tests/scsi_disk_model_test.c \
+		$(CDK2_DIR)/src/modules/scsi_disk/model.c \
+		$(CDK2_DIR)/include/cdk2/scsi_disk.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -fsanitize=address,undefined \
+		$(CDK2_NATIVE_INCLUDES) -o "$@" $(CDK2_DIR)/tests/scsi_disk_model_test.c \
+		$(CDK2_DIR)/src/modules/scsi_disk/model.c
 
 $(CDK2_NATIVE_SCSI_BINDING_TEST): $(CDK2_DIR)/tests/scsi_bus_binding_test.c \
 		$(CDK2_DIR)/src/modules/scsi_bus/binding.c \
