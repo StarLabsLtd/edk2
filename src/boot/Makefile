@@ -38,6 +38,12 @@ CDK2_NATIVE_ATA_BUS_IO_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-bus-io-test
 CDK2_NATIVE_ATA_BUS_BLOCK_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-bus-block-test
 CDK2_NATIVE_ATA_BUS_BINDING_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-bus-binding-test
 CDK2_NATIVE_ATA_BUS_ENTRY_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-bus-entry-test
+CDK2_NATIVE_ATA_BUS_PACKAGE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-bus-package-test
+CDK2_NATIVE_ATA_BUS_DEPENDENCY_TEST := $(CDK2_DIR)/tests/ata_bus_dependency_test.sh
+CDK2_NATIVE_ATA_BUS_MODULES := model io block binding disk_security entry runtime
+CDK2_NATIVE_ATA_BUS_OBJS := $(addprefix $(CDK2_NATIVE_BUILD_DIR)/ata-bus-,$(addsuffix .o,$(CDK2_NATIVE_ATA_BUS_MODULES)))
+CDK2_NATIVE_ATA_BUS_PE ?= $(CDK2_NATIVE_BUILD_DIR)/AtaBusDxe.efi
+CDK2_NATIVE_ATA_BUS_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/AtaBusDxe.ffs
 CDK2_NATIVE_ATA_BACKEND_IDE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-backend-ide-test
 CDK2_NATIVE_ATA_PACKAGE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-package-test
 CDK2_NATIVE_ATA_DEPENDENCY_TEST := $(CDK2_DIR)/tests/ata_atapi_dependency_test.sh
@@ -405,6 +411,8 @@ CDK2_NATIVE_HOST_TOOLS := \
 	$(CDK2_NATIVE_ATA_BUS_BLOCK_TEST) \
 	$(CDK2_NATIVE_ATA_BUS_BINDING_TEST) \
 	$(CDK2_NATIVE_ATA_BUS_ENTRY_TEST) \
+	$(CDK2_NATIVE_ATA_BUS_PACKAGE_TEST) \
+	$(CDK2_NATIVE_ATA_BUS_FFS) \
 	$(CDK2_NATIVE_ATA_BACKEND_IDE_TEST) \
 	$(CDK2_NATIVE_ATA_FFS) \
 	$(CDK2_NATIVE_ATA_QEMU_PE) \
@@ -674,7 +682,9 @@ native-check: $(CDK2_CONFIG_HEADER) $(CDK2_NATIVE_ELF) $(CDK2_NATIVE_OVERRIDE_EL
 		$(CDK2_NATIVE_COREBOOT_ELF) $(CDK2_NATIVE_COREBOOT_ENTRY) \
 		$(CDK2_NATIVE_HOST_TOOLS) $(CDK2_NATIVE_DEVICE_PATH_CHECK_DEPS) \
 		$(CDK2_NATIVE_PARTITION_CHECK_DEPS) $(CDK2_NATIVE_BL_SUPPORT_CHECK_DEPS) \
-		$(CDK2_NATIVE_PCI_HOST_BRIDGE_CHECK_DEPS)
+		$(CDK2_NATIVE_PCI_HOST_BRIDGE_CHECK_DEPS) $(CDK2_NATIVE_ATA_FFS) \
+		$(CDK2_NATIVE_ATA_PACKAGE_TEST) $(CDK2_NATIVE_ATA_BUS_FFS) \
+		$(CDK2_NATIVE_ATA_BUS_PACKAGE_TEST)
 	@$(CDK2_NATIVE_NM) "$(CDK2_NATIVE_ELF)" | grep -Eq '[[:space:]]W[[:space:]]cdk2_platform_initialize_native_context$$'
 	@$(CDK2_NATIVE_NM) "$(CDK2_NATIVE_ELF)" | grep -Eq '[[:space:]]W[[:space:]]cdk2_platform_late_init$$'
 	@$(CDK2_NATIVE_NM) "$(CDK2_NATIVE_OVERRIDE_ELF)" | grep -Eq '[[:space:]]T[[:space:]]cdk2_platform_initialize_native_context$$'
@@ -706,6 +716,10 @@ native-check: $(CDK2_CONFIG_HEADER) $(CDK2_NATIVE_ELF) $(CDK2_NATIVE_OVERRIDE_EL
 	@"$(CDK2_NATIVE_ATA_BACKEND_IDE_TEST)"
 	@"$(CDK2_NATIVE_ATA_PACKAGE_TEST)" "$(CDK2_NATIVE_ATA_FFS)"
 	@"$(CDK2_NATIVE_ATA_DEPENDENCY_TEST)" "$(MAKE)" "$(CDK2_DIR)" "$(CDK2_BUILD_DIR)"
+	@"$(CDK2_NATIVE_ATA_BUS_PACKAGE_TEST)" "$(CDK2_NATIVE_ATA_BUS_FFS)" \
+		"$(CDK2_NATIVE_ATA_BUS_PE)"
+	@"$(CDK2_NATIVE_ATA_BUS_DEPENDENCY_TEST)" "$(MAKE)" "$(CDK2_DIR)" \
+		"$(CDK2_BUILD_DIR)"
 	@"$(CDK2_NATIVE_SATA_ENTRY_TEST)"
 	@"$(CDK2_NATIVE_SATA_PACKAGE_TEST)" "$(CDK2_NATIVE_SATA_FFS)"
 	@"$(CDK2_NATIVE_SATA_DEPENDENCY_TEST)" "$(MAKE)" "$(CDK2_DIR)" "$(CDK2_BUILD_DIR)"
@@ -2465,6 +2479,32 @@ $(CDK2_NATIVE_ATA_BUS_ENTRY_TEST): $(CDK2_DIR)/tests/ata_bus_entry_test.c \
 .PHONY: native-ata-bus-entry-test
 native-ata-bus-entry-test: $(CDK2_NATIVE_ATA_BUS_ENTRY_TEST)
 	@"$<"
+
+$(CDK2_NATIVE_ATA_BUS_PACKAGE_TEST): $(CDK2_DIR)/tests/ata_bus_package_test.c | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -o "$@" "$<"
+
+$(CDK2_NATIVE_BUILD_DIR)/ata-bus-%.o: $(CDK2_DIR)/src/modules/ata_bus/%.c | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
+		-mcmodel=large -maccumulate-outgoing-args -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 \
+		-MMD -MP -MF "$(@:.o=.d)" -MT "$@" \
+		$(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+
+$(CDK2_NATIVE_ATA_BUS_PE): $(CDK2_NATIVE_ATA_BUS_OBJS) \
+		$(CDK2_DIR)/src/modules/ata_bus/ata_bus.ld $(CDK2_NATIVE_PERELOCCHECK)
+	@$(LD) -mi386pep --subsystem 11 --entry cdk2_ata_bus_entry --image-base 0 \
+		--section-alignment 0x1000 --file-alignment 0x1000 --build-id=none \
+		--no-insert-timestamp -s --nxcompat -T "$(CDK2_DIR)/src/modules/ata_bus/ata_bus.ld" \
+		-o "$@" $(CDK2_NATIVE_ATA_BUS_OBJS)
+	@"$(CDK2_NATIVE_PERELOCCHECK)" "$@"
+
+$(CDK2_NATIVE_ATA_BUS_FFS): $(CDK2_NATIVE_ATA_BUS_PE) $(CDK2_NATIVE_FFSBUILD)
+	@"$(CDK2_NATIVE_FFSBUILD)" 19df145a-b1d4-453f-8507-38816676d7f6 \
+		AtaBusDxe 1.0 0x9042 "$<" "$@" -
+
+.PHONY: native-ata-bus-package
+native-ata-bus-package: $(CDK2_NATIVE_ATA_BUS_FFS) $(CDK2_NATIVE_ATA_BUS_PACKAGE_TEST)
+	@"$(CDK2_NATIVE_ATA_BUS_PACKAGE_TEST)" "$(CDK2_NATIVE_ATA_BUS_FFS)" \
+		"$(CDK2_NATIVE_ATA_BUS_PE)"
 
 $(CDK2_NATIVE_ATA_BACKEND_IDE_TEST): $(CDK2_DIR)/tests/ata_backend_ide_test.c \
 		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/backend.c \
