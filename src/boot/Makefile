@@ -65,6 +65,11 @@ CDK2_NATIVE_USB_BUS_PE ?= $(CDK2_NATIVE_BUILD_DIR)/UsbBusDxe.efi
 CDK2_NATIVE_USB_BUS_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/UsbBusDxe.ffs
 CDK2_NATIVE_USB_BUS_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-usb-bus.fv
 CDK2_NATIVE_USB_BUS_PACKAGE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/usb-bus-package-test
+CDK2_NATIVE_USB_MASS_OBJS := $(addprefix $(CDK2_NATIVE_BUILD_DIR)/usb-mass-,\
+	model.o transport.o scsi.o block.o binding.o entry.o)
+CDK2_NATIVE_USB_MASS_PE ?= $(CDK2_NATIVE_BUILD_DIR)/UsbMassStorageDxe.efi
+CDK2_NATIVE_USB_MASS_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/UsbMassStorageDxe.ffs
+CDK2_NATIVE_USB_MASS_PACKAGE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/usb-mass-package-test
 CDK2_NATIVE_SATA_CONTROLLER_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-sata-controller-test
 CDK2_NATIVE_ATA_ATAPI_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-atapi-test
 CDK2_NATIVE_ATA_ATAPI_BINDING_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-atapi-binding-test
@@ -1168,6 +1173,39 @@ native-usb-mass-test: $(CDK2_NATIVE_BUILD_DIR)/usb-mass-model-test \
 	@"$(CDK2_NATIVE_BUILD_DIR)/usb-mass-block-test"
 	@"$(CDK2_NATIVE_BUILD_DIR)/usb-mass-binding-test"
 	@"$(CDK2_NATIVE_BUILD_DIR)/usb-mass-entry-test"
+
+.PHONY: native-usb-mass-package
+native-usb-mass-package: $(CDK2_NATIVE_USB_MASS_FFS) \
+		$(CDK2_NATIVE_USB_MASS_PACKAGE_TEST)
+	@"$(CDK2_NATIVE_USB_MASS_PACKAGE_TEST)" "$(CDK2_NATIVE_USB_MASS_FFS)"
+
+$(CDK2_NATIVE_BUILD_DIR)/usb-mass-%.o: \
+		$(CDK2_DIR)/src/modules/usb_mass/%.c \
+		$(CDK2_DIR)/include/cdk2/usb_mass.h \
+		$(CDK2_DIR)/include/cdk2/usb_bus.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,\
+		$(CDK2_NATIVE_CFLAGS)) -mcmodel=large -fno-ident -fcf-protection=none \
+		-maccumulate-outgoing-args $(CDK2_NATIVE_INCLUDES) -MMD -MP \
+		-MF "$(@:.o=.d)" -MT "$@" -c "$<" -o "$@"
+
+$(CDK2_NATIVE_USB_MASS_PE): $(CDK2_NATIVE_USB_MASS_OBJS) \
+		$(CDK2_DIR)/src/modules/xhci/xhci.ld $(CDK2_NATIVE_PERELOCCHECK)
+	@$(LD) -mi386pep --subsystem 11 --entry cdk2_usb_mass_entry --image-base 0 \
+		--section-alignment 0x1000 --file-alignment 0x1000 --build-id=none \
+		--no-insert-timestamp -s --nxcompat \
+		-T "$(CDK2_DIR)/src/modules/xhci/xhci.ld" \
+		-o "$@" $(CDK2_NATIVE_USB_MASS_OBJS)
+	@"$(CDK2_NATIVE_PERELOCCHECK)" --subsystem 11 "$@"
+
+$(CDK2_NATIVE_USB_MASS_FFS): $(CDK2_NATIVE_USB_MASS_PE) $(CDK2_NATIVE_FFSBUILD)
+	@"$(CDK2_NATIVE_FFSBUILD)" 9fb4b4a7-42c0-4bcd-8540-9bcc6711f83e \
+		UsbMassStorageDxe 1.0 0x9052 "$<" "$@" -
+
+$(CDK2_NATIVE_USB_MASS_PACKAGE_TEST): \
+		$(CDK2_DIR)/tests/usb_mass_package_test.c | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -MMD -MP \
+		-MF "$(CDK2_NATIVE_BUILD_DIR)/usb-mass-package-test.d" -MT "$@" \
+		-o "$@" "$<"
 
 $(CDK2_NATIVE_BUILD_DIR)/usb-mass-entry-test: \
 		$(CDK2_DIR)/tests/usb_mass_entry_test.c \

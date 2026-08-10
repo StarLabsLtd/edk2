@@ -73,7 +73,7 @@ CDK2_CONFIG_TARGETS := build check manifest modules native-stage \
 	native-scsi-disk-fv-exact native-scsi-disk-oracle \
 	native-xhci-test native-xhci-package native-xhci-fv native-xhci-fv-exact \
 	native-usb-bus-test native-usb-bus-package native-usb-bus-fv \
-	native-usb-mass-test \
+	native-usb-mass-test native-usb-mass-package \
 	native-usb-bus-fv-exact \
 	native-scsi-bus-fv-exact native-scsi-bus-oracle \
 	native-capsule-runtime-test native-capsule-runtime-fv \
@@ -165,7 +165,7 @@ CDK2_RECURSIVE_ARGS := \
 	native-scsi-disk-fv-exact native-scsi-disk-oracle \
 	native-xhci-test native-xhci-package native-xhci-fv native-xhci-fv-exact \
 	native-usb-bus-test native-usb-bus-package native-usb-bus-fv \
-	native-usb-mass-test \
+	native-usb-mass-test native-usb-mass-package \
 	native-usb-bus-fv-exact \
 	native-scsi-bus-fv-exact native-scsi-bus-oracle \
 	native-capsule-runtime-test native-capsule-runtime-fv \
