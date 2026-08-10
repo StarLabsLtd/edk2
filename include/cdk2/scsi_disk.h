@@ -7,6 +7,7 @@
 
 #define CDK2_SCSI_DISK_CDB_MAX 16U
 #define CDK2_SCSI_DISK_ASYNC_DEPTH 16U
+#define CDK2_SCSI_DISK_MAX_CONTROLLERS 16U
 #ifndef EFI_WRITE_PROTECTED
 #define EFI_WRITE_PROTECTED EFIERR(8)
 #endif
@@ -79,6 +80,37 @@ struct cdk2_scsi_disk_block {
 	struct cdk2_scsi_disk_async *async;
 };
 
+struct cdk2_scsi_disk_bound_controller {
+	void *handle;
+	void *scsi_io;
+	struct cdk2_scsi_disk disk;
+	struct cdk2_scsi_disk_async async;
+	struct cdk2_scsi_disk_block block;
+	BOOLEAN parent_open, installed;
+};
+
+struct cdk2_scsi_disk_binding_services {
+	void *context;
+	EFI_STATUS (*open_parent)(void *context, void *controller, void **scsi_io);
+	EFI_STATUS (*close_parent)(void *context, void *controller);
+	EFI_STATUS (*probe)(void *context, void *scsi_io,
+		struct cdk2_scsi_disk *disk);
+	EFI_STATUS (*install)(void *context, void *controller,
+		struct cdk2_scsi_disk_bound_controller *bound);
+	EFI_STATUS (*uninstall)(void *context, void *controller,
+		struct cdk2_scsi_disk_bound_controller *bound);
+	EFI_STATUS (*signal)(void *context, void *event);
+	EFI_STATUS (*allocate)(void *context, UINTN size, void **buffer);
+	void (*release)(void *context, void *buffer);
+};
+
+struct cdk2_scsi_disk_binding {
+	struct cdk2_scsi_disk_binding_services services;
+	struct cdk2_scsi_disk_bound_controller *controllers[
+		CDK2_SCSI_DISK_MAX_CONTROLLERS];
+	UINTN count;
+};
+
 EFI_STATUS cdk2_scsi_disk_parse_capacity10(const UINT8 response[8],
 	UINT64 *last_block, UINT32 *block_size, BOOLEAN *needs_capacity16);
 EFI_STATUS cdk2_scsi_disk_parse_capacity16(const UINT8 response[32],
@@ -103,5 +135,11 @@ EFI_STATUS cdk2_scsi_disk_async_reset(struct cdk2_scsi_disk_async *async);
 EFI_STATUS cdk2_scsi_disk_async_stop(struct cdk2_scsi_disk_async *async);
 EFI_STATUS cdk2_scsi_disk_block_init(struct cdk2_scsi_disk_block *instance,
 	struct cdk2_scsi_disk *disk, struct cdk2_scsi_disk_async *async);
+EFI_STATUS cdk2_scsi_disk_binding_init(struct cdk2_scsi_disk_binding *binding,
+	const struct cdk2_scsi_disk_binding_services *services);
+EFI_STATUS cdk2_scsi_disk_binding_start(struct cdk2_scsi_disk_binding *binding,
+	void *controller);
+EFI_STATUS cdk2_scsi_disk_binding_stop(struct cdk2_scsi_disk_binding *binding,
+	void *controller);
 
 #endif
