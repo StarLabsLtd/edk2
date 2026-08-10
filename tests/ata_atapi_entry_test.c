@@ -317,7 +317,7 @@ int main(void)
 		struct cdk2_ata_command_block acb = { .command = 0xe7U };
 		struct cdk2_ata_status_block asb = { .status = 0xffU };
 		struct cdk2_ata_command_packet first = { .asb = &asb, .acb = &acb,
-			.timeout = 100U, .protocol = 2U };
+			.timeout = 10000U, .protocol = 2U };
 		struct cdk2_ata_command_packet second = first;
 		unsigned int before_signals = fixture.signals;
 
@@ -334,6 +334,18 @@ int main(void)
 		     step++)
 			tick();
 		CHECK(fixture.signals == before_signals + 2U && asb.status == 0U);
+		current_tpl = 8U;
+		CHECK(installed_ata->pass_thru(installed_ata, 0, 0xffffU, &first,
+			NULL) == EFI_SUCCESS);
+		current_tpl = 4U;
+		CHECK(installed_ata->pass_thru(installed_ata, 0, 0xffffU, &first,
+			(void *)0xa000U) == EFI_SUCCESS);
+		current_tpl = 8U;
+		CHECK(installed_ata->pass_thru(installed_ata, 0, 0xffffU, &second,
+			NULL) == EFI_NOT_READY);
+		current_tpl = 4U;
+		while (pending_event != NULL)
+			tick();
 		CHECK(installed_ata->reset_port(installed_ata, 0) == EFI_SUCCESS);
 		fixture.fail_timer = fixture.timers + 1U;
 		CHECK(installed_ata->pass_thru(installed_ata, 0, 0xffffU, &first,
@@ -360,7 +372,7 @@ int main(void)
 		struct cdk2_ata_command_block acb = { .command = 0xe7U };
 		struct cdk2_ata_status_block asb = { 0 };
 		struct cdk2_ata_command_packet packet = { .asb = &asb, .acb = &acb,
-			.timeout = 100U, .protocol = 2U };
+			.timeout = 10000U, .protocol = 2U };
 		unsigned int before = fixture.signals;
 
 		CHECK(installed_ata->pass_thru(installed_ata, 0, 0, &packet,

@@ -173,7 +173,7 @@ static EFI_STATUS reset(struct cdk2_ata_protocol_instance *instance, UINT16 port
 	if (instance->services.cancel_scope != NULL) {
 		EFI_STATUS cancel_status = instance->services.cancel_scope(
 			instance->services.context, controller, port, multiplier,
-			check_device);
+			check_device && controller->topology.mode == CDK2_ATA_AHCI);
 
 		if (EFI_ERROR(cancel_status))
 			return cancel_status;

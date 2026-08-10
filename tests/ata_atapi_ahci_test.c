@@ -122,7 +122,7 @@ int main(void)
 		unsigned int before = fixture.writes, restored = 0, configured = 0;
 
 		fixture.ci_reads = 0;
-		CHECK(cdk2_ahci_execute(&engine, 2, &packet, NULL, 0, 100) ==
+		CHECK(cdk2_ahci_execute(&engine, 2, &packet, NULL, 0, 1000) ==
 			EFI_SUCCESS);
 		for (unsigned int index = before; index < fixture.writes; index++) {
 			if (fixture.write_ports[index] == 0 &&
@@ -174,7 +174,7 @@ int main(void)
 		CHECK(cdk2_ahci_async_prepare(&request, &engine, 0, &packet, 100) == EFI_SUCCESS);
 		while (request.phase != CDK2_AHCI_ASYNC_CI)
 			CHECK(cdk2_ahci_async_step(&request, &complete) == EFI_SUCCESS);
-		fixture.now = request.deadline;
+		fixture.now = request.deadline + request.timeout;
 		CHECK(cdk2_ahci_async_step(&request, &complete) == EFI_SUCCESS &&
 			request.phase == CDK2_AHCI_ASYNC_ABORT_STOP && request.aborting &&
 			request.terminal_status == EFI_TIMEOUT);

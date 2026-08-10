@@ -311,58 +311,76 @@ static EFI_STATUS protocol_async_cancel_scope(void *opaque,
 }
 static EFI_STATUS service_quiesce(void *opaque, struct cdk2_ata_controller *controller)
 { return protocol_async_cancel(opaque, controller); }
-static void cancel_async_event(struct cdk2_ata_controller_backend *backend)
+static void cancel_async_event(void *event, struct async_call *call)
 {
-	if (backend->async_event == NULL)
+	if (event == NULL)
 		return;
-	(void)active_entry->boot->set_timer(backend->async_event, 0U, 0U);
-	(void)active_entry->boot->close_event(backend->async_event);
-	protocol_release(active_entry, backend->async_call);
-	backend->async_event = NULL; backend->async_call = NULL;
+	(void)active_entry->boot->set_timer(event, 0U, 0U);
+	(void)active_entry->boot->close_event(event);
+	protocol_release(active_entry, call);
 }
 static EFI_STATUS protocol_async_wait(void *opaque,
 	struct cdk2_ata_controller *controller)
 {
 	struct cdk2_ata_controller_backend *backend = controller->backend;
 	struct cdk2_ata_async_controller *async = &backend->async;
+	EFI_STATUS status;
 	UINTN old_tpl;
 
 	(void)opaque;
 	old_tpl = active_entry->boot->raise_tpl(8U);
+	if (async->count == 0U) {
+		backend->sync_busy = 1;
+		active_entry->boot->restore_tpl(old_tpl);
+		return EFI_SUCCESS;
+	}
 	active_entry->boot->restore_tpl(old_tpl);
 	if (old_tpl >= 8U || async->polling)
 		return EFI_NOT_READY;
+	old_tpl = active_entry->boot->raise_tpl(8U);
+	backend->sync_busy = 1;
+	active_entry->boot->restore_tpl(old_tpl);
 	while (async->count != 0U) {
-		EFI_STATUS status;
+		void *event;
+		struct async_call *call;
 
 		old_tpl = active_entry->boot->raise_tpl(8U);
-		cancel_async_event(backend);
+		event = backend->async_event; call = backend->async_call;
+		backend->async_event = NULL; backend->async_call = NULL;
 		active_entry->boot->restore_tpl(old_tpl);
+		cancel_async_event(event, call);
 		backend->adapter.ticks += 10000U;
 		status = cdk2_ata_async_poll(async);
 		if (EFI_ERROR(status) && status != EFI_NOT_READY)
-			return status;
+			goto failed;
 		if (async->count != 0U && EFI_ERROR(active_entry->boot->stall(1000U)))
-			return EFI_DEVICE_ERROR;
+			goto stall_failed;
 	}
-	backend->sync_busy = 1;
 	return EFI_SUCCESS;
+stall_failed:
+	status = EFI_DEVICE_ERROR;
+failed:
+	old_tpl = active_entry->boot->raise_tpl(8U);
+	backend->sync_busy = 0;
+	active_entry->boot->restore_tpl(old_tpl);
+	if (async->count != 0U && backend->async_event == NULL)
+		(void)cdk2_ata_async_rearm(async);
+	return status;
 }
 static void protocol_async_done(void *opaque,
 	struct cdk2_ata_controller *controller)
 {
 	struct cdk2_ata_controller_backend *backend = controller->backend;
+	BOOLEAN rearm;
 	UINTN old_tpl;
 
 	(void)opaque;
 	old_tpl = active_entry->boot->raise_tpl(8U);
 	backend->sync_busy = 0;
-	if (backend->async.count != 0U && backend->async_event == NULL) {
-		backend->async.armed = 1;
-		if (EFI_ERROR(async_arm(active_entry, controller)))
-			backend->async.armed = 0;
-	}
+	rearm = backend->async.count != 0U && backend->async_event == NULL;
 	active_entry->boot->restore_tpl(old_tpl);
+	if (rearm)
+		(void)cdk2_ata_async_rearm(&backend->async);
 }
 static EFI_STATUS service_create_protocols(void *opaque,
 	struct cdk2_ata_controller *controller,

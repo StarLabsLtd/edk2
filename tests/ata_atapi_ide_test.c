@@ -178,6 +178,14 @@ int main(void)
 		while (!complete)
 			(void)cdk2_ide_async_abort(&request, &complete);
 		CHECK(request.cleaned && request.terminal_status == EFIERR(21));
+		fixture.now = ~(UINT64)0 - 2U; fixture.bm_reads = 0;
+		CHECK(cdk2_ide_async_prepare(&request, &engine, 0, 0, &packet, 5U) ==
+			EFI_SUCCESS);
+		for (unsigned int step = 0; step < 3U; step++)
+			CHECK(cdk2_ide_async_step(&request, &complete) == EFI_SUCCESS &&
+				request.terminal_status == EFI_SUCCESS);
+		while (request.terminal_status != EFI_TIMEOUT)
+			CHECK(cdk2_ide_async_step(&request, &complete) == EFI_SUCCESS);
 	}
 	{
 		unsigned int before_unmaps = fixture.unmaps;

@@ -291,7 +291,8 @@ static EFI_STATUS reset_one(struct cdk2_ext_scsi_instance *instance,
 		return EFI_INVALID_PARAMETER;
 	if (instance->services.cancel_scope != NULL) {
 		status = instance->services.cancel_scope(instance->services.context,
-			instance->controller, port, multiplier, validate);
+			instance->controller, port, multiplier, validate &&
+			instance->controller->topology.mode == CDK2_ATA_AHCI);
 		if (EFI_ERROR(status))
 			return status;
 	} else if (instance->services.wait != NULL) {

@@ -37,8 +37,9 @@ static EFI_STATUS cleanup(struct cdk2_ahci_async_request *request,
 
 static EFI_STATUS expired(struct cdk2_ahci_async_request *request)
 {
-	return request->deadline != 0U && request->engine->services.time(
-		request->engine->services.context) >= request->deadline;
+	return request->deadline_started && request->timeout != 0U &&
+		request->engine->services.time(
+		request->engine->services.context) - request->deadline >= request->timeout;
 }
 
 EFI_STATUS cdk2_ahci_async_prepare(struct cdk2_ahci_async_request *request,
@@ -276,8 +277,8 @@ EFI_STATUS cdk2_ahci_async_step(struct cdk2_ahci_async_request *request,
 		else
 			engine->original_fbu[request->port] = observed;
 		if (++request->snapshot_index == 5U) {
-			request->deadline = request->timeout == 0U ? 0U :
-				engine->services.time(engine->services.context) + request->timeout;
+			request->deadline = engine->services.time(engine->services.context);
+			request->deadline_started = 1;
 			engine->configured_ports |= 1U << request->port;
 			request->prior_port = engine->active_port;
 			request->phase = CDK2_AHCI_ASYNC_PRIOR_READ;
@@ -285,9 +286,10 @@ EFI_STATUS cdk2_ahci_async_step(struct cdk2_ahci_async_request *request,
 		break;
 	}
 	case CDK2_AHCI_ASYNC_PRIOR_READ:
-		if (request->deadline == 0U && request->timeout != 0U)
-			request->deadline = engine->services.time(engine->services.context) +
-				request->timeout;
+		if (!request->deadline_started) {
+			request->deadline = engine->services.time(engine->services.context);
+			request->deadline_started = 1;
+		}
 		if (request->prior_port < 32U && request->prior_port != request->port)
 			request->prior_runtime_command = engine->services.read(
 				engine->services.context, request->prior_port, PX_CMD);

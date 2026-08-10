@@ -119,6 +119,18 @@ int main(void)
 	CHECK(cdk2_ata_async_stop(&async) == EFI_SUCCESS && async.count == 0 &&
 		f.signals == 2);
 	memset(&async, 0, sizeof(async)); f = (struct fixture) {
+		.fail_arm = 1, .fail_signal_all = 1 };
+	f.async = &async; services.context = &f;
+	CHECK(cdk2_ata_async_init(&async, &controller, &services) == EFI_SUCCESS);
+	async.armed = 1;
+	CHECK(cdk2_ata_async_submit(&async, 0, 0, &packet, (void *)1) == EFI_SUCCESS);
+	async.armed = 0;
+	CHECK(cdk2_ata_async_rearm(&async) == EFI_DEVICE_ERROR && async.count == 1 &&
+		!async.armed && async.queue[async.head].completed && f.signals == 1);
+	f.fail_signal_all = 0; f.fail_arm = 2;
+	CHECK(cdk2_ata_async_rearm(&async) == EFI_DEVICE_ERROR && async.count == 0 &&
+		!async.armed && f.signals == 2);
+	memset(&async, 0, sizeof(async)); f = (struct fixture) {
 		.complete_after = 8, .abort_not_ready = 1 };
 	f.async = &async; services.context = &f;
 	CHECK(cdk2_ata_async_init(&async, &controller, &services) == EFI_SUCCESS &&

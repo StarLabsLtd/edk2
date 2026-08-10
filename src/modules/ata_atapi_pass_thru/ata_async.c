@@ -122,6 +122,28 @@ EFI_STATUS cdk2_ata_async_poll(struct cdk2_ata_async_controller *async)
 	return status;
 }
 
+EFI_STATUS cdk2_ata_async_rearm(struct cdk2_ata_async_controller *async)
+{
+	EFI_STATUS result = EFI_SUCCESS;
+
+	if (async == NULL || async->polling || async->stopping)
+		return EFI_INVALID_PARAMETER;
+	while (async->count != 0U) {
+		EFI_STATUS status;
+
+		async->armed = 1;
+		status = async->services.arm(async->services.context, async->controller);
+		if (!EFI_ERROR(status))
+			return result;
+		async->armed = 0;
+		if (!EFI_ERROR(result))
+			result = status;
+		if (!finish(async, &async->queue[async->head], status))
+			return result;
+	}
+	return result;
+}
+
 EFI_STATUS cdk2_ata_async_stop(struct cdk2_ata_async_controller *async)
 {
 	EFI_STATUS first = EFI_SUCCESS;

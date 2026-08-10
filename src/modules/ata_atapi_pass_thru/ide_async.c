@@ -27,8 +27,8 @@
 
 static int timed_out(struct cdk2_ide_async_request *request)
 {
-	return request->deadline != 0U && request->engine->services.time(
-		request->engine->services.context) >= request->deadline;
+	return request->timeout != 0U && request->engine->services.time(
+		request->engine->services.context) - request->deadline >= request->timeout;
 }
 
 static void capture_status(struct cdk2_ide_async_request *request)
@@ -62,7 +62,7 @@ static EFI_STATUS fail(struct cdk2_ide_async_request *request, EFI_STATUS status
 		return EFI_SUCCESS;
 	}
 	request->reset_deadline = request->engine->services.time(
-		request->engine->services.context) + request->reset_timeout;
+		request->engine->services.context);
 	request->phase = CDK2_IDE_ASYNC_RESET_ASSERT;
 	return EFI_SUCCESS;
 }
@@ -91,8 +91,8 @@ static EFI_STATUS prepare(struct cdk2_ide_async_request *request,
 	if (request->dma && request->remaining == 0U)
 		return EFI_INVALID_PARAMETER;
 	request->bm_command = BM_START | (packet->in_length != 0U ? BM_READ : 0U);
-	request->deadline = timeout == 0U ? 0U : engine->services.time(
-		engine->services.context) + timeout;
+	request->timeout = timeout;
+	request->deadline = engine->services.time(engine->services.context);
 	request->reset_timeout = timeout == 0U ? 5000000U : timeout;
 	request->terminal_status = EFI_SUCCESS;
 	request->phase = request->dma ? CDK2_IDE_ASYNC_MAP : CDK2_IDE_ASYNC_READY;
@@ -471,7 +471,8 @@ EFI_STATUS cdk2_ide_async_step(struct cdk2_ide_async_request *request,
 	case CDK2_IDE_ASYNC_RESET_WAIT:
 		value = engine->services.read8(engine->services.context, base + ATA_STATUS);
 		if ((value & ATA_ST_BSY) == 0U || engine->services.time(
-			engine->services.context) >= request->reset_deadline)
+			engine->services.context) - request->reset_deadline >=
+			request->reset_timeout)
 			request->phase = CDK2_IDE_ASYNC_STOP;
 		break;
 	default:
@@ -490,7 +491,7 @@ EFI_STATUS cdk2_ide_async_abort(struct cdk2_ide_async_request *request,
 	if (request->phase < CDK2_IDE_ASYNC_RESET_ASSERT) {
 		request->terminal_status = EFI_ABORTED;
 		request->reset_deadline = request->engine->services.time(
-			request->engine->services.context) + request->reset_timeout;
+			request->engine->services.context);
 		request->phase = CDK2_IDE_ASYNC_RESET_ASSERT;
 	}
 	return request->phase >= CDK2_IDE_ASYNC_STOP ? cleanup_step(request, complete) :

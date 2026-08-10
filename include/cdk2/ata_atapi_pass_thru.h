@@ -193,6 +193,7 @@ EFI_STATUS cdk2_ata_async_submit(struct cdk2_ata_async_controller *async,
 	UINT16 port, UINT16 multiplier, struct cdk2_ata_command_packet *packet,
 	void *event);
 EFI_STATUS cdk2_ata_async_poll(struct cdk2_ata_async_controller *async);
+EFI_STATUS cdk2_ata_async_rearm(struct cdk2_ata_async_controller *async);
 EFI_STATUS cdk2_ata_async_cancel(struct cdk2_ata_async_controller *async,
 	UINT16 port, UINT16 multiplier, BOOLEAN match_multiplier);
 EFI_STATUS cdk2_ata_async_stop(struct cdk2_ata_async_controller *async);
@@ -350,7 +351,7 @@ struct cdk2_ahci_async_request {
 	UINT32 original_command, prior_runtime_command;
 	UINT16 port, prior_port, mapping_count, serialize_index;
 	UINT8 slot, slot_probe, snapshot_index, program_index, restore_index;
-	UINT8 issued, aborting, cleaned, operation, slot_owned;
+	UINT8 issued, aborting, cleaned, operation, slot_owned, deadline_started;
 	enum cdk2_ahci_async_phase phase;
 };
 EFI_STATUS cdk2_ahci_async_prepare(struct cdk2_ahci_async_request *request,
@@ -422,7 +423,7 @@ struct cdk2_ide_async_request {
 	const struct cdk2_ata_command_block *acb;
 	void *mappings[CDK2_IDE_MAX_PRD], *prd_mapping;
 	UINT8 *buffer, cdb[16];
-	UINT64 mapped_device, deadline, reset_deadline, reset_timeout;
+	UINT64 mapped_device, deadline, timeout, reset_deadline, reset_timeout;
 	size_t remaining, mapped_remaining, total, transferred;
 	size_t phase_remaining, phase_transfer;
 	UINT16 mapping_count, entries;
