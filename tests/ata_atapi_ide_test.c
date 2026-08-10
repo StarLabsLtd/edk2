@@ -17,16 +17,20 @@ struct fixture {
 	unsigned int atapi, resets, prdt_ready, packet_issued, bm_starts, cdb_words;
 	unsigned int ordering_bad, fail_cdb;
 	unsigned int phase_bytes;
+	unsigned int phase_write;
+	unsigned int phase_words;
+	UINT16 written[50];
 	UINT64 now; enum cdk2_ahci_dma_operation operations[8];
 };
 static UINT8 read8(void *opaque, UINT16 port)
 { struct fixture *f = opaque;
 	if (f->atapi == 2U && port < 0x400U) {
 		if ((port & 7U) == 7U)
-			return f->data_reads * 2U < (f->phase_bytes != 0U ?
+			return (f->phase_write ? f->phase_words : f->data_reads) * 2U <
+				(f->phase_bytes != 0U ?
 				f->phase_bytes : 3U) ? 0x08U : 0U;
 		if ((port & 7U) == 2U)
-			return f->cdb_words != 0U ? 1U : 2U;
+			return f->cdb_words != 0U ? 1U : (f->phase_write ? 0U : 2U);
 		if ((port & 7U) == 4U)
 			return (UINT8)(f->phase_bytes != 0U ? f->phase_bytes : 3U);
 		if ((port & 7U) == 5U)
@@ -67,9 +71,14 @@ static EFI_STATUS write8(void *opaque, UINT16 port, UINT8 value)
 		f->status = 0x08;
 	return EFI_SUCCESS; }
 static EFI_STATUS write16(void *opaque, UINT16 port, UINT16 value)
-{ struct fixture *f = opaque; (void)port; (void)value; f->writes16++;
+{ struct fixture *f = opaque; (void)port; f->writes16++;
 	if (f->atapi == 2U && f->cdb_words != 0U)
 		f->cdb_words--;
+	else if (f->atapi == 2U && f->phase_write) {
+		if (f->phase_words < 50U)
+			f->written[f->phase_words] = value;
+		f->phase_words++;
+	}
 	if (f->atapi == 2U && f->fail_cdb)
 		return EFI_DEVICE_ERROR;
 	if (f->writes16 == 256U)
@@ -195,6 +204,65 @@ int main(void)
 		CHECK(atapi_packet.in_length == 3 && odd[0] == 0x34 &&
 			odd[1] == 0x12 && odd[2] == 0x35);
 		CHECK(fixture.writes16 >= 6U && packet_asb.status == 0);
+		{
+			UINT8 short_read[102] = { 0 };
+
+			short_read[100] = 0xa5U; short_read[101] = 0x5aU;
+			fixture.atapi = 1; fixture.data_reads = 0; fixture.data = 0x2000;
+			fixture.phase_bytes = 512U; fixture.status = 0U;
+			atapi_packet.in_data = short_read; atapi_packet.in_length = 100U;
+			CHECK(cdk2_ide_atapi_execute(&engine, 0, 0, &atapi_packet, cdb,
+				sizeof(cdb), 100000U) == EFI_SUCCESS);
+			CHECK(atapi_packet.in_length == 100U && short_read[0] == 0U &&
+				short_read[1] == 0x20U && short_read[98] == 49U &&
+				short_read[99] == 0x20U && short_read[100] == 0xa5U &&
+				short_read[101] == 0x5aU && fixture.data_reads == 256U);
+			fixture.phase_bytes = 0U;
+		}
+		{
+			UINT8 guarded[5] = { 0x11U, 0x22U, 0x33U, 0xa5U, 0x5aU };
+
+			fixture.atapi = 1; fixture.phase_bytes = 3U; fixture.phase_write = 1U;
+			fixture.phase_words = 0U; fixture.status = 0U;
+			atapi_packet.in_data = guarded; atapi_packet.in_length = 3U;
+			CHECK(cdk2_ide_atapi_execute(&engine, 0, 0, &atapi_packet, cdb,
+				sizeof(cdb), 1000U) == EFI_DEVICE_ERROR);
+			CHECK(guarded[0] == 0x11U && guarded[1] == 0x22U &&
+				guarded[2] == 0x33U && guarded[3] == 0xa5U &&
+				guarded[4] == 0x5aU && fixture.phase_words == 0U);
+			fixture.phase_bytes = 0U; fixture.phase_write = 0U;
+		}
+		{
+			UINT8 odd_phase[102] = { 0 };
+
+			odd_phase[100] = 0xa5U; odd_phase[101] = 0x5aU;
+			fixture.atapi = 1; fixture.phase_bytes = 513U; fixture.status = 0U;
+			fixture.data_reads = 0U; fixture.data = 0x3000U;
+			atapi_packet.in_data = odd_phase; atapi_packet.in_length = 100U;
+			CHECK(cdk2_ide_atapi_execute(&engine, 0, 0, &atapi_packet, cdb,
+				sizeof(cdb), 100000U) == EFI_SUCCESS);
+			CHECK(atapi_packet.in_length == 100U && fixture.data_reads == 257U &&
+				odd_phase[100] == 0xa5U && odd_phase[101] == 0x5aU);
+			fixture.phase_bytes = 0U;
+		}
+		{
+			UINT8 short_write[102];
+
+			for (unsigned int index = 0; index < 100U; index++)
+				short_write[index] = (UINT8)index;
+			short_write[100] = 0xa5U; short_write[101] = 0x5aU;
+			fixture.atapi = 1; fixture.phase_bytes = 512U; fixture.phase_write = 1U;
+			fixture.phase_words = 0U; fixture.status = 0U;
+			atapi_packet.in_data = NULL; atapi_packet.in_length = 0U;
+			atapi_packet.out_data = short_write; atapi_packet.out_length = 100U;
+			CHECK(cdk2_ide_atapi_execute(&engine, 0, 0, &atapi_packet, cdb,
+				sizeof(cdb), 100000U) == EFI_SUCCESS);
+			CHECK(atapi_packet.out_length == 100U && fixture.phase_words == 256U &&
+				fixture.written[0] == 0x0100U && fixture.written[49] == 0x6362U &&
+				short_write[100] == 0xa5U && short_write[101] == 0x5aU);
+			fixture.phase_bytes = 0U; fixture.phase_write = 0U;
+			atapi_packet.out_data = NULL; atapi_packet.out_length = 0U;
+		}
 		fixture.atapi = 1; fixture.data_reads = 0; fixture.bm_reads = 0;
 		fixture.prdt_ready = 0; fixture.packet_issued = 0;
 		fixture.bm_starts = 0; fixture.ordering_bad = 0;
