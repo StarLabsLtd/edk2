@@ -127,6 +127,20 @@ static EFI_STATUS capacity(struct cdk2_scsi_disk_backend *backend,
 		&disk->media.block_size);
 }
 
+static EFI_STATUS inquiry(struct cdk2_scsi_disk_backend *backend,
+	struct cdk2_scsi_disk *disk)
+{
+	struct cdk2_scsi_disk_command command = { .cdb = { 0x12U, 0, 0, 0,
+		sizeof(disk->inquiry), 0 }, .cdb_length = 6U };
+	UINT8 host = 0, target = 0;
+	EFI_STATUS status = execute(backend, &command, disk->inquiry,
+		sizeof(disk->inquiry), FALSE, &host, &target);
+
+	if (EFI_ERROR(status))
+		return status;
+	return host != 0U || target != 0U ? EFI_DEVICE_ERROR : EFI_SUCCESS;
+}
+
 EFI_STATUS cdk2_scsi_disk_backend_init(struct cdk2_scsi_disk_backend *backend,
 	struct cdk2_scsi_io *io,
 	const struct cdk2_scsi_disk_backend_services *services,
@@ -154,6 +168,9 @@ EFI_STATUS cdk2_scsi_disk_backend_init(struct cdk2_scsi_disk_backend *backend,
 		.io_align = io->io_align == 0U ? 1U : io->io_align };
 	disk->transport = (struct cdk2_scsi_disk_transport) { .context = backend,
 		.execute = execute, .submit = submit, .cancel = cancel };
+	status = inquiry(backend, disk);
+	if (EFI_ERROR(status))
+		return status;
 	status = capacity(backend, disk);
 	if (EFI_ERROR(status))
 		return status;

@@ -72,7 +72,27 @@ struct cdk2_scsi_disk_async {
 struct cdk2_scsi_disk {
 	struct cdk2_scsi_disk_media media;
 	struct cdk2_scsi_disk_transport transport;
+	UINT8 inquiry[36];
+	UINT8 sense[18];
+	UINT8 sense_length;
 	BOOLEAN cdb16;
+};
+
+struct cdk2_scsi_disk_info;
+typedef EFI_STATUS CDK2_MS_ABI cdk2_scsi_disk_info_inquiry_fn(
+	struct cdk2_scsi_disk_info *, void *, UINT32 *);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_scsi_disk_info_identify_fn(
+	struct cdk2_scsi_disk_info *, void *, UINT32 *);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_scsi_disk_info_sense_fn(
+	struct cdk2_scsi_disk_info *, void *, UINT32 *, UINT8 *);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_scsi_disk_info_which_ide_fn(
+	struct cdk2_scsi_disk_info *, UINT32 *, UINT32 *);
+struct cdk2_scsi_disk_info {
+	EFI_GUID interface;
+	cdk2_scsi_disk_info_inquiry_fn *inquiry;
+	cdk2_scsi_disk_info_identify_fn *identify;
+	cdk2_scsi_disk_info_sense_fn *sense_data;
+	cdk2_scsi_disk_info_which_ide_fn *which_ide;
 };
 
 struct cdk2_scsi_disk_block {
@@ -90,6 +110,7 @@ struct cdk2_scsi_disk_bound_controller {
 	struct cdk2_scsi_disk disk;
 	struct cdk2_scsi_disk_async async;
 	struct cdk2_scsi_disk_block block;
+	struct cdk2_scsi_disk_info disk_info;
 	BOOLEAN parent_open, installed;
 };
 
@@ -159,6 +180,8 @@ EFI_STATUS cdk2_scsi_disk_async_reset(struct cdk2_scsi_disk_async *async);
 EFI_STATUS cdk2_scsi_disk_async_stop(struct cdk2_scsi_disk_async *async);
 EFI_STATUS cdk2_scsi_disk_block_init(struct cdk2_scsi_disk_block *instance,
 	struct cdk2_scsi_disk *disk, struct cdk2_scsi_disk_async *async);
+EFI_STATUS cdk2_scsi_disk_info_init(
+	struct cdk2_scsi_disk_bound_controller *bound);
 EFI_STATUS cdk2_scsi_disk_binding_init(struct cdk2_scsi_disk_binding *binding,
 	const struct cdk2_scsi_disk_binding_services *services);
 EFI_STATUS cdk2_scsi_disk_binding_start(struct cdk2_scsi_disk_binding *binding,

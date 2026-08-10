@@ -75,6 +75,9 @@ EFI_STATUS cdk2_scsi_disk_binding_start(struct cdk2_scsi_disk_binding *binding,
 	status = cdk2_scsi_disk_block_init(&bound->block, &bound->disk, &bound->async);
 	if (EFI_ERROR(status))
 		goto fail;
+	status = cdk2_scsi_disk_info_init(bound);
+	if (EFI_ERROR(status))
+		goto fail;
 	status = binding->services.install(binding->services.context, controller, bound);
 	if (EFI_ERROR(status))
 		goto fail;

@@ -36,7 +36,11 @@ static EFI_STATUS CDK2_MS_ABI execute(struct cdk2_scsi_io *io,
 	UINT8 opcode = ((UINT8 *)request->cdb)[0];
 
 	(void)io; active->executes++;
-	if (opcode == 0x25U) {
+	if (opcode == 0x12U) {
+		memset(request->in_data, 0, request->in_length);
+		((UINT8 *)request->in_data)[0] = 0U;
+		memcpy((UINT8 *)request->in_data + 8U, "CDK2    SCSI DISK       ", 24U);
+	} else if (opcode == 0x25U) {
 		UINT8 capacity[8] = { 0, 0, 0, 99, 0, 0, 2, 0 };
 		memcpy(request->in_data, capacity, sizeof(capacity));
 	} else if (opcode != 0x28U && opcode != 0x2aU) {
@@ -112,7 +116,8 @@ int main(void)
 	fixture.type = 0U;
 	CHECK(cdk2_scsi_disk_backend_init(&backend, &io, &services, &disk) ==
 		EFI_SUCCESS && disk.media.block_size == 512U &&
-		disk.media.last_block == 99U && disk.media.io_align == 8U);
+		disk.media.last_block == 99U && disk.media.io_align == 8U &&
+		disk.inquiry[8] == 'C');
 	CHECK(cdk2_scsi_disk_build_rw(FALSE, 0, 1, FALSE, &command) == EFI_SUCCESS &&
 		disk.transport.submit(disk.transport.context, &command, buffer,
 			sizeof(buffer), FALSE, complete, &fixture) == EFI_SUCCESS &&

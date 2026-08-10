@@ -131,6 +131,23 @@ int main(void)
 		cdk2_scsi_disk_binding_start(&binding, (void *)1) == EFI_ALREADY_STARTED &&
 		cdk2_scsi_disk_binding_start(&binding, (void *)2) == EFI_SUCCESS &&
 		binding.count == 2U);
+	{
+		UINT8 inquiry[36];
+		UINT32 size = 0U;
+		UINT8 sense_count = 0xffU;
+
+		CHECK(binding.controllers[0]->disk_info.interface.data1 == 0x08f74baaU &&
+			binding.controllers[0]->disk_info.inquiry(
+				&binding.controllers[0]->disk_info, NULL, &size) ==
+			EFI_BUFFER_TOO_SMALL && size == sizeof(inquiry));
+		CHECK(binding.controllers[0]->disk_info.inquiry(
+			&binding.controllers[0]->disk_info, inquiry, &size) == EFI_SUCCESS &&
+			binding.controllers[0]->disk_info.identify(
+				&binding.controllers[0]->disk_info, inquiry, &size) ==
+			EFI_NOT_FOUND && binding.controllers[0]->disk_info.sense_data(
+				&binding.controllers[0]->disk_info, inquiry, &size,
+				&sense_count) == EFI_NOT_FOUND && sense_count == 0U);
+	}
 	fixture.fail_uninstall = fixture.uninstalls + 1U;
 	CHECK(cdk2_scsi_disk_binding_stop(&binding, (void *)1) == EFI_DEVICE_ERROR &&
 		binding.count == 2U && binding.controllers[0]->installed &&

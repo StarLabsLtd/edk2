@@ -64,6 +64,8 @@ static const EFI_GUID block_guid = { 0x964e5b21, 0x6459, 0x11d2,
 	{ 0x8e, 0x39, 0, 0xa0, 0xc9, 0x69, 0x72, 0x3b } };
 static const EFI_GUID block2_guid = { 0xa77b2472, 0xe282, 0x4e9f,
 	{ 0xa2, 0x45, 0xc2, 0xc0, 0xe2, 0x7b, 0xbc, 0xc1 } };
+static const EFI_GUID disk_info_guid = { 0xd432a67f, 0x14dc, 0x484b,
+	{ 0xb3, 0xbb, 0x3f, 0x02, 0x91, 0x84, 0x93, 0x27 } };
 static struct cdk2_scsi_disk_entry image_entry;
 static struct cdk2_scsi_disk_entry *active;
 
@@ -142,7 +144,8 @@ static EFI_STATUS install(void *context, void *controller,
 	struct cdk2_scsi_disk_entry *entry = context;
 
 	return boot(entry)->install_multiple(&controller, &block_guid,
-		&bound->block.block, &block2_guid, &bound->block.block2, NULL);
+		&bound->block.block, &block2_guid, &bound->block.block2, &disk_info_guid,
+		&bound->disk_info, NULL);
 }
 
 static EFI_STATUS uninstall(void *context, void *controller,
@@ -151,7 +154,8 @@ static EFI_STATUS uninstall(void *context, void *controller,
 	struct cdk2_scsi_disk_entry *entry = context;
 
 	return boot(entry)->uninstall_multiple(controller, &block_guid,
-		&bound->block.block, &block2_guid, &bound->block.block2, NULL);
+		&bound->block.block, &block2_guid, &bound->block.block2, &disk_info_guid,
+		&bound->disk_info, NULL);
 }
 
 static struct cdk2_scsi_disk_entry *from_driver(

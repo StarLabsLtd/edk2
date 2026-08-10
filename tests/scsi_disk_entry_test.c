@@ -82,7 +82,9 @@ static EFI_STATUS CDK2_MS_ABI command(struct cdk2_scsi_io *io,
 	struct cdk2_scsi_request *request, void *event_handle)
 { UINT8 opcode = ((UINT8 *)request->cdb)[0]; (void)io; (void)event_handle;
 	active->commands++; request->host_status = 0U; request->target_status = 0U;
-	if (opcode == 0x25U) {
+	if (opcode == 0x12U) {
+		memset(request->in_data, 0, request->in_length);
+	} else if (opcode == 0x25U) {
 		UINT8 value[8] = { 0, 0, 0, 7, 0, 0, 2, 0 };
 
 		memcpy(request->in_data, value, sizeof(value));
@@ -113,7 +115,7 @@ int main(void)
 		entry.binding.count == 1U && fixture.block != NULL);
 	fixture.block2 = &entry.binding.controllers[0]->block.block2;
 	CHECK(fixture.block->read_blocks(fixture.block, 0U, 0U, sizeof(buffer), buffer) ==
-		EFI_SUCCESS && active->commands == 2U);
+		EFI_SUCCESS && active->commands == 3U);
 	CHECK(entry.driver.stop(&entry.driver, (void *)1, 0U, NULL) == EFI_SUCCESS &&
 		entry.binding.count == 0U && fixture.allocations == fixture.releases);
 	CHECK(entry.loaded->unload(&fixture) == EFI_SUCCESS && !entry.published);

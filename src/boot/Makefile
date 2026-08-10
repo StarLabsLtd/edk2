@@ -2429,6 +2429,7 @@ $(CDK2_NATIVE_SCSI_DISK_BINDING_TEST): $(CDK2_DIR)/tests/scsi_disk_binding_test.
 		$(CDK2_DIR)/src/modules/scsi_disk/model.c \
 		$(CDK2_DIR)/src/modules/scsi_disk/async.c \
 		$(CDK2_DIR)/src/modules/scsi_disk/block.c \
+		$(CDK2_DIR)/src/modules/scsi_disk/disk_info.c \
 		$(CDK2_DIR)/src/modules/scsi_disk/io.c \
 		$(CDK2_DIR)/src/modules/scsi_disk/binding.c \
 		$(CDK2_DIR)/include/cdk2/scsi_disk.h | $(CDK2_NATIVE_BUILD_DIR)
@@ -2438,6 +2439,7 @@ $(CDK2_NATIVE_SCSI_DISK_BINDING_TEST): $(CDK2_DIR)/tests/scsi_disk_binding_test.
 		$(CDK2_DIR)/src/modules/scsi_disk/model.c \
 		$(CDK2_DIR)/src/modules/scsi_disk/async.c \
 		$(CDK2_DIR)/src/modules/scsi_disk/block.c \
+		$(CDK2_DIR)/src/modules/scsi_disk/disk_info.c \
 		$(CDK2_DIR)/src/modules/scsi_disk/io.c \
 		$(CDK2_DIR)/src/modules/scsi_disk/binding.c
 
@@ -2456,6 +2458,7 @@ $(CDK2_NATIVE_SCSI_DISK_ENTRY_TEST): $(CDK2_DIR)/tests/scsi_disk_entry_test.c \
 		$(CDK2_DIR)/src/modules/scsi_disk/io.c \
 		$(CDK2_DIR)/src/modules/scsi_disk/async.c \
 		$(CDK2_DIR)/src/modules/scsi_disk/block.c \
+		$(CDK2_DIR)/src/modules/scsi_disk/disk_info.c \
 		$(CDK2_DIR)/src/modules/scsi_disk/binding.c \
 		$(CDK2_DIR)/src/modules/scsi_disk/backend.c \
 		$(CDK2_DIR)/src/modules/scsi_disk/entry.c \
@@ -2467,6 +2470,7 @@ $(CDK2_NATIVE_SCSI_DISK_ENTRY_TEST): $(CDK2_DIR)/tests/scsi_disk_entry_test.c \
 		$(CDK2_DIR)/src/modules/scsi_disk/io.c \
 		$(CDK2_DIR)/src/modules/scsi_disk/async.c \
 		$(CDK2_DIR)/src/modules/scsi_disk/block.c \
+		$(CDK2_DIR)/src/modules/scsi_disk/disk_info.c \
 		$(CDK2_DIR)/src/modules/scsi_disk/binding.c \
 		$(CDK2_DIR)/src/modules/scsi_disk/backend.c \
 		$(CDK2_DIR)/src/modules/scsi_disk/entry.c
