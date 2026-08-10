@@ -11,7 +11,7 @@
 
 struct fixture {
 	UINTN calls, fail_call, resets, signals, locks, unlocks, lock_depth;
-	BOOLEAN fail_reset;
+	BOOLEAN fail_reset, complete_on_handoff;
 	UINT8 commands[16], protocols[16]; UINT16 counts[16]; UINT64 lbas[16];
 	void *events[16]; struct cdk2_ata_bus_scheduler *scheduler;
 	cdk2_ata_bus_complete_fn *complete; void *complete_context;
@@ -66,9 +66,21 @@ static UINTN lock(void *opaque)
 static void unlock(void *opaque, UINTN state)
 {
 	struct fixture *fixture = opaque;
+	cdk2_ata_bus_complete_fn *complete = NULL;
+	void *complete_context = NULL;
 
 	CHECK(state == 4U && fixture->lock_depth-- == 1U);
 	fixture->unlocks++;
+	if (fixture->complete_on_handoff && fixture->scheduler != NULL &&
+	    !fixture->scheduler->dispatching && fixture->complete != NULL) {
+		fixture->complete_on_handoff = 0;
+		complete = fixture->complete;
+		complete_context = fixture->complete_context;
+		fixture->complete = NULL;
+		fixture->complete_context = NULL;
+	}
+	if (complete != NULL)
+		complete(complete_context, EFI_SUCCESS);
 }
 static void init_child(struct cdk2_ata_bus_child *child, UINT64 blocks,
 	BOOLEAN lba48)
@@ -174,6 +186,10 @@ int main(void)
 	CHECK(cdk2_ata_bus_execute_sync(&scheduler, &read) == EFI_INVALID_PARAMETER);
 	read.buffer = data; read.lba = first.geometry.blocks;
 	CHECK(cdk2_ata_bus_execute_sync(&scheduler, &read) == EFI_INVALID_PARAMETER);
+	read.lba = 0; read.token = &one; fixture.complete_on_handoff = 1;
+	CHECK(cdk2_ata_bus_submit(&scheduler, &read) == EFI_SUCCESS &&
+		cdk2_ata_bus_worker(&scheduler) == EFI_SUCCESS && scheduler.count == 0U &&
+		one.transaction_status == EFI_SUCCESS && !fixture.complete_on_handoff);
 	CHECK(cdk2_ata_bus_stop_scheduler(&scheduler) == EFI_SUCCESS);
 	read.lba = 0; read.token = &one;
 	CHECK(cdk2_ata_bus_submit(&scheduler, &read) == EFI_NOT_READY);

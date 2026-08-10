@@ -213,18 +213,15 @@ static EFI_STATUS dispatch(struct cdk2_ata_bus_scheduler *scheduler)
 			continue;
 		}
 		if (scheduler->parent_active) {
-			unlock_scheduler(scheduler, state);
-			break;
+			goto done_locked;
 		}
 		if (scheduler->resetting) {
-			unlock_scheduler(scheduler, state);
-			break;
+			goto done_locked;
 		}
 		if (!scheduler->worker_active) {
 			struct cdk2_ata_bus_request request;
 			if (scheduler->count == 0U) {
-				unlock_scheduler(scheduler, state);
-				break;
+				goto done_locked;
 			}
 			request = scheduler->queue[scheduler->head];
 			scheduler->worker_active = 1; scheduler->active = request;
@@ -262,7 +259,7 @@ static EFI_STATUS dispatch(struct cdk2_ata_bus_scheduler *scheduler)
 			unlock_scheduler(scheduler, state);
 		}
 	}
-	state = lock_scheduler(scheduler);
+done_locked:
 	scheduler->dispatching = 0;
 	unlock_scheduler(scheduler, state);
 	return first;
