@@ -490,6 +490,7 @@ EFI_STATUS cdk2_xhci_device_configure_endpoint(struct cdk2_xhci_device *device,
 	struct cdk2_xhci_endpoint *endpoint;
 	UINTN context_size;
 	UINT32 *control;
+	UINT32 *slot_context;
 	UINT32 *context;
 	UINT8 number = endpoint_address & 0xfU;
 	UINT8 dci = number * 2U + ((endpoint_address & 0x80U) != 0U ? 1U : 0U);
@@ -518,7 +519,12 @@ EFI_STATUS cdk2_xhci_device_configure_endpoint(struct cdk2_xhci_device *device,
 	context_size = controller->capability.context_64 ? 64U : 32U;
 	memset(device->input_context.host, 0, device->input_context.size);
 	control = device->input_context.host;
-	control[1] = 1U << dci;
+	control[1] = 1U | 1U << dci;
+	slot_context = (void *)((UINT8 *)device->input_context.host + context_size);
+	memcpy(slot_context, device->device_context.host, context_size);
+	if ((slot_context[0] >> 27 & 0x1fU) < dci)
+		slot_context[0] = (slot_context[0] & ~(0x1fU << 27)) |
+			(UINT32)dci << 27;
 	context = (void *)((UINT8 *)device->input_context.host +
 		context_size * (dci + 1U));
 	context[1] = (UINT32)xhci_type << 3 | (UINT32)maximum_packet << 16;
