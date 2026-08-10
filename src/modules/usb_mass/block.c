@@ -9,6 +9,13 @@
 #define EFI_MEDIA_CHANGED EFIERR(13)
 #endif
 
+static cdk2_usb_mass_signal_fn *signal_event;
+
+void cdk2_usb_mass_block_set_signal(cdk2_usb_mass_signal_fn *signal)
+{
+	signal_event = signal;
+}
+
 static struct cdk2_usb_mass_block *owner(struct cdk2_block_io *protocol)
 {
 	return (struct cdk2_usb_mass_block *)((UINT8 *)protocol -
@@ -108,13 +115,16 @@ static EFI_STATUS block2_sync(struct cdk2_block_io2 *protocol, UINT32 media_id,
 
 	if (protocol == NULL || token == NULL)
 		return EFI_INVALID_PARAMETER;
-	if (token->event != NULL)
-		return EFI_UNSUPPORTED;
 	block = owner2(protocol);
 	status = write ? write_blocks(&block->block, media_id, lba, size, buffer) :
 		read_blocks(&block->block, media_id, lba, size, buffer);
 	token->transaction_status = status;
-	return status;
+	if (token->event == NULL || EFI_ERROR(status))
+		return status;
+	if (block->signal == NULL)
+		return EFI_UNSUPPORTED;
+	status = block->signal(token->event);
+	return EFI_ERROR(status) ? status : EFI_SUCCESS;
 }
 
 static EFI_STATUS CDK2_MS_ABI read_blocks2(struct cdk2_block_io2 *protocol,
@@ -130,12 +140,19 @@ static EFI_STATUS CDK2_MS_ABI write_blocks2(struct cdk2_block_io2 *protocol,
 static EFI_STATUS CDK2_MS_ABI flush2(struct cdk2_block_io2 *protocol,
 	struct cdk2_block_io2_token *token)
 {
+	struct cdk2_usb_mass_block *block;
+	EFI_STATUS status;
+
 	if (protocol == NULL || token == NULL)
 		return EFI_INVALID_PARAMETER;
-	if (token->event != NULL)
-		return EFI_UNSUPPORTED;
+	block = owner2(protocol);
 	token->transaction_status = EFI_SUCCESS;
-	return EFI_SUCCESS;
+	if (token->event == NULL)
+		return EFI_SUCCESS;
+	if (block->signal == NULL)
+		return EFI_UNSUPPORTED;
+	status = block->signal(token->event);
+	return EFI_ERROR(status) ? status : EFI_SUCCESS;
 }
 
 EFI_STATUS cdk2_usb_mass_block_init(struct cdk2_usb_mass_block *block,
@@ -148,6 +165,7 @@ EFI_STATUS cdk2_usb_mass_block_init(struct cdk2_usb_mass_block *block,
 		return EFI_INVALID_PARAMETER;
 	memset(block, 0, sizeof(*block));
 	block->device = device;
+	block->signal = signal_event;
 	block->lun = lun;
 	media = &device->media[lun];
 	block->media = (struct cdk2_block_media) { .media_id = media->media_id,

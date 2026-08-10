@@ -26,6 +26,7 @@ static const struct guid component2_guid = { 0x6a7a5cff, 0xe8d9, 0x4f70,
 typedef EFI_STATUS CDK2_MS_ABI alloc_fn(UINT32, UINTN, void **);
 typedef EFI_STATUS CDK2_MS_ABI free_fn(void *);
 typedef EFI_STATUS CDK2_MS_ABI handle_fn(void *, const struct guid *, void **);
+typedef EFI_STATUS CDK2_MS_ABI signal_fn(void *);
 typedef EFI_STATUS CDK2_MS_ABI connect_fn(void *, void **, void *, BOOLEAN);
 typedef EFI_STATUS CDK2_MS_ABI open_fn(void *, const struct guid *, void **,
 	void *, void *, UINT32);
@@ -35,7 +36,8 @@ typedef EFI_STATUS CDK2_MS_ABI uninstall_fn(void *, const struct guid *, void *,
 typedef EFI_STATUS CDK2_MS_ABI unload_fn(void *);
 struct boot_services {
 	UINT8 before_allocate[64]; alloc_fn * allocate_pool; free_fn * free_pool;
-	UINT8 before_handle[72]; handle_fn * handle_protocol;
+	UINT8 before_signal[24]; signal_fn * signal_event;
+	UINT8 before_handle[40]; handle_fn * handle_protocol;
 	UINT8 before_connect[104]; connect_fn * connect_controller;
 	UINT8 before_open[8]; open_fn * open_protocol; close_fn * close_protocol;
 	UINT8 before_install[32]; install_fn * install_multiple;
@@ -60,6 +62,8 @@ typedef char connect_offset_check[offsetof(struct boot_services,
 typedef char open_offset_check[offsetof(struct boot_services, open_protocol) == 280U ? 1 : -1];
 typedef char install_offset_check[offsetof(struct boot_services,
 	install_multiple) == 328U ? 1 : -1];
+typedef char signal_offset_check[offsetof(struct boot_services,
+	signal_event) == 104U ? 1 : -1];
 
 static struct boot_services *bs;
 static struct loaded_image *loaded;
@@ -82,6 +86,8 @@ static EFI_STATUS allocate(void *context, UINTN size, void **buffer)
 { (void)context; return bs->allocate_pool(4U, size, buffer); }
 static void release(void *context, void *buffer)
 { (void)context; (void)bs->free_pool(buffer); }
+static EFI_STATUS signal_event_adapter(void *event)
+{ return bs->signal_event(event); }
 static EFI_STATUS open_usb(void *context, void *controller,
 	struct cdk2_usb_io_protocol **usb)
 { (void)context; return bs->open_protocol(controller, &usb_io_guid, (void **)usb,
@@ -241,6 +247,7 @@ EFI_STATUS CDK2_MS_ABI cdk2_usb_mass_entry(void *image,
 	if (image == NULL || system == NULL || system->boot == NULL)
 		return EFI_INVALID_PARAMETER;
 	bs = system->boot;
+	cdk2_usb_mass_block_set_signal(signal_event_adapter);
 	status = bs->handle_protocol(image, &loaded_guid, (void **)&loaded);
 	if (EFI_ERROR(status))
 		return status;

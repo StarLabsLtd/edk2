@@ -29,6 +29,9 @@ static EFI_STATUS CDK2_MS_ABI control(struct cdk2_usb_io_protocol *usb,
 	UINTN *length, UINT32 *result)
 { (void)usb; (void)request; (void)direction; (void)timeout; (void)data;
 	(void)length; *result = 0U; return EFI_SUCCESS; }
+static UINTN signals;
+static EFI_STATUS signal(void *event)
+{ CHECK(event != NULL); signals++; return EFI_SUCCESS; }
 
 int main(void)
 {
@@ -41,6 +44,7 @@ int main(void)
 	struct cdk2_block_io2_token token = { 0 };
 	UINT8 buffer[512];
 
+	cdk2_usb_mass_block_set_signal(signal);
 	CHECK(cdk2_usb_mass_block_init(&block, &device, 0U) == EFI_SUCCESS &&
 		block.block.media == block.block2.media && sizeof(block.media) == 48U);
 	CHECK(block.block.read_blocks(&block.block, 0U, 1U, sizeof(buffer), buffer) ==
@@ -50,7 +54,9 @@ int main(void)
 		token.transaction_status == EFI_SUCCESS);
 	token.event = &token;
 	CHECK(block.block2.read_blocks(&block.block2, 0U, 2U, &token,
-		sizeof(buffer), buffer) == EFI_UNSUPPORTED);
+		sizeof(buffer), buffer) == EFI_SUCCESS && signals == 1U);
+	CHECK(block.block2.flush_blocks(&block.block2, &token) == EFI_SUCCESS &&
+		signals == 2U && token.transaction_status == EFI_SUCCESS);
 	CHECK(block.block.read_blocks(&block.block, 1U, 0U, 0U, NULL) ==
 		EFI_MEDIA_CHANGED && block.block.read_blocks(&block.block, 0U, 32U,
 		sizeof(buffer), buffer) == EFI_INVALID_PARAMETER);

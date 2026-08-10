@@ -42,12 +42,14 @@ struct cdk2_usb_mass_device {
 	UINT32 next_tag;
 	UINT8 bulk_in, bulk_out, maximum_lun, media_count;
 };
+typedef EFI_STATUS cdk2_usb_mass_signal_fn(void *event);
 
 struct cdk2_usb_mass_block {
 	struct cdk2_block_io block;
 	struct cdk2_block_io2 block2;
 	struct cdk2_block_media media;
 	struct cdk2_usb_mass_device *device;
+	cdk2_usb_mass_signal_fn *signal;
 	UINT8 lun;
 };
 struct cdk2_usb_mass_lun_path {
@@ -121,6 +123,7 @@ EFI_STATUS cdk2_usb_mass_write(struct cdk2_usb_mass_device *device, UINT8 lun,
 	UINT64 lba, UINTN blocks, const void *buffer);
 EFI_STATUS cdk2_usb_mass_block_init(struct cdk2_usb_mass_block *block,
 	struct cdk2_usb_mass_device *device, UINT8 lun);
+void cdk2_usb_mass_block_set_signal(cdk2_usb_mass_signal_fn *signal);
 EFI_STATUS cdk2_usb_mass_binding_init(struct cdk2_usb_mass_binding *binding,
 	const struct cdk2_usb_mass_binding_services *services);
 EFI_STATUS cdk2_usb_mass_binding_supported(struct cdk2_usb_mass_binding *binding,
