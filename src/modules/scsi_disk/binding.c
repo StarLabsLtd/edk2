@@ -46,19 +46,21 @@ EFI_STATUS cdk2_scsi_disk_binding_start(struct cdk2_scsi_disk_binding *binding,
 		return EFI_ALREADY_STARTED;
 	if (binding->count == CDK2_SCSI_DISK_MAX_CONTROLLERS)
 		return EFI_OUT_OF_RESOURCES;
-	status = binding->services.allocate(binding->services.context, sizeof(*bound),
+	status = binding->services.allocate(binding->services.context, sizeof(*bound) +
+		sizeof(struct cdk2_scsi_disk_backend),
 		(void **)&bound);
 	if (EFI_ERROR(status))
 		return status;
 	memset(bound, 0, sizeof(*bound));
+	bound->backend = (void *)(bound + 1);
+	memset(bound->backend, 0, sizeof(*bound->backend));
 	bound->handle = controller;
 	status = binding->services.open_parent(binding->services.context, controller,
 		&bound->scsi_io);
 	if (EFI_ERROR(status))
 		goto fail;
 	bound->parent_open = TRUE;
-	status = binding->services.probe(binding->services.context, bound->scsi_io,
-		&bound->disk);
+	status = binding->services.probe(binding->services.context, bound);
 	if (EFI_ERROR(status))
 		goto fail;
 	status = cdk2_scsi_disk_async_init(&bound->async, &bound->disk,

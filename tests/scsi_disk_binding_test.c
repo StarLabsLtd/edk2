@@ -42,14 +42,15 @@ static EFI_STATUS close_parent(void *opaque, void *controller)
 	return fixture->closes == fixture->fail_close ? EFI_DEVICE_ERROR : EFI_SUCCESS;
 }
 
-static EFI_STATUS probe(void *opaque, void *io, struct cdk2_scsi_disk *disk)
+static EFI_STATUS probe(void *opaque,
+	struct cdk2_scsi_disk_bound_controller *bound)
 {
 	struct fixture *fixture = opaque;
 
-	CHECK(io == fixture); fixture->probes++;
+	CHECK(bound->scsi_io == fixture && bound->backend != NULL); fixture->probes++;
 	if (fixture->probes == fixture->fail_probe)
 		return EFI_DEVICE_ERROR;
-	*disk = (struct cdk2_scsi_disk) { .media = { 0, 0, 1, 0, 512, 1, 99 },
+	bound->disk = (struct cdk2_scsi_disk) { .media = { 0, 0, 1, 0, 512, 1, 99 },
 		.transport = { .context = fixture, .submit = submit, .cancel = cancel } };
 	return EFI_SUCCESS;
 }

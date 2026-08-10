@@ -83,6 +83,7 @@ struct cdk2_scsi_disk_block {
 struct cdk2_scsi_disk_bound_controller {
 	void *handle;
 	void *scsi_io;
+	struct cdk2_scsi_disk_backend *backend;
 	struct cdk2_scsi_disk disk;
 	struct cdk2_scsi_disk_async async;
 	struct cdk2_scsi_disk_block block;
@@ -93,8 +94,8 @@ struct cdk2_scsi_disk_binding_services {
 	void *context;
 	EFI_STATUS (*open_parent)(void *context, void *controller, void **scsi_io);
 	EFI_STATUS (*close_parent)(void *context, void *controller);
-	EFI_STATUS (*probe)(void *context, void *scsi_io,
-		struct cdk2_scsi_disk *disk);
+	EFI_STATUS (*probe)(void *context,
+		struct cdk2_scsi_disk_bound_controller *bound);
 	EFI_STATUS (*install)(void *context, void *controller,
 		struct cdk2_scsi_disk_bound_controller *bound);
 	EFI_STATUS (*uninstall)(void *context, void *controller,
