@@ -121,9 +121,13 @@ int main(void)
 	UINT8 buffer[512] __aligned(8);
 
 	active = &fixture;
-	fixture.type = 5U;
+	fixture.type = 1U;
 	CHECK(cdk2_scsi_disk_backend_init(&backend, &io, &services, &disk) ==
 		EFI_UNSUPPORTED);
+	fixture.type = 5U;
+	CHECK(cdk2_scsi_disk_backend_init(&backend, &io, &services, &disk) ==
+		EFI_SUCCESS && disk.media.removable && disk.media.read_only &&
+		disk.media.block_size == 512U);
 	fixture.type = 0U;
 	CHECK(cdk2_scsi_disk_backend_init(&backend, &io, &services, &disk) ==
 		EFI_SUCCESS && disk.media.block_size == 512U &&

@@ -172,13 +172,14 @@ EFI_STATUS cdk2_scsi_disk_backend_init(struct cdk2_scsi_disk_backend *backend,
 	status = io->get_device_type(io, &type);
 	if (EFI_ERROR(status))
 		return status;
-	if (type != 0U)
+	if (type != 0U && type != 5U)
 		return EFI_UNSUPPORTED;
 	memset(backend, 0, sizeof(*backend));
 	memset(disk, 0, sizeof(*disk));
 	backend->io = io;
 	backend->services = *services;
 	disk->media = (struct cdk2_scsi_disk_media) { .present = TRUE,
+		.removable = type == 5U, .read_only = type == 5U,
 		.io_align = io->io_align == 0U ? 1U : io->io_align };
 	disk->transport = (struct cdk2_scsi_disk_transport) { .context = backend,
 		.execute = execute, .submit = submit, .cancel = cancel, .wait = wait };
