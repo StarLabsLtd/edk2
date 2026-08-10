@@ -41,6 +41,9 @@ EFI_STATUS cdk2_ata_backend_prepare(struct cdk2_ata_backend_pool *pool,
 	if (EFI_ERROR(status))
 		goto fail;
 	if (controller->topology.mode == CDK2_ATA_AHCI) {
+		status = cdk2_ata_pci_enable_ahci(&backend->adapter);
+		if (EFI_ERROR(status))
+			goto fail_adapter;
 		status = cdk2_ata_pci_read_ahci_capability(controller->pci, 5U,
 			&capability, &ports);
 		if (EFI_ERROR(status) || ports == 0U) {

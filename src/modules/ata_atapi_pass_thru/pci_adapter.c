@@ -12,6 +12,8 @@
 #define EFI_PCI_IO_ATTRIBUTE_OPERATION_SUPPORTED 1U
 #define EFI_PCI_IO_ATTRIBUTE_OPERATION_ENABLE 2U
 #define EFI_PCI_IO_MAP_COMMON_BUFFER 2U
+#define AHCI_GHC 0x04U
+#define AHCI_GHC_AE 0x80000000U
 
 static struct cdk2_ata_adapter_allocation *find_allocation(
 	struct cdk2_ata_pci_adapter *adapter, void *host)
@@ -171,6 +173,32 @@ void cdk2_ata_pci_ide_services(struct cdk2_ata_pci_adapter *adapter,
 	.read16 = ide_read16, .write8 = ide_write8, .write16 = ide_write16,
 	.write32 = ide_write32, .map = dma_map, .unmap = dma_unmap, .flush = dma_flush,
 	.set_timing = ide_timing, .time = adapter_time, .delay = adapter_delay }; }
+EFI_STATUS cdk2_ata_pci_enable_ahci(struct cdk2_ata_pci_adapter *adapter)
+{
+	UINT32 ghc, enabled;
+	EFI_STATUS status;
+
+	if (adapter == NULL || adapter->pci == NULL)
+		return EFI_INVALID_PARAMETER;
+	status = adapter->pci->mem.read(adapter->pci, EFI_PCI_IO_WIDTH_UINT32,
+		adapter->ahci_bar, AHCI_GHC, 1U, &ghc);
+	if (EFI_ERROR(status) || (ghc & AHCI_GHC_AE) != 0U)
+		return status;
+	enabled = ghc | AHCI_GHC_AE;
+	status = adapter->pci->mem.write(adapter->pci, EFI_PCI_IO_WIDTH_UINT32,
+		adapter->ahci_bar, AHCI_GHC, 1U, &enabled);
+	if (!EFI_ERROR(status))
+		status = adapter->pci->mem.read(adapter->pci, EFI_PCI_IO_WIDTH_UINT32,
+			adapter->ahci_bar, AHCI_GHC, 1U, &enabled);
+	if (EFI_ERROR(status) || (enabled & AHCI_GHC_AE) == 0U) {
+		(void)adapter->pci->mem.write(adapter->pci, EFI_PCI_IO_WIDTH_UINT32,
+			adapter->ahci_bar, AHCI_GHC, 1U, &ghc);
+		return EFI_DEVICE_ERROR;
+	}
+	adapter->original_ghc = ghc;
+	adapter->ahci_mode_owned = 1U;
+	return EFI_SUCCESS;
+}
 EFI_STATUS cdk2_ata_pci_adapter_release(struct cdk2_ata_pci_adapter *adapter)
 {
 	EFI_STATUS first = EFI_SUCCESS, status;
@@ -182,6 +210,14 @@ EFI_STATUS cdk2_ata_pci_adapter_release(struct cdk2_ata_pci_adapter *adapter)
 			if (EFI_ERROR(status) && !EFI_ERROR(first))
 				first = status;
 		}
+	if (adapter->ahci_mode_owned) {
+		status = adapter->pci->mem.write(adapter->pci, EFI_PCI_IO_WIDTH_UINT32,
+			adapter->ahci_bar, AHCI_GHC, 1U, &adapter->original_ghc);
+		if (EFI_ERROR(status) && !EFI_ERROR(first))
+			first = status;
+		if (!EFI_ERROR(status))
+			adapter->ahci_mode_owned = 0U;
+	}
 	return first;
 }
 

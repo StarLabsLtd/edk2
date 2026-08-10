@@ -17,6 +17,7 @@ typedef UINT8 native_uint8_t;
 struct fixture { unsigned int allocs, frees, maps, unmaps, flushes, mem, io, timings;
 	UINTN attribute_operations[4];
 	unsigned int attribute_calls, pool_allocs, pool_frees, channel_calls;
+	UINT32 ghc;
 };
 static struct fixture fixture;
 static EFI_STATUS CDK2_MS_ABI access(struct cdk2_efi_pci_io_protocol *pci,
@@ -25,11 +26,17 @@ static EFI_STATUS CDK2_MS_ABI access(struct cdk2_efi_pci_io_protocol *pci,
 	fixture.mem++;
 	if (width == 2U && offset == 0U)
 		*(UINT32 *)buffer = 0x12345678U;
+	else if (width == 2U && offset == 0x04U)
+		*(UINT32 *)buffer = fixture.ghc;
 	else if (width == 2U && offset == 0x0cU)
 		*(UINT32 *)buffer = 5U;
 	else
 		memset(buffer, 0, (size_t)1U << width);
 	return EFI_SUCCESS; }
+static EFI_STATUS CDK2_MS_ABI mem_write(struct cdk2_efi_pci_io_protocol *pci,
+	UINTN width, UINT8 bar, UINT64 offset, UINTN count, void *buffer)
+{ (void)pci; CHECK(width == 2U && bar == 5U && offset == 0x04U && count == 1U);
+	fixture.mem++; fixture.ghc = *(UINT32 *)buffer; return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI config(struct cdk2_efi_pci_io_protocol *pci,
 	UINTN width, UINT32 offset, UINTN count, void *buffer)
 { UINT8 expected[3] = { 1, 6, 1 }; (void)pci; CHECK(width == 0U);
@@ -82,7 +89,7 @@ static void pool_release(void *opaque, void *buffer, size_t size)
 
 int main(void)
 {
-	struct cdk2_efi_pci_io_protocol pci = { .mem = { access, access },
+	struct cdk2_efi_pci_io_protocol pci = { .mem = { access, mem_write },
 		.io = { io_access, io_access }, .pci = { config, config },
 		.map = pci_map, .unmap = unmap,
 		.allocate_buffer = allocate, .free_buffer = release, .flush = flush,
@@ -99,6 +106,9 @@ int main(void)
 	CHECK(offsetof(struct cdk2_efi_pci_io_protocol, attributes) == 120);
 	CHECK(offsetof(struct cdk2_efi_pci_io_protocol, rom_image) == 152);
 	CHECK(cdk2_ata_pci_adapter_init(&adapter, &pci, &ide, 5) == EFI_SUCCESS);
+	CHECK(cdk2_ata_pci_enable_ahci(&adapter) == EFI_SUCCESS &&
+		fixture.ghc == 0x80000000U && adapter.ahci_mode_owned);
+	fixture.mem = 0;
 	cdk2_ata_pci_ahci_services(&adapter, &ahci);
 	CHECK(ahci.allocate(ahci.context, 1024, 1024, &host, &device) == EFI_SUCCESS);
 	CHECK(fixture.allocs == 1 && fixture.maps == 1 && device != 0);
@@ -111,6 +121,7 @@ int main(void)
 	CHECK(ide_services.set_timing(ide_services.context, 1, 1) == EFI_SUCCESS);
 	CHECK(fixture.timings == 1);
 	CHECK(cdk2_ata_pci_adapter_release(&adapter) == EFI_SUCCESS);
+	CHECK(fixture.ghc == 0U && !adapter.ahci_mode_owned);
 	CHECK(cdk2_ata_pci_read_class(&pci, class_code) == EFI_SUCCESS);
 	CHECK(class_code[0] == 1 && class_code[1] == 6 && class_code[2] == 1);
 	CHECK(cdk2_ata_pci_get_attributes(&pci, &current, &supported) == EFI_SUCCESS);
