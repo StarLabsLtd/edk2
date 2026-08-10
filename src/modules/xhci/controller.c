@@ -618,3 +618,163 @@ EFI_STATUS cdk2_xhci_interrupt_transfer(struct cdk2_xhci_device *device,
 	return EFI_ERROR(status) ? status : cdk2_xhci_bulk_transfer(device,
 		endpoint_address, buffer, length);
 }
+
+static EFI_STATUS endpoint_command(struct cdk2_xhci_device *device, UINT8 type,
+	UINT8 dci)
+{
+	struct cdk2_xhci_controller *controller = device->controller;
+	struct cdk2_xhci_trb event;
+	UINT64 address;
+	UINT16 index;
+	EFI_STATUS status;
+
+	status = cdk2_xhci_ring_enqueue(&controller->command_ring, 0U, 0U,
+		(UINT32)type << 10 | (UINT32)dci << 16 |
+		(UINT32)device->slot << 24, &index);
+	if (EFI_ERROR(status))
+		return status;
+	address = controller->command_ring.device_address + index * 16U;
+	if (!EFI_ERROR(status))
+		status = controller->services.flush(controller->services.context);
+	if (!EFI_ERROR(status))
+		status = controller->services.write32(controller->services.context,
+			controller->capability.doorbell_offset, 0U);
+	for (UINTN retry = 0U; !EFI_ERROR(status) && retry < 1000U; retry++) {
+		status = next_event(controller, &event);
+		if (status == EFI_NOT_READY) {
+			controller->services.delay(controller->services.context, 1000U);
+			status = EFI_SUCCESS;
+			continue;
+		}
+		if (!EFI_ERROR(status) && (event.control >> 10 & 0x3fU) == 33U &&
+		    (event.parameter & ~0xfULL) == address)
+			return (event.status >> 24) == 1U ? EFI_SUCCESS : EFI_DEVICE_ERROR;
+		if (!EFI_ERROR(status))
+			status = EFI_NOT_READY;
+	}
+	return status == EFI_NOT_READY ? EFI_TIMEOUT : status;
+}
+
+static EFI_STATUS submit_async(struct cdk2_xhci_async_transfer *transfer)
+{
+	struct cdk2_xhci_controller *controller = transfer->device->controller;
+	struct cdk2_xhci_endpoint *endpoint =
+		&transfer->device->endpoints[transfer->dci - 1U];
+	struct cdk2_xhci_segment segment = { transfer->dma.device, transfer->length };
+	UINT16 first, count;
+	EFI_STATUS status;
+
+	status = cdk2_xhci_build_bulk_transfer(&endpoint->ring, &segment, 1U,
+		&first, &count);
+	if (!EFI_ERROR(status))
+		status = controller->services.flush(controller->services.context);
+	if (!EFI_ERROR(status))
+		status = controller->services.write32(controller->services.context,
+			controller->capability.doorbell_offset +
+			(UINT32)transfer->device->slot * 4U, transfer->dci);
+	if (!EFI_ERROR(status)) {
+		transfer->last_address = endpoint->ring.device_address +
+			((first + count - 1U) % (CDK2_XHCI_RING_TRBS - 1U)) * 16U;
+		transfer->submitted = TRUE;
+	}
+	return status;
+}
+
+EFI_STATUS cdk2_xhci_async_interrupt_start(struct cdk2_xhci_device *device,
+	UINT8 endpoint_address, UINTN length, UINT16 maximum_packet,
+	struct cdk2_xhci_async_transfer *transfer)
+{
+	UINT8 dci;
+	EFI_STATUS status;
+
+	if (device == NULL || transfer == NULL || !device->enabled || length == 0U ||
+	    length > 0x1ffffU || (endpoint_address & 0x80U) == 0U)
+		return EFI_INVALID_PARAMETER;
+	dci = (endpoint_address & 0xfU) * 2U + 1U;
+	status = cdk2_xhci_device_configure_endpoint(device, endpoint_address, 3U,
+		maximum_packet);
+	if (status == EFI_ALREADY_STARTED)
+		status = EFI_SUCCESS;
+	if (EFI_ERROR(status))
+		return status;
+	memset(transfer, 0, sizeof(*transfer));
+	transfer->device = device;
+	transfer->endpoint = endpoint_address;
+	transfer->dci = dci;
+	transfer->length = length;
+	status = device->controller->services.allocate_dma(
+		device->controller->services.context, length, 64U, &transfer->dma);
+	if (EFI_ERROR(status))
+		return status;
+	transfer->active = TRUE;
+	status = submit_async(transfer);
+	if (EFI_ERROR(status)) {
+		device->controller->services.release_dma(
+			device->controller->services.context, &transfer->dma);
+		memset(transfer, 0, sizeof(*transfer));
+	}
+	return status;
+}
+
+EFI_STATUS cdk2_xhci_async_interrupt_poll(
+	struct cdk2_xhci_async_transfer *transfer)
+{
+	struct cdk2_xhci_controller *controller;
+	struct cdk2_xhci_trb event;
+	EFI_STATUS status;
+
+	if (transfer == NULL || !transfer->active || !transfer->submitted)
+		return EFI_INVALID_PARAMETER;
+	controller = transfer->device->controller;
+	for (UINTN index = 0U; index < controller->pending_count; index++)
+		if ((controller->pending_events[index].control >> 10 & 0x3fU) == 32U &&
+		    (controller->pending_events[index].parameter & ~0xfULL) ==
+		    transfer->last_address) {
+			event = controller->pending_events[index];
+			controller->pending_events[index] =
+				controller->pending_events[--controller->pending_count];
+			goto complete;
+		}
+	status = next_event(controller, &event);
+	if (EFI_ERROR(status))
+		return status;
+	if ((event.control >> 10 & 0x3fU) != 32U ||
+	    (event.parameter & ~0xfULL) != transfer->last_address) {
+		if (controller->pending_count == 32U)
+			return EFI_OUT_OF_RESOURCES;
+		controller->pending_events[controller->pending_count++] = event;
+		return EFI_NOT_READY;
+	}
+complete:
+	transfer->submitted = FALSE;
+	transfer->actual = (event.status & 0xffffffU) <= transfer->length ?
+		transfer->length - (event.status & 0xffffffU) : 0U;
+	return (event.status >> 24) == 1U ? EFI_SUCCESS : EFI_DEVICE_ERROR;
+}
+
+EFI_STATUS cdk2_xhci_async_interrupt_rearm(
+	struct cdk2_xhci_async_transfer *transfer)
+{
+	if (transfer == NULL || !transfer->active || transfer->submitted)
+		return EFI_INVALID_PARAMETER;
+	transfer->actual = 0U;
+	return submit_async(transfer);
+}
+
+EFI_STATUS cdk2_xhci_async_interrupt_stop(
+	struct cdk2_xhci_async_transfer *transfer)
+{
+	struct cdk2_xhci_controller *controller;
+	EFI_STATUS status = EFI_SUCCESS;
+
+	if (transfer == NULL || !transfer->active)
+		return EFI_INVALID_PARAMETER;
+	controller = transfer->device->controller;
+	if (transfer->submitted)
+		status = endpoint_command(transfer->device, 15U, transfer->dci);
+	if (EFI_ERROR(status))
+		return status;
+	controller->services.release_dma(controller->services.context, &transfer->dma);
+	memset(transfer, 0, sizeof(*transfer));
+	return EFI_SUCCESS;
+}

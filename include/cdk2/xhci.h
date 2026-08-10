@@ -141,6 +141,15 @@ struct cdk2_xhci_device {
 	BOOLEAN enabled;
 };
 
+struct cdk2_xhci_async_transfer {
+	struct cdk2_xhci_device *device;
+	struct cdk2_xhci_dma dma;
+	UINT64 last_address;
+	UINTN length, actual;
+	UINT8 endpoint, dci;
+	BOOLEAN active, submitted;
+};
+
 #define CDK2_XHCI_PCI_ALLOCATIONS 32U
 struct cdk2_xhci_pci_allocation {
 	void *host, *mapping;
@@ -187,6 +196,8 @@ typedef EFI_STATUS CDK2_MS_ABI cdk2_usb2_async_interrupt_fn(
 	UINT8 speed, UINTN maximum_packet, BOOLEAN new_transfer, UINT8 *toggle,
 	UINTN interval, UINTN length, void *translator, void *callback,
 	void *context);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_usb2_async_callback_fn(void *data,
+	UINTN length, void *context, UINT32 result);
 typedef EFI_STATUS CDK2_MS_ABI cdk2_usb2_stub_fn(void);
 typedef EFI_STATUS CDK2_MS_ABI cdk2_usb2_get_port_fn(
 	struct cdk2_usb2_hc_protocol *this, UINT8 port,
@@ -217,6 +228,13 @@ struct cdk2_xhci_usb2 {
 	struct cdk2_xhci_device devices[256];
 	UINT8 current_port, current_speed;
 	UINTN state;
+	struct {
+		struct cdk2_xhci_async_transfer transfer;
+		cdk2_usb2_async_callback_fn *callback;
+		void *context;
+		UINT8 address, endpoint;
+		BOOLEAN active;
+	} async[8];
 };
 
 EFI_STATUS cdk2_xhci_parse_capabilities(UINT32 capability0, UINT32 hcs1,
@@ -268,6 +286,15 @@ EFI_STATUS cdk2_xhci_bulk_transfer(struct cdk2_xhci_device *device,
 	UINT8 endpoint_address, void *buffer, UINTN *length);
 EFI_STATUS cdk2_xhci_interrupt_transfer(struct cdk2_xhci_device *device,
 	UINT8 endpoint_address, void *buffer, UINTN *length, UINT16 maximum_packet);
+EFI_STATUS cdk2_xhci_async_interrupt_start(struct cdk2_xhci_device *device,
+	UINT8 endpoint_address, UINTN length, UINT16 maximum_packet,
+	struct cdk2_xhci_async_transfer *transfer);
+EFI_STATUS cdk2_xhci_async_interrupt_poll(
+	struct cdk2_xhci_async_transfer *transfer);
+EFI_STATUS cdk2_xhci_async_interrupt_rearm(
+	struct cdk2_xhci_async_transfer *transfer);
+EFI_STATUS cdk2_xhci_async_interrupt_stop(
+	struct cdk2_xhci_async_transfer *transfer);
 EFI_STATUS cdk2_xhci_pci_adapter_init(struct cdk2_xhci_pci_adapter *adapter,
 	struct cdk2_efi_pci_io_protocol *pci, UINT8 bar, void *delay_context,
 	cdk2_xhci_delay_fn *delay);
@@ -277,5 +304,6 @@ EFI_STATUS cdk2_xhci_pci_adapter_release(struct cdk2_xhci_pci_adapter *adapter);
 EFI_STATUS cdk2_xhci_usb2_init(struct cdk2_xhci_usb2 *usb2,
 	struct cdk2_xhci_controller *controller);
 EFI_STATUS cdk2_xhci_usb2_release(struct cdk2_xhci_usb2 *usb2);
+void cdk2_xhci_usb2_poll(struct cdk2_xhci_usb2 *usb2);
 
 #endif

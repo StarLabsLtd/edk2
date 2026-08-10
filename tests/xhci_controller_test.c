@@ -141,6 +141,7 @@ int main(void)
 	struct cdk2_xhci_port_status port;
 	struct cdk2_usb_port_status usb_port;
 	struct cdk2_xhci_usb2 *usb2;
+	struct cdk2_xhci_async_transfer async;
 	UINT8 slot;
 
 	fixture.registers[0x44U / 4U] = 1U;
@@ -171,6 +172,12 @@ int main(void)
 		length = sizeof(buffer);
 		CHECK(cdk2_xhci_bulk_transfer(&device, 0x81U, buffer, &length) ==
 			EFI_SUCCESS && length == sizeof(buffer));
+		CHECK(cdk2_xhci_async_interrupt_start(&device, 0x82U, sizeof(buffer),
+			512U, &async) == EFI_SUCCESS && async.submitted &&
+			cdk2_xhci_async_interrupt_poll(&async) == EFI_SUCCESS &&
+			async.actual == sizeof(buffer) &&
+			cdk2_xhci_async_interrupt_rearm(&async) == EFI_SUCCESS &&
+			cdk2_xhci_async_interrupt_stop(&async) == EFI_SUCCESS);
 	}
 	CHECK(cdk2_xhci_device_disable(&device) == EFI_SUCCESS && !device.enabled &&
 		fixture.allocations == fixture.releases + 4U);

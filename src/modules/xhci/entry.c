@@ -21,6 +21,11 @@ typedef EFI_STATUS CDK2_MS_ABI raise_fn(UINTN);
 typedef void CDK2_MS_ABI restore_fn(UINTN);
 typedef EFI_STATUS CDK2_MS_ABI alloc_fn(UINT32, UINTN, void **);
 typedef EFI_STATUS CDK2_MS_ABI free_fn(void *);
+typedef void CDK2_MS_ABI event_notify_fn(void *, void *);
+typedef EFI_STATUS CDK2_MS_ABI create_event_fn(UINT32, UINTN,
+	event_notify_fn *, void *, void **);
+typedef EFI_STATUS CDK2_MS_ABI set_timer_fn(void *, UINTN, UINT64);
+typedef EFI_STATUS CDK2_MS_ABI close_event_fn(void *);
 typedef void CDK2_MS_ABI stall_fn(UINTN);
 typedef EFI_STATUS CDK2_MS_ABI handle_fn(void *, const struct guid *, void **);
 typedef EFI_STATUS CDK2_MS_ABI open_fn(void *, const struct guid *, void **,
@@ -32,7 +37,10 @@ typedef EFI_STATUS CDK2_MS_ABI unload_fn(void *);
 struct boot_services {
 	UINT8 header[24]; raise_fn * raise_tpl; restore_fn * restore_tpl;
 	UINT8 before_allocate[24]; alloc_fn * allocate_pool; free_fn * free_pool;
-	UINT8 before_handle[72]; handle_fn * handle_protocol;
+	create_event_fn *create_event;
+	set_timer_fn *set_timer;
+	UINT8 before_close_event[16]; close_event_fn * close_event;
+	UINT8 before_handle[32]; handle_fn * handle_protocol;
 	UINT8 before_stall[88]; stall_fn * stall;
 	UINT8 before_open[24]; open_fn * open_protocol; close_fn * close_protocol;
 	UINT8 before_install[32]; install_fn * install_multiple;
@@ -48,9 +56,11 @@ struct driver_binding { supported_fn * supported; start_fn * start; stop_fn * st
 	UINT32 version; void *image, *handle; };
 struct context { struct cdk2_xhci_pci_adapter adapter;
 	struct cdk2_xhci_controller controller; struct cdk2_xhci_usb2 *usb2;
-	void *handle; struct context *next; };
+	void *handle, *timer; struct context *next; };
 
 typedef char stall_offset_check[offsetof(struct boot_services, stall) == 248U ? 1 : -1];
+typedef char create_offset_check[offsetof(struct boot_services, create_event) == 80U ? 1 : -1];
+typedef char close_event_offset_check[offsetof(struct boot_services, close_event) == 112U ? 1 : -1];
 typedef char open_offset_check[offsetof(struct boot_services, open_protocol) == 280U ? 1 : -1];
 typedef char install_offset_check[offsetof(struct boot_services, install_multiple) == 328U ? 1 : -1];
 
@@ -64,6 +74,12 @@ static void delay(void *unused, UINTN microseconds)
 {
 	(void)unused;
 	bs->stall(microseconds);
+}
+
+static void CDK2_MS_ABI timer_notify(void *event, void *opaque)
+{
+	(void)event;
+	cdk2_xhci_usb2_poll(((struct context *)opaque)->usb2);
 }
 
 static EFI_STATUS read_capability(struct cdk2_efi_pci_io_protocol *pci,
@@ -153,6 +169,12 @@ static EFI_STATUS CDK2_MS_ABI start(struct driver_binding *driver, void *handle,
 	status = cdk2_xhci_usb2_init(context->usb2, &context->controller);
 	if (EFI_ERROR(status))
 		goto destroy_controller;
+	status = bs->create_event(0x80000200U, 8U, timer_notify, context,
+		&context->timer);
+	if (!EFI_ERROR(status))
+		status = bs->set_timer(context->timer, 1U, 100000U);
+	if (EFI_ERROR(status))
+		goto close_timer;
 	status = bs->install_multiple(&handle, &usb2_guid,
 		&context->usb2->protocol, NULL);
 	if (EFI_ERROR(status))
@@ -162,6 +184,9 @@ static EFI_STATUS CDK2_MS_ABI start(struct driver_binding *driver, void *handle,
 	return EFI_SUCCESS;
 release_usb:
 	(void)cdk2_xhci_usb2_release(context->usb2);
+close_timer:
+	if (context->timer != NULL)
+		(void)bs->close_event(context->timer);
 destroy_controller:
 	cdk2_xhci_controller_destroy(&context->controller);
 release_adapter:
@@ -193,8 +218,18 @@ static EFI_STATUS CDK2_MS_ABI stop(struct driver_binding *driver, void *handle,
 		&context->usb2->protocol, NULL);
 	if (EFI_ERROR(status))
 		return status;
+	status = bs->close_event(context->timer);
+	if (EFI_ERROR(status)) {
+		(void)bs->install_multiple(&handle, &usb2_guid,
+			&context->usb2->protocol, NULL);
+		return status;
+	}
+	context->timer = NULL;
 	status = cdk2_xhci_usb2_release(context->usb2);
 	if (EFI_ERROR(status)) {
+		if (!EFI_ERROR(bs->create_event(0x80000200U, 8U, timer_notify, context,
+			&context->timer)))
+			(void)bs->set_timer(context->timer, 1U, 100000U);
 		(void)bs->install_multiple(&handle, &usb2_guid,
 			&context->usb2->protocol, NULL);
 		return status;

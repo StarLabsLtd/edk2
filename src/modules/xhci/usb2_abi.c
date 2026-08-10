@@ -148,15 +148,53 @@ static EFI_STATUS CDK2_MS_ABI async_interrupt(
 	UINT8 speed, UINTN maximum_packet, BOOLEAN new_transfer, UINT8 *toggle,
 	UINTN interval, UINTN length, void *translator, void *callback, void *context)
 {
-	(void)this; (void)address; (void)endpoint; (void)speed; (void)maximum_packet;
-	(void)new_transfer; (void)toggle; (void)interval; (void)length;
-	(void)translator; (void)callback; (void)context;
-	return EFI_UNSUPPORTED;
+	struct cdk2_xhci_usb2 *usb2;
+	UINTN free_index = 8U;
+
+	(void)speed;
+	(void)interval;
+	(void)translator;
+	if (this == NULL || toggle == NULL || *toggle > 1U ||
+	    (new_transfer && callback == NULL) ||
+	    maximum_packet == 0U || maximum_packet > UINT16_MAX)
+		return EFI_INVALID_PARAMETER;
+	usb2 = owner(this);
+	for (UINTN index = 0U; index < 8U; index++) {
+		if (usb2->async[index].active && usb2->async[index].address == address &&
+		    usb2->async[index].endpoint == endpoint) {
+			EFI_STATUS status;
+
+			if (new_transfer)
+				return EFI_ALREADY_STARTED;
+			status = cdk2_xhci_async_interrupt_stop(
+				&usb2->async[index].transfer);
+			if (!EFI_ERROR(status))
+				memset(&usb2->async[index], 0, sizeof(usb2->async[index]));
+			return status;
+		}
+		if (!usb2->async[index].active && free_index == 8U)
+			free_index = index;
+	}
+	if (!new_transfer)
+		return EFI_NOT_FOUND;
+	if (free_index == 8U || !usb2->devices[address].enabled || length == 0U)
+		return EFI_OUT_OF_RESOURCES;
+	usb2->async[free_index].callback = (cdk2_usb2_async_callback_fn *)callback;
+	usb2->async[free_index].context = context;
+	usb2->async[free_index].address = address;
+	usb2->async[free_index].endpoint = endpoint;
+	if (EFI_ERROR(cdk2_xhci_async_interrupt_start(&usb2->devices[address],
+		endpoint, length, maximum_packet, &usb2->async[free_index].transfer))) {
+		memset(&usb2->async[free_index], 0, sizeof(usb2->async[free_index]));
+		return EFI_DEVICE_ERROR;
+	}
+	usb2->async[free_index].active = TRUE;
+	return EFI_SUCCESS;
 }
 
 static EFI_STATUS CDK2_MS_ABI sync_interrupt(struct cdk2_usb2_hc_protocol *this,
 	UINT8 address, UINT8 endpoint, UINT8 speed, UINTN maximum_packet,
-	UINT8 buffers, void **data, UINTN * length, UINT8 *toggle, UINTN timeout,
+	UINT8 buffers, void **data, UINTN *length, UINT8 *toggle, UINTN timeout,
 	void *translator, UINT32 * result)
 {
 	struct cdk2_xhci_device *device;
@@ -283,6 +321,16 @@ EFI_STATUS cdk2_xhci_usb2_release(struct cdk2_xhci_usb2 *usb2)
 
 	if (usb2 == NULL || usb2->controller == NULL)
 		return EFI_INVALID_PARAMETER;
+	for (UINTN index = 0U; index < 8U; index++)
+		if (usb2->async[index].active) {
+			EFI_STATUS status = cdk2_xhci_async_interrupt_stop(
+				&usb2->async[index].transfer);
+
+			if (EFI_ERROR(status) && !EFI_ERROR(first))
+				first = status;
+			else if (!EFI_ERROR(status))
+				memset(&usb2->async[index], 0, sizeof(usb2->async[index]));
+		}
 	for (UINTN address = 0U; address < 256U; address++)
 		if (usb2->devices[address].enabled) {
 			EFI_STATUS status = cdk2_xhci_device_disable(&usb2->devices[address]);
@@ -293,4 +341,29 @@ EFI_STATUS cdk2_xhci_usb2_release(struct cdk2_xhci_usb2 *usb2)
 	if (!EFI_ERROR(first))
 		memset(usb2, 0, sizeof(*usb2));
 	return first;
+}
+
+void cdk2_xhci_usb2_poll(struct cdk2_xhci_usb2 *usb2)
+{
+	if (usb2 == NULL)
+		return;
+	for (UINTN index = 0U; index < 8U; index++)
+		if (usb2->async[index].active) {
+			EFI_STATUS status = cdk2_xhci_async_interrupt_poll(
+				&usb2->async[index].transfer);
+
+			if (status == EFI_NOT_READY)
+				continue;
+			(void)usb2->async[index].callback(
+				usb2->async[index].transfer.dma.host,
+				usb2->async[index].transfer.actual,
+				usb2->async[index].context,
+				EFI_ERROR(status) ? CDK2_USB_ERR_SYSTEM : CDK2_USB_NOERROR);
+			if (EFI_ERROR(cdk2_xhci_async_interrupt_rearm(
+				&usb2->async[index].transfer))) {
+				(void)cdk2_xhci_async_interrupt_stop(
+					&usb2->async[index].transfer);
+				memset(&usb2->async[index], 0, sizeof(usb2->async[index]));
+			}
+		}
 }
