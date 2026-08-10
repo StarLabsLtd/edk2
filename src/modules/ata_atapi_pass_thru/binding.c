@@ -8,7 +8,7 @@
 #define PCI_SUBCLASS_IDE 1U
 #define PCI_SUBCLASS_SATA 6U
 #define PCI_IF_AHCI 1U
-#define PCI_DEVICE_ENABLE 7U
+#define PCI_DEVICE_ENABLE 0x700U
 
 static int class_mode(const UINT8 code[3], enum cdk2_ata_mode *mode)
 {

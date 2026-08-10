@@ -32,10 +32,10 @@ static EFI_STATUS read_class(void *opaque, void *pci, UINT8 code[3])
 	return fault(f); }
 static EFI_STATUS get_attributes(void *opaque, void *pci, UINT64 *original,
 	UINT64 *supported)
-{ struct fixture *f = opaque; (void)pci; *original = 0x80; *supported = 0x107;
+{ struct fixture *f = opaque; (void)pci; *original = 0x80; *supported = 0x1707;
 	return fault(f); }
 static EFI_STATUS enable(void *opaque, void *pci, UINT64 attributes)
-{ struct fixture *f = opaque; (void)pci; CHECK(attributes == 7); f->enables++;
+{ struct fixture *f = opaque; (void)pci; CHECK(attributes == 0x700); f->enables++;
 	return fault(f); }
 static EFI_STATUS restore(void *opaque, void *pci, UINT64 attributes)
 { struct fixture *f = opaque; (void)pci; CHECK(attributes == 0x80); f->restores++;
