@@ -12,10 +12,19 @@
 struct fixture {
 	void (*complete)(void *context, EFI_STATUS status, UINT8 host, UINT8 target);
 	void *complete_context;
-	UINT32 calls, signals, blocks[4];
-	UINT8 opcodes[4];
+	UINT32 calls, signals, blocks[8];
+	UINT32 cancels;
+	UINT8 opcodes[8];
 	EFI_STATUS submit_status;
 };
+
+static EFI_STATUS cancel(void *opaque)
+{
+	struct fixture *fixture = opaque;
+
+	fixture->cancels++;
+	return EFI_SUCCESS;
+}
 
 static EFI_STATUS submit(void *opaque, struct cdk2_scsi_disk_command *command,
 	void *buffer, UINT32 bytes, BOOLEAN write,
@@ -25,7 +34,7 @@ static EFI_STATUS submit(void *opaque, struct cdk2_scsi_disk_command *command,
 	UINT32 index = fixture->calls++;
 
 	(void)write;
-	CHECK(index < 4U && buffer != NULL && bytes == command->blocks * 512U);
+	CHECK(index < 8U && buffer != NULL && bytes == command->blocks * 512U);
 	fixture->blocks[index] = command->blocks;
 	fixture->opcodes[index] = command->cdb[0];
 	if (EFI_ERROR(fixture->submit_status))
@@ -60,7 +69,8 @@ int main(void)
 {
 	struct fixture fixture = { 0 };
 	struct cdk2_scsi_disk disk = { .media = { 7, 0, 1, 0, 512, 1,
-		0x40000U }, .transport = { .context = &fixture, .submit = submit } };
+		0x40000U }, .transport = { .context = &fixture, .submit = submit,
+		.cancel = cancel } };
 	struct cdk2_scsi_disk_async async;
 	struct cdk2_scsi_disk_token first = { (void *)1, EFI_SUCCESS };
 	struct cdk2_scsi_disk_token second = { (void *)2, EFI_SUCCESS };
@@ -94,6 +104,21 @@ int main(void)
 	second.status = EFI_NOT_READY;
 	CHECK(cdk2_scsi_disk_async_submit(&async, 7, 0, 0, NULL, FALSE, &second) ==
 		EFI_SUCCESS && second.status == EFI_SUCCESS && fixture.signals == 3U);
+	first.status = EFI_SUCCESS;
+	second.status = EFI_SUCCESS;
+	CHECK(cdk2_scsi_disk_async_submit(&async, 7, 0, 512U, buffer, FALSE,
+		&first) == EFI_SUCCESS && cdk2_scsi_disk_async_submit(&async, 7, 1,
+		512U, buffer, TRUE, &second) == EFI_SUCCESS);
+	CHECK(cdk2_scsi_disk_async_reset(&async) == EFI_SUCCESS &&
+		fixture.cancels == 1U && first.status == EFI_ABORTED &&
+		second.status == EFI_ABORTED && fixture.signals == 5U &&
+		async.count == 0U && !async.stopping);
+	first.status = EFI_SUCCESS;
+	CHECK(cdk2_scsi_disk_async_submit(&async, 7, 0, 512U, buffer, FALSE,
+		&first) == EFI_SUCCESS && cdk2_scsi_disk_async_stop(&async) ==
+		EFI_SUCCESS && first.status == EFI_ABORTED && async.stopping);
+	CHECK(cdk2_scsi_disk_async_submit(&async, 7, 0, 512U, buffer, FALSE,
+		&first) == EFI_NOT_READY);
 	free(buffer);
 	puts("scsi disk async tests: PASS");
 	return 0;

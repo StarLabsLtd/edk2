@@ -15,6 +15,9 @@
 #ifndef EFI_MEDIA_CHANGED
 #define EFI_MEDIA_CHANGED EFIERR(13)
 #endif
+#ifndef EFI_ABORTED
+#define EFI_ABORTED EFIERR(21)
+#endif
 
 struct cdk2_scsi_disk_media {
 	UINT32 media_id;
@@ -38,6 +41,7 @@ struct cdk2_scsi_disk_transport {
 		BOOLEAN, UINT8 *, UINT8 *);
 	EFI_STATUS (*submit)(void *, struct cdk2_scsi_disk_command *, void *, UINT32,
 		BOOLEAN, void (*)(void *, EFI_STATUS, UINT8, UINT8), void *);
+	EFI_STATUS (*cancel)(void *context);
 };
 
 struct cdk2_scsi_disk_token {
@@ -59,7 +63,7 @@ struct cdk2_scsi_disk_async {
 	void *signal_context;
 	EFI_STATUS (*signal)(void *context, void *event);
 	UINTN head, count;
-	BOOLEAN parent_active, dispatching, completion_pending, stopping;
+	BOOLEAN parent_active, dispatching, completion_pending, stopping, aborting;
 	EFI_STATUS submission_status;
 	EFI_STATUS completion_status;
 	UINT8 completion_host, completion_target;
@@ -89,5 +93,7 @@ EFI_STATUS cdk2_scsi_disk_async_init(struct cdk2_scsi_disk_async *async,
 EFI_STATUS cdk2_scsi_disk_async_submit(struct cdk2_scsi_disk_async *async,
 	UINT32 media_id, UINT64 lba, UINTN size, void *buffer, BOOLEAN write,
 	struct cdk2_scsi_disk_token *token);
+EFI_STATUS cdk2_scsi_disk_async_reset(struct cdk2_scsi_disk_async *async);
+EFI_STATUS cdk2_scsi_disk_async_stop(struct cdk2_scsi_disk_async *async);
 
 #endif

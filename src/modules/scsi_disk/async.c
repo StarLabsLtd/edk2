@@ -27,7 +27,7 @@ static void parent_complete(void *opaque, EFI_STATUS status, UINT8 host_status,
 	async->completion_host = host_status;
 	async->completion_target = target_status;
 	async->completion_pending = TRUE;
-	if (!async->dispatching)
+	if (!async->dispatching && !async->aborting)
 		dispatch(async);
 }
 
@@ -54,7 +54,7 @@ static EFI_STATUS submit_chunk(struct cdk2_scsi_disk_async *async)
 
 static void dispatch(struct cdk2_scsi_disk_async *async)
 {
-	if (async->dispatching)
+	if (async->dispatching || async->aborting)
 		return;
 	async->dispatching = TRUE;
 	while (async->count != 0U && !async->parent_active) {
@@ -166,4 +166,43 @@ EFI_STATUS cdk2_scsi_disk_async_submit(struct cdk2_scsi_disk_async *async,
 	if (EFI_ERROR(async->submission_status))
 		token->status = original_status;
 	return async->submission_status;
+}
+
+static EFI_STATUS abort_all(struct cdk2_scsi_disk_async *async, BOOLEAN stop)
+{
+	EFI_STATUS status = EFI_SUCCESS;
+
+	if (async == NULL || async->disk == NULL)
+		return EFI_INVALID_PARAMETER;
+	if (async->dispatching)
+		return EFI_NOT_READY;
+	async->aborting = TRUE;
+	if (async->parent_active) {
+		if (async->disk->transport.cancel == NULL) {
+			async->aborting = FALSE;
+			return EFI_UNSUPPORTED;
+		}
+		status = async->disk->transport.cancel(async->disk->transport.context);
+		if (EFI_ERROR(status)) {
+			async->aborting = FALSE;
+			return status;
+		}
+		async->parent_active = FALSE;
+	}
+	async->completion_pending = FALSE;
+	while (async->count != 0U)
+		finish_head(async, EFI_ABORTED);
+	async->aborting = FALSE;
+	async->stopping = stop;
+	return EFI_SUCCESS;
+}
+
+EFI_STATUS cdk2_scsi_disk_async_reset(struct cdk2_scsi_disk_async *async)
+{
+	return abort_all(async, FALSE);
+}
+
+EFI_STATUS cdk2_scsi_disk_async_stop(struct cdk2_scsi_disk_async *async)
+{
+	return abort_all(async, TRUE);
 }
