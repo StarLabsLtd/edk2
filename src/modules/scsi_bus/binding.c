@@ -54,6 +54,12 @@ static void copy_bytes(void *destination, const void *source, UINTN size)
 		*to++ = *from++;
 }
 
+static UINT32 target_adapter_id(const UINT8 *target)
+{
+	return (UINT32)target[0] | (UINT32)target[1] << 8 |
+		(UINT32)target[2] << 16 | (UINT32)target[3] << 24;
+}
+
 static struct cdk2_scsi_child *from_io(struct cdk2_scsi_io *io)
 {
 	return (void *)((UINT8 *)io - offsetof(struct cdk2_scsi_child, io));
@@ -415,7 +421,7 @@ EFI_STATUS cdk2_scsi_binding_start(struct cdk2_scsi_binding *binding,
 		if (EFI_ERROR(status) || id == NULL)
 			return EFI_ERROR(status) ? status : EFI_DEVICE_ERROR;
 		copy_bytes(target.id, id, sizeof(target.id));
-		if (*(const UINT32 *)target.id == binding->pass_thru->mode->adapter_id)
+		if (target_adapter_id(target.id) == binding->pass_thru->mode->adapter_id)
 			continue;
 		status = add_child(binding, &target);
 		if (status == EFI_OUT_OF_RESOURCES)

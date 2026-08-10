@@ -74,6 +74,21 @@ struct cdk2_loaded_image {
 	image_unload_fn *unload;
 };
 
+typedef char allocate_offset_check[offsetof(struct cdk2_boot_services,
+	allocate_pool) == 64 ? 1 : -1];
+typedef char signal_offset_check[offsetof(struct cdk2_boot_services,
+	signal_event) == 104 ? 1 : -1];
+typedef char handle_offset_check[offsetof(struct cdk2_boot_services,
+	handle_protocol) == 152 ? 1 : -1];
+typedef char locate_path_offset_check[offsetof(struct cdk2_boot_services,
+	locate_device_path) == 184 ? 1 : -1];
+typedef char open_offset_check[offsetof(struct cdk2_boot_services,
+	open_protocol) == 280 ? 1 : -1];
+typedef char install_offset_check[offsetof(struct cdk2_boot_services,
+	install_multiple) == 328 ? 1 : -1];
+typedef char loaded_unload_offset_check[offsetof(struct cdk2_loaded_image,
+	unload) == 88 ? 1 : -1];
+
 struct scsi_controller_entry {
 	struct scsi_controller_entry *next;
 	struct cdk2_scsi_binding binding;
