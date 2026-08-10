@@ -110,7 +110,13 @@ int main(void)
 
 	read.token = NULL; read.media_id = 1;
 	CHECK(cdk2_ata_bus_execute_sync(&scheduler, &read) == CDK2_EFI_MEDIA_CHANGED);
-	read.media_id = 0; read.bytes = 513;
+	read.buffer = NULL; read.bytes = 0;
+	CHECK(cdk2_ata_bus_execute_sync(&scheduler, &read) == CDK2_EFI_MEDIA_CHANGED);
+	read.media_id = 0;
+	CHECK(cdk2_ata_bus_execute_sync(&scheduler, &read) == EFI_INVALID_PARAMETER);
+	read.buffer = data; read.lba = first.geometry.blocks;
+	CHECK(cdk2_ata_bus_execute_sync(&scheduler, &read) == EFI_SUCCESS);
+	read.bytes = 513;
 	CHECK(cdk2_ata_bus_execute_sync(&scheduler, &read) == EFI_BAD_BUFFER_SIZE);
 	read.bytes = 512; read.buffer = data + 1;
 	CHECK(cdk2_ata_bus_execute_sync(&scheduler, &read) == EFI_INVALID_PARAMETER);

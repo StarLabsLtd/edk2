@@ -95,6 +95,50 @@ static EFI_STATUS rollback_child(struct cdk2_ata_bus_binding *binding,
 	return EFI_SUCCESS;
 }
 
+static EFI_STATUS publish_child(struct cdk2_ata_bus_binding *binding,
+	struct cdk2_ata_bus_bound_controller *owner,
+	const struct cdk2_ata_bus_child *model)
+{
+	struct cdk2_ata_bus_bound_child *child;
+	EFI_STATUS status;
+
+	if (owner->child_count == CDK2_ATA_BUS_MAX_CHILDREN)
+		return EFI_OUT_OF_RESOURCES;
+	status = binding->services.allocate(binding->services.context, sizeof(*child),
+		(void **)&child);
+	if (EFI_ERROR(status))
+		return status;
+	memset(child, 0, sizeof(*child)); child->model = *model;
+	status = cdk2_ata_bus_block_init(&child->block, &child->model,
+		&owner->scheduler, binding->services.defer, binding->services.context);
+	if (!EFI_ERROR(status))
+		status = cdk2_ata_bus_disk_security_init(child, &binding->services);
+	if (EFI_ERROR(status)) {
+		binding->services.release(binding->services.context, child);
+		return status;
+	}
+	status = binding->services.install_child(binding->services.context,
+		&child->handle, child, child->model.geometry.trusted);
+	if (EFI_ERROR(status)) {
+		binding->services.release(binding->services.context, child);
+		return status;
+	}
+	child->installed = 1;
+	status = binding->services.child_link(binding->services.context, owner->handle,
+		child->handle, 1);
+	if (EFI_ERROR(status)) {
+		EFI_STATUS rollback = rollback_child(binding, owner, child);
+
+		if (EFI_ERROR(rollback)) {
+			owner->children[owner->child_count++] = child;
+			return rollback;
+		}
+		return status;
+	}
+	child->by_child = 1; owner->children[owner->child_count++] = child;
+	return EFI_SUCCESS;
+}
+
 EFI_STATUS cdk2_ata_bus_binding_start(struct cdk2_ata_bus_binding *binding,
 	void *controller, void *remaining_device_path)
 {
@@ -106,10 +150,29 @@ EFI_STATUS cdk2_ata_bus_binding_start(struct cdk2_ata_bus_binding *binding,
 	if (binding == NULL || controller == NULL)
 		return EFI_INVALID_PARAMETER;
 	owner = find_controller(binding, controller, NULL);
-	if (owner != NULL)
-		return match_path(owner->pass_thru, remaining_device_path, &selected_port,
-			&selected_multiplier) == EFI_SUCCESS ? EFI_ALREADY_STARTED :
-			EFI_UNSUPPORTED;
+	if (owner != NULL) {
+		struct cdk2_ata_bus incremental = { 0 };
+
+		status = match_path(owner->pass_thru, remaining_device_path, &selected_port,
+			&selected_multiplier);
+		if (EFI_ERROR(status))
+			return status;
+		if (remaining_device_path == NULL || selected_port == 0xfffeU)
+			return EFI_ALREADY_STARTED;
+		for (UINTN index = 0; index < owner->child_count; index++)
+			if (owner->children[index]->model.port == selected_port &&
+			    owner->children[index]->model.multiplier == selected_multiplier)
+				return EFI_ALREADY_STARTED;
+		status = cdk2_ata_bus_add_controller(&incremental, controller, owner->pass_thru,
+			release_discovery_path, binding);
+		if (EFI_ERROR(status))
+			return status;
+		for (UINTN index = 0; index < incremental.child_count; index++)
+			if (incremental.children[index].port == selected_port &&
+			    incremental.children[index].multiplier == selected_multiplier)
+				return publish_child(binding, owner, &incremental.children[index]);
+		return EFI_NOT_FOUND;
+	}
 	if (binding->controller_count == CDK2_ATA_BUS_MAX_CONTROLLERS)
 		return EFI_OUT_OF_RESOURCES;
 	status = binding->services.open_parent(binding->services.context, controller,
@@ -121,16 +184,16 @@ EFI_STATUS cdk2_ata_bus_binding_start(struct cdk2_ata_bus_binding *binding,
 		&selected_multiplier);
 	if (EFI_ERROR(status))
 		goto fail;
-	status = binding->services.marker(binding->services.context, controller, 1);
-	if (EFI_ERROR(status))
-		goto fail;
-	marked = 1;
 	status = binding->services.allocate(binding->services.context, sizeof(*owner),
 		(void **)&owner);
 	if (EFI_ERROR(status))
 		goto fail;
 	memset(owner, 0, sizeof(*owner)); owner->handle = controller;
-	owner->pass_thru = pass_thru; owner->parent_open = 1; owner->marker = 1;
+	owner->pass_thru = pass_thru; owner->parent_open = 1;
+	status = binding->services.marker(binding->services.context, controller, 1);
+	if (EFI_ERROR(status))
+		goto fail;
+	marked = 1; owner->marker = 1;
 	status = cdk2_ata_bus_scheduler_init(&owner->scheduler,
 		&binding->services.transport);
 	if (EFI_ERROR(status))
@@ -141,46 +204,12 @@ EFI_STATUS cdk2_ata_bus_binding_start(struct cdk2_ata_bus_binding *binding,
 		goto fail;
 	for (UINTN index = 0; index < discovered.child_count; index++) {
 		struct cdk2_ata_bus_child *model = &discovered.children[index];
-		struct cdk2_ata_bus_bound_child *child;
 		if (selected_port != 0xffffU && (model->port != selected_port ||
 		    model->multiplier != selected_multiplier))
 			continue;
-		status = binding->services.allocate(binding->services.context, sizeof(*child),
-			(void **)&child);
+		status = publish_child(binding, owner, model);
 		if (EFI_ERROR(status))
 			goto fail;
-		memset(child, 0, sizeof(*child)); child->model = *model;
-		status = cdk2_ata_bus_block_init(&child->block, &child->model,
-			&owner->scheduler, binding->services.defer,
-			binding->services.context);
-		if (EFI_ERROR(status)) {
-			binding->services.release(binding->services.context, child);
-			goto fail;
-		}
-		status = cdk2_ata_bus_disk_security_init(child, &binding->services);
-		if (EFI_ERROR(status)) {
-			binding->services.release(binding->services.context, child);
-			goto fail;
-		}
-		status = binding->services.install_child(binding->services.context,
-			&child->handle, child, child->model.geometry.trusted);
-		if (EFI_ERROR(status)) {
-			binding->services.release(binding->services.context, child);
-			goto fail;
-		}
-		child->installed = 1;
-		status = binding->services.child_link(binding->services.context, controller,
-			child->handle, 1);
-		if (EFI_ERROR(status)) {
-			EFI_STATUS rollback = rollback_child(binding, owner, child);
-
-			if (EFI_ERROR(rollback)) {
-				owner->children[owner->child_count++] = child;
-				status = rollback;
-			}
-			goto fail;
-		}
-		child->by_child = 1; owner->children[owner->child_count++] = child;
 	}
 	if (owner->child_count == 0U && selected_port != 0xfffeU) {
 		status = EFI_NOT_FOUND;
@@ -202,12 +231,30 @@ fail:
 			}
 			owner->child_count--;
 		}
-		binding->services.release(binding->services.context, owner);
 	}
-	if (marked)
-		(void)binding->services.marker(binding->services.context, controller, 0);
-	if (opened)
-		(void)binding->services.close_parent(binding->services.context, controller, 1);
+	if (marked) {
+		EFI_STATUS cleanup = binding->services.marker(binding->services.context,
+			controller, 0);
+
+		if (EFI_ERROR(cleanup)) {
+			binding->controllers[binding->controller_count++] = owner;
+			return cleanup;
+		}
+		owner->marker = 0;
+	}
+	if (opened) {
+		EFI_STATUS cleanup = binding->services.close_parent(
+			binding->services.context, controller, 1);
+
+		if (EFI_ERROR(cleanup) && owner != NULL) {
+			binding->controllers[binding->controller_count++] = owner;
+			return cleanup;
+		}
+		if (owner != NULL)
+			owner->parent_open = 0;
+	}
+	if (owner != NULL)
+		binding->services.release(binding->services.context, owner);
 	return status;
 }
 
@@ -258,13 +305,21 @@ EFI_STATUS cdk2_ata_bus_binding_stop(struct cdk2_ata_bus_binding *binding,
 	}
 	if (child_count != 0U || owner->child_count != 0U)
 		return first;
-	EFI_STATUS status = binding->services.marker(binding->services.context,
-		controller, 0); if (EFI_ERROR(status)) return status;
-	status = binding->services.close_parent(binding->services.context, controller, 1);
+	EFI_STATUS status = owner->marker ? binding->services.marker(
+		binding->services.context, controller, 0) : EFI_SUCCESS;
+	BOOLEAN removed_marker = owner->marker;
+	if (EFI_ERROR(status))
+		return status;
+	owner->marker = 0;
+	status = owner->parent_open ? binding->services.close_parent(
+		binding->services.context, controller, 1) : EFI_SUCCESS;
 	if (EFI_ERROR(status)) {
-		(void)binding->services.marker(binding->services.context, controller, 1);
+		if (removed_marker && !EFI_ERROR(binding->services.marker(
+		    binding->services.context, controller, 1)))
+			owner->marker = 1;
 		return status;
 	}
+	owner->parent_open = 0;
 	memmove(&binding->controllers[position], &binding->controllers[position + 1],
 		(binding->controller_count - position - 1U) * sizeof(binding->controllers[0]));
 	binding->controller_count--; binding->services.release(binding->services.context, owner);

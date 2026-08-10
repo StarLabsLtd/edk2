@@ -11,7 +11,8 @@
 	__FILE__, __LINE__, #x); exit(EXIT_FAILURE); } } while (0)
 
 enum failure { FAIL_NONE, FAIL_OPEN, FAIL_MARKER, FAIL_ALLOC, FAIL_INSTALL,
-	FAIL_LINK, FAIL_UNINSTALL, FAIL_UNLINK, FAIL_UNMARK, FAIL_CLOSE, FAIL_ROLLBACK };
+	FAIL_LINK, FAIL_UNINSTALL, FAIL_UNLINK, FAIL_UNMARK, FAIL_CLOSE, FAIL_ROLLBACK,
+	FAIL_MARK_CLOSE };
 struct fixture;
 struct mock_protocol {
 	struct cdk2_ata_pass_thru_protocol protocol;
@@ -41,12 +42,21 @@ static void put32(UINT8 *p, UINT32 value)
 { put16(p, (UINT16)value); put16(p + 2, (UINT16)(value >> 16)); }
 static EFI_STATUS CDK2_MS_ABI next_port(struct cdk2_ata_pass_thru_protocol *p,
 	UINT16 *port)
-{ struct mock_protocol *m = mock(p); if (m->port_calls++ == 0U) {
+{ struct mock_protocol *m = mock(p); m->port_calls++; if (*port == 0xffffU) {
 	*port = 0; return EFI_SUCCESS; } return EFI_NOT_FOUND; }
 static EFI_STATUS CDK2_MS_ABI next_device(struct cdk2_ata_pass_thru_protocol *p,
 	UINT16 port, UINT16 *device)
-{ struct mock_protocol *m = mock(p); (void)port; if (m->device_calls < 2U) {
-	*device = (UINT16)m->device_calls++; return EFI_SUCCESS; } return EFI_NOT_FOUND; }
+{ struct mock_protocol *m = mock(p); (void)port; m->device_calls++;
+	if (*device == 0xffffU) {
+		*device = 0;
+		return EFI_SUCCESS;
+	}
+	if (*device == 0U) {
+		*device = 1;
+		return EFI_SUCCESS;
+	}
+	return EFI_NOT_FOUND;
+}
 static EFI_STATUS CDK2_MS_ABI pass(struct cdk2_ata_pass_thru_protocol *p,
 	UINT16 port, UINT16 device, struct cdk2_ata_command_packet *packet, void *event)
 { UINT8 *id = packet->in_data; (void)p; (void)port; (void)device; (void)event;
@@ -78,10 +88,12 @@ static EFI_STATUS open_parent(void *context, void *controller, BOOLEAN driver,
 	return EFI_SUCCESS; }
 static EFI_STATUS close_parent(void *context, void *controller, BOOLEAN driver)
 { struct fixture *f = context; (void)controller; (void)driver; f->closes++;
-	return f->failure == FAIL_CLOSE ? EFI_DEVICE_ERROR : EFI_SUCCESS; }
+	return f->failure == FAIL_CLOSE || f->failure == FAIL_MARK_CLOSE ?
+		EFI_DEVICE_ERROR : EFI_SUCCESS; }
 static EFI_STATUS marker(void *context, void *controller, BOOLEAN install)
 { struct fixture *f = context; (void)controller; f->markers++;
-	if ((install && f->failure == FAIL_MARKER) || (!install && f->failure == FAIL_UNMARK))
+	if ((install && (f->failure == FAIL_MARKER || f->failure == FAIL_MARK_CLOSE)) ||
+	    (!install && f->failure == FAIL_UNMARK))
 		return EFI_DEVICE_ERROR;
 	return EFI_SUCCESS; }
 static EFI_STATUS allocate_pool(void *context, UINTN size, void **buffer)
@@ -208,6 +220,12 @@ int main(void)
 	CHECK(cdk2_ata_bus_binding_start(&binding, (void *)1, path) == EFI_SUCCESS &&
 		binding.controller_count == 1 && binding.controllers[0]->child_count == 1);
 	CHECK(cdk2_ata_bus_binding_start(&binding, (void *)1, path) == EFI_ALREADY_STARTED);
+	path[6] = 0;
+	CHECK(cdk2_ata_bus_binding_start(&binding, (void *)1, path) == EFI_SUCCESS &&
+		binding.controllers[0]->child_count == 2);
+	CHECK(cdk2_ata_bus_binding_start(&binding, (void *)1, path) == EFI_ALREADY_STARTED &&
+		binding.controllers[0]->child_count == 2);
+	path[6] = 1;
 	CHECK(cdk2_ata_bus_binding_start(&binding, (void *)2, NULL) == EFI_SUCCESS &&
 		binding.controller_count == 2 && binding.controllers[1]->child_count == 2);
 	identify_size = 511;
@@ -278,6 +296,13 @@ int main(void)
 	f.failure = FAIL_CLOSE;
 	CHECK(cdk2_ata_bus_binding_stop(&binding, (void *)1, 0, NULL) == EFI_DEVICE_ERROR &&
 		binding.controller_count == 1);
+	f.failure = FAIL_NONE;
+	CHECK(cdk2_ata_bus_binding_stop(&binding, (void *)1, 0, NULL) == EFI_SUCCESS &&
+		binding.controller_count == 0 && f.allocs == f.releases);
+	init(&f, &binding); f.failure = FAIL_MARK_CLOSE;
+	CHECK(cdk2_ata_bus_binding_start(&binding, (void *)1, NULL) == EFI_DEVICE_ERROR &&
+		binding.controller_count == 1 && !binding.controllers[0]->marker &&
+		binding.controllers[0]->parent_open);
 	f.failure = FAIL_NONE;
 	CHECK(cdk2_ata_bus_binding_stop(&binding, (void *)1, 0, NULL) == EFI_SUCCESS &&
 		binding.controller_count == 0 && f.allocs == f.releases);

@@ -19,10 +19,11 @@ static EFI_STATUS validate(const struct cdk2_ata_bus_request *request)
 			EFI_INVALID_PARAMETER;
 	if (request->media_id != 0U)
 		return CDK2_EFI_MEDIA_CHANGED;
+	if (request->buffer == NULL)
+		return EFI_INVALID_PARAMETER;
 	if (request->bytes == 0U)
 		return EFI_SUCCESS;
-	if (request->buffer == NULL || media->block_size == 0U ||
-	    request->bytes % media->block_size != 0U)
+	if (media->block_size == 0U || request->bytes % media->block_size != 0U)
 		return EFI_BAD_BUFFER_SIZE;
 	if (media->io_align > 1U &&
 	    (UINTN)request->buffer % media->io_align != 0U)

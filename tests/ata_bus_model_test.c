@@ -14,7 +14,7 @@ struct fixture {
 	struct cdk2_ata_pass_thru_protocol protocol;
 	struct cdk2_ata_pass_thru_mode mode;
 	UINTN port_call, device_call, identify_call, releases;
-	UINTN devices, fail_identify, bad_path;
+	UINTN devices, fail_identify, bad_path, atapi_device, timeout_device;
 };
 static struct fixture *active;
 
@@ -50,9 +50,14 @@ static EFI_STATUS CDK2_MS_ABI pass(struct cdk2_ata_pass_thru_protocol *p,
 {
 	UINT8 *id = packet->in_data; (void)p; (void)port; (void)device; (void)event;
 	active->identify_call++;
+	if (device == active->timeout_device)
+		return EFI_TIMEOUT;
 	if (active->identify_call == active->fail_identify)
 		return EFI_DEVICE_ERROR;
-	memset(id, 0, 512); put16(id + 49 * 2, 1U << 9);
+	memset(id, 0, 512);
+	if (device == active->atapi_device)
+		return EFI_SUCCESS;
+	put16(id + 49 * 2, 1U << 9);
 	put16(id + 53 * 2, 1U << 2); put16(id + 83 * 2, 0x4400);
 	put16(id + 85 * 2, 1U << 5); put16(id + 88 * 2, 1);
 	put16(id + 106 * 2, 0x7003); put32(id + 117 * 2, 2048);
@@ -74,6 +79,7 @@ static void release_path(void *context, void *path)
 static void init(struct fixture *fixture, UINTN devices)
 {
 	memset(fixture, 0, sizeof(*fixture)); active = fixture; fixture->devices = devices;
+	fixture->atapi_device = (UINTN)-1; fixture->timeout_device = (UINTN)-1;
 	fixture->protocol.pass_thru = pass; fixture->protocol.get_next_port = next_port;
 	fixture->protocol.get_next_device = next_device;
 	fixture->protocol.build_device_path = build_path;
@@ -124,6 +130,11 @@ int main(void)
 	CHECK(cdk2_ata_bus_add_controller(&bus, (void *)2, &second.protocol,
 		release_path, &second) == EFI_SUCCESS && bus.controller_count == 2 &&
 		bus.child_count == 4);
+	CHECK(cdk2_ata_bus_remove_controller(&bus, (void *)2) == EFI_SUCCESS);
+	init(&second, 3); second.atapi_device = 1; second.timeout_device = 2;
+	CHECK(cdk2_ata_bus_add_controller(&bus, (void *)2, &second.protocol,
+		release_path, &second) == EFI_SUCCESS && bus.controller_count == 2 &&
+		bus.controllers[1].child_count == 1);
 	CHECK(cdk2_ata_bus_remove_controller(&bus, (void *)2) == EFI_SUCCESS);
 	init(&second, 1); second.bad_path = 1;
 	CHECK(cdk2_ata_bus_add_controller(&bus, (void *)2, &second.protocol,
