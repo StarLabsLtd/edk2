@@ -3,6 +3,7 @@
 #define CDK2_USB_BUS_H
 
 #include <uefi.h>
+#include <cdk2/xhci.h>
 
 #define CDK2_USB_MAX_INTERFACES 32U
 #define CDK2_USB_MAX_ENDPOINTS 16U
@@ -31,6 +32,59 @@ struct cdk2_usb_device_path_node {
 
 struct cdk2_usb_address_pool { UINT64 used[2]; };
 
+struct cdk2_usb_io_protocol;
+typedef EFI_STATUS CDK2_MS_ABI cdk2_usb_io_control_fn(
+	struct cdk2_usb_io_protocol *, struct cdk2_usb_request *, UINTN, UINT32,
+	void *, UINTN *, UINT32 *);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_usb_io_bulk_fn(
+	struct cdk2_usb_io_protocol *, UINT8, void *, UINTN *, UINTN, UINT32 *);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_usb_io_async_interrupt_fn(
+	struct cdk2_usb_io_protocol *, UINT8, BOOLEAN, UINTN, UINTN,
+	cdk2_usb2_async_callback_fn *, void *);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_usb_io_sync_interrupt_fn(
+	struct cdk2_usb_io_protocol *, UINT8, void *, UINTN *, UINTN, UINT32 *);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_usb_io_stub_fn(void);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_usb_io_descriptor_fn(
+	struct cdk2_usb_io_protocol *, void *);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_usb_io_index_descriptor_fn(
+	struct cdk2_usb_io_protocol *, UINT8, void *);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_usb_io_string_fn(
+	struct cdk2_usb_io_protocol *, UINT16, UINT8, CHAR16 * *);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_usb_io_languages_fn(
+	struct cdk2_usb_io_protocol *, UINT16 **, UINT16 *);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_usb_io_reset_fn(
+	struct cdk2_usb_io_protocol *);
+
+struct cdk2_usb_io_protocol {
+	cdk2_usb_io_control_fn *control_transfer;
+	cdk2_usb_io_bulk_fn *bulk_transfer;
+	cdk2_usb_io_async_interrupt_fn *async_interrupt_transfer;
+	cdk2_usb_io_sync_interrupt_fn *sync_interrupt_transfer;
+	cdk2_usb_io_stub_fn *isochronous_transfer;
+	cdk2_usb_io_stub_fn *async_isochronous_transfer;
+	cdk2_usb_io_descriptor_fn *get_device_descriptor;
+	cdk2_usb_io_descriptor_fn *get_config_descriptor;
+	cdk2_usb_io_descriptor_fn *get_interface_descriptor;
+	cdk2_usb_io_index_descriptor_fn *get_endpoint_descriptor;
+	cdk2_usb_io_string_fn *get_string_descriptor;
+	cdk2_usb_io_languages_fn *get_supported_languages;
+	cdk2_usb_io_reset_fn *port_reset;
+};
+
+struct cdk2_usb_io_device {
+	struct cdk2_usb_io_protocol protocol;
+	struct cdk2_usb2_hc_protocol *host;
+	struct cdk2_usb_configuration configuration;
+	const struct cdk2_usb_interface *interface;
+	UINT8 device_descriptor[18];
+	UINT8 address, port, speed;
+	UINT16 maximum_packet;
+	UINT8 toggle[32];
+	UINT16 languages[32];
+	UINT16 language_count;
+	CHAR16 string[127];
+};
+
 EFI_STATUS cdk2_usb_parse_configuration(const void *data, UINTN length,
 	struct cdk2_usb_configuration *configuration);
 EFI_STATUS cdk2_usb_find_interface(const struct cdk2_usb_configuration *configuration,
@@ -43,5 +97,10 @@ EFI_STATUS cdk2_usb_allocate_address(struct cdk2_usb_address_pool *pool,
 	UINT8 *address);
 EFI_STATUS cdk2_usb_release_address(struct cdk2_usb_address_pool *pool,
 	UINT8 address);
+EFI_STATUS cdk2_usb_io_init(struct cdk2_usb_io_device *device,
+	struct cdk2_usb2_hc_protocol *host, UINT8 address, UINT8 port, UINT8 speed,
+	UINT16 maximum_packet, const UINT8 descriptor[18],
+	const struct cdk2_usb_configuration *configuration, UINT8 interface_number,
+	UINT8 alternate);
 
 #endif
