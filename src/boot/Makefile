@@ -1137,6 +1137,19 @@ native-xhci-test: $(CDK2_NATIVE_XHCI_TEST) $(CDK2_NATIVE_XHCI_CONTROLLER_TEST) \
 	@"$(CDK2_NATIVE_XHCI_PCI_TEST)"
 	@"$(CDK2_NATIVE_BUILD_DIR)/xhci-entry-test"
 
+.PHONY: native-usb-bus-test
+native-usb-bus-test: $(CDK2_NATIVE_BUILD_DIR)/usb-bus-model-test
+	@"$(CDK2_NATIVE_BUILD_DIR)/usb-bus-model-test"
+
+$(CDK2_NATIVE_BUILD_DIR)/usb-bus-model-test: \
+		$(CDK2_DIR)/tests/usb_bus_model_test.c \
+		$(CDK2_DIR)/src/modules/usb_bus/model.c \
+		$(CDK2_DIR)/include/cdk2/usb_bus.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -fsanitize=address,undefined \
+		$(CDK2_NATIVE_INCLUDES) -MMD -MP -MF "$(@:.test=.d)" -MT "$@" \
+		-o "$@" $(CDK2_DIR)/tests/usb_bus_model_test.c \
+		$(CDK2_DIR)/src/modules/usb_bus/model.c
+
 .PHONY: native-xhci-package
 native-xhci-package: $(CDK2_NATIVE_XHCI_FFS) $(CDK2_NATIVE_XHCI_PACKAGE_TEST)
 	@"$(CDK2_NATIVE_XHCI_PACKAGE_TEST)" "$(CDK2_NATIVE_XHCI_FFS)"
