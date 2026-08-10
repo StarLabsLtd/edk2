@@ -57,6 +57,7 @@ CDK2_NATIVE_XHCI_OBJS := $(addprefix $(CDK2_NATIVE_BUILD_DIR)/xhci-,\
 	model.o controller.o pci_adapter.o usb2_abi.o entry.o)
 CDK2_NATIVE_XHCI_PE ?= $(CDK2_NATIVE_BUILD_DIR)/XhciDxe.efi
 CDK2_NATIVE_XHCI_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/XhciDxe.ffs
+CDK2_NATIVE_XHCI_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-xhci.fv
 CDK2_NATIVE_XHCI_PACKAGE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/xhci-package-test
 CDK2_NATIVE_SATA_CONTROLLER_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-sata-controller-test
 CDK2_NATIVE_ATA_ATAPI_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-atapi-test
@@ -1140,6 +1141,15 @@ native-xhci-test: $(CDK2_NATIVE_XHCI_TEST) $(CDK2_NATIVE_XHCI_CONTROLLER_TEST) \
 native-xhci-package: $(CDK2_NATIVE_XHCI_FFS) $(CDK2_NATIVE_XHCI_PACKAGE_TEST)
 	@"$(CDK2_NATIVE_XHCI_PACKAGE_TEST)" "$(CDK2_NATIVE_XHCI_FFS)"
 
+.PHONY: native-xhci-fv-exact
+native-xhci-fv-exact: $(CDK2_NATIVE_XHCI_FFS) $(CDK2_NATIVE_FVREPLACE) \
+		$(CDK2_NATIVE_FVINFO)
+	@test -n "$(CDK2_NATIVE_PRE_XHCI_FV)"
+	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_PRE_XHCI_FV)" 0x3bc9e8 \
+		"$(CDK2_NATIVE_XHCI_FFS)" "$(CDK2_NATIVE_XHCI_FV)"
+	@"$(CDK2_NATIVE_FVINFO)" "$(CDK2_NATIVE_XHCI_FV)" | grep -q \
+		'^b7f50e91-a759-412c-ade4-dcd03e7f7c28[[:space:]]0x003bc9e8[[:space:]]0x0001103e[[:space:]]0x07[[:space:]]XhciDxe$$'
+
 $(CDK2_NATIVE_BUILD_DIR)/xhci-entry-test: $(CDK2_DIR)/tests/xhci_entry_test.c \
 		$(CDK2_DIR)/src/modules/xhci/model.c \
 		$(CDK2_DIR)/src/modules/xhci/controller.c \
@@ -2221,6 +2231,25 @@ native-scsi-disk-fv: $(CDK2_NATIVE_SCSI_DISK_FV)
 else
 native-scsi-disk-fv:
 	@printf '%s\n' 'native SCSI disk: disabled by Kconfig'
+endif
+
+ifeq ($(CONFIG_CDK2_NATIVE_XHCI),y)
+CDK2_NATIVE_PRE_XHCI_FV ?= $(CDK2_NATIVE_FINAL_FV)
+CDK2_NATIVE_FINAL_FV := $(CDK2_NATIVE_XHCI_FV)
+
+$(CDK2_NATIVE_XHCI_FV): $(CDK2_NATIVE_PRE_XHCI_FV) \
+		$(CDK2_NATIVE_XHCI_FFS) $(CDK2_NATIVE_FVREPLACE)
+	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_PRE_XHCI_FV)" 0x3bc9e8 \
+		"$(CDK2_NATIVE_XHCI_FFS)" "$@"
+
+.PHONY: native-xhci-fv
+native-xhci-fv: $(CDK2_NATIVE_XHCI_FV)
+	@"$(CDK2_NATIVE_FVINFO)" "$<" | grep -q \
+		'^b7f50e91-a759-412c-ade4-dcd03e7f7c28[[:space:]]0x003bc9e8[[:space:]]0x0001103e[[:space:]]0x07[[:space:]]XhciDxe$$'
+	@printf '%s\n' "native XHCI FV: $<"
+else
+native-xhci-fv:
+	@printf '%s\n' 'native XHCI: disabled by Kconfig'
 endif
 
 ifeq ($(CONFIG_CDK2_NATIVE_ENGLISH),y)
