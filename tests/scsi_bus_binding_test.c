@@ -166,6 +166,12 @@ int main(void)
 	cdk2_scsi_binding_init(&binding, &ops, NULL, (void *)1);
 	failures += check(sizeof(struct cdk2_scsi_io) == 6U * sizeof(void *),
 		"EFI_SCSI_IO protocol ABI size");
+	failures += check(offsetof(struct cdk2_ext_scsi, mode) == 0U &&
+		offsetof(struct cdk2_ext_scsi, pass_thru) == sizeof(void *) &&
+		offsetof(struct cdk2_ext_scsi, get_next_target_lun) ==
+		2U * sizeof(void *) &&
+		sizeof(struct cdk2_ext_scsi) == 8U * sizeof(void *),
+		"EFI_EXT_SCSI_PASS_THRU protocol ABI layout");
 	failures += check(offsetof(struct cdk2_scsi_io, io_align) == 5U * sizeof(void *),
 		"IoAlign is after all five methods");
 	failures += check(offsetof(struct cdk2_scsi_request, cdb_length) == 48U,

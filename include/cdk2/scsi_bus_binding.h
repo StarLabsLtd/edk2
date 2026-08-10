@@ -36,6 +36,7 @@ typedef EFI_STATUS CDK2_MS_ABI cdk2_ext_reset_target_fn(struct cdk2_ext_scsi *,
 	UINT8 *, UINT64);
 
 struct cdk2_ext_scsi {
+	struct cdk2_ext_scsi_mode *mode;
 	cdk2_ext_pass_fn *pass_thru;
 	cdk2_ext_next_fn *get_next_target_lun;
 	cdk2_ext_build_fn *build_device_path;
@@ -43,8 +44,17 @@ struct cdk2_ext_scsi {
 	cdk2_ext_reset_fn *reset_channel;
 	cdk2_ext_reset_target_fn *reset_target_lun;
 	void *get_next_target;
-	struct cdk2_ext_scsi_mode *mode;
 };
+
+typedef char cdk2_ext_scsi_mode_offset_check[
+	offsetof(struct cdk2_ext_scsi, mode) == 0 ? 1 : -1];
+typedef char cdk2_ext_scsi_pass_offset_check[
+	offsetof(struct cdk2_ext_scsi, pass_thru) == sizeof(void *) ? 1 : -1];
+typedef char cdk2_ext_scsi_next_offset_check[
+	offsetof(struct cdk2_ext_scsi, get_next_target_lun) ==
+	2U * sizeof(void *) ? 1 : -1];
+typedef char cdk2_ext_scsi_size_check[
+	sizeof(struct cdk2_ext_scsi) == 8U * sizeof(void *) ? 1 : -1];
 
 struct cdk2_scsi_io;
 typedef EFI_STATUS CDK2_MS_ABI cdk2_scsi_type_fn(struct cdk2_scsi_io *, UINT8 *);

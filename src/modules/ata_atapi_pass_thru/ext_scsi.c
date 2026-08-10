@@ -43,6 +43,9 @@ static EFI_STATUS execute(struct cdk2_ext_scsi_instance *instance, UINT16 port,
 		.out_length = packet->out_length, .length = 0x20U };
 	EFI_STATUS status;
 
+	if (instance->controller->topology.mode == CDK2_ATA_AHCI)
+		acb.features = CDK2_ATAPI_FEATURE_DMA;
+
 	for (UINT8 index = 0; index < cdb_length; index++)
 		packet_cdb[index] = cdb[index];
 

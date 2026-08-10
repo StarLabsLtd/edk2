@@ -89,12 +89,14 @@ int main(void)
 	CHECK(engine.slots == 4 && fixture.allocations == 6);
 	((UINT8 *)engine.received_fis.host)[0x42] = 0x50;
 	((UINT8 *)engine.received_fis.host)[0x43] = 0x04;
-	acb.command = 0x25; acb.sector_number = 4; acb.sector_count = 8;
+	acb.command = 0x25; acb.features = CDK2_ATAPI_FEATURE_DMA;
+	acb.sector_number = 4; acb.sector_count = 8;
 	packet.in_data = large; packet.in_length = 0x600000U; packet.protocol = 0x0a;
 	CHECK(cdk2_ahci_build_command(&packet, 3, atapi, sizeof(atapi), &command) ==
 		EFI_SUCCESS);
 	CHECK(command.fis[0] == 0x27 && command.fis[1] == 0x83 &&
-		command.fis[2] == 0x25 && command.atapi_command);
+		command.fis[2] == 0x25 && command.fis[3] == CDK2_ATAPI_FEATURE_DMA &&
+		command.atapi_command);
 	CHECK(cdk2_ahci_execute(&engine, 0, &packet, atapi, sizeof(atapi), 100) ==
 		EFI_SUCCESS);
 	CHECK(asb.status == 0x50 && asb.error == 0x04);
