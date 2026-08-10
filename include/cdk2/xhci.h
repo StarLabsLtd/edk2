@@ -43,6 +43,16 @@ struct cdk2_xhci_erst_entry {
 	UINT32 reserved;
 } __packed;
 
+struct cdk2_usb_request {
+	UINT8 request_type, request;
+	UINT16 value, index, length;
+} __packed;
+
+struct cdk2_xhci_segment {
+	UINT64 device;
+	UINT32 length;
+};
+
 struct cdk2_xhci_dma {
 	void *host;
 	UINT64 device;
@@ -112,6 +122,12 @@ EFI_STATUS cdk2_xhci_command_enqueue(struct cdk2_xhci_ring *ring, UINT8 type,
 	UINT8 slot, UINT64 parameter, UINT64 *command_address);
 EFI_STATUS cdk2_xhci_command_completion(struct cdk2_xhci_event_ring *ring,
 	UINT64 command_address, UINT8 *completion_code, UINT8 *slot);
+EFI_STATUS cdk2_xhci_build_control_transfer(struct cdk2_xhci_ring *ring,
+	const struct cdk2_usb_request *request, UINT64 data_device, UINT32 data_length,
+	BOOLEAN data_in, UINT16 *first, UINT16 *count);
+EFI_STATUS cdk2_xhci_build_bulk_transfer(struct cdk2_xhci_ring *ring,
+	const struct cdk2_xhci_segment *segments, UINTN segment_count,
+	UINT16 *first, UINT16 *count);
 EFI_STATUS cdk2_xhci_controller_init(struct cdk2_xhci_controller *controller,
 	const struct cdk2_xhci_controller_services *services,
 	const struct cdk2_xhci_capabilities *capability);

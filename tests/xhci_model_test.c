@@ -19,6 +19,10 @@ int main(void)
 	UINT16 index;
 	UINT64 command_address;
 	UINT8 completion, slot;
+	struct cdk2_usb_request request = { 0x80U, 6U, 0x100U, 0U, 18U };
+	struct cdk2_xhci_segment segments[2] = { { 0x200000U, 4096U },
+		{ 0x201000U, 512U } };
+	UINT16 first, count;
 
 	CHECK(sizeof(struct cdk2_xhci_trb) == 16U &&
 		sizeof(struct cdk2_xhci_erst_entry) == 16U &&
@@ -64,6 +68,14 @@ int main(void)
 		.status = 1U << 24, .control = 33U << 10 | 7U << 24 };
 	CHECK(cdk2_xhci_command_completion(&events, command_address, &completion,
 		&slot) == EFI_COMPROMISED_DATA);
+	CHECK(cdk2_xhci_build_control_transfer(&ring, &request, 0x300000U, 18U, TRUE,
+		&first, &count) == EFI_SUCCESS && count == 3U &&
+		(trbs[first].control >> 10 & 0x3fU) == 2U &&
+		(trbs[(first + 1U) % 255U].control >> 10 & 0x3fU) == 3U &&
+		(trbs[(first + 2U) % 255U].control >> 10 & 0x3fU) == 4U);
+	CHECK(cdk2_xhci_build_bulk_transfer(&ring, segments, 2U, &first, &count) ==
+		EFI_SUCCESS && count == 2U && (trbs[first].control & 1U << 4) != 0U &&
+		(trbs[(first + 1U) % 255U].control & 1U << 5) != 0U);
 	puts("xhci model tests: PASS");
 	return 0;
 }
