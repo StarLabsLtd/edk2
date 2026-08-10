@@ -3,6 +3,7 @@
 #include <cdk2/xhci.h>
 
 #include <stdio.h>
+#include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -138,9 +139,14 @@ int main(void)
 	struct cdk2_xhci_controller controller;
 	struct cdk2_xhci_device device;
 	struct cdk2_xhci_port_status port;
+	struct cdk2_usb_port_status usb_port;
+	struct cdk2_xhci_usb2 *usb2;
 	UINT8 slot;
 
 	fixture.registers[0x44U / 4U] = 1U;
+	CHECK(sizeof(struct cdk2_usb2_hc_protocol) == 112U &&
+		offsetof(struct cdk2_usb2_hc_protocol, get_root_hub_port_status) == 80U &&
+		offsetof(struct cdk2_usb2_hc_protocol, major_revision) == 104U);
 	CHECK(cdk2_xhci_controller_init(&controller, &services, &capability) ==
 		EFI_SUCCESS && controller.running && fixture.allocations == 4U &&
 		fixture.registers[0x40U / 4U] == 5U &&
@@ -176,6 +182,13 @@ int main(void)
 	CHECK(cdk2_xhci_controller_set_port(&controller, 2U,
 		CDK2_XHCI_PORT_CONNECT_CHANGE, FALSE) == EFI_SUCCESS &&
 		(fixture.registers[(0x40U + 0x400U + 0x10U) / 4U] & 1U << 17) != 0U);
+	usb2 = calloc(1U, sizeof(*usb2));
+	CHECK(usb2 != NULL && cdk2_xhci_usb2_init(usb2, &controller) == EFI_SUCCESS &&
+		usb2->protocol.major_revision == 3U &&
+		usb2->protocol.get_root_hub_port_status(&usb2->protocol, 1U,
+			&usb_port) == EFI_SUCCESS &&
+		cdk2_xhci_usb2_release(usb2) == EFI_SUCCESS);
+	free(usb2);
 	cdk2_xhci_controller_destroy(&controller);
 	CHECK(fixture.releases == fixture.allocations &&
 		fixture.registers[0x40U / 4U] == 0U);

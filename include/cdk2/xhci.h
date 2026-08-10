@@ -156,6 +156,64 @@ struct cdk2_xhci_pci_adapter {
 	BOOLEAN attributes_owned;
 };
 
+#define CDK2_USB_NOERROR 0U
+#define CDK2_USB_ERR_SYSTEM 0x20U
+
+struct cdk2_usb_port_status {
+	UINT16 status, change;
+};
+
+struct cdk2_usb2_hc_protocol;
+typedef EFI_STATUS CDK2_MS_ABI cdk2_usb2_get_capability_fn(
+	struct cdk2_usb2_hc_protocol *this, UINT8 *maximum_speed,
+	UINT8 *port_count, UINT8 *is_64bit);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_usb2_reset_fn(
+	struct cdk2_usb2_hc_protocol *this, UINT16 attributes);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_usb2_get_state_fn(
+	struct cdk2_usb2_hc_protocol *this, UINTN *state);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_usb2_set_state_fn(
+	struct cdk2_usb2_hc_protocol *this, UINTN state);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_usb2_control_fn(
+	struct cdk2_usb2_hc_protocol *this, UINT8 address, UINT8 speed,
+	UINTN maximum_packet, struct cdk2_usb_request *request, UINTN direction,
+	void *data, UINTN *length, UINTN timeout, void *translator, UINT32 *result);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_usb2_bulk_fn(
+	struct cdk2_usb2_hc_protocol *this, UINT8 address, UINT8 endpoint,
+	UINT8 speed, UINTN maximum_packet, UINT8 buffers, void **data,
+	UINTN *length, UINT8 *toggle, UINTN timeout, void *translator,
+	UINT32 *result);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_usb2_stub_fn(void);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_usb2_get_port_fn(
+	struct cdk2_usb2_hc_protocol *this, UINT8 port,
+	struct cdk2_usb_port_status *status);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_usb2_port_feature_fn(
+	struct cdk2_usb2_hc_protocol *this, UINT8 port, UINTN feature);
+
+struct cdk2_usb2_hc_protocol {
+	cdk2_usb2_get_capability_fn *get_capability;
+	cdk2_usb2_reset_fn *reset;
+	cdk2_usb2_get_state_fn *get_state;
+	cdk2_usb2_set_state_fn *set_state;
+	cdk2_usb2_control_fn *control_transfer;
+	cdk2_usb2_bulk_fn *bulk_transfer;
+	cdk2_usb2_stub_fn *async_interrupt_transfer;
+	cdk2_usb2_stub_fn *sync_interrupt_transfer;
+	cdk2_usb2_stub_fn *isochronous_transfer;
+	cdk2_usb2_stub_fn *async_isochronous_transfer;
+	cdk2_usb2_get_port_fn *get_root_hub_port_status;
+	cdk2_usb2_port_feature_fn *set_root_hub_port_feature;
+	cdk2_usb2_port_feature_fn *clear_root_hub_port_feature;
+	UINT16 major_revision, minor_revision;
+};
+
+struct cdk2_xhci_usb2 {
+	struct cdk2_usb2_hc_protocol protocol;
+	struct cdk2_xhci_controller *controller;
+	struct cdk2_xhci_device devices[256];
+	UINT8 current_port, current_speed;
+	UINTN state;
+};
+
 EFI_STATUS cdk2_xhci_parse_capabilities(UINT32 capability0, UINT32 hcs1,
 	UINT32 hcs2, UINT32 hcc1, UINT32 doorbell, UINT32 runtime,
 	UINT32 page_size_mask, struct cdk2_xhci_capabilities *capabilities);
@@ -209,5 +267,8 @@ EFI_STATUS cdk2_xhci_pci_adapter_init(struct cdk2_xhci_pci_adapter *adapter,
 void cdk2_xhci_pci_controller_services(struct cdk2_xhci_pci_adapter *adapter,
 	struct cdk2_xhci_controller_services *services);
 EFI_STATUS cdk2_xhci_pci_adapter_release(struct cdk2_xhci_pci_adapter *adapter);
+EFI_STATUS cdk2_xhci_usb2_init(struct cdk2_xhci_usb2 *usb2,
+	struct cdk2_xhci_controller *controller);
+EFI_STATUS cdk2_xhci_usb2_release(struct cdk2_xhci_usb2 *usb2);
 
 #endif
