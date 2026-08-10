@@ -68,7 +68,8 @@ CDK2_CONFIG_TARGETS := build check manifest modules native-stage \
 	native-graphics-console-test native-graphics-console-fv \
 	native-hii-database-test native-hii-database-ffs native-hii-database-fv \
 	native-hii-database-oracle \
-	native-scsi-bus-test native-scsi-bus-package \
+	native-scsi-bus-test native-scsi-bus-package native-scsi-bus-fv \
+	native-scsi-bus-fv-exact native-scsi-bus-oracle \
 	native-capsule-runtime-test native-capsule-runtime-fv \
 	native-tcg2-transport-test native-tcg2-commands-test native-tcg2-event-log-test \
 	native-tcg2-measure-test native-tcg2-service-test native-tcg2-entry-test native-tcg2-fv \
@@ -114,6 +115,7 @@ CDK2_RECURSIVE_ARGS := \
 	CDK2_PAYLOAD_FV="$(CDK2_PAYLOAD_FV)" \
 	$(if $(CDK2_NATIVE_PRE_ATA_ATAPI_FV),CDK2_NATIVE_PRE_ATA_ATAPI_FV="$(CDK2_NATIVE_PRE_ATA_ATAPI_FV)") \
 	$(if $(CDK2_NATIVE_PRE_ATA_BUS_FV),CDK2_NATIVE_PRE_ATA_BUS_FV="$(CDK2_NATIVE_PRE_ATA_BUS_FV)") \
+	$(if $(CDK2_NATIVE_PRE_SCSI_BUS_FV),CDK2_NATIVE_PRE_SCSI_BUS_FV="$(CDK2_NATIVE_PRE_SCSI_BUS_FV)") \
 	$(if $(CDK2_NATIVE_PCD_DATABASE),CDK2_NATIVE_PCD_DATABASE="$(CDK2_NATIVE_PCD_DATABASE)") \
 	CDK2_NATIVE_DIR="$(CDK2_NATIVE_DIR)" \
 	$(if $(HOSTCC),HOSTCC="$(HOSTCC)") \
@@ -149,7 +151,8 @@ CDK2_RECURSIVE_ARGS := \
 	native-graphics-console-test native-graphics-console-fv \
 	native-hii-database-test native-hii-database-ffs native-hii-database-fv \
 	native-hii-database-oracle \
-	native-scsi-bus-test native-scsi-bus-package \
+	native-scsi-bus-test native-scsi-bus-package native-scsi-bus-fv \
+	native-scsi-bus-fv-exact native-scsi-bus-oracle \
 	native-capsule-runtime-test native-capsule-runtime-fv \
 	native-tcg2-transport-test native-tcg2-commands-test native-tcg2-event-log-test \
 	native-tcg2-measure-test native-tcg2-service-test native-tcg2-entry-test native-tcg2-fv \

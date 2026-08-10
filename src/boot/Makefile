@@ -34,6 +34,11 @@ CDK2_NATIVE_SCSI_BUS_OBJS := $(CDK2_NATIVE_BUILD_DIR)/scsi-bus-model.o \
 	$(CDK2_NATIVE_BUILD_DIR)/scsi-bus-entry.o
 CDK2_NATIVE_SCSI_BUS_PE ?= $(CDK2_NATIVE_BUILD_DIR)/ScsiBusDxe.efi
 CDK2_NATIVE_SCSI_BUS_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/ScsiBusDxe.ffs
+CDK2_NATIVE_SCSI_BUS_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-scsi-bus.fv
+CDK2_NATIVE_SCSI_BUS_PARENT_FV ?= \
+	$(CDK2_NATIVE_BUILD_DIR)/retained-native-scsi-bus-parent.fv
+CDK2_NATIVE_SCSI_BUS_QEMU_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/scsi-bus-qemu.o
+CDK2_NATIVE_SCSI_BUS_QEMU_PE ?= $(CDK2_NATIVE_BUILD_DIR)/scsi-bus-qemu.efi
 CDK2_NATIVE_SATA_CONTROLLER_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-sata-controller-test
 CDK2_NATIVE_ATA_ATAPI_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-atapi-test
 CDK2_NATIVE_ATA_ATAPI_BINDING_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-atapi-binding-test
@@ -1088,6 +1093,18 @@ native-scsi-bus-package: $(CDK2_NATIVE_SCSI_BUS_FFS) $(CDK2_NATIVE_SCSI_PACKAGE_
 	@"$(CDK2_NATIVE_SCSI_PACKAGE_TEST)" "$(CDK2_NATIVE_SCSI_BUS_FFS)"
 	@printf '%s\n' "native SCSI bus FFS: $(CDK2_NATIVE_SCSI_BUS_FFS)"
 
+.PHONY: native-scsi-bus-fv-exact native-scsi-bus-oracle
+native-scsi-bus-fv-exact: $(CDK2_NATIVE_ATA_FFS) $(CDK2_NATIVE_SCSI_BUS_FFS) \
+		$(CDK2_NATIVE_FVREPLACE) \
+		$(CDK2_NATIVE_FVINFO)
+	@test -n "$(CDK2_NATIVE_PRE_SCSI_BUS_FV)"
+	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_PRE_SCSI_BUS_FV)" 0x31d598 \
+		"$(CDK2_NATIVE_ATA_FFS)" "$(CDK2_NATIVE_SCSI_BUS_PARENT_FV)"
+	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_SCSI_BUS_PARENT_FV)" 0x32b5f0 \
+		"$(CDK2_NATIVE_SCSI_BUS_FFS)" "$(CDK2_NATIVE_SCSI_BUS_FV)"
+	@"$(CDK2_NATIVE_FVINFO)" "$(CDK2_NATIVE_SCSI_BUS_FV)" | grep -q \
+		'^0167ccc4-d0f7-4f21-a3ef-9e64b7cdce8b[[:space:]]0x0032b5f0[[:space:]]0x0000703e[[:space:]]0x07'
+
 native-hii-database-test: $(CDK2_NATIVE_HII_DATABASE_TEST) \
 		$(CDK2_NATIVE_HII_PACKAGE_PARSE_TEST) $(CDK2_NATIVE_HII_DATABASE_MODEL_TEST)
 	@"$(CDK2_NATIVE_HII_DATABASE_TEST)"
@@ -2019,6 +2036,25 @@ native-ata-bus-fv:
 	@printf '%s\n' 'native ATA bus: disabled by Kconfig'
 endif
 
+ifeq ($(CONFIG_CDK2_NATIVE_SCSI_BUS),y)
+CDK2_NATIVE_PRE_SCSI_BUS_FV ?= $(CDK2_NATIVE_FINAL_FV)
+CDK2_NATIVE_FINAL_FV := $(CDK2_NATIVE_SCSI_BUS_FV)
+
+$(CDK2_NATIVE_SCSI_BUS_FV): $(CDK2_NATIVE_PRE_SCSI_BUS_FV) \
+		$(CDK2_NATIVE_SCSI_BUS_FFS) $(CDK2_NATIVE_FVREPLACE)
+	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_PRE_SCSI_BUS_FV)" 0x32b5f0 \
+		"$(CDK2_NATIVE_SCSI_BUS_FFS)" "$@"
+
+.PHONY: native-scsi-bus-fv
+native-scsi-bus-fv: $(CDK2_NATIVE_SCSI_BUS_FV)
+	@"$(CDK2_NATIVE_FVINFO)" "$<" | grep -q \
+		'^0167ccc4-d0f7-4f21-a3ef-9e64b7cdce8b[[:space:]]0x0032b5f0[[:space:]]0x0000703e[[:space:]]0x07[[:space:]]ScsiBus$$'
+	@printf '%s\n' "native SCSI bus FV: $<"
+else
+native-scsi-bus-fv:
+	@printf '%s\n' 'native SCSI bus: disabled by Kconfig'
+endif
+
 ifeq ($(CONFIG_CDK2_NATIVE_ENGLISH),y)
 $(CDK2_NATIVE_ENGLISH_OBJ): $(CDK2_DIR)/src/modules/english/english.c $(CDK2_DIR)/include/cdk2/english.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
@@ -2377,6 +2413,24 @@ $(CDK2_NATIVE_SCSI_BUS_PE): $(CDK2_NATIVE_SCSI_BUS_OBJS) \
 $(CDK2_NATIVE_SCSI_BUS_FFS): $(CDK2_NATIVE_SCSI_BUS_PE) $(CDK2_NATIVE_FFSBUILD)
 	@"$(CDK2_NATIVE_FFSBUILD)" 0167ccc4-d0f7-4f21-a3ef-9e64b7cdce8b \
 		ScsiBus 1.0 0x703e "$<" "$@" -
+
+$(CDK2_NATIVE_SCSI_BUS_QEMU_OBJ): $(CDK2_DIR)/tests/scsi_bus_qemu.c \
+		$(CDK2_DIR)/include/cdk2/scsi_bus_binding.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
+		-mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args \
+		$(CDK2_NATIVE_INCLUDES) -MMD -MP -MF "$(@:.o=.d)" -MT "$@" \
+		-c "$<" -o "$@"
+
+$(CDK2_NATIVE_SCSI_BUS_QEMU_PE): $(CDK2_NATIVE_SCSI_BUS_QEMU_OBJ) \
+		$(CDK2_DIR)/tests/scsi_bus_qemu.ld $(CDK2_NATIVE_PERELOCCHECK)
+	@$(CDK2_NATIVE_LD) -mi386pep --subsystem 10 --entry scsi_bus_qemu_entry \
+		--image-base 0 --section-alignment 0x1000 --file-alignment 0x1000 \
+		--build-id=none --no-insert-timestamp -s --nxcompat \
+		-T "$(CDK2_DIR)/tests/scsi_bus_qemu.ld" -o "$@" "$<"
+	@"$(CDK2_NATIVE_PERELOCCHECK)" --subsystem 10 "$@"
+
+native-scsi-bus-oracle: $(CDK2_NATIVE_SCSI_BUS_QEMU_PE)
+	@printf '%s\n' "native SCSI bus oracle: $(CDK2_NATIVE_SCSI_BUS_QEMU_PE)"
 
 $(CDK2_NATIVE_SATA_CONTROLLER_TEST): $(CDK2_DIR)/tests/sata_controller_test.c $(CDK2_DIR)/src/modules/sata_controller/model.c $(CDK2_DIR)/include/cdk2/sata_controller.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" $(CDK2_DIR)/tests/sata_controller_test.c $(CDK2_DIR)/src/modules/sata_controller/model.c
