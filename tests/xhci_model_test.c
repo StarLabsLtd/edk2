@@ -82,6 +82,8 @@ int main(void)
 	CHECK(cdk2_xhci_decode_port(1U | 2U | 1U << 9 | 4U << 10 | 3U << 17,
 		&port) == EFI_SUCCESS && port.connected && port.enabled && port.powered &&
 		port.speed == 4U && port.changes == 3U);
+	CHECK(cdk2_xhci_decode_port(0U, &port) == EFI_SUCCESS && !port.connected &&
+		port.speed == 0U);
 	CHECK(cdk2_xhci_build_address_context(input_context, 96U, device_context, 64U,
 		FALSE, 3U, 2U, 64U, 0x400000U) == EFI_SUCCESS);
 	words = (void *)(input_context + 32U);

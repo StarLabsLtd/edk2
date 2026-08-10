@@ -208,7 +208,7 @@ EFI_STATUS cdk2_xhci_decode_port(UINT32 portsc,
 	if (status == NULL)
 		return EFI_INVALID_PARAMETER;
 	speed = portsc >> 10 & 0xfU;
-	if (speed == 0U || speed > 5U)
+	if (speed > 5U || (speed == 0U && (portsc & 1U) != 0U))
 		return EFI_UNSUPPORTED;
 	*status = (struct cdk2_xhci_port_status) { .speed = speed,
 		.connected = (portsc & 1U) != 0U, .enabled = (portsc & 2U) != 0U,
