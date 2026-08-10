@@ -312,6 +312,33 @@ struct cdk2_ahci_engine {
 	UINT16 active_port;
 	UINT8 slots, initialized;
 };
+enum cdk2_ahci_async_phase {
+	CDK2_AHCI_ASYNC_CONFIG_STOP, CDK2_AHCI_ASYNC_WAIT_CR,
+	CDK2_AHCI_ASYNC_CONFIG_FRE_STOP, CDK2_AHCI_ASYNC_WAIT_FR,
+	CDK2_AHCI_ASYNC_PROGRAM, CDK2_AHCI_ASYNC_TFD,
+	CDK2_AHCI_ASYNC_ISSUE, CDK2_AHCI_ASYNC_CI,
+	CDK2_AHCI_ASYNC_ABORT_STOP, CDK2_AHCI_ASYNC_ABORT_WAIT,
+	CDK2_AHCI_ASYNC_ABORT_RESTART, CDK2_AHCI_ASYNC_DONE
+};
+struct cdk2_ahci_async_request {
+	struct cdk2_ahci_engine *engine;
+	struct cdk2_ata_command_packet *packet;
+	struct cdk2_ahci_command command;
+	void *mappings[CDK2_AHCI_MAX_PRDT];
+	UINT64 deadline;
+	EFI_STATUS terminal_status;
+	UINT32 original_command;
+	UINT16 port, mapping_count;
+	UINT8 slot, program_index, issued, aborting, cleaned;
+	enum cdk2_ahci_async_phase phase;
+};
+EFI_STATUS cdk2_ahci_async_prepare(struct cdk2_ahci_async_request *request,
+	struct cdk2_ahci_engine *engine, UINT16 port,
+	struct cdk2_ata_command_packet *packet, UINT64 timeout);
+EFI_STATUS cdk2_ahci_async_step(struct cdk2_ahci_async_request *request,
+	BOOLEAN *complete);
+EFI_STATUS cdk2_ahci_async_abort(struct cdk2_ahci_async_request *request,
+	BOOLEAN *complete);
 
 EFI_STATUS cdk2_ahci_engine_init(struct cdk2_ahci_engine *engine,
 	const struct cdk2_ahci_dma_services *services, UINT32 capability,

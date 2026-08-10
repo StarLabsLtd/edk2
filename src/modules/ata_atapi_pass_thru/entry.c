@@ -15,9 +15,16 @@ typedef EFI_STATUS CDK2_MS_ABI open_t(void *, const struct guid *, void **,
 typedef EFI_STATUS CDK2_MS_ABI close_t(void *, const struct guid *, void *, void *);
 typedef EFI_STATUS CDK2_MS_ABI allocate_t(UINT32, UINTN, void **);
 typedef EFI_STATUS CDK2_MS_ABI free_t(void *);
+typedef EFI_STATUS CDK2_MS_ABI create_event_t(UINT32, UINTN,
+	void (CDK2_MS_ABI *)(void *, void *), void *, void **);
+typedef EFI_STATUS CDK2_MS_ABI set_timer_t(void *, UINT32, UINT64);
+typedef EFI_STATUS CDK2_MS_ABI signal_event_t(void *);
+typedef EFI_STATUS CDK2_MS_ABI close_event_t(void *);
 struct cdk2_ata_boot_services {
 	UINT8 before_allocate[64]; allocate_t *allocate_pool; free_t *free_pool;
-	UINT8 before_handle[72]; handle_t *handle_protocol;
+	create_event_t *create_event; set_timer_t *set_timer; void *wait_for_event;
+	signal_event_t *signal_event; close_event_t *close_event;
+	UINT8 before_handle[32]; handle_t *handle_protocol;
 	UINT8 before_open[120]; open_t *open_protocol; close_t *close_protocol;
 	UINT8 before_install[32]; install_t *install_multiple;
 	uninstall_t *uninstall_multiple;
@@ -40,6 +47,8 @@ typedef char allocate_offset_check[offsetof(struct cdk2_ata_boot_services,
 	allocate_pool) == 64 ? 1 : -1];
 typedef char free_offset_check[offsetof(struct cdk2_ata_boot_services,
 	free_pool) == 72 ? 1 : -1];
+typedef char create_offset_check[offsetof(struct cdk2_ata_boot_services,
+	create_event) == 80 ? 1 : -1];
 
 static const struct guid loaded_image_guid = { 0x5b1b31a1, 0x9562, 0x11d2,
 	{ 0x8e, 0x3f, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b } };
@@ -64,6 +73,7 @@ static CHAR16 controller_name[] = L"ATA/ATAPI Controller";
 static struct cdk2_ata_entry *active_entry;
 static struct cdk2_ata_entry image_entry;
 static struct cdk2_ata_binding image_binding;
+struct async_call { struct cdk2_ata_controller_backend *backend; void *event; };
 
 static EFI_STATUS open_protocol(struct cdk2_ata_entry *entry, void *controller,
 	const struct guid *guid, void **interface, UINT32 attributes)
@@ -185,6 +195,69 @@ static EFI_STATUS hardware_discover_ahci(void *opaque,
 	*ports_implemented = controller->ports_implemented;
 	return cdk2_ata_backend_discover_ahci(controller, topology);
 }
+static EFI_STATUS async_begin(void *opaque, struct cdk2_ata_controller *controller,
+	struct cdk2_ata_async_task *task)
+{ struct cdk2_ata_controller_backend *backend = controller->backend; (void)opaque;
+	return cdk2_ahci_async_prepare(&backend->async_request, controller->ahci,
+		task->port, task->packet, task->packet->timeout); }
+static EFI_STATUS async_poll_task(void *opaque,
+	struct cdk2_ata_controller *controller, struct cdk2_ata_async_task *task,
+	BOOLEAN *complete)
+{ struct cdk2_ata_controller_backend *backend = controller->backend;
+	(void)opaque; (void)task;
+	if (backend->async_request.aborting) {
+		EFI_STATUS status = cdk2_ahci_async_abort(&backend->async_request, complete);
+		return *complete ? backend->async_request.terminal_status : status;
+	}
+	return cdk2_ahci_async_step(&backend->async_request, complete); }
+static EFI_STATUS async_abort_task(void *opaque,
+	struct cdk2_ata_controller *controller, struct cdk2_ata_async_task *task)
+{ struct cdk2_ata_controller_backend *backend = controller->backend;
+	BOOLEAN complete = 0; EFI_STATUS status = EFI_SUCCESS; (void)opaque; (void)task;
+	for (UINTN step = 0; step < 4U && !complete; step++)
+		status = cdk2_ahci_async_abort(&backend->async_request, &complete);
+	return complete ? status : EFI_DEVICE_ERROR; }
+static void CDK2_MS_ABI async_notify(void *event, void *opaque)
+{ struct async_call *call = opaque; struct cdk2_ata_controller_backend *backend =
+		call->backend;
+	(void)cdk2_ata_async_poll(&backend->async);
+	if (backend->async_call == call) {
+		backend->async_call = NULL; backend->async_event = NULL;
+	}
+	(void)active_entry->boot->close_event(event); protocol_release(active_entry, call); }
+static EFI_STATUS async_arm(void *opaque, struct cdk2_ata_controller *controller)
+{
+	struct cdk2_ata_controller_backend *backend = controller->backend;
+	struct async_call *call; EFI_STATUS status; (void)opaque;
+	status = protocol_allocate(active_entry, sizeof(*call), (void **)&call);
+	if (EFI_ERROR(status))
+		return status;
+	*call = (struct async_call) { backend, NULL };
+	status = active_entry->boot->create_event(0x80000200U, 8U, async_notify,
+		call, &call->event);
+	if (!EFI_ERROR(status)) {
+		backend->async_call = call; backend->async_event = call->event;
+		status = active_entry->boot->set_timer(call->event, 2U, 10000U);
+	}
+	if (EFI_ERROR(status)) {
+		if (call->event != NULL)
+			(void)active_entry->boot->close_event(call->event);
+		protocol_release(active_entry, call);
+	}
+	return status;
+}
+static void async_signal(void *opaque, void *event)
+{ (void)opaque; (void)active_entry->boot->signal_event(event); }
+static EFI_STATUS protocol_async_submit(void *opaque,
+	struct cdk2_ata_controller *controller, UINT16 port, UINT16 multiplier,
+	struct cdk2_ata_command_packet *packet, void *event)
+{ (void)opaque; return cdk2_ata_async_submit(
+	&((struct cdk2_ata_controller_backend *)controller->backend)->async,
+	port, multiplier, packet, event); }
+static EFI_STATUS protocol_async_cancel(void *opaque,
+	struct cdk2_ata_controller *controller)
+{ (void)opaque; return cdk2_ata_async_stop(
+	&((struct cdk2_ata_controller_backend *)controller->backend)->async); }
 static EFI_STATUS service_create_protocols(void *opaque,
 	struct cdk2_ata_controller *controller,
 	struct cdk2_ata_protocol_bundle **protocols)
@@ -192,6 +265,19 @@ static EFI_STATUS service_create_protocols(void *opaque,
 	struct cdk2_ata_protocol_services services = {
 		opaque, protocol_allocate, protocol_release, NULL, NULL };
 	EFI_STATUS status;
+	if (controller->topology.mode == CDK2_ATA_AHCI && controller->backend != NULL &&
+	    controller->ahci != NULL && active_entry->boot->create_event != NULL &&
+	    active_entry->boot->set_timer != NULL && active_entry->boot->signal_event != NULL &&
+	    active_entry->boot->close_event != NULL) {
+		struct cdk2_ata_controller_backend *backend = controller->backend;
+		struct cdk2_ata_async_services async_services = { opaque, async_begin,
+			async_poll_task, async_abort_task, async_arm, async_signal };
+
+		status = cdk2_ata_async_init(&backend->async, controller, &async_services);
+		if (EFI_ERROR(status))
+			return status;
+		services.submit = protocol_async_submit; services.cancel = protocol_async_cancel;
+	}
 
 	status = protocol_allocate(opaque, sizeof(**protocols), (void **)protocols);
 	if (EFI_ERROR(status))
@@ -211,6 +297,19 @@ static EFI_STATUS service_create_protocols(void *opaque,
 static void service_destroy_protocols(void *opaque,
 	struct cdk2_ata_protocol_bundle *protocols)
 {
+	struct cdk2_ata_controller *controller = protocols->ata.controller;
+	if (controller != NULL && controller->topology.mode == CDK2_ATA_AHCI &&
+	    controller->backend != NULL) {
+		struct cdk2_ata_controller_backend *backend = controller->backend;
+
+		(void)cdk2_ata_async_stop(&backend->async);
+		if (backend->async_event != NULL) {
+			(void)active_entry->boot->set_timer(backend->async_event, 0U, 0U);
+			(void)active_entry->boot->close_event(backend->async_event);
+			protocol_release(active_entry, backend->async_call);
+			backend->async_event = NULL; backend->async_call = NULL;
+		}
+	}
 	protocol_release(opaque, protocols);
 }
 static EFI_STATUS service_install(void *opaque, void *controller,

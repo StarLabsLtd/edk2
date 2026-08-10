@@ -16,6 +16,9 @@ struct cdk2_ata_controller_backend {
 	struct cdk2_ahci_engine ahci;
 	struct cdk2_ide_engine ide;
 	struct cdk2_ata_backend_pool pool;
+	struct cdk2_ata_async_controller async;
+	struct cdk2_ahci_async_request async_request;
+	void *async_event, *async_call;
 	UINT8 identify[512] __aligned(8);
 	UINT8 ahci_initialized, ide_initialized;
 };

@@ -142,6 +142,32 @@ int main(void)
 	CHECK(cdk2_ahci_reset_port(&engine, 0, 100) == EFI_SUCCESS);
 	fixture.registers[0x04 / 4] = 0;
 	CHECK(cdk2_ahci_reset_controller(&engine, 100) == EFI_SUCCESS);
+	{
+		struct cdk2_ahci_async_request request;
+		BOOLEAN complete = 0;
+		unsigned int before_unmaps = fixture.unmaps;
+
+		fixture.ci_reads = 0; fixture.now = 0; packet.in_length = 512;
+		CHECK(cdk2_ahci_async_prepare(&request, &engine, 0, &packet, 100) ==
+			EFI_SUCCESS && request.mapping_count == 1 && engine.active_slots != 0);
+		for (unsigned int tick = 0; tick < 32 && !complete; tick++)
+			CHECK(cdk2_ahci_async_step(&request, &complete) == EFI_SUCCESS);
+		CHECK(complete && request.cleaned && engine.active_slots == 0 &&
+			fixture.unmaps == before_unmaps + 1U);
+		fixture.hold_ci = 1; fixture.now = 0;
+		CHECK(cdk2_ahci_async_prepare(&request, &engine, 0, &packet, 100) == EFI_SUCCESS);
+		while (request.phase != CDK2_AHCI_ASYNC_CI)
+			CHECK(cdk2_ahci_async_step(&request, &complete) == EFI_SUCCESS);
+		fixture.now = request.deadline;
+		CHECK(cdk2_ahci_async_step(&request, &complete) == EFI_SUCCESS &&
+			request.phase == CDK2_AHCI_ASYNC_ABORT_STOP && request.aborting &&
+			request.terminal_status == EFI_TIMEOUT);
+		complete = 0;
+		for (unsigned int tick = 0; tick < 4 && !complete; tick++)
+			(void)cdk2_ahci_async_abort(&request, &complete);
+		CHECK(complete && request.cleaned && engine.active_slots == 0);
+		fixture.hold_ci = 0;
+	}
 	cdk2_ahci_engine_destroy(&engine);
 	CHECK(fixture.registers[0] == 0 && fixture.registers[2] == 0);
 	CHECK(fixture.releases == 6);
