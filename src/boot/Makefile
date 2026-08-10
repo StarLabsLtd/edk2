@@ -33,6 +33,7 @@ CDK2_NATIVE_ATA_ATAPI_PCI_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-atapi-pci-te
 CDK2_NATIVE_ATA_ATAPI_ENTRY_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-atapi-entry-test
 CDK2_NATIVE_ATA_PROTOCOL_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-protocol-test
 CDK2_NATIVE_ATA_ASYNC_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-async-test
+CDK2_NATIVE_ATA_BUS_MODEL_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-bus-model-test
 CDK2_NATIVE_ATA_BACKEND_IDE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-backend-ide-test
 CDK2_NATIVE_ATA_PACKAGE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-package-test
 CDK2_NATIVE_ATA_DEPENDENCY_TEST := $(CDK2_DIR)/tests/ata_atapi_dependency_test.sh
@@ -395,6 +396,7 @@ CDK2_NATIVE_HOST_TOOLS := \
 	$(CDK2_NATIVE_ATA_ATAPI_ENTRY_TEST) \
 	$(CDK2_NATIVE_ATA_PROTOCOL_TEST) \
 	$(CDK2_NATIVE_ATA_ASYNC_TEST) \
+	$(CDK2_NATIVE_ATA_BUS_MODEL_TEST) \
 	$(CDK2_NATIVE_ATA_BACKEND_IDE_TEST) \
 	$(CDK2_NATIVE_ATA_FFS) \
 	$(CDK2_NATIVE_ATA_QEMU_PE) \
@@ -2381,6 +2383,17 @@ $(CDK2_NATIVE_ATA_ASYNC_TEST): $(CDK2_DIR)/tests/ata_async_test.c \
 
 .PHONY: native-ata-async-test
 native-ata-async-test: $(CDK2_NATIVE_ATA_ASYNC_TEST)
+	@"$<"
+
+$(CDK2_NATIVE_ATA_BUS_MODEL_TEST): $(CDK2_DIR)/tests/ata_bus_model_test.c \
+		$(CDK2_DIR)/src/modules/ata_bus/model.c \
+		$(CDK2_DIR)/include/cdk2/ata_bus.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -fsanitize=address,undefined \
+		$(CDK2_NATIVE_INCLUDES) -o "$@" $(CDK2_DIR)/tests/ata_bus_model_test.c \
+		$(CDK2_DIR)/src/modules/ata_bus/model.c
+
+.PHONY: native-ata-bus-model-test
+native-ata-bus-model-test: $(CDK2_NATIVE_ATA_BUS_MODEL_TEST)
 	@"$<"
 
 $(CDK2_NATIVE_ATA_BACKEND_IDE_TEST): $(CDK2_DIR)/tests/ata_backend_ide_test.c \
