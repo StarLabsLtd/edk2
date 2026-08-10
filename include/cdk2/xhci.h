@@ -59,6 +59,15 @@ struct cdk2_xhci_port_status {
 	UINT32 changes;
 };
 
+enum cdk2_xhci_port_feature {
+	CDK2_XHCI_PORT_ENABLE,
+	CDK2_XHCI_PORT_RESET,
+	CDK2_XHCI_PORT_POWER,
+	CDK2_XHCI_PORT_CONNECT_CHANGE,
+	CDK2_XHCI_PORT_ENABLE_CHANGE,
+	CDK2_XHCI_PORT_RESET_CHANGE,
+};
+
 struct cdk2_xhci_dma {
 	void *host;
 	UINT64 device;
@@ -161,6 +170,10 @@ EFI_STATUS cdk2_xhci_device_enable(struct cdk2_xhci_controller *controller,
 	UINT8 root_port, UINT8 speed, UINT16 maximum_packet,
 	struct cdk2_xhci_device *device);
 EFI_STATUS cdk2_xhci_device_disable(struct cdk2_xhci_device *device);
+EFI_STATUS cdk2_xhci_controller_get_port(struct cdk2_xhci_controller *controller,
+	UINT8 port, struct cdk2_xhci_port_status *status);
+EFI_STATUS cdk2_xhci_controller_set_port(struct cdk2_xhci_controller *controller,
+	UINT8 port, enum cdk2_xhci_port_feature feature, BOOLEAN set);
 EFI_STATUS cdk2_xhci_pci_adapter_init(struct cdk2_xhci_pci_adapter *adapter,
 	struct cdk2_efi_pci_io_protocol *pci, UINT8 bar, void *delay_context,
 	cdk2_xhci_delay_fn *delay);

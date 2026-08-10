@@ -107,6 +107,7 @@ int main(void)
 		.doorbell_offset = 0x1000U, .page_size = 4096U };
 	struct cdk2_xhci_controller controller;
 	struct cdk2_xhci_device device;
+	struct cdk2_xhci_port_status port;
 	UINT8 slot;
 
 	fixture.registers[0x44U / 4U] = 1U;
@@ -123,6 +124,14 @@ int main(void)
 		((UINT64 *)controller.dcbaa.host)[5] == device.device_context.device);
 	CHECK(cdk2_xhci_device_disable(&device) == EFI_SUCCESS && !device.enabled &&
 		fixture.allocations == fixture.releases + 4U);
+	fixture.registers[(0x40U + 0x400U + 0x10U) / 4U] =
+		1U | 2U | 1U << 9 | 3U << 10 | 1U << 17;
+	CHECK(cdk2_xhci_controller_get_port(&controller, 2U, &port) == EFI_SUCCESS &&
+		port.connected && port.enabled && port.powered && port.speed == 3U &&
+		port.changes == 1U);
+	CHECK(cdk2_xhci_controller_set_port(&controller, 2U,
+		CDK2_XHCI_PORT_CONNECT_CHANGE, FALSE) == EFI_SUCCESS &&
+		(fixture.registers[(0x40U + 0x400U + 0x10U) / 4U] & 1U << 17) != 0U);
 	cdk2_xhci_controller_destroy(&controller);
 	CHECK(fixture.releases == fixture.allocations &&
 		fixture.registers[0x40U / 4U] == 0U);

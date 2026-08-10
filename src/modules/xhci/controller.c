@@ -13,6 +13,7 @@
 #define XHCI_ERSTSZ 0x28U
 #define XHCI_ERSTBA 0x30U
 #define XHCI_ERDP 0x38U
+#define XHCI_PORTSC 0x400U
 
 static EFI_STATUS wait_mask(struct cdk2_xhci_controller *controller,
 	UINT32 offset, UINT32 mask, UINT32 expected)
@@ -325,4 +326,91 @@ EFI_STATUS cdk2_xhci_device_disable(struct cdk2_xhci_device *device)
 	release_device_dma(device);
 	memset(device, 0, sizeof(*device));
 	return EFI_SUCCESS;
+}
+
+static UINT32 port_offset(const struct cdk2_xhci_controller *controller,
+	UINT8 port)
+{
+	return controller->capability.capability_length + XHCI_PORTSC +
+		(UINT32)(port - 1U) * 0x10U;
+}
+
+EFI_STATUS cdk2_xhci_controller_get_port(struct cdk2_xhci_controller *controller,
+	UINT8 port, struct cdk2_xhci_port_status *status)
+{
+	UINT32 value;
+	EFI_STATUS result;
+
+	if (controller == NULL || status == NULL || !controller->running ||
+	    port == 0U || port > controller->capability.maximum_ports)
+		return EFI_INVALID_PARAMETER;
+	result = controller->services.read32(controller->services.context,
+		port_offset(controller, port), &value);
+	return EFI_ERROR(result) ? result : cdk2_xhci_decode_port(value, status);
+}
+
+EFI_STATUS cdk2_xhci_controller_set_port(struct cdk2_xhci_controller *controller,
+	UINT8 port, enum cdk2_xhci_port_feature feature, BOOLEAN set)
+{
+	UINT32 offset;
+	UINT32 value;
+	UINT32 change;
+	UINT32 bit;
+	EFI_STATUS status;
+
+	if (controller == NULL || !controller->running || port == 0U ||
+	    port > controller->capability.maximum_ports)
+		return EFI_INVALID_PARAMETER;
+	offset = port_offset(controller, port);
+	status = controller->services.read32(controller->services.context, offset,
+		&value);
+	if (EFI_ERROR(status))
+		return status;
+	change = 0U;
+	switch (feature) {
+	case CDK2_XHCI_PORT_ENABLE:
+		bit = 1U << 1;
+		break;
+	case CDK2_XHCI_PORT_RESET:
+		bit = 1U << 4;
+		break;
+	case CDK2_XHCI_PORT_POWER:
+		bit = 1U << 9;
+		break;
+	case CDK2_XHCI_PORT_CONNECT_CHANGE:
+		bit = 0U;
+		change = 1U << 17;
+		break;
+	case CDK2_XHCI_PORT_ENABLE_CHANGE:
+		bit = 0U;
+		change = 1U << 18;
+		break;
+	case CDK2_XHCI_PORT_RESET_CHANGE:
+		bit = 0U;
+		change = 1U << 21;
+		break;
+	default:
+		return EFI_UNSUPPORTED;
+	}
+	if (change != 0U && set)
+		return EFI_INVALID_PARAMETER;
+	value &= ~((UINT32)0x7fU << 17);
+	if (change != 0U)
+		value |= change;
+	else if (set)
+		value |= bit;
+	else
+		value &= ~bit;
+	status = controller->services.write32(controller->services.context, offset,
+		value);
+	if (EFI_ERROR(status) || feature != CDK2_XHCI_PORT_RESET || !set)
+		return status;
+	for (UINTN retry = 0U; retry < 100U; retry++) {
+		controller->services.delay(controller->services.context, 1000U);
+		status = controller->services.read32(controller->services.context,
+			offset, &value);
+		if (EFI_ERROR(status) || (value & bit) == 0U)
+			return status;
+	}
+	return EFI_TIMEOUT;
 }
