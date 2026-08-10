@@ -16,19 +16,21 @@ struct fixture {
 	unsigned int fail_map, hold_busy, bm_reads;
 	unsigned int atapi, resets, prdt_ready, packet_issued, bm_starts, cdb_words;
 	unsigned int ordering_bad, fail_cdb;
+	unsigned int phase_bytes;
 	UINT64 now; enum cdk2_ahci_dma_operation operations[8];
 };
 static UINT8 read8(void *opaque, UINT16 port)
 { struct fixture *f = opaque;
 	if (f->atapi == 2U && port < 0x400U) {
 		if ((port & 7U) == 7U)
-			return f->data_reads < 2U ? 0x08U : 0U;
+			return f->data_reads * 2U < (f->phase_bytes != 0U ?
+				f->phase_bytes : 3U) ? 0x08U : 0U;
 		if ((port & 7U) == 2U)
 			return f->cdb_words != 0U ? 1U : 2U;
 		if ((port & 7U) == 4U)
-			return 3U;
+			return (UINT8)(f->phase_bytes != 0U ? f->phase_bytes : 3U);
 		if ((port & 7U) == 5U)
-			return 0U;
+			return (UINT8)(f->phase_bytes >> 8);
 	}
 	if ((port & 7U) == 7U)
 		return f->hold_busy ? 0x80U : f->status;
@@ -216,9 +218,12 @@ int main(void)
 		fixture.fail_cdb = 0;
 		fixture.atapi = 1; fixture.bm_reads = 0;
 		fixture.fail_map = fixture.maps + 1U;
+		{
+			unsigned int resets = fixture.resets;
 		CHECK(cdk2_ide_atapi_execute(&engine, 0, 0, &atapi_packet, cdb,
 			sizeof(cdb), 100) == EFI_DEVICE_ERROR);
-		CHECK(fixture.resets != 0U);
+		CHECK(fixture.resets == resets);
+		}
 	}
 	puts("ata atapi IDE tests: PASS");
 	return 0;

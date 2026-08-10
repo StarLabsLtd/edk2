@@ -57,6 +57,10 @@ static void capture_status(struct cdk2_ide_async_request *request)
 static EFI_STATUS fail(struct cdk2_ide_async_request *request, EFI_STATUS status)
 {
 	request->terminal_status = status;
+	if (!request->issued) {
+		request->phase = CDK2_IDE_ASYNC_STOP;
+		return EFI_SUCCESS;
+	}
 	request->reset_deadline = request->engine->services.time(
 		request->engine->services.context) + request->reset_timeout;
 	request->phase = CDK2_IDE_ASYNC_RESET_ASSERT;
@@ -328,7 +332,8 @@ EFI_STATUS cdk2_ide_async_step(struct cdk2_ide_async_request *request,
 
 		status = engine->services.write8(engine->services.context,
 			base + offsets[request->task_index], values[request->task_index]);
-		if (++request->task_index == sizeof(offsets)) {
+		if (!EFI_ERROR(status) && ++request->task_index == sizeof(offsets)) {
+			request->issued = 1;
 			if (request->atapi)
 				request->phase = CDK2_IDE_ASYNC_ATAPI_CDB_WAIT;
 			else if (request->dma)
@@ -398,6 +403,8 @@ EFI_STATUS cdk2_ide_async_step(struct cdk2_ide_async_request *request,
 		if ((value & 1U) != 0U)
 			return fail(request, EFI_DEVICE_ERROR);
 		request->phase_read = (value & 2U) != 0U;
+		if (request->phase_read != (request->packet->in_length != 0U))
+			return fail(request, EFI_DEVICE_ERROR);
 		request->phase_remaining = engine->services.read8(
 			engine->services.context, base + ATA_LBA_MID) |
 			((size_t)engine->services.read8(engine->services.context,
@@ -412,19 +419,18 @@ EFI_STATUS cdk2_ide_async_step(struct cdk2_ide_async_request *request,
 		size_t budget = 128U;
 
 		while (request->phase_remaining != 0U && budget-- != 0U) {
-			size_t phase_offset = request->phase_remaining;
-			UINT16 word;
+				UINT16 word;
 
-			if (request->phase_read) {
-				word = engine->services.read16(engine->services.context, base);
-				if (phase_offset <= request->phase_transfer) {
-					request->buffer[0] = (UINT8)word;
-					if (phase_offset != 1U)
-						request->buffer[1] = (UINT8)(word >> 8);
-				}
-			} else {
-				word = phase_offset <= request->phase_transfer ? request->buffer[0] : 0U;
-				if (phase_offset <= request->phase_transfer && phase_offset != 1U)
+				if (request->phase_read) {
+					word = engine->services.read16(engine->services.context, base);
+					if (request->phase_transfer != 0U) {
+						request->buffer[0] = (UINT8)word;
+						if (request->phase_transfer != 1U)
+							request->buffer[1] = (UINT8)(word >> 8);
+					}
+				} else {
+					word = request->phase_transfer != 0U ? request->buffer[0] : 0U;
+					if (request->phase_transfer > 1U)
 					word |= (UINT16)request->buffer[1] << 8;
 				status = engine->services.write16(engine->services.context, base, word);
 				if (EFI_ERROR(status))

@@ -417,7 +417,7 @@ struct cdk2_ide_async_request {
 	size_t remaining, mapped_remaining, total, transferred;
 	size_t phase_remaining, phase_transfer;
 	UINT16 mapping_count, entries;
-	UINT8 channel, device, task_index, bm_command, started, cleaned, dma, write;
+	UINT8 channel, device, task_index, bm_command, started, issued, cleaned, dma, write;
 	UINT8 atapi, cdb_size, cdb_index, phase_read;
 	EFI_STATUS terminal_status;
 	enum cdk2_ide_async_phase phase;
