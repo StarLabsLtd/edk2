@@ -100,3 +100,38 @@ EFI_STATUS cdk2_xhci_event_ring_dequeue(struct cdk2_xhci_event_ring *ring,
 	}
 	return EFI_SUCCESS;
 }
+
+EFI_STATUS cdk2_xhci_command_enqueue(struct cdk2_xhci_ring *ring, UINT8 type,
+	UINT8 slot, UINT64 parameter, UINT64 *command_address)
+{
+	UINT16 index;
+	EFI_STATUS status;
+
+	if (ring == NULL || command_address == NULL || type < 9U || type > 23U)
+		return EFI_INVALID_PARAMETER;
+	status = cdk2_xhci_ring_enqueue(ring, parameter, 0U,
+		(UINT32)type << 10 | (UINT32)slot << 24, &index);
+	if (EFI_ERROR(status))
+		return status;
+	*command_address = ring->device_address + index * sizeof(struct cdk2_xhci_trb);
+	return EFI_SUCCESS;
+}
+
+EFI_STATUS cdk2_xhci_command_completion(struct cdk2_xhci_event_ring *ring,
+	UINT64 command_address, UINT8 *completion_code, UINT8 *slot)
+{
+	struct cdk2_xhci_trb event;
+	EFI_STATUS status;
+
+	if (ring == NULL || completion_code == NULL || slot == NULL)
+		return EFI_INVALID_PARAMETER;
+	status = cdk2_xhci_event_ring_dequeue(ring, &event);
+	if (EFI_ERROR(status))
+		return status;
+	if ((event.control >> 10 & 0x3fU) != 33U ||
+	    (event.parameter & ~0xfULL) != (command_address & ~0xfULL))
+		return EFI_COMPROMISED_DATA;
+	*completion_code = event.status >> 24;
+	*slot = event.control >> 24;
+	return *completion_code == 1U ? EFI_SUCCESS : EFI_DEVICE_ERROR;
+}

@@ -17,6 +17,8 @@ int main(void)
 	struct cdk2_xhci_trb event_trbs[16] = { 0 };
 	struct cdk2_xhci_trb event;
 	UINT16 index;
+	UINT64 command_address;
+	UINT8 completion, slot;
 
 	CHECK(sizeof(struct cdk2_xhci_trb) == 16U &&
 		sizeof(struct cdk2_xhci_erst_entry) == 16U &&
@@ -52,6 +54,16 @@ int main(void)
 		.control = 32U << 10 };
 	CHECK(cdk2_xhci_event_ring_dequeue(&events, &event) == EFI_SUCCESS &&
 		event.parameter == 0xbeefU);
+	CHECK(cdk2_xhci_command_enqueue(&ring, 9U, 0U, 0U, &command_address) ==
+		EFI_SUCCESS && command_address == 0x100010U);
+	event_trbs[1] = (struct cdk2_xhci_trb) { .parameter = command_address,
+		.status = 1U << 24, .control = 33U << 10 | 7U << 24 };
+	CHECK(cdk2_xhci_command_completion(&events, command_address, &completion,
+		&slot) == EFI_SUCCESS && completion == 1U && slot == 7U);
+	event_trbs[2] = (struct cdk2_xhci_trb) { .parameter = command_address + 16U,
+		.status = 1U << 24, .control = 33U << 10 | 7U << 24 };
+	CHECK(cdk2_xhci_command_completion(&events, command_address, &completion,
+		&slot) == EFI_COMPROMISED_DATA);
 	puts("xhci model tests: PASS");
 	return 0;
 }

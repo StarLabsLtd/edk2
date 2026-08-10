@@ -108,6 +108,10 @@ EFI_STATUS cdk2_xhci_event_ring_init(struct cdk2_xhci_event_ring *ring,
 	struct cdk2_xhci_trb *trbs, UINT16 count);
 EFI_STATUS cdk2_xhci_event_ring_dequeue(struct cdk2_xhci_event_ring *ring,
 	struct cdk2_xhci_trb *event);
+EFI_STATUS cdk2_xhci_command_enqueue(struct cdk2_xhci_ring *ring, UINT8 type,
+	UINT8 slot, UINT64 parameter, UINT64 *command_address);
+EFI_STATUS cdk2_xhci_command_completion(struct cdk2_xhci_event_ring *ring,
+	UINT64 command_address, UINT8 *completion_code, UINT8 *slot);
 EFI_STATUS cdk2_xhci_controller_init(struct cdk2_xhci_controller *controller,
 	const struct cdk2_xhci_controller_services *services,
 	const struct cdk2_xhci_capabilities *capability);
