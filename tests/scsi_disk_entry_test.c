@@ -95,6 +95,7 @@ int main(void)
 {
 	struct fixture fixture = { 0 };
 	struct cdk2_scsi_disk_entry entry;
+	CHAR16 *name;
 	UINT8 buffer[512];
 
 	active = &fixture; fixture.system.boot = &fixture.boot;
@@ -109,10 +110,22 @@ int main(void)
 	CHECK(cdk2_scsi_disk_entry_publish(&entry, &fixture, &fixture.system) ==
 		EFI_SUCCESS && fixture.loaded.unload == cdk2_scsi_disk_entry_unload &&
 		entry.driver.version == 0x10U);
+	CHECK(entry.component_name.get_driver_name(&entry.component_name, "eng", &name) ==
+		EFI_SUCCESS && name[0] == 'C' &&
+		entry.component_name.get_driver_name(&entry.component_name, "en", &name) ==
+		EFI_UNSUPPORTED &&
+		entry.component_name2.get_driver_name(&entry.component_name2, "en", &name) ==
+		EFI_SUCCESS);
 	CHECK(entry.driver.supported(&entry.driver, (void *)1, NULL) == EFI_SUCCESS &&
 		fixture.last_attributes == 0x10U);
 	CHECK(entry.driver.start(&entry.driver, (void *)1, NULL) == EFI_SUCCESS &&
 		entry.binding.count == 1U && fixture.block != NULL);
+	CHECK(entry.component_name.get_controller_name(&entry.component_name, (void *)1,
+		NULL, "eng", &name) == EFI_SUCCESS && name[0] == 'S' &&
+		entry.component_name2.get_controller_name(&entry.component_name2, (void *)1,
+		(void *)2, "en", &name) == EFI_UNSUPPORTED &&
+		entry.component_name.get_controller_name(&entry.component_name, (void *)2,
+		NULL, "eng", &name) == EFI_UNSUPPORTED);
 	fixture.block2 = &entry.binding.controllers[0]->block.block2;
 	CHECK(fixture.block->read_blocks(fixture.block, 0U, 0U, sizeof(buffer), buffer) ==
 		EFI_SUCCESS && active->commands == 3U);

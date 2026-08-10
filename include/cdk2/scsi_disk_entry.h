@@ -21,6 +21,20 @@ struct cdk2_scsi_disk_driver_binding {
 	void *driver_binding_handle;
 };
 
+struct cdk2_scsi_disk_component_name;
+typedef CHAR16 * cdk2_scsi_disk_name;
+typedef EFI_STATUS CDK2_MS_ABI cdk2_scsi_disk_driver_name_fn(
+	struct cdk2_scsi_disk_component_name *component, const char *language,
+	cdk2_scsi_disk_name * name);
+typedef EFI_STATUS CDK2_MS_ABI cdk2_scsi_disk_controller_name_fn(
+	struct cdk2_scsi_disk_component_name *component, void *controller, void *child,
+	const char *language, cdk2_scsi_disk_name * name);
+struct cdk2_scsi_disk_component_name {
+	cdk2_scsi_disk_driver_name_fn *get_driver_name;
+	cdk2_scsi_disk_controller_name_fn *get_controller_name;
+	const char *supported_languages;
+};
+
 typedef EFI_STATUS CDK2_MS_ABI cdk2_scsi_disk_unload_fn(void *image);
 
 struct cdk2_scsi_disk_loaded_image {
@@ -41,6 +55,8 @@ struct cdk2_scsi_disk_entry {
 	struct cdk2_scsi_disk_loaded_image *loaded;
 	cdk2_scsi_disk_unload_fn *original_unload;
 	struct cdk2_scsi_disk_driver_binding driver;
+	struct cdk2_scsi_disk_component_name component_name;
+	struct cdk2_scsi_disk_component_name component_name2;
 	struct cdk2_scsi_disk_binding binding;
 	BOOLEAN published;
 };

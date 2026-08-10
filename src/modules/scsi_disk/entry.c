@@ -61,6 +61,10 @@ static const EFI_GUID loaded_guid = { 0x5b1b31a1, 0x9562, 0x11d2,
 	{ 0x8e, 0x3f, 0, 0xa0, 0xc9, 0x69, 0x72, 0x3b } };
 static const EFI_GUID driver_guid = { 0x18a031ab, 0xb443, 0x4d1a,
 	{ 0xa5, 0xc0, 0x0c, 0x09, 0x26, 0x1e, 0x9f, 0x71 } };
+static const EFI_GUID component_guid = { 0x107a772c, 0xd5e1, 0x11d4,
+	{ 0x9a, 0x46, 0, 0x90, 0x27, 0x3f, 0xc1, 0x4d } };
+static const EFI_GUID component2_guid = { 0x6a7a5cff, 0xe8d9, 0x4f70,
+	{ 0xba, 0xda, 0x75, 0xab, 0x30, 0x25, 0xce, 0x14 } };
 static const EFI_GUID scsi_io_guid = { 0x932f47e6, 0x2362, 0x4002,
 	{ 0x80, 0x3e, 0x3c, 0xd5, 0x4b, 0x13, 0x8f, 0x85 } };
 static const EFI_GUID block_guid = { 0x964e5b21, 0x6459, 0x11d2,
@@ -71,6 +75,10 @@ static const EFI_GUID disk_info_guid = { 0xd432a67f, 0x14dc, 0x484b,
 	{ 0xb3, 0xbb, 0x3f, 0x02, 0x91, 0x84, 0x93, 0x27 } };
 static struct cdk2_scsi_disk_entry image_entry;
 static struct cdk2_scsi_disk_entry *active;
+static CHAR16 driver_name[] = { 'C', 'D', 'K', '2', ' ', 'S', 'C', 'S', 'I',
+	' ', 'D', 'i', 's', 'k', ' ', 'D', 'r', 'i', 'v', 'e', 'r', 0 };
+static CHAR16 controller_name[] = { 'S', 'C', 'S', 'I', ' ', 'D', 'i', 's', 'k',
+	0 };
 
 static struct boot_services *boot(struct cdk2_scsi_disk_entry *entry)
 {
@@ -179,6 +187,58 @@ static struct cdk2_scsi_disk_entry *from_driver(
 	return (void *)((UINT8 *)driver - offsetof(struct cdk2_scsi_disk_entry, driver));
 }
 
+static struct cdk2_scsi_disk_entry *from_component(
+	struct cdk2_scsi_disk_component_name *component)
+{
+	UINTN offset = component->supported_languages[2] == '\0' ?
+		offsetof(struct cdk2_scsi_disk_entry, component_name2) :
+		offsetof(struct cdk2_scsi_disk_entry, component_name);
+
+	return (void *)((UINT8 *)component - offset);
+}
+
+static BOOLEAN language_matches(struct cdk2_scsi_disk_component_name *component,
+	const char *language)
+{
+	const char *expected = component->supported_languages;
+
+	if (language == NULL)
+		return FALSE;
+	while (*expected != '\0' && *expected == *language) {
+		expected++;
+		language++;
+	}
+	return *expected == '\0' && *language == '\0';
+}
+
+static EFI_STATUS CDK2_MS_ABI get_driver_name(
+	struct cdk2_scsi_disk_component_name *component, const char *language,
+	CHAR16 **name)
+{
+	if (component == NULL || name == NULL || !language_matches(component, language))
+		return EFI_UNSUPPORTED;
+	*name = driver_name;
+	return EFI_SUCCESS;
+}
+
+static EFI_STATUS CDK2_MS_ABI get_controller_name(
+	struct cdk2_scsi_disk_component_name *component, void *controller, void *child,
+	const char *language, CHAR16 **name)
+{
+	struct cdk2_scsi_disk_entry *entry;
+
+	if (component == NULL || controller == NULL || name == NULL || child != NULL ||
+	    !language_matches(component, language))
+		return EFI_UNSUPPORTED;
+	entry = from_component(component);
+	for (UINTN index = 0; index < entry->binding.count; index++)
+		if (entry->binding.controllers[index]->handle == controller) {
+			*name = controller_name;
+			return EFI_SUCCESS;
+		}
+	return EFI_UNSUPPORTED;
+}
+
 static EFI_STATUS CDK2_MS_ABI supported(
 	struct cdk2_scsi_disk_driver_binding *driver, void *controller, void *remaining)
 {
@@ -226,7 +286,8 @@ EFI_STATUS CDK2_MS_ABI cdk2_scsi_disk_entry_unload(void *image)
 			return status;
 	}
 	status = boot(entry)->uninstall_multiple(entry->driver.driver_binding_handle,
-		&driver_guid, &entry->driver, NULL);
+		&driver_guid, &entry->driver, &component_guid, &entry->component_name,
+		&component2_guid, &entry->component_name2, NULL);
 	if (EFI_ERROR(status))
 		return status;
 	entry->loaded->unload = entry->original_unload;
@@ -253,6 +314,10 @@ EFI_STATUS cdk2_scsi_disk_entry_publish(struct cdk2_scsi_disk_entry *entry,
 		return status;
 	entry->driver = (struct cdk2_scsi_disk_driver_binding) { supported, start,
 		stop, 0x10U, image, image };
+	entry->component_name = (struct cdk2_scsi_disk_component_name) {
+		get_driver_name, get_controller_name, "eng" };
+	entry->component_name2 = (struct cdk2_scsi_disk_component_name) {
+		get_driver_name, get_controller_name, "en" };
 	services = (struct cdk2_scsi_disk_binding_services) { .context = entry,
 		.open_parent = open_parent, .close_parent = close_parent, .probe = probe,
 		.install = install, .uninstall = uninstall, .signal = signal,
@@ -262,7 +327,8 @@ EFI_STATUS cdk2_scsi_disk_entry_publish(struct cdk2_scsi_disk_entry *entry,
 	if (EFI_ERROR(status))
 		return status;
 	status = boot(entry)->install_multiple(&entry->driver.driver_binding_handle,
-		&driver_guid, &entry->driver, NULL);
+		&driver_guid, &entry->driver, &component_guid, &entry->component_name,
+		&component2_guid, &entry->component_name2, NULL);
 	if (EFI_ERROR(status))
 		return status;
 	entry->original_unload = entry->loaded->unload;
