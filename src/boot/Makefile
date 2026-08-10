@@ -27,6 +27,7 @@ CDK2_NATIVE_METRONOME_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-metronome-test
 CDK2_NATIVE_SCSI_BUS_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-scsi-bus-test
 CDK2_NATIVE_SCSI_BINDING_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-scsi-binding-test
 CDK2_NATIVE_SCSI_ENTRY_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-scsi-entry-test
+CDK2_NATIVE_SCSI_PACKAGE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-scsi-package-test
 CDK2_NATIVE_SCSI_BUS_OBJS := $(CDK2_NATIVE_BUILD_DIR)/scsi-bus-model.o \
 	$(CDK2_NATIVE_BUILD_DIR)/scsi-bus-binding.o \
 	$(CDK2_NATIVE_BUILD_DIR)/scsi-bus-entry.o
@@ -1080,7 +1081,8 @@ native-scsi-bus-test: $(CDK2_NATIVE_SCSI_BUS_TEST) $(CDK2_NATIVE_SCSI_BINDING_TE
 	@"$(CDK2_NATIVE_SCSI_BINDING_TEST)"
 	@"$(CDK2_NATIVE_SCSI_ENTRY_TEST)"
 
-native-scsi-bus-package: $(CDK2_NATIVE_SCSI_BUS_FFS)
+native-scsi-bus-package: $(CDK2_NATIVE_SCSI_BUS_FFS) $(CDK2_NATIVE_SCSI_PACKAGE_TEST)
+	@"$(CDK2_NATIVE_SCSI_PACKAGE_TEST)" "$(CDK2_NATIVE_SCSI_BUS_FFS)"
 	@printf '%s\n' "native SCSI bus FFS: $(CDK2_NATIVE_SCSI_BUS_FFS)"
 
 native-hii-database-test: $(CDK2_NATIVE_HII_DATABASE_TEST) \
@@ -2340,6 +2342,12 @@ $(CDK2_NATIVE_SCSI_ENTRY_TEST): $(CDK2_DIR)/tests/scsi_bus_entry_test.c \
 		$(CDK2_DIR)/src/modules/scsi_bus/binding.c \
 		$(CDK2_DIR)/src/modules/scsi_bus/model.c
 
+$(CDK2_NATIVE_SCSI_PACKAGE_TEST): $(CDK2_DIR)/tests/scsi_bus_package_test.c | \
+		$(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -MMD -MP \
+		-MF "$(CDK2_NATIVE_BUILD_DIR)/scsi-bus-package-test.d" -MT "$@" \
+		-o "$@" "$<"
+
 $(CDK2_NATIVE_BUILD_DIR)/scsi-bus-%.o: \
 		$(CDK2_DIR)/src/modules/scsi_bus/%.c \
 		$(CDK2_DIR)/include/cdk2/scsi_bus.h \
@@ -2359,7 +2367,7 @@ $(CDK2_NATIVE_SCSI_BUS_PE): $(CDK2_NATIVE_SCSI_BUS_OBJS) \
 
 $(CDK2_NATIVE_SCSI_BUS_FFS): $(CDK2_NATIVE_SCSI_BUS_PE) $(CDK2_NATIVE_FFSBUILD)
 	@"$(CDK2_NATIVE_FFSBUILD)" 0167ccc4-d0f7-4f21-a3ef-9e64b7cdce8b \
-		ScsiBusDxe 1.0 0x703e "$<" "$@" -
+		ScsiBus 1.0 0x703e "$<" "$@" -
 
 $(CDK2_NATIVE_SATA_CONTROLLER_TEST): $(CDK2_DIR)/tests/sata_controller_test.c $(CDK2_DIR)/src/modules/sata_controller/model.c $(CDK2_DIR)/include/cdk2/sata_controller.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" $(CDK2_DIR)/tests/sata_controller_test.c $(CDK2_DIR)/src/modules/sata_controller/model.c
