@@ -146,6 +146,11 @@ EFI_STATUS cdk2_ata_bus_binding_start(struct cdk2_ata_bus_binding *binding,
 			binding->services.release(binding->services.context, child);
 			goto fail;
 		}
+		status = cdk2_ata_bus_disk_security_init(child, &binding->services);
+		if (EFI_ERROR(status)) {
+			binding->services.release(binding->services.context, child);
+			goto fail;
+		}
 		status = binding->services.install_child(binding->services.context,
 			&child->handle, child, child->model.geometry.trusted);
 		if (EFI_ERROR(status)) {

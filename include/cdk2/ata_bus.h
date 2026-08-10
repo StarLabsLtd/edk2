@@ -133,6 +133,10 @@ struct cdk2_ata_bus_bound_child {
 	struct cdk2_ata_bus_block_instance block;
 	struct cdk2_ata_bus_disk_info disk_info;
 	struct cdk2_ata_bus_security security;
+	struct cdk2_ata_bus_transport transport;
+	void *service_context;
+	cdk2_ata_bus_allocate_fn *allocate;
+	cdk2_ata_bus_release_fn *release;
 	BOOLEAN installed, by_child;
 };
 struct cdk2_ata_bus_bound_controller {
@@ -197,6 +201,8 @@ EFI_STATUS cdk2_ata_bus_block_init(struct cdk2_ata_bus_block_instance *instance,
 	struct cdk2_ata_bus_child *child, struct cdk2_ata_bus_scheduler *scheduler,
 	cdk2_ata_bus_defer_fn *defer, void *defer_context);
 EFI_STATUS cdk2_ata_bus_block_worker(struct cdk2_ata_bus_block_instance *instance);
+EFI_STATUS cdk2_ata_bus_disk_security_init(struct cdk2_ata_bus_bound_child *child,
+	const struct cdk2_ata_bus_binding_services *services);
 EFI_STATUS cdk2_ata_bus_binding_init(struct cdk2_ata_bus_binding *binding,
 	const struct cdk2_ata_bus_binding_services *services);
 EFI_STATUS cdk2_ata_bus_binding_supported(struct cdk2_ata_bus_binding *binding,
