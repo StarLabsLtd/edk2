@@ -24,8 +24,9 @@ typedef EFI_STATUS CDK2_MS_ABI signal_event_t(void *);
 typedef EFI_STATUS CDK2_MS_ABI close_event_t(void *);
 typedef EFI_STATUS CDK2_MS_ABI stall_t(UINTN);
 struct cdk2_ata_boot_services {
+	UINT8 header[24];
 	raise_tpl_t *raise_tpl; restore_tpl_t *restore_tpl;
-	UINT8 before_allocate[48]; allocate_t *allocate_pool; free_t *free_pool;
+	UINT8 before_allocate[24]; allocate_t *allocate_pool; free_t *free_pool;
 	create_event_t *create_event; set_timer_t *set_timer; void *wait_for_event;
 	signal_event_t *signal_event; close_event_t *close_event;
 	UINT8 before_handle[32]; handle_t *handle_protocol;
@@ -81,6 +82,7 @@ static struct cdk2_ata_entry *active_entry;
 static struct cdk2_ata_entry image_entry;
 static struct cdk2_ata_binding image_binding;
 struct async_call { struct cdk2_ata_controller_backend *backend; void *event; };
+
 
 static EFI_STATUS open_protocol(struct cdk2_ata_entry *entry, void *controller,
 	const struct guid *guid, void **interface, UINT32 attributes)
@@ -243,7 +245,8 @@ static void CDK2_MS_ABI async_notify(void *event, void *opaque)
 	if (backend->async_call == call) {
 		backend->async_call = NULL; backend->async_event = NULL;
 	}
-	(void)active_entry->boot->close_event(event); protocol_release(active_entry, call); }
+	(void)active_entry->boot->close_event(event);
+	protocol_release(active_entry, call); }
 static EFI_STATUS async_arm(void *opaque, struct cdk2_ata_controller *controller)
 {
 	struct cdk2_ata_controller_backend *backend = controller->backend;
@@ -624,3 +627,7 @@ EFI_STATUS CDK2_MS_ABI cdk2_ata_atapi_pass_thru_entry(void *image,
 	return cdk2_ata_entry_publish_with_services(&image_entry, &image_binding,
 		&services, image, system_table);
 }
+typedef char raise_offset_check[offsetof(struct cdk2_ata_boot_services,
+	raise_tpl) == 24 ? 1 : -1];
+typedef char restore_offset_check[offsetof(struct cdk2_ata_boot_services,
+	restore_tpl) == 32 ? 1 : -1];

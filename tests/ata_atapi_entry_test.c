@@ -29,13 +29,16 @@ typedef EFI_STATUS CDK2_MS_ABI create_event_t(UINT32, UINTN,
 typedef EFI_STATUS CDK2_MS_ABI set_timer_t(void *, UINT32, UINT64);
 typedef EFI_STATUS CDK2_MS_ABI event_t(void *);
 typedef EFI_STATUS CDK2_MS_ABI stall_t(UINTN);
-struct fake_boot { raise_tpl_t *raise_tpl; restore_tpl_t *restore_tpl;
-	UINT8 before_allocate[48]; allocate_t *allocate; free_t *free;
+struct fake_boot { UINT8 header[24]; raise_tpl_t *raise_tpl; restore_tpl_t *restore_tpl;
+	UINT8 before_allocate[24]; allocate_t *allocate; free_t *free;
 	create_event_t *create_event; set_timer_t *set_timer; void *wait;
 	event_t *signal_event; event_t *close_event; UINT8 before_handle[32]; handle_t *handle;
 	UINT8 before_stall[88]; stall_t *stall; UINT8 before_open[24];
 	open_t *open; close_t *close;
 	UINT8 before_install[32]; install_t *install; uninstall_t *uninstall; };
+typedef char fake_raise_offset[offsetof(struct fake_boot, raise_tpl) == 24 ? 1 : -1];
+typedef char fake_restore_offset[offsetof(struct fake_boot, restore_tpl) == 32 ? 1 : -1];
+typedef char fake_create_offset[offsetof(struct fake_boot, create_event) == 80 ? 1 : -1];
 struct fake_system { UINT8 before_boot[96]; struct fake_boot *boot; };
 struct fixture { struct fake_boot boot; struct fake_system system;
 	struct cdk2_ata_loaded_image loaded; unsigned int installs, uninstalls;
