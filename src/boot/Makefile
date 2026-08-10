@@ -59,6 +59,11 @@ CDK2_NATIVE_XHCI_PE ?= $(CDK2_NATIVE_BUILD_DIR)/XhciDxe.efi
 CDK2_NATIVE_XHCI_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/XhciDxe.ffs
 CDK2_NATIVE_XHCI_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-xhci.fv
 CDK2_NATIVE_XHCI_PACKAGE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/xhci-package-test
+CDK2_NATIVE_USB_BUS_OBJS := $(addprefix $(CDK2_NATIVE_BUILD_DIR)/usb-bus-,\
+	model.o usb_io.o bus.o binding.o entry.o)
+CDK2_NATIVE_USB_BUS_PE ?= $(CDK2_NATIVE_BUILD_DIR)/UsbBusDxe.efi
+CDK2_NATIVE_USB_BUS_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/UsbBusDxe.ffs
+CDK2_NATIVE_USB_BUS_PACKAGE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/usb-bus-package-test
 CDK2_NATIVE_SATA_CONTROLLER_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-sata-controller-test
 CDK2_NATIVE_ATA_ATAPI_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-atapi-test
 CDK2_NATIVE_ATA_ATAPI_BINDING_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-atapi-binding-test
@@ -1211,6 +1216,39 @@ $(CDK2_NATIVE_BUILD_DIR)/usb-bus-enumeration-test: \
 		$(CDK2_DIR)/src/modules/usb_bus/model.c \
 		$(CDK2_DIR)/src/modules/usb_bus/usb_io.c \
 		$(CDK2_DIR)/src/modules/usb_bus/bus.c
+
+.PHONY: native-usb-bus-package
+native-usb-bus-package: $(CDK2_NATIVE_USB_BUS_FFS) \
+		$(CDK2_NATIVE_USB_BUS_PACKAGE_TEST)
+	@"$(CDK2_NATIVE_USB_BUS_PACKAGE_TEST)" "$(CDK2_NATIVE_USB_BUS_FFS)"
+
+$(CDK2_NATIVE_BUILD_DIR)/usb-bus-%.o: \
+		$(CDK2_DIR)/src/modules/usb_bus/%.c \
+		$(CDK2_DIR)/include/cdk2/usb_bus.h \
+		$(CDK2_DIR)/include/cdk2/xhci.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,\
+		$(CDK2_NATIVE_CFLAGS)) -mcmodel=large -fno-ident -fcf-protection=none \
+		-maccumulate-outgoing-args $(CDK2_NATIVE_INCLUDES) -MMD -MP \
+		-MF "$(@:.o=.d)" -MT "$@" -c "$<" -o "$@"
+
+$(CDK2_NATIVE_USB_BUS_PE): $(CDK2_NATIVE_USB_BUS_OBJS) \
+		$(CDK2_DIR)/src/modules/xhci/xhci.ld $(CDK2_NATIVE_PERELOCCHECK)
+	@$(LD) -mi386pep --subsystem 11 --entry cdk2_usb_bus_entry --image-base 0 \
+		--section-alignment 0x1000 --file-alignment 0x1000 --build-id=none \
+		--no-insert-timestamp -s --nxcompat \
+		-T "$(CDK2_DIR)/src/modules/xhci/xhci.ld" \
+		-o "$@" $(CDK2_NATIVE_USB_BUS_OBJS)
+	@"$(CDK2_NATIVE_PERELOCCHECK)" --subsystem 11 "$@"
+
+$(CDK2_NATIVE_USB_BUS_FFS): $(CDK2_NATIVE_USB_BUS_PE) $(CDK2_NATIVE_FFSBUILD)
+	@"$(CDK2_NATIVE_FFSBUILD)" 240612b7-a063-11d4-9a3a-0090273fc14d \
+		UsbBusDxe 1.0 0xd042 "$<" "$@" -
+
+$(CDK2_NATIVE_USB_BUS_PACKAGE_TEST): \
+		$(CDK2_DIR)/tests/usb_bus_package_test.c | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -MMD -MP \
+		-MF "$(CDK2_NATIVE_BUILD_DIR)/usb-bus-package-test.d" -MT "$@" \
+		-o "$@" "$<"
 
 .PHONY: native-xhci-package
 native-xhci-package: $(CDK2_NATIVE_XHCI_FFS) $(CDK2_NATIVE_XHCI_PACKAGE_TEST)

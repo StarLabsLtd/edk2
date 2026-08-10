@@ -4,6 +4,19 @@
 
 #include <string.h>
 
+static void move_bytes(void *destination, const void *source, UINTN size)
+{
+	UINT8 *to = destination;
+	const UINT8 *from = source;
+
+	if (to < from)
+		for (UINTN index = 0U; index < size; index++)
+			to[index] = from[index];
+	else
+		for (UINTN index = size; index > 0U; index--)
+			to[index - 1U] = from[index - 1U];
+}
+
 static EFI_STATUS request(struct cdk2_usb_bus *bus, UINT8 address, UINT8 speed,
 	UINT16 packet, struct cdk2_usb_request *usb_request, UINTN direction,
 	void *data, UINTN *length)
@@ -162,7 +175,7 @@ EFI_STATUS cdk2_usb_bus_remove_port(struct cdk2_usb_bus *bus, UINT8 port)
 		if (bus->children[index - 1U].active &&
 		    bus->children[index - 1U].port == port) {
 			address = bus->children[index - 1U].address;
-			memmove(&bus->children[index - 1U], &bus->children[index],
+			move_bytes(&bus->children[index - 1U], &bus->children[index],
 				(bus->child_count - index) * sizeof(bus->children[0]));
 			memset(&bus->children[--bus->child_count], 0,
 				sizeof(bus->children[0]));

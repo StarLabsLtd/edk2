@@ -4,6 +4,19 @@
 
 #include <string.h>
 
+static void move_bytes(void *destination, const void *source, UINTN size)
+{
+	UINT8 *to = destination;
+	const UINT8 *from = source;
+
+	if (to < from)
+		for (UINTN index = 0U; index < size; index++)
+			to[index] = from[index];
+	else
+		for (UINTN index = size; index > 0U; index--)
+			to[index - 1U] = from[index - 1U];
+}
+
 EFI_STATUS cdk2_usb_binding_init(struct cdk2_usb_binding *binding,
 	const struct cdk2_usb_binding_services *services)
 {
@@ -57,7 +70,7 @@ static EFI_STATUS remove_child(struct cdk2_usb_binding *binding,
 	for (UINTN other = 0U; other < owner->bus->child_count; other++)
 		if (other != index && owner->bus->children[other].address == address)
 			address_in_use = TRUE;
-	memmove(child, child + 1U,
+	move_bytes(child, child + 1U,
 		(owner->bus->child_count - index - 1U) * sizeof(*child));
 	memset(&owner->bus->children[--owner->bus->child_count], 0,
 		sizeof(*child));
@@ -191,7 +204,7 @@ EFI_STATUS cdk2_usb_binding_stop(struct cdk2_usb_binding *binding,
 		return status;
 	}
 	binding->services.free(binding->services.context, owner->bus);
-	memmove(owner, owner + 1U,
+	move_bytes(owner, owner + 1U,
 		(binding->count - owner_index - 1U) * sizeof(*owner));
 	memset(&binding->controllers[--binding->count], 0, sizeof(*owner));
 	return EFI_SUCCESS;
