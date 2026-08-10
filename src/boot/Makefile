@@ -28,6 +28,7 @@ CDK2_NATIVE_SCSI_BUS_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-scsi-bus-test
 CDK2_NATIVE_SCSI_BINDING_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-scsi-binding-test
 CDK2_NATIVE_SCSI_ENTRY_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-scsi-entry-test
 CDK2_NATIVE_SCSI_PACKAGE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-scsi-package-test
+CDK2_NATIVE_SCSI_DEPENDENCY_TEST ?= $(CDK2_DIR)/tests/scsi_bus_dependency_test.sh
 CDK2_NATIVE_SCSI_BUS_OBJS := $(CDK2_NATIVE_BUILD_DIR)/scsi-bus-model.o \
 	$(CDK2_NATIVE_BUILD_DIR)/scsi-bus-binding.o \
 	$(CDK2_NATIVE_BUILD_DIR)/scsi-bus-entry.o
@@ -1080,6 +1081,8 @@ native-scsi-bus-test: $(CDK2_NATIVE_SCSI_BUS_TEST) $(CDK2_NATIVE_SCSI_BINDING_TE
 	@"$(CDK2_NATIVE_SCSI_BUS_TEST)"
 	@"$(CDK2_NATIVE_SCSI_BINDING_TEST)"
 	@"$(CDK2_NATIVE_SCSI_ENTRY_TEST)"
+	@"$(CDK2_NATIVE_SCSI_DEPENDENCY_TEST)" "$(MAKE)" "$(CDK2_DIR)" \
+		"$(CDK2_BUILD_DIR)"
 
 native-scsi-bus-package: $(CDK2_NATIVE_SCSI_BUS_FFS) $(CDK2_NATIVE_SCSI_PACKAGE_TEST)
 	@"$(CDK2_NATIVE_SCSI_PACKAGE_TEST)" "$(CDK2_NATIVE_SCSI_BUS_FFS)"
@@ -2321,13 +2324,17 @@ $(CDK2_NATIVE_METRONOME_TEST): $(CDK2_DIR)/tests/metronome_test.c $(CDK2_DIR)/sr
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$<"
 
 $(CDK2_NATIVE_SCSI_BUS_TEST): $(CDK2_DIR)/tests/scsi_bus_test.c $(CDK2_DIR)/src/modules/scsi_bus/model.c $(CDK2_DIR)/include/cdk2/scsi_bus.h | $(CDK2_NATIVE_BUILD_DIR)
-	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" $(CDK2_DIR)/tests/scsi_bus_test.c $(CDK2_DIR)/src/modules/scsi_bus/model.c
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) \
+		-MMD -MP -MF "$(CDK2_NATIVE_BUILD_DIR)/scsi-bus-test.d" -MT "$@" \
+		-o "$@" $(CDK2_DIR)/tests/scsi_bus_test.c \
+		$(CDK2_DIR)/src/modules/scsi_bus/model.c
 
 $(CDK2_NATIVE_SCSI_BINDING_TEST): $(CDK2_DIR)/tests/scsi_bus_binding_test.c \
 		$(CDK2_DIR)/src/modules/scsi_bus/binding.c \
 		$(CDK2_DIR)/src/modules/scsi_bus/model.c \
 		$(CDK2_DIR)/include/cdk2/scsi_bus_binding.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) \
+		-MMD -MP -MF "$(CDK2_NATIVE_BUILD_DIR)/scsi-binding-test.d" -MT "$@" \
 		-o "$@" $(CDK2_DIR)/tests/scsi_bus_binding_test.c \
 		$(CDK2_DIR)/src/modules/scsi_bus/binding.c \
 		$(CDK2_DIR)/src/modules/scsi_bus/model.c
@@ -2337,6 +2344,7 @@ $(CDK2_NATIVE_SCSI_ENTRY_TEST): $(CDK2_DIR)/tests/scsi_bus_entry_test.c \
 		$(CDK2_DIR)/src/modules/scsi_bus/binding.c \
 		$(CDK2_DIR)/src/modules/scsi_bus/model.c | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) \
+		-MMD -MP -MF "$(CDK2_NATIVE_BUILD_DIR)/scsi-entry-test.d" -MT "$@" \
 		-o "$@" $(CDK2_DIR)/tests/scsi_bus_entry_test.c \
 		$(CDK2_DIR)/src/modules/scsi_bus/entry.c \
 		$(CDK2_DIR)/src/modules/scsi_bus/binding.c \
@@ -2354,7 +2362,8 @@ $(CDK2_NATIVE_BUILD_DIR)/scsi-bus-%.o: \
 		$(CDK2_DIR)/include/cdk2/scsi_bus_binding.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
 		-mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args \
-		$(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+		$(CDK2_NATIVE_INCLUDES) -MMD -MP -MF "$(@:.o=.d)" -MT "$@" \
+		-c "$<" -o "$@"
 
 $(CDK2_NATIVE_SCSI_BUS_PE): $(CDK2_NATIVE_SCSI_BUS_OBJS) \
 		$(CDK2_DIR)/src/modules/scsi_bus/scsi_bus.ld $(CDK2_NATIVE_PERELOCCHECK)
