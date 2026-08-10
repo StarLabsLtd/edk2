@@ -6,6 +6,12 @@
 
 #define CDK2_USB_MASS_CBW_SIGNATURE 0x43425355U
 #define CDK2_USB_MASS_CSW_SIGNATURE 0x53425355U
+#ifndef EFI_WRITE_PROTECTED
+#define EFI_WRITE_PROTECTED EFIERR(8)
+#endif
+#ifndef EFI_NO_MEDIA
+#define EFI_NO_MEDIA EFIERR(12)
+#endif
 
 struct cdk2_usb_mass_cbw {
 	UINT32 signature, tag, transfer_length;
@@ -44,5 +50,11 @@ EFI_STATUS cdk2_usb_mass_transport(struct cdk2_usb_mass_device *device,
 	UINT8 lun, const void *command, UINT8 command_length, void *data,
 	UINT32 *length, BOOLEAN input, UINTN timeout);
 EFI_STATUS cdk2_usb_mass_reset(struct cdk2_usb_mass_device *device);
+EFI_STATUS cdk2_usb_mass_probe_lun(struct cdk2_usb_mass_device *device,
+	UINT8 lun);
+EFI_STATUS cdk2_usb_mass_read(struct cdk2_usb_mass_device *device, UINT8 lun,
+	UINT64 lba, UINTN blocks, void *buffer);
+EFI_STATUS cdk2_usb_mass_write(struct cdk2_usb_mass_device *device, UINT8 lun,
+	UINT64 lba, UINTN blocks, const void *buffer);
 
 #endif
