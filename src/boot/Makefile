@@ -48,6 +48,8 @@ CDK2_NATIVE_SCSI_DISK_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/ScsiDisk.ffs
 CDK2_NATIVE_SCSI_DISK_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-scsi-disk.fv
 CDK2_NATIVE_SCSI_DISK_PACKAGE_TEST ?= \
 	$(CDK2_NATIVE_BUILD_DIR)/scsi-disk-package-test
+CDK2_NATIVE_SCSI_DISK_QEMU_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/scsi-disk-qemu.o
+CDK2_NATIVE_SCSI_DISK_QEMU_PE ?= $(CDK2_NATIVE_BUILD_DIR)/scsi-disk-qemu.efi
 CDK2_NATIVE_SATA_CONTROLLER_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-sata-controller-test
 CDK2_NATIVE_ATA_ATAPI_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-atapi-test
 CDK2_NATIVE_ATA_ATAPI_BINDING_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-atapi-binding-test
@@ -1131,6 +1133,24 @@ native-scsi-disk-fv-exact: $(CDK2_NATIVE_SCSI_DISK_FFS) \
 		"$(CDK2_NATIVE_SCSI_DISK_FFS)" "$(CDK2_NATIVE_SCSI_DISK_FV)"
 	@"$(CDK2_NATIVE_FVINFO)" "$(CDK2_NATIVE_SCSI_DISK_FV)" | grep -q \
 		'^0a66e322-3740-4cce-ad62-bd172cecca35[[:space:]]0x00332630[[:space:]]0x0000f042[[:space:]]0x07[[:space:]]ScsiDisk$$'
+
+$(CDK2_NATIVE_SCSI_DISK_QEMU_OBJ): $(CDK2_DIR)/tests/scsi_disk_qemu.c \
+		$(CDK2_DIR)/include/cdk2/scsi_disk.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,\
+		$(CDK2_NATIVE_CFLAGS)) -mcmodel=large -fno-ident -fcf-protection=none \
+		-maccumulate-outgoing-args -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 \
+		$(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+
+$(CDK2_NATIVE_SCSI_DISK_QEMU_PE): $(CDK2_NATIVE_SCSI_DISK_QEMU_OBJ) \
+		$(CDK2_DIR)/tests/ata_atapi_qemu.ld $(CDK2_NATIVE_PERELOCCHECK)
+	@$(LD) -mi386pep --subsystem 10 --entry scsi_disk_qemu_entry --image-base 0 \
+		--section-alignment 0x1000 --file-alignment 0x1000 --build-id=none \
+		--no-insert-timestamp -s --nxcompat \
+		-T "$(CDK2_DIR)/tests/ata_atapi_qemu.ld" -o "$@" "$<"
+	@"$(CDK2_NATIVE_PERELOCCHECK)" --subsystem 10 "$@"
+
+.PHONY: native-scsi-disk-oracle
+native-scsi-disk-oracle: $(CDK2_NATIVE_SCSI_DISK_QEMU_PE)
 
 native-scsi-bus-package: $(CDK2_NATIVE_SCSI_BUS_FFS) $(CDK2_NATIVE_SCSI_PACKAGE_TEST)
 	@"$(CDK2_NATIVE_SCSI_PACKAGE_TEST)" "$(CDK2_NATIVE_SCSI_BUS_FFS)"
