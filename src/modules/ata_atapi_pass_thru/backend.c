@@ -133,6 +133,13 @@ EFI_STATUS cdk2_ata_backend_discover_ahci(struct cdk2_ata_controller *controller
 		}
 		signature = controller->ahci->services.read(
 			controller->ahci->services.context, port, AHCI_PX_SIG);
+		if (signature != AHCI_SIG_ATA && signature != AHCI_SIG_ATAPI) {
+			status = cdk2_ahci_reset_port(controller->ahci, port, 5000000U);
+			if (EFI_ERROR(status))
+				continue;
+			signature = controller->ahci->services.read(
+				controller->ahci->services.context, port, AHCI_PX_SIG);
+		}
 		if (signature == AHCI_SIG_ATA) {
 			type = CDK2_ATA_DISK;
 			acb.command = 0xecU;

@@ -27,6 +27,7 @@ EFI_STATUS cdk2_ata_topology_init(struct cdk2_ata_topology *topology,
 	memset(topology, 0, sizeof(*topology));
 	topology->mode = mode;
 	topology->previous_port = topology->previous_multiplier = 0xffffU;
+	topology->multiplier_port = 0xffffU;
 	return EFI_SUCCESS;
 }
 
@@ -77,6 +78,13 @@ EFI_STATUS cdk2_ata_get_next_device(struct cdk2_ata_topology *topology, UINT16 p
 {
 	if (topology == NULL || multiplier == NULL)
 		return EFI_INVALID_PARAMETER;
+	if (*multiplier == 0xffffU && topology->multiplier_enumerating &&
+	    topology->multiplier_port == port &&
+	    topology->previous_multiplier == 0xffffU) {
+		topology->multiplier_enumerating = 0U;
+		topology->multiplier_port = 0xffffU;
+		return EFI_NOT_FOUND;
+	}
 	if (*multiplier != 0xffffU && *multiplier != topology->previous_multiplier)
 		return EFI_INVALID_PARAMETER;
 	for (size_t i = 0; i < topology->count; i++)
@@ -85,9 +93,13 @@ EFI_STATUS cdk2_ata_get_next_device(struct cdk2_ata_topology *topology, UINT16 p
 		    topology->devices[i].multiplier > *multiplier)) {
 			*multiplier = topology->previous_multiplier =
 				topology->devices[i].multiplier;
+			topology->multiplier_port = port;
+			topology->multiplier_enumerating = 1U;
 			return EFI_SUCCESS;
 		}
 	topology->previous_multiplier = 0xffffU;
+	topology->multiplier_port = 0xffffU;
+	topology->multiplier_enumerating = 0U;
 	return EFI_NOT_FOUND;
 }
 

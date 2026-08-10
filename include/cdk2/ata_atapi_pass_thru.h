@@ -31,6 +31,8 @@ struct cdk2_ata_topology {
 	struct cdk2_ata_device devices[CDK2_ATA_MAX_DEVICES];
 	size_t count;
 	UINT16 previous_port, previous_multiplier;
+	UINT16 multiplier_port;
+	UINT8 multiplier_enumerating;
 };
 
 #pragma pack(push, 1)

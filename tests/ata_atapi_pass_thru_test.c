@@ -27,6 +27,11 @@ static void topology_and_paths(enum cdk2_ata_mode mode)
 	CHECK(cdk2_ata_get_next_device(&topology, 4, &device) == EFI_SUCCESS);
 	CHECK(device == 2);
 	CHECK(cdk2_ata_get_next_device(&topology, 4, &device) == EFI_NOT_FOUND);
+	device = 0xffffU;
+	CHECK(cdk2_ata_get_next_device(&topology, 1, &device) == EFI_SUCCESS &&
+		device == 0xffffU);
+	CHECK(cdk2_ata_get_next_device(&topology, 1, &device) == EFI_NOT_FOUND);
+	CHECK(cdk2_ata_get_next_device(&topology, 1, &device) == EFI_SUCCESS);
 	size = 1;
 	CHECK(cdk2_ata_build_device_path(&topology, 4, 2, path, &size) ==
 		EFI_BUFFER_TOO_SMALL);

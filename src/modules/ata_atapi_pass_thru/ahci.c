@@ -261,10 +261,13 @@ EFI_STATUS cdk2_ahci_reset_controller(struct cdk2_ahci_engine *engine,
 EFI_STATUS cdk2_ahci_reset_port(struct cdk2_ahci_engine *engine, UINT16 port,
 	UINT64 timeout)
 {
-	UINT32 command;
+	UINT32 command; EFI_STATUS status;
 	if (engine == NULL || !engine->initialized || port >= 32U ||
 	    (engine->ports_implemented & (1U << port)) == 0U)
 		return EFI_INVALID_PARAMETER;
+	status = configure_port(engine, port, timeout);
+	if (EFI_ERROR(status))
+		return status;
 	command = engine->services.read(engine->services.context, port, AHCI_PX_CMD);
 	if (EFI_ERROR(engine->services.write(engine->services.context, port, AHCI_PX_CMD,
 		command & ~(AHCI_CMD_ST | AHCI_CMD_FRE))) ||
