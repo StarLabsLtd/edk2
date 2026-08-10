@@ -190,7 +190,7 @@ static EFI_STATUS service_create_protocols(void *opaque,
 	struct cdk2_ata_protocol_bundle **protocols)
 {
 	struct cdk2_ata_protocol_services services = {
-		opaque, protocol_allocate, protocol_release };
+		opaque, protocol_allocate, protocol_release, NULL, NULL };
 	EFI_STATUS status;
 
 	status = protocol_allocate(opaque, sizeof(**protocols), (void **)protocols);

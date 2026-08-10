@@ -10,7 +10,11 @@
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "failed: %s:%d: %s\n", \
 	__FILE__, __LINE__, #x); exit(EXIT_FAILURE); } } while (0)
 
-struct fixture { UINT64 now; unsigned int allocations, releases, resets, atapi; };
+struct fixture {
+	UINT64 now;
+	unsigned int allocations, releases, resets, atapi, submits;
+	void *submitted_event;
+};
 static EFI_STATUS allocate(void *opaque, size_t size, void **buffer)
 { struct fixture *fixture = opaque; fixture->allocations++; *buffer = malloc(size);
 	return *buffer == NULL ? EFI_OUT_OF_RESOURCES : EFI_SUCCESS; }
@@ -51,6 +55,15 @@ static UINT64 get_time(void *opaque)
 { struct fixture *fixture = opaque; return fixture->now++; }
 static void delay(void *opaque, UINTN microseconds)
 { struct fixture *fixture = opaque; (void)microseconds; fixture->now++; }
+static EFI_STATUS submit(void *opaque, struct cdk2_ata_controller *controller,
+	UINT16 port, UINT16 multiplier, struct cdk2_ata_command_packet *packet,
+	void *event)
+{
+	struct fixture *fixture = opaque;
+	(void)controller; (void)port; (void)multiplier; (void)packet;
+	fixture->submits++; fixture->submitted_event = event;
+	return EFI_SUCCESS;
+}
 
 int main(void)
 {
@@ -58,7 +71,8 @@ int main(void)
 	struct cdk2_ide_channel channel = { 0x1f0, 0x3f6, 0 };
 	struct cdk2_ide_services ide_services = { &fixture, read8, read16,
 		write8, write16, write32, map, unmap, flush, timing, get_time, delay };
-	struct cdk2_ata_protocol_services services = { &fixture, allocate, release };
+	struct cdk2_ata_protocol_services services = {
+		&fixture, allocate, release, NULL, NULL };
 	struct cdk2_ata_controller controller = { 0 };
 	struct cdk2_ata_protocol_instance instance;
 	struct cdk2_ext_scsi_instance scsi;
@@ -110,7 +124,13 @@ int main(void)
 	CHECK(parsed_port == port && parsed_device == device);
 	release(&fixture, path);
 	CHECK(instance.protocol.pass_thru(&instance.protocol, 0, 0, &packet,
-		&fixture) == EFI_SUCCESS);
+		&fixture) == EFI_UNSUPPORTED && fixture.submits == 0);
+	services.submit = submit;
+	CHECK(cdk2_ata_protocol_init(&instance, &controller, &services, 4) == EFI_SUCCESS &&
+		(instance.mode.attributes & CDK2_ATA_PASS_THRU_ATTRIBUTES_NONBLOCKIO) != 0U);
+	CHECK(instance.protocol.pass_thru(&instance.protocol, 0, 0, &packet,
+		&fixture) == EFI_SUCCESS && fixture.submits == 1 &&
+		fixture.submitted_event == &fixture);
 	CHECK(instance.protocol.pass_thru(&instance.protocol, 1, 0, &packet,
 		NULL) == EFI_NOT_FOUND);
 	CHECK(instance.protocol.pass_thru(&instance.protocol, 0, 0, &packet,

@@ -167,6 +167,10 @@ struct cdk2_ata_protocol_services {
 	void *context;
 	EFI_STATUS (*allocate)(void *context, size_t size, void **buffer);
 	void (*release)(void *context, void *buffer);
+	EFI_STATUS (*submit)(void *context, struct cdk2_ata_controller *controller,
+		UINT16 port, UINT16 multiplier, struct cdk2_ata_command_packet *packet,
+		void *event);
+	EFI_STATUS (*cancel)(void *context, struct cdk2_ata_controller *controller);
 };
 struct cdk2_ata_protocol_instance {
 	struct cdk2_ata_pass_thru_protocol protocol;

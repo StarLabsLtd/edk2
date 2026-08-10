@@ -60,6 +60,10 @@ static EFI_STATUS CDK2_MS_ABI pass_thru(
 	status = cdk2_ata_normalize_transfer(device, packet);
 	if (EFI_ERROR(status))
 		return status;
+	if (event != NULL)
+		return instance->services.submit == NULL ? EFI_UNSUPPORTED :
+			instance->services.submit(instance->services.context, controller, port,
+				multiplier, packet, event);
 	if (controller->topology.mode == CDK2_ATA_AHCI) {
 		if (controller->ahci == NULL ||
 		    multiplier != CDK2_ATA_NO_PORT_MULTIPLIER)
@@ -187,7 +191,8 @@ EFI_STATUS cdk2_ata_protocol_init(struct cdk2_ata_protocol_instance *instance,
 	instance->controller = controller;
 	instance->services = *services;
 	instance->mode.attributes = CDK2_ATA_PASS_THRU_ATTRIBUTES_PHYSICAL |
-		CDK2_ATA_PASS_THRU_ATTRIBUTES_LOGICAL;
+		CDK2_ATA_PASS_THRU_ATTRIBUTES_LOGICAL |
+		(services->submit != NULL ? CDK2_ATA_PASS_THRU_ATTRIBUTES_NONBLOCKIO : 0U);
 	instance->mode.io_align = io_align;
 	instance->protocol = (struct cdk2_ata_pass_thru_protocol) {
 		&instance->mode, pass_thru, next_port, next_device, build_path,
