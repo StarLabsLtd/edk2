@@ -37,14 +37,22 @@ struct cdk2_scsi_disk_command {
 	UINT32 blocks;
 };
 
+typedef EFI_STATUS cdk2_scsi_disk_execute_fn(void *context,
+	struct cdk2_scsi_disk_command *command, void *buffer, UINT32 bytes,
+	BOOLEAN write, UINT8 *host, UINT8 *target);
+typedef void cdk2_scsi_disk_complete_fn(void *context, EFI_STATUS status,
+	UINT8 host, UINT8 target);
+typedef EFI_STATUS cdk2_scsi_disk_submit_fn(void *context,
+	struct cdk2_scsi_disk_command *command, void *buffer, UINT32 bytes,
+	BOOLEAN write, cdk2_scsi_disk_complete_fn *complete, void *complete_context);
+typedef EFI_STATUS cdk2_scsi_disk_simple_fn(void *context);
+
 struct cdk2_scsi_disk_transport {
 	void *context;
-	EFI_STATUS (*execute)(void *, struct cdk2_scsi_disk_command *, void *, UINT32,
-		BOOLEAN, UINT8 *, UINT8 *);
-	EFI_STATUS (*submit)(void *, struct cdk2_scsi_disk_command *, void *, UINT32,
-		BOOLEAN, void (*)(void *, EFI_STATUS, UINT8, UINT8), void *);
-	EFI_STATUS (*cancel)(void *context);
-	EFI_STATUS (*wait)(void *context);
+	cdk2_scsi_disk_execute_fn *execute;
+	cdk2_scsi_disk_submit_fn *submit;
+	cdk2_scsi_disk_simple_fn *cancel;
+	cdk2_scsi_disk_simple_fn *wait;
 };
 
 struct cdk2_scsi_disk_async_task {
@@ -55,14 +63,18 @@ struct cdk2_scsi_disk_async_task {
 	BOOLEAN write, accepted, flush;
 };
 
+typedef EFI_STATUS cdk2_scsi_disk_signal_fn(void *context, void *event);
+typedef UINTN cdk2_scsi_disk_lock_fn(void *context);
+typedef void cdk2_scsi_disk_unlock_fn(void *context, UINTN state);
+
 struct cdk2_scsi_disk_async {
 	struct cdk2_scsi_disk *disk;
 	struct cdk2_scsi_disk_async_task queue[CDK2_SCSI_DISK_ASYNC_DEPTH];
 	void *signal_context;
-	EFI_STATUS (*signal)(void *context, void *event);
+	cdk2_scsi_disk_signal_fn *signal;
 	void *lock_context;
-	UINTN (*lock)(void *context);
-	void (*unlock)(void *context, UINTN state);
+	cdk2_scsi_disk_lock_fn *lock;
+	cdk2_scsi_disk_unlock_fn *unlock;
 	UINTN head, count;
 	BOOLEAN parent_active, dispatching, completion_pending, stopping, aborting;
 	BOOLEAN sync_busy;
@@ -141,15 +153,20 @@ struct cdk2_scsi_disk_binding {
 };
 
 struct cdk2_scsi_io;
+typedef EFI_STATUS cdk2_scsi_disk_allocate_fn(void *context, UINTN size,
+	void **buffer);
+typedef void cdk2_scsi_disk_release_fn(void *context, void *buffer);
+typedef void CDK2_MS_ABI cdk2_scsi_disk_notify_fn(void *event, void *context);
+typedef EFI_STATUS cdk2_scsi_disk_create_event_fn(void *context,
+	cdk2_scsi_disk_notify_fn *notify, void *notify_context, void **event);
+typedef EFI_STATUS cdk2_scsi_disk_event_fn(void *context, void *event);
 struct cdk2_scsi_disk_backend_services {
 	void *context;
-	EFI_STATUS (*allocate)(void *context, UINTN size, void **buffer);
-	void (*release)(void *context, void *buffer);
-	EFI_STATUS (*create_event)(void *context,
-		void (CDK2_MS_ABI * notify)(void *, void *), void *notify_context,
-		void **event);
-	EFI_STATUS (*close_event)(void *context, void *event);
-	EFI_STATUS (*wait_event)(void *context, void *event);
+	cdk2_scsi_disk_allocate_fn *allocate;
+	cdk2_scsi_disk_release_fn *release;
+	cdk2_scsi_disk_create_event_fn *create_event;
+	cdk2_scsi_disk_event_fn *close_event;
+	cdk2_scsi_disk_event_fn *wait_event;
 };
 
 struct cdk2_scsi_disk_backend {

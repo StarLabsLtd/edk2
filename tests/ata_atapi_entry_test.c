@@ -129,7 +129,8 @@ static EFI_STATUS CDK2_MS_ABI signal_event(void *event)
 	return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI close_event(void *event)
 { active->closes_event++; if (pending_event == event) pending_event = NULL;
-	if (signal_notify_event == event) signal_notify_event = NULL;
+	if (signal_notify_event == event)
+		signal_notify_event = NULL;
 	free(event); return EFI_SUCCESS; }
 static void tick(void)
 { struct fake_event *event = pending_event; CHECK(event != NULL); pending_event = NULL;

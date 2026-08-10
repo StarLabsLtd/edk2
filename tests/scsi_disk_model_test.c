@@ -3,10 +3,11 @@
 #include <cdk2/scsi_disk.h>
 
 #include <stdio.h>
+#include <stdlib.h>
 
 #define CHECK(condition) do { if (!(condition)) { \
 	fprintf(stderr, "failed: %s:%d: %s\n", __FILE__, __LINE__, #condition); \
-	return 1; \
+	exit(EXIT_FAILURE); \
 } } while (0)
 
 int main(void)
