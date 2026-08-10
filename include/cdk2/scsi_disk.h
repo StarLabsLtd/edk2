@@ -111,6 +111,22 @@ struct cdk2_scsi_disk_binding {
 	UINTN count;
 };
 
+struct cdk2_scsi_io;
+struct cdk2_scsi_disk_backend_services {
+	void *context;
+	EFI_STATUS (*allocate)(void *context, UINTN size, void **buffer);
+	void (*release)(void *context, void *buffer);
+	EFI_STATUS (*create_event)(void *context,
+		void (CDK2_MS_ABI *notify)(void *, void *), void *notify_context,
+		void **event);
+	EFI_STATUS (*close_event)(void *context, void *event);
+};
+
+struct cdk2_scsi_disk_backend {
+	struct cdk2_scsi_io *io;
+	struct cdk2_scsi_disk_backend_services services;
+};
+
 EFI_STATUS cdk2_scsi_disk_parse_capacity10(const UINT8 response[8],
 	UINT64 *last_block, UINT32 *block_size, BOOLEAN *needs_capacity16);
 EFI_STATUS cdk2_scsi_disk_parse_capacity16(const UINT8 response[32],
@@ -141,5 +157,9 @@ EFI_STATUS cdk2_scsi_disk_binding_start(struct cdk2_scsi_disk_binding *binding,
 	void *controller);
 EFI_STATUS cdk2_scsi_disk_binding_stop(struct cdk2_scsi_disk_binding *binding,
 	void *controller);
+EFI_STATUS cdk2_scsi_disk_backend_init(struct cdk2_scsi_disk_backend *backend,
+	struct cdk2_scsi_io *io,
+	const struct cdk2_scsi_disk_backend_services *services,
+	struct cdk2_scsi_disk *disk);
 
 #endif
