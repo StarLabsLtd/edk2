@@ -88,6 +88,7 @@ CDK2_CONFIG_TARGETS := build check manifest modules native-stage \
 	native-ata-atapi-pci-test \
 	native-ata-atapi-entry-test \
 	native-ata-protocol-test \
+	native-ata-async-test \
 	native-ata-backend-ide-test \
 	native-ata-atapi-package \
 	native-ata-atapi-oracle \

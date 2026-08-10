@@ -9,6 +9,7 @@
 
 #define CDK2_ATA_MAX_DEVICES 64U
 #define CDK2_ATA_MAX_CONTROLLERS 8U
+#define CDK2_ATA_ASYNC_DEPTH 16U
 #define CDK2_ATA_NO_PORT_MULTIPLIER 0xffffU
 #define CDK2_ATA_PASS_THRU_ATTRIBUTES_PHYSICAL 0x0001U
 #define CDK2_ATA_PASS_THRU_ATTRIBUTES_LOGICAL 0x0002U
@@ -157,6 +158,40 @@ struct cdk2_ata_controller {
 	struct cdk2_ata_protocol_bundle *protocols;
 	void *backend;
 };
+
+struct cdk2_ata_async_task {
+	struct cdk2_ata_command_packet *packet;
+	void *event;
+	UINT16 port, multiplier;
+	EFI_STATUS status;
+	UINT8 active, issued, completed, signaled;
+};
+struct cdk2_ata_async_services {
+	void *context;
+	EFI_STATUS (*begin)(void *context, struct cdk2_ata_controller *controller,
+		struct cdk2_ata_async_task *task);
+	EFI_STATUS (*poll)(void *context, struct cdk2_ata_controller *controller,
+		struct cdk2_ata_async_task *task, BOOLEAN *complete);
+	EFI_STATUS (*abort)(void *context, struct cdk2_ata_controller *controller,
+		struct cdk2_ata_async_task *task);
+	EFI_STATUS (*arm)(void *context, struct cdk2_ata_controller *controller);
+	void (*signal)(void *context, void *event);
+};
+struct cdk2_ata_async_controller {
+	struct cdk2_ata_controller *controller;
+	struct cdk2_ata_async_services services;
+	struct cdk2_ata_async_task queue[CDK2_ATA_ASYNC_DEPTH];
+	UINTN head, count;
+	BOOLEAN polling, stopping, armed;
+};
+EFI_STATUS cdk2_ata_async_init(struct cdk2_ata_async_controller *async,
+	struct cdk2_ata_controller *controller,
+	const struct cdk2_ata_async_services *services);
+EFI_STATUS cdk2_ata_async_submit(struct cdk2_ata_async_controller *async,
+	UINT16 port, UINT16 multiplier, struct cdk2_ata_command_packet *packet,
+	void *event);
+EFI_STATUS cdk2_ata_async_poll(struct cdk2_ata_async_controller *async);
+EFI_STATUS cdk2_ata_async_stop(struct cdk2_ata_async_controller *async);
 struct cdk2_ata_binding {
 	struct cdk2_ata_binding_services services;
 	struct cdk2_ata_controller controllers[CDK2_ATA_MAX_CONTROLLERS];
