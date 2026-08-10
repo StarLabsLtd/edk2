@@ -4,6 +4,7 @@
 
 #define EFI_ALREADY_STARTED EFIERR(20)
 #define EFI_NOT_STARTED EFIERR(19)
+#define CDK2_SCSI_PATH_LIMIT 4096U
 
 const EFI_GUID cdk2_ext_scsi_pass_thru_guid = { 0x143b7632, 0xb81b, 0x4cb7,
 	{ 0xab, 0xd3, 0xb6, 0x25, 0xa5, 0xb9, 0xbf, 0xfe } };
@@ -31,8 +32,11 @@ static UINTN path_size(const struct cdk2_device_path *path)
 	if (path == NULL)
 		return 0;
 	for (;;) {
+		if (size > CDK2_SCSI_PATH_LIMIT - sizeof(*path))
+			return 0;
 		length = node_length(path);
-		if (length < sizeof(*path))
+		if (length < sizeof(*path) ||
+		    length > CDK2_SCSI_PATH_LIMIT - size)
 			return 0;
 		size += length;
 		if (is_end(path))
@@ -261,8 +265,17 @@ static EFI_STATUS add_child(struct cdk2_scsi_binding *binding,
 		&cdk2_ext_scsi_pass_thru_guid, (void **)&binding->pass_thru, binding->image,
 		child->handle, CDK2_OPEN_BY_CHILD_CONTROLLER);
 	if (EFI_ERROR(status)) {
-		(void)binding->ops->uninstall(binding->context, child->handle,
+		EFI_STATUS rollback = binding->ops->uninstall(binding->context,
+			child->handle,
 			&cdk2_device_path_guid, child->path, &cdk2_scsi_io_guid, &child->io);
+
+		if (EFI_ERROR(rollback)) {
+			child->next = binding->children;
+			binding->children = child;
+			child = NULL;
+			status = rollback;
+			goto done;
+		}
 		child->installed = FALSE;
 		goto done;
 	}

@@ -5,6 +5,8 @@
 #include <stdlib.h>
 
 static UINTN closes;
+static BOOLEAN fail_child_open;
+static BOOLEAN fail_uninstall;
 static struct cdk2_device_path end_path = { 0x7f, 0xff, { 4, 0 } };
 static struct cdk2_ext_scsi_mode pass_mode = { 0, 3, 8 };
 static struct cdk2_ext_scsi pass;
@@ -59,6 +61,8 @@ static EFI_STATUS open_good(void *context, void *controller, const EFI_GUID *pro
 	void **interface, void *agent, void *child, UINT32 attributes)
 {
 	(void)context; (void)controller; (void)agent; (void)child; (void)attributes;
+	if (attributes == CDK2_OPEN_BY_CHILD_CONTROLLER && fail_child_open)
+		return EFI_DEVICE_ERROR;
 	*interface = protocol->data1 == cdk2_device_path_guid.data1 ?
 		(void *)&end_path : (void *)&pass;
 	return EFI_SUCCESS;
@@ -97,7 +101,7 @@ static EFI_STATUS uninstall_unused(void *context, void *handle, const EFI_GUID *
 	(void)first_interface;
 	(void)second;
 	(void)second_interface;
-	return EFI_SUCCESS;
+	return fail_uninstall ? EFI_DEVICE_ERROR : EFI_SUCCESS;
 }
 
 static EFI_STATUS allocate_ok(void *context, UINTN size, void **buffer)
@@ -167,6 +171,19 @@ int main(void)
 			&child) == EFI_SUCCESS && cdk2_scsi_binding_stop(&binding,
 			(void *)2, 0, NULL) == EFI_SUCCESS,
 			"child and parent ownership stop cleanly");
+	}
+	cdk2_scsi_binding_init(&binding, &ops, NULL, (void *)1);
+	fail_child_open = TRUE; fail_uninstall = TRUE;
+	failures += check(cdk2_scsi_binding_start(&binding, (void *)2, &target_path) ==
+		EFI_DEVICE_ERROR && binding.children != NULL &&
+		binding.children->installed && !binding.children->by_child,
+		"failed BY_CHILD rollback retains installed child ownership");
+	if (binding.children != NULL) {
+		child = binding.children->handle; fail_uninstall = FALSE;
+		failures += check(cdk2_scsi_binding_stop(&binding, (void *)2, 1,
+			&child) == EFI_SUCCESS && cdk2_scsi_binding_stop(&binding,
+			(void *)2, 0, NULL) == EFI_SUCCESS,
+			"retained rollback child is removable on retry");
 	}
 	return failures != 0;
 }
