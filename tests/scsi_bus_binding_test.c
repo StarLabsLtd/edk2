@@ -8,6 +8,7 @@ static UINTN closes;
 static BOOLEAN fail_child_open;
 static BOOLEAN fail_uninstall;
 static struct cdk2_device_path end_path = { 0x7f, 0xff, { 4, 0 } };
+static struct cdk2_device_path child_node = { 3, 0x12, { 4, 0 } };
 static struct cdk2_ext_scsi_mode pass_mode = { 0, 3, 8 };
 static struct cdk2_ext_scsi pass;
 static UINT8 next_id[CDK2_SCSI_TARGET_MAX] = { 2, 0xff };
@@ -56,10 +57,10 @@ static EFI_STATUS CDK2_MS_ABI build_path(struct cdk2_ext_scsi *interface,
 	UINT8 *target, UINT64 lun, struct cdk2_device_path **path)
 {
 	(void)interface; (void)target; (void)lun;
-	*path = malloc(sizeof(end_path));
+	*path = malloc(sizeof(child_node));
 	if (*path == NULL)
 		return EFI_OUT_OF_RESOURCES;
-	**path = end_path; return EFI_SUCCESS;
+	**path = child_node; return EFI_SUCCESS;
 }
 
 static EFI_STATUS open_fault(void *context, void *controller, const EFI_GUID *protocol,
@@ -184,7 +185,13 @@ int main(void)
 		EFI_SUCCESS && binding.children != NULL,
 		"targeted start discovers and publishes the child");
 	if (binding.children != NULL) {
+		struct cdk2_device_path *published_end = (void *)
+			((UINT8 *)binding.children->path + sizeof(child_node));
+
 		child = binding.children->handle;
+		failures += check(binding.children->path->type == child_node.type &&
+			published_end->type == 0x7f && published_end->subtype == 0xff,
+			"single producer node is published with a fresh End node");
 		failures += check(binding.children->io.get_device_type(
 			&binding.children->io, &type) == EFI_SUCCESS && type == 0,
 			"INQUIRY publishes the discovered direct-access type");

@@ -198,17 +198,24 @@ static EFI_STATUS append_path(struct cdk2_scsi_binding *binding,
 	struct cdk2_device_path *node, struct cdk2_device_path **result)
 {
 	UINTN parent_size = path_size(binding->parent_path);
-	UINTN child_size = path_size(node);
+	UINTN child_size;
+	struct cdk2_device_path end = { 0x7f, 0xff, { sizeof(end), 0 } };
 	EFI_STATUS status;
 
-	if (parent_size < sizeof(*node) || child_size < sizeof(*node))
+	if (node == NULL)
+		return EFI_INVALID_PARAMETER;
+	child_size = node_length(node);
+	if (parent_size < sizeof(*node) || child_size < sizeof(*node) ||
+	    child_size > CDK2_SCSI_PATH_LIMIT - parent_size)
 		return EFI_DEVICE_ERROR;
 	status = binding->ops->allocate(binding->context,
-		parent_size + child_size - sizeof(*node), (void **)result);
+		parent_size + child_size, (void **)result);
 	if (EFI_ERROR(status))
 		return status;
 	copy_bytes(*result, binding->parent_path, parent_size - sizeof(*node));
 	copy_bytes((UINT8 *)*result + parent_size - sizeof(*node), node, child_size);
+	copy_bytes((UINT8 *)*result + parent_size - sizeof(*node) + child_size,
+		&end, sizeof(end));
 	return EFI_SUCCESS;
 }
 
