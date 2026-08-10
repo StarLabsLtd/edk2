@@ -45,7 +45,8 @@ CDK2_CONFIG_TARGETS := build check manifest modules native-stage \
 	native-pci-host-bridge-package \
 	native-pci-bus-package native-pci-bus-fv \
 	native-sata-controller-package native-sata-controller-oracle native-sata-controller-fv \
-	native-ata-atapi-fv native-ata-atapi-fv-exact \
+	native-ata-atapi-fv native-ata-atapi-fv-exact native-ata-bus-fv \
+	native-ata-bus-fv-exact \
 	native-coreboot-test native-fv-test native-fvpack-test native-pe-test \
 	native-fvinfo native-fvinfo-test native-null-memory-test-fv \
 	native-null-memory-test-test native-module-test native-elfcheck-test \
@@ -96,6 +97,7 @@ CDK2_CONFIG_TARGETS := build check manifest modules native-stage \
 	native-ata-bus-binding-test \
 	native-ata-bus-entry-test \
 	native-ata-bus-package \
+	native-ata-bus-oracle \
 	native-ata-atapi-package \
 	native-ata-atapi-oracle \
 	manifest-check print
@@ -110,6 +112,7 @@ CDK2_RECURSIVE_ARGS := \
 	CDK2_KCONFIG_TOOL="$(CDK2_KCONFIG_TOOL)" \
 	CDK2_PAYLOAD_FV="$(CDK2_PAYLOAD_FV)" \
 	$(if $(CDK2_NATIVE_PRE_ATA_ATAPI_FV),CDK2_NATIVE_PRE_ATA_ATAPI_FV="$(CDK2_NATIVE_PRE_ATA_ATAPI_FV)") \
+	$(if $(CDK2_NATIVE_PRE_ATA_BUS_FV),CDK2_NATIVE_PRE_ATA_BUS_FV="$(CDK2_NATIVE_PRE_ATA_BUS_FV)") \
 	$(if $(CDK2_NATIVE_PCD_DATABASE),CDK2_NATIVE_PCD_DATABASE="$(CDK2_NATIVE_PCD_DATABASE)") \
 	CDK2_NATIVE_DIR="$(CDK2_NATIVE_DIR)" \
 	$(if $(HOSTCC),HOSTCC="$(HOSTCC)") \

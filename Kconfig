@@ -275,6 +275,14 @@ config CDK2_NATIVE_ATA_ATAPI_PASS_THRU
 	  Publish ATA Pass Thru and Extended SCSI Pass Thru protocols for
 	  discovered IDE and AHCI devices.
 
+config CDK2_NATIVE_ATA_BUS
+	bool "Build native ATA bus services"
+	default y
+	depends on CDK2_NATIVE_ATA_ATAPI_PASS_THRU
+	help
+	  Publish Block I/O, Block I/O 2, Disk Info and conditional Storage
+	  Security children for devices exposed by native ATA Pass Thru.
+
 config CDK2_NATIVE_STATUS_CODE_HANDLER
 	bool "Build the native release status-code handler"
 	default y

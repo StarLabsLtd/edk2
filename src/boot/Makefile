@@ -44,6 +44,9 @@ CDK2_NATIVE_ATA_BUS_MODULES := model io block binding disk_security entry runtim
 CDK2_NATIVE_ATA_BUS_OBJS := $(addprefix $(CDK2_NATIVE_BUILD_DIR)/ata-bus-,$(addsuffix .o,$(CDK2_NATIVE_ATA_BUS_MODULES)))
 CDK2_NATIVE_ATA_BUS_PE ?= $(CDK2_NATIVE_BUILD_DIR)/AtaBusDxe.efi
 CDK2_NATIVE_ATA_BUS_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/AtaBusDxe.ffs
+CDK2_NATIVE_ATA_BUS_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-ata-bus.fv
+CDK2_NATIVE_ATA_BUS_QEMU_OBJ := $(CDK2_NATIVE_BUILD_DIR)/ata-bus-qemu.o
+CDK2_NATIVE_ATA_BUS_QEMU_PE := $(CDK2_NATIVE_BUILD_DIR)/ata-bus-qemu.efi
 CDK2_NATIVE_ATA_BACKEND_IDE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-backend-ide-test
 CDK2_NATIVE_ATA_PACKAGE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-package-test
 CDK2_NATIVE_ATA_DEPENDENCY_TEST := $(CDK2_DIR)/tests/ata_atapi_dependency_test.sh
@@ -297,6 +300,15 @@ native-ata-atapi-fv-exact: $(CDK2_NATIVE_ATA_FFS) $(CDK2_NATIVE_FVREPLACE) \
 		"$(CDK2_NATIVE_ATA_FFS)" "$(CDK2_NATIVE_ATA_FV)"
 	@"$(CDK2_NATIVE_FVINFO)" "$(CDK2_NATIVE_ATA_FV)" | grep -q \
 		'^5e523cb4-d397-4986-87bd-a6dd8b22f455[[:space:]]0x0031d598[[:space:]]0x0000e056[[:space:]]0x07[[:space:]]AtaAtapiPassThruDxe$$'
+
+.PHONY: native-ata-bus-fv-exact
+native-ata-bus-fv-exact: $(CDK2_NATIVE_ATA_BUS_FFS) $(CDK2_NATIVE_FVREPLACE) \
+		$(CDK2_NATIVE_FVINFO)
+	@test -n "$(CDK2_NATIVE_PRE_ATA_BUS_FV)"
+	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_PRE_ATA_BUS_FV)" 0x314550 \
+		"$(CDK2_NATIVE_ATA_BUS_FFS)" "$(CDK2_NATIVE_ATA_BUS_FV)"
+	@"$(CDK2_NATIVE_FVINFO)" "$(CDK2_NATIVE_ATA_BUS_FV)" | grep -q \
+		'^19df145a-b1d4-453f-8507-38816676d7f6[[:space:]]0x00314550[[:space:]]0x00009042[[:space:]]0x07[[:space:]]AtaBusDxe$$'
 CDK2_NATIVE_TPM2_ACPI_TABLE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-tpm2-acpi-table-test
 CDK2_NATIVE_DEVICE_PATH_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-device-path-test
 CDK2_NATIVE_DEVICE_PATH_DRIVER_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-device-path-driver-test
@@ -1960,6 +1972,25 @@ native-ata-atapi-fv:
 	@printf '%s\n' 'native ATA/ATAPI Pass Thru: disabled by Kconfig'
 endif
 
+ifeq ($(CONFIG_CDK2_NATIVE_ATA_BUS),y)
+CDK2_NATIVE_PRE_ATA_BUS_FV ?= $(CDK2_NATIVE_FINAL_FV)
+CDK2_NATIVE_FINAL_FV := $(CDK2_NATIVE_ATA_BUS_FV)
+
+$(CDK2_NATIVE_ATA_BUS_FV): $(CDK2_NATIVE_PRE_ATA_BUS_FV) \
+		$(CDK2_NATIVE_ATA_BUS_FFS) $(CDK2_NATIVE_FVREPLACE)
+	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_PRE_ATA_BUS_FV)" 0x314550 \
+		"$(CDK2_NATIVE_ATA_BUS_FFS)" "$@"
+
+.PHONY: native-ata-bus-fv
+native-ata-bus-fv: $(CDK2_NATIVE_ATA_BUS_FV)
+	@"$(CDK2_NATIVE_FVINFO)" "$<" | grep -q \
+		'^19df145a-b1d4-453f-8507-38816676d7f6[[:space:]]0x00314550[[:space:]]0x00009042[[:space:]]0x07[[:space:]]AtaBusDxe$$'
+	@printf '%s\n' "native ATA bus FV: $<"
+else
+native-ata-bus-fv:
+	@printf '%s\n' 'native ATA bus: disabled by Kconfig'
+endif
+
 ifeq ($(CONFIG_CDK2_NATIVE_ENGLISH),y)
 $(CDK2_NATIVE_ENGLISH_OBJ): $(CDK2_DIR)/src/modules/english/english.c $(CDK2_DIR)/include/cdk2/english.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
@@ -2505,6 +2536,24 @@ $(CDK2_NATIVE_ATA_BUS_FFS): $(CDK2_NATIVE_ATA_BUS_PE) $(CDK2_NATIVE_FFSBUILD)
 native-ata-bus-package: $(CDK2_NATIVE_ATA_BUS_FFS) $(CDK2_NATIVE_ATA_BUS_PACKAGE_TEST)
 	@"$(CDK2_NATIVE_ATA_BUS_PACKAGE_TEST)" "$(CDK2_NATIVE_ATA_BUS_FFS)" \
 		"$(CDK2_NATIVE_ATA_BUS_PE)"
+
+$(CDK2_NATIVE_ATA_BUS_QEMU_OBJ): $(CDK2_DIR)/tests/ata_bus_qemu.c | \
+		$(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,\
+		$(CDK2_NATIVE_CFLAGS)) -mcmodel=large -fno-ident -fcf-protection=none \
+		-maccumulate-outgoing-args \
+		-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 $(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+
+$(CDK2_NATIVE_ATA_BUS_QEMU_PE): $(CDK2_NATIVE_ATA_BUS_QEMU_OBJ) \
+		$(CDK2_DIR)/tests/ata_atapi_qemu.ld $(CDK2_NATIVE_PERELOCCHECK)
+	@$(LD) -mi386pep --subsystem 10 --entry ata_bus_qemu_entry --image-base 0 \
+		--section-alignment 0x1000 --file-alignment 0x1000 --build-id=none \
+		--no-insert-timestamp -s --nxcompat \
+		-T "$(CDK2_DIR)/tests/ata_atapi_qemu.ld" -o "$@" "$<"
+	@"$(CDK2_NATIVE_PERELOCCHECK)" --subsystem 10 "$@"
+
+.PHONY: native-ata-bus-oracle
+native-ata-bus-oracle: $(CDK2_NATIVE_ATA_BUS_QEMU_PE)
 
 $(CDK2_NATIVE_ATA_BACKEND_IDE_TEST): $(CDK2_DIR)/tests/ata_backend_ide_test.c \
 		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/backend.c \
