@@ -109,6 +109,8 @@ EFI_STATUS cdk2_usb_binding_start(struct cdk2_usb_binding *binding,
 		binding->services.delay_context, binding->services.delay);
 	if (EFI_ERROR(status))
 		goto free;
+	owner->bus->allocate_context = binding->services.context;
+	owner->bus->allocate = binding->services.allocate;
 	status = binding->services.install_marker(binding->services.context,
 		controller, owner->bus);
 	if (EFI_ERROR(status))
@@ -153,6 +155,58 @@ free:
 	memset(owner, 0, sizeof(*owner));
 close:
 	(void)binding->services.close_host(binding->services.context, controller);
+	return status;
+}
+
+EFI_STATUS cdk2_usb_binding_rescan(struct cdk2_usb_binding *binding,
+	void *controller)
+{
+	struct cdk2_usb_binding_controller *owner = NULL;
+	UINT8 speed, ports, is_64bit;
+	UINTN first;
+	EFI_STATUS status;
+
+	if (binding == NULL || controller == NULL)
+		return EFI_INVALID_PARAMETER;
+	for (UINTN index = 0U; index < binding->count; index++)
+		if (binding->controllers[index].handle == controller)
+			owner = &binding->controllers[index];
+	if (owner == NULL)
+		return EFI_NOT_FOUND;
+	status = owner->bus->host->get_capability(owner->bus->host, &speed, &ports,
+		&is_64bit);
+	if (EFI_ERROR(status))
+		return status;
+	first = owner->bus->child_count;
+	for (UINT8 port = 0U; port < ports; port++) {
+		status = cdk2_usb_bus_enumerate_port(owner->bus, port);
+		if (status != EFI_NOT_FOUND && status != EFI_ALREADY_STARTED &&
+		    EFI_ERROR(status))
+			goto rollback;
+	}
+	for (UINTN index = first; index < owner->bus->child_count; index++) {
+		struct cdk2_usb_child *child = &owner->bus->children[index];
+
+		status = binding->services.publish_child(binding->services.context,
+			controller, child, &child->handle);
+		if (!EFI_ERROR(status))
+			status = binding->services.link_child(binding->services.context,
+				controller, child->handle);
+		if (EFI_ERROR(status))
+			goto rollback;
+	}
+	return EFI_SUCCESS;
+rollback:
+	while (owner->bus->child_count > first) {
+		struct cdk2_usb_child *child =
+			&owner->bus->children[owner->bus->child_count - 1U];
+
+		if (child->handle != NULL)
+			(void)remove_child(binding, owner,
+				owner->bus->child_count - 1U);
+		else
+			owner->bus->child_count--;
+	}
 	return status;
 }
 

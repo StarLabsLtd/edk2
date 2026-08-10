@@ -12,6 +12,7 @@
 
 struct fixture { struct loaded_image loaded; struct cdk2_usb2_hc_protocol host;
 	UINT8 path[8]; UINTN allocs, frees, installs, uninstalls, opens, closes, connects;
+	UINTN events, event_closes; event_notify_fn * notify;
 	struct driver_binding *binding; struct cdk2_usb_io_protocol *usb_io; };
 static struct fixture fixture;
 static const UINT8 device[18] = { 18U, 1U, 0U, 2U, 0U, 0U, 0U, 8U,
@@ -25,6 +26,14 @@ static EFI_STATUS CDK2_MS_ABI alloc_pool(UINT32 type, UINTN size, void **value)
 	return *value == NULL ? EFI_OUT_OF_RESOURCES : EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI free_pool(void *value)
 { fixture.frees++; free(value); return EFI_SUCCESS; }
+static EFI_STATUS CDK2_MS_ABI create_event(UINT32 type, UINTN tpl,
+	event_notify_fn * notify, void *context, void **event)
+{ (void)type; (void)tpl; (void)context; fixture.notify = notify;
+	*event = &fixture.events; fixture.events++; return EFI_SUCCESS; }
+static EFI_STATUS CDK2_MS_ABI set_timer(void *event, UINTN type, UINT64 time)
+{ (void)event; (void)type; (void)time; return EFI_SUCCESS; }
+static EFI_STATUS CDK2_MS_ABI close_event(void *event)
+{ (void)event; fixture.event_closes++; return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI handle_protocol(void *handle,
 	const struct guid *protocol, void **value)
 { (void)handle; if (protocol != &loaded_guid) return EFI_UNSUPPORTED;
@@ -57,7 +66,7 @@ static EFI_STATUS CDK2_MS_ABI install_multiple(void **handle,
 	const struct guid *protocol, void *interface, ...)
 {
 	fixture.installs++;
-	if (protocol == &driver_guid && interface == &binding)
+	if (protocol == &binding_guid && interface == &binding)
 		fixture.binding = interface;
 	if (protocol == &path_guid) {
 		*handle = (void *)0x222U;
@@ -102,6 +111,8 @@ int main(void)
 		.control_transfer = control, .get_root_hub_port_status = port_status,
 		.set_root_hub_port_feature = port_feature };
 	boot.allocate_pool = alloc_pool; boot.free_pool = free_pool;
+	boot.create_event = create_event; boot.set_timer = set_timer;
+	boot.close_event = close_event;
 	boot.handle_protocol = handle_protocol; boot.stall = stall;
 	boot.connect_controller = connect; boot.open_protocol = open_protocol;
 	boot.close_protocol = close_protocol; boot.install_multiple = install_multiple;
@@ -117,7 +128,8 @@ int main(void)
 		(void *)0x222U, "en", &name) == EFI_SUCCESS && name == child_name);
 	CHECK(fixture.binding->stop(fixture.binding, &fixture, 0U, NULL) == EFI_SUCCESS &&
 		fixture.allocs == fixture.frees);
-	CHECK(fixture.loaded.unload(&fixture) == EFI_SUCCESS);
+	CHECK(fixture.loaded.unload(&fixture) == EFI_SUCCESS &&
+		fixture.events == fixture.event_closes);
 	puts("usb bus entry tests: PASS");
 	return 0;
 }

@@ -10,6 +10,8 @@
 #define CDK2_USB_MAX_CHILDREN 32U
 #define CDK2_USB_MAX_CONFIG_LENGTH 4096U
 
+typedef EFI_STATUS cdk2_usb_pool_allocate_fn(void *, UINTN, void **);
+
 struct cdk2_usb_endpoint {
 	UINT8 address, attributes, interval;
 	UINT16 maximum_packet;
@@ -86,6 +88,8 @@ struct cdk2_usb_io_device {
 	UINT16 languages[32];
 	UINT16 language_count;
 	CHAR16 string[127];
+	void *allocate_context;
+	cdk2_usb_pool_allocate_fn *allocate;
 };
 
 struct cdk2_usb_child {
@@ -104,6 +108,8 @@ struct cdk2_usb_bus {
 	struct cdk2_usb_child children[CDK2_USB_MAX_CHILDREN];
 	void *delay_context;
 	cdk2_usb_delay_fn *delay;
+	void *allocate_context;
+	cdk2_usb_pool_allocate_fn *allocate;
 	UINT8 child_count;
 };
 
@@ -181,6 +187,8 @@ EFI_STATUS cdk2_usb_binding_init(struct cdk2_usb_binding *binding,
 EFI_STATUS cdk2_usb_binding_supported(struct cdk2_usb_binding *binding,
 	void *controller);
 EFI_STATUS cdk2_usb_binding_start(struct cdk2_usb_binding *binding,
+	void *controller);
+EFI_STATUS cdk2_usb_binding_rescan(struct cdk2_usb_binding *binding,
 	void *controller);
 EFI_STATUS cdk2_usb_binding_stop(struct cdk2_usb_binding *binding,
 	void *controller, UINTN child_count, void **children);

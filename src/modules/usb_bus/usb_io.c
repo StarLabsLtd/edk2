@@ -162,7 +162,17 @@ static EFI_STATUS CDK2_MS_ABI string_descriptor(
 		return EFI_ERROR(status) ? status : EFI_COMPROMISED_DATA;
 	memcpy(device->string, bytes + 2U, bytes[0] - 2U);
 	device->string[(bytes[0] - 2U) / 2U] = 0U;
-	*result = device->string;
+	if (device->allocate == NULL)
+		*result = device->string;
+	else {
+		UINTN size = bytes[0];
+
+		status = device->allocate(device->allocate_context, size,
+			(void **)result);
+		if (EFI_ERROR(status))
+			return status;
+		memcpy(*result, device->string, size);
+	}
 	return EFI_SUCCESS;
 }
 
@@ -189,7 +199,17 @@ static EFI_STATUS CDK2_MS_ABI languages(struct cdk2_usb_io_protocol *protocol,
 		memcpy(device->languages, bytes + 2U,
 			device->language_count * sizeof(UINT16));
 	}
-	*values = device->languages;
+	if (device->allocate == NULL)
+		*values = device->languages;
+	else {
+		EFI_STATUS status = device->allocate(device->allocate_context,
+			device->language_count * sizeof(UINT16), (void **)values);
+
+		if (EFI_ERROR(status))
+			return status;
+		memcpy(*values, device->languages,
+			device->language_count * sizeof(UINT16));
+	}
 	*count = device->language_count;
 	return EFI_SUCCESS;
 }

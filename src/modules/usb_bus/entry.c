@@ -8,6 +8,8 @@
 struct guid { UINT32 a; UINT16 b, c; UINT8 d[8]; };
 static const struct guid driver_guid = { 0x240612b7, 0xa063, 0x11d4,
 	{ 0x9a, 0x3a, 0x00, 0x90, 0x27, 0x3f, 0xc1, 0x4d } };
+static const struct guid binding_guid = { 0x18a031ab, 0xb443, 0x4d1a,
+	{ 0xa5, 0xc0, 0x0c, 0x09, 0x26, 0x1e, 0x9f, 0x71 } };
 static const struct guid host_guid = { 0x3e745226, 0x9818, 0x45b6,
 	{ 0xa2, 0xac, 0xd7, 0xcd, 0x0e, 0x8b, 0xa2, 0xbc } };
 static const struct guid path_guid = { 0x09576e91, 0x6d3f, 0x11d2,
@@ -23,6 +25,11 @@ static const struct guid component2_guid = { 0x6a7a5cff, 0xe8d9, 0x4f70,
 
 typedef EFI_STATUS CDK2_MS_ABI allocate_fn(UINT32, UINTN, void **);
 typedef EFI_STATUS CDK2_MS_ABI free_fn(void *);
+typedef void CDK2_MS_ABI event_notify_fn(void *, void *);
+typedef EFI_STATUS CDK2_MS_ABI create_event_fn(UINT32, UINTN,
+	event_notify_fn *, void *, void **);
+typedef EFI_STATUS CDK2_MS_ABI set_timer_fn(void *, UINTN, UINT64);
+typedef EFI_STATUS CDK2_MS_ABI close_event_fn(void *);
 typedef EFI_STATUS CDK2_MS_ABI handle_fn(void *, const struct guid *, void **);
 typedef void CDK2_MS_ABI stall_fn(UINTN);
 typedef EFI_STATUS CDK2_MS_ABI connect_fn(void *, void **, void *, BOOLEAN);
@@ -34,7 +41,9 @@ typedef EFI_STATUS CDK2_MS_ABI uninstall_fn(void *, const struct guid *, void *,
 typedef EFI_STATUS CDK2_MS_ABI unload_fn(void *);
 struct boot_services {
 	UINT8 before_allocate[64]; allocate_fn * allocate_pool; free_fn * free_pool;
-	UINT8 before_handle[72]; handle_fn * handle_protocol;
+	create_event_fn *create_event; set_timer_fn * set_timer;
+	UINT8 before_close_event[16]; close_event_fn * close_event;
+	UINT8 before_handle[32]; handle_fn * handle_protocol;
 	UINT8 before_stall[88]; stall_fn * stall; UINT8 before_connect[8];
 	connect_fn *connect_controller; UINT8 before_open[8]; open_fn * open_protocol;
 	close_fn *close_protocol; UINT8 before_install[32];
@@ -66,10 +75,10 @@ static struct cdk2_usb_binding usb_binding;
 static struct driver_binding binding;
 static struct component_name component, component2;
 static unload_fn *original_unload;
+static void *hotplug_timer;
 static CHAR16 driver_name[] = L"USB Bus Driver";
 static CHAR16 controller_name[] = L"USB Host Controller";
 static CHAR16 child_name[] = L"USB Device";
-
 static BOOLEAN language_equal(const CHAR8 *left, const CHAR8 *right)
 {
 	while (*left != 0 && *left == *right) {
@@ -182,12 +191,21 @@ static EFI_STATUS CDK2_MS_ABI supported(struct driver_binding *driver,
 	return cdk2_usb_binding_supported(&usb_binding, controller); }
 static EFI_STATUS CDK2_MS_ABI start(struct driver_binding *driver,
 	void *controller, void *remaining)
-{ (void)driver; (void)remaining; return cdk2_usb_binding_start(&usb_binding,
-	controller); }
+{ (void)driver; (void)remaining;
+	return cdk2_usb_binding_start(&usb_binding, controller); }
 static EFI_STATUS CDK2_MS_ABI stop(struct driver_binding *driver,
 	void *controller, UINTN count, void **children)
 { (void)driver; return cdk2_usb_binding_stop(&usb_binding, controller, count,
 	children); }
+
+static void CDK2_MS_ABI hotplug_notify(void *event, void *context)
+{
+	(void)event; (void)context;
+	for (UINTN index = 0U; index < usb_binding.count; index++) {
+		(void)cdk2_usb_binding_rescan(&usb_binding,
+			usb_binding.controllers[index].handle);
+	}
+}
 
 static EFI_STATUS CDK2_MS_ABI get_driver_name(void *this, CHAR8 *language,
 	CHAR16 **name)
@@ -233,7 +251,11 @@ static EFI_STATUS CDK2_MS_ABI unload(void *image)
 		if (EFI_ERROR(status))
 			return status;
 	}
-	if (EFI_ERROR(bs->uninstall_multiple(binding.handle, &driver_guid, &binding,
+	if (hotplug_timer != NULL) {
+		(void)bs->close_event(hotplug_timer);
+		hotplug_timer = NULL;
+	}
+	if (EFI_ERROR(bs->uninstall_multiple(binding.handle, &binding_guid, &binding,
 		&component_guid, &component, &component2_guid, &component2, NULL)))
 		return EFI_DEVICE_ERROR;
 	loaded->unload = original_unload;
@@ -263,11 +285,19 @@ EFI_STATUS CDK2_MS_ABI cdk2_usb_bus_entry(void *image, struct system_table *syst
 	binding = (struct driver_binding) { supported, start, stop, 0x10U, image, image };
 	component = (struct component_name) { get_driver_name, get_controller_name, "eng" };
 	component2 = (struct component_name) { get_driver_name, get_controller_name, "en" };
-	status = bs->install_multiple(&binding.handle, &driver_guid, &binding,
+	status = bs->install_multiple(&binding.handle, &binding_guid, &binding,
 		&component_guid, &component, &component2_guid, &component2, NULL);
 	if (EFI_ERROR(status))
 		return status;
 	original_unload = loaded->unload;
 	loaded->unload = unload;
+	status = bs->create_event(0x80000200U, 8U, hotplug_notify, NULL,
+		&hotplug_timer);
+	if (!EFI_ERROR(status))
+		status = bs->set_timer(hotplug_timer, 1U, 1000000U);
+	if (EFI_ERROR(status)) {
+		(void)unload(image);
+		return status;
+	}
 	return EFI_SUCCESS;
 }

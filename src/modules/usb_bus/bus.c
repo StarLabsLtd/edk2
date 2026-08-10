@@ -148,6 +148,8 @@ EFI_STATUS cdk2_usb_bus_enumerate_port(struct cdk2_usb_bus *bus, UINT8 port)
 			status = cdk2_usb_build_path(port, interface->number, &child->path);
 		if (EFI_ERROR(status))
 			goto rollback_children;
+		child->io.allocate_context = bus->allocate_context;
+		child->io.allocate = bus->allocate;
 		child->port = port; child->address = address;
 		child->interface = interface->number; child->active = TRUE;
 		bus->child_count++;
