@@ -132,12 +132,39 @@ int main(void)
 	CHECK(cdk2_ide_execute(&engine, 0, 0, &packet, 100) == EFI_SUCCESS);
 	CHECK(fixture.operations[0] == CDK2_AHCI_BUS_MASTER_WRITE && fixture.maps == 3 &&
 		fixture.unmaps == 3 && fixture.writes32 == 1 && engine.prd[4].end == 0x8000);
+	{
+		struct cdk2_ide_async_request request;
+		BOOLEAN complete = 0;
+		unsigned int steps = 0, before_unmaps = fixture.unmaps;
+
+		fixture.bm_reads = 0; fixture.bm_status = 0x04U;
+		CHECK(cdk2_ide_async_prepare(&request, &engine, 1, 1, &packet, 100) ==
+			EFI_SUCCESS);
+		while (!complete && steps++ < 64U)
+			CHECK(cdk2_ide_async_step(&request, &complete) == EFI_SUCCESS);
+		CHECK(complete && steps > 16U && request.cleaned &&
+			fixture.unmaps > before_unmaps);
+		fixture.bm_reads = 0; fixture.bm_status = 0U;
+		CHECK(cdk2_ide_async_prepare(&request, &engine, 0, 0, &packet, 100) ==
+			EFI_SUCCESS);
+		CHECK(cdk2_ide_async_step(&request, &complete) == EFI_SUCCESS);
+		complete = 0;
+		while (!complete)
+			(void)cdk2_ide_async_abort(&request, &complete);
+		CHECK(request.cleaned && request.terminal_status == EFIERR(21));
+	}
+	{
+		unsigned int before_unmaps = fixture.unmaps;
 	fixture.fail_map = fixture.maps + 1;
 	CHECK(cdk2_ide_execute(&engine, 0, 0, &packet, 100) == EFI_DEVICE_ERROR);
-	CHECK(fixture.unmaps == 3);
+	CHECK(fixture.unmaps == before_unmaps);
+	}
 	fixture.fail_map = 0; fixture.hold_busy = 1; fixture.now = 0;
 	CHECK(cdk2_ide_execute(&engine, 0, 0, &packet, 2) == EFI_TIMEOUT);
 	fixture.hold_busy = 0; fixture.status = 0;
+	fixture.bm_status = 0x02U; fixture.bm_reads = 0; fixture.now = 0;
+	CHECK(cdk2_ide_execute(&engine, 0, 0, &packet, 100) == EFI_DEVICE_ERROR);
+	fixture.bm_status = 0x04U; fixture.bm_reads = 0; fixture.status = 0;
 	CHECK(cdk2_ide_reset(&engine, 0, 100) == EFI_SUCCESS);
 	{
 		UINT8 cdb[12] = { 0x12 }, odd[3] = { 0 };

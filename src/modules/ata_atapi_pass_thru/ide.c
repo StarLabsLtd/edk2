@@ -296,13 +296,19 @@ static EFI_STATUS dma_start_finish(struct cdk2_ide_engine *engine, UINT8 channel
 }
 
 static EFI_STATUS dma_transfer(struct cdk2_ide_engine *engine, UINT8 channel,
-	struct cdk2_ata_command_packet *packet, UINT64 timeout)
+	UINT8 device, struct cdk2_ata_command_packet *packet, UINT64 timeout)
 {
-	struct ide_dma_transaction transaction;
-	EFI_STATUS status = dma_prepare(engine, channel, packet, &transaction);
+	struct cdk2_ide_async_request request;
+	BOOLEAN complete = 0;
+	EFI_STATUS status = cdk2_ide_async_prepare(&request, engine, channel, device,
+		packet, timeout);
 
-	return EFI_ERROR(status) ? status :
-		dma_start_finish(engine, channel, &transaction, timeout);
+	while (!EFI_ERROR(status) && !complete) {
+		status = cdk2_ide_async_step(&request, &complete);
+		if (!complete && !EFI_ERROR(status))
+			engine->services.delay(engine->services.context, 10U);
+	}
+	return complete ? request.terminal_status : status;
 }
 
 EFI_STATUS cdk2_ide_execute(struct cdk2_ide_engine *engine, UINT8 channel,
@@ -312,14 +318,14 @@ EFI_STATUS cdk2_ide_execute(struct cdk2_ide_engine *engine, UINT8 channel,
 	if (engine == NULL || !engine->initialized || packet == NULL || packet->acb == NULL ||
 	    channel >= engine->channel_count || device > 1U)
 		return EFI_INVALID_PARAMETER;
+	if (packet->protocol == 6U || packet->protocol == 0x0aU ||
+	    packet->protocol == 0x0bU)
+		return dma_transfer(engine, channel, device, packet, timeout);
 	status = issue_task_file(engine, channel, device, packet->acb, timeout);
 	if (EFI_ERROR(status))
 		return status;
 	if (packet->protocol == 4U || packet->protocol == 5U)
 		status = pio_transfer(engine, channel, packet, timeout);
-	else if (packet->protocol == 6U || packet->protocol == 0x0aU ||
-		 packet->protocol == 0x0bU)
-		status = dma_transfer(engine, channel, packet, timeout);
 	else
 		status = wait_status(engine, channel, ATA_ST_BSY | ATA_ST_DRQ, 0, timeout);
 	capture_status(engine, channel, packet->asb);

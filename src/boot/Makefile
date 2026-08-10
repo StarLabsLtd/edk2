@@ -36,7 +36,8 @@ CDK2_NATIVE_ATA_ASYNC_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-async-test
 CDK2_NATIVE_ATA_BACKEND_IDE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-backend-ide-test
 CDK2_NATIVE_ATA_PACKAGE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-package-test
 CDK2_NATIVE_ATA_DEPENDENCY_TEST := $(CDK2_DIR)/tests/ata_atapi_dependency_test.sh
-CDK2_NATIVE_ATA_MODULES := model binding ahci ide pci_adapter backend ata_protocol ext_scsi entry
+CDK2_NATIVE_ATA_MODULES := model binding ata_async ahci ahci_async ide ide_async \
+	pci_adapter backend ata_protocol ext_scsi entry
 CDK2_NATIVE_ATA_OBJS := $(addprefix $(CDK2_NATIVE_BUILD_DIR)/ata-atapi-,$(addsuffix .o,$(CDK2_NATIVE_ATA_MODULES)))
 CDK2_NATIVE_ATA_PE ?= $(CDK2_NATIVE_BUILD_DIR)/AtaAtapiPassThruDxe.efi
 CDK2_NATIVE_ATA_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/AtaAtapiPassThruDxe.ffs
@@ -2273,10 +2274,12 @@ native-ata-atapi-ahci-test: $(CDK2_NATIVE_ATA_ATAPI_AHCI_TEST)
 
 $(CDK2_NATIVE_ATA_ATAPI_IDE_TEST): $(CDK2_DIR)/tests/ata_atapi_ide_test.c \
 		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/ide.c \
+		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/ide_async.c \
 		$(CDK2_DIR)/include/cdk2/ata_atapi_pass_thru.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -fsanitize=address,undefined \
 		$(CDK2_NATIVE_INCLUDES) -o "$@" $(CDK2_DIR)/tests/ata_atapi_ide_test.c \
 		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/ide.c \
+		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/ide_async.c
 
 .PHONY: native-ata-atapi-ide-test
 native-ata-atapi-ide-test: $(CDK2_NATIVE_ATA_ATAPI_IDE_TEST)
@@ -2286,14 +2289,18 @@ $(CDK2_NATIVE_ATA_ATAPI_PCI_TEST): $(CDK2_DIR)/tests/ata_atapi_pci_adapter_test.
 		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/pci_adapter.c \
 		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/backend.c \
 		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/ahci.c \
+		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/ahci_async.c \
 		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/ide.c \
+		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/ide_async.c \
 		$(CDK2_DIR)/include/cdk2/ata_atapi_pci_adapter.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -fsanitize=address,undefined \
 		$(CDK2_NATIVE_INCLUDES) -o "$@" $(CDK2_DIR)/tests/ata_atapi_pci_adapter_test.c \
 		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/pci_adapter.c \
 		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/backend.c \
 		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/ahci.c \
+		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/ahci_async.c \
 		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/ide.c \
+		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/ide_async.c \
 		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/model.c
 
 .PHONY: native-ata-atapi-pci-test
@@ -2310,6 +2317,7 @@ $(CDK2_NATIVE_ATA_ATAPI_ENTRY_TEST): $(CDK2_DIR)/tests/ata_atapi_entry_test.c \
 		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/ext_scsi.c \
 		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/ahci.c \
 		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/ide.c \
+		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/ide_async.c \
 		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/backend.c \
 		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/pci_adapter.c \
 		$(CDK2_DIR)/include/cdk2/ata_atapi_entry.h | $(CDK2_NATIVE_BUILD_DIR)
@@ -2324,6 +2332,7 @@ $(CDK2_NATIVE_ATA_ATAPI_ENTRY_TEST): $(CDK2_DIR)/tests/ata_atapi_entry_test.c \
 		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/ext_scsi.c \
 		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/ahci.c \
 		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/ide.c \
+		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/ide_async.c \
 		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/backend.c \
 		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/pci_adapter.c
 
@@ -2338,6 +2347,7 @@ $(CDK2_NATIVE_ATA_PROTOCOL_TEST): $(CDK2_DIR)/tests/ata_protocol_test.c \
 		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/model.c \
 		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/ahci.c \
 		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/ide.c \
+		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/ide_async.c \
 		$(CDK2_DIR)/include/cdk2/ata_atapi_pass_thru.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -fsanitize=address,undefined \
 		$(CDK2_NATIVE_INCLUDES) -o "$@" $(CDK2_DIR)/tests/ata_protocol_test.c \
@@ -2346,7 +2356,8 @@ $(CDK2_NATIVE_ATA_PROTOCOL_TEST): $(CDK2_DIR)/tests/ata_protocol_test.c \
 		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/ext_scsi.c \
 		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/model.c \
 		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/ahci.c \
-		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/ide.c
+		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/ide.c \
+		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/ide_async.c
 
 .PHONY: native-ata-protocol-test
 native-ata-protocol-test: $(CDK2_NATIVE_ATA_PROTOCOL_TEST)
@@ -2366,7 +2377,9 @@ native-ata-async-test: $(CDK2_NATIVE_ATA_ASYNC_TEST)
 $(CDK2_NATIVE_ATA_BACKEND_IDE_TEST): $(CDK2_DIR)/tests/ata_backend_ide_test.c \
 		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/backend.c \
 		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/ide.c \
+		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/ide_async.c \
 		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/ahci.c \
+		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/ahci_async.c \
 		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/pci_adapter.c \
 		$(CDK2_DIR)/src/modules/ata_atapi_pass_thru/model.c | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -fsanitize=address,undefined \
