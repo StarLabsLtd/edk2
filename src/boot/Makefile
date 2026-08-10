@@ -1095,18 +1095,21 @@ CDK2_NATIVE_SCSI_DISK_ASYNC_TEST := $(CDK2_NATIVE_BUILD_DIR)/scsi-disk-async-tes
 CDK2_NATIVE_SCSI_DISK_BLOCK_TEST := $(CDK2_NATIVE_BUILD_DIR)/scsi-disk-block-test
 CDK2_NATIVE_SCSI_DISK_BINDING_TEST := $(CDK2_NATIVE_BUILD_DIR)/scsi-disk-binding-test
 CDK2_NATIVE_SCSI_DISK_BACKEND_TEST := $(CDK2_NATIVE_BUILD_DIR)/scsi-disk-backend-test
+CDK2_NATIVE_SCSI_DISK_ENTRY_TEST := $(CDK2_NATIVE_BUILD_DIR)/scsi-disk-entry-test
 .PHONY: native-scsi-disk-test
 native-scsi-disk-test: $(CDK2_NATIVE_SCSI_DISK_TEST) \
 		$(CDK2_NATIVE_SCSI_DISK_IO_TEST) $(CDK2_NATIVE_SCSI_DISK_ASYNC_TEST) \
 		$(CDK2_NATIVE_SCSI_DISK_BLOCK_TEST) $(CDK2_NATIVE_SCSI_DISK_BINDING_TEST)
 
 native-scsi-disk-test: $(CDK2_NATIVE_SCSI_DISK_BACKEND_TEST)
+native-scsi-disk-test: $(CDK2_NATIVE_SCSI_DISK_ENTRY_TEST)
 	@"$(CDK2_NATIVE_SCSI_DISK_TEST)"
 	@"$(CDK2_NATIVE_SCSI_DISK_IO_TEST)"
 	@"$(CDK2_NATIVE_SCSI_DISK_ASYNC_TEST)"
 	@"$(CDK2_NATIVE_SCSI_DISK_BLOCK_TEST)"
 	@"$(CDK2_NATIVE_SCSI_DISK_BINDING_TEST)"
 	@"$(CDK2_NATIVE_SCSI_DISK_BACKEND_TEST)"
+	@"$(CDK2_NATIVE_SCSI_DISK_ENTRY_TEST)"
 
 native-scsi-bus-package: $(CDK2_NATIVE_SCSI_BUS_FFS) $(CDK2_NATIVE_SCSI_PACKAGE_TEST)
 	@"$(CDK2_NATIVE_SCSI_PACKAGE_TEST)" "$(CDK2_NATIVE_SCSI_BUS_FFS)"
@@ -2447,6 +2450,26 @@ $(CDK2_NATIVE_SCSI_DISK_BACKEND_TEST): $(CDK2_DIR)/tests/scsi_disk_backend_test.
 		$(CDK2_DIR)/tests/scsi_disk_backend_test.c \
 		$(CDK2_DIR)/src/modules/scsi_disk/model.c \
 		$(CDK2_DIR)/src/modules/scsi_disk/backend.c
+
+$(CDK2_NATIVE_SCSI_DISK_ENTRY_TEST): $(CDK2_DIR)/tests/scsi_disk_entry_test.c \
+		$(CDK2_DIR)/src/modules/scsi_disk/model.c \
+		$(CDK2_DIR)/src/modules/scsi_disk/io.c \
+		$(CDK2_DIR)/src/modules/scsi_disk/async.c \
+		$(CDK2_DIR)/src/modules/scsi_disk/block.c \
+		$(CDK2_DIR)/src/modules/scsi_disk/binding.c \
+		$(CDK2_DIR)/src/modules/scsi_disk/backend.c \
+		$(CDK2_DIR)/src/modules/scsi_disk/entry.c \
+		$(CDK2_DIR)/include/cdk2/scsi_disk.h \
+		$(CDK2_DIR)/include/cdk2/scsi_disk_entry.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -fsanitize=address,undefined \
+		$(CDK2_NATIVE_INCLUDES) -o "$@" $(CDK2_DIR)/tests/scsi_disk_entry_test.c \
+		$(CDK2_DIR)/src/modules/scsi_disk/model.c \
+		$(CDK2_DIR)/src/modules/scsi_disk/io.c \
+		$(CDK2_DIR)/src/modules/scsi_disk/async.c \
+		$(CDK2_DIR)/src/modules/scsi_disk/block.c \
+		$(CDK2_DIR)/src/modules/scsi_disk/binding.c \
+		$(CDK2_DIR)/src/modules/scsi_disk/backend.c \
+		$(CDK2_DIR)/src/modules/scsi_disk/entry.c
 
 $(CDK2_NATIVE_SCSI_BINDING_TEST): $(CDK2_DIR)/tests/scsi_bus_binding_test.c \
 		$(CDK2_DIR)/src/modules/scsi_bus/binding.c \

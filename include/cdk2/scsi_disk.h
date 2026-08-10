@@ -104,6 +104,8 @@ struct cdk2_scsi_disk_binding_services {
 	EFI_STATUS (*uninstall)(void *context, void *controller,
 		struct cdk2_scsi_disk_bound_controller *bound);
 	EFI_STATUS (*signal)(void *context, void *event);
+	UINTN (*lock)(void *context);
+	void (*unlock)(void *context, UINTN state);
 	EFI_STATUS (*allocate)(void *context, UINTN size, void **buffer);
 	void (*release)(void *context, void *buffer);
 };
