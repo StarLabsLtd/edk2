@@ -309,7 +309,7 @@ static void CDK2_MS_ABI ext_scsi_async_notify(void *event, void *opaque)
 	(void)active_entry->boot->close_event(event);
 	protocol_release(active_entry, call);
 }
-static EFI_STATUS __attribute__((optimize("Oz"))) protocol_scsi_submit(void *opaque,
+static EFI_STATUS protocol_scsi_submit(void *opaque,
 	struct cdk2_ata_controller *controller, UINT16 port, UINT16 multiplier,
 	struct cdk2_ext_scsi_packet *packet, void *event)
 {

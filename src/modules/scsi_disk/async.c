@@ -244,7 +244,7 @@ static EFI_STATUS abort_all(struct cdk2_scsi_disk_async *async, BOOLEAN stop)
 
 	if (async == NULL || async->disk == NULL)
 		return EFI_INVALID_PARAMETER;
-	if (async->dispatching)
+	if (async->dispatching || async->sync_busy)
 		return EFI_NOT_READY;
 	async->aborting = TRUE;
 	if (async->parent_active) {

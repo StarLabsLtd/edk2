@@ -146,7 +146,7 @@ struct cdk2_scsi_disk_backend_services {
 	EFI_STATUS (*allocate)(void *context, UINTN size, void **buffer);
 	void (*release)(void *context, void *buffer);
 	EFI_STATUS (*create_event)(void *context,
-		void (CDK2_MS_ABI *notify)(void *, void *), void *notify_context,
+		void (CDK2_MS_ABI * notify)(void *, void *), void *notify_context,
 		void **event);
 	EFI_STATUS (*close_event)(void *context, void *event);
 	EFI_STATUS (*wait_event)(void *context, void *event);

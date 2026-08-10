@@ -2861,6 +2861,8 @@ native-ata-backend-ide-test: $(CDK2_NATIVE_ATA_BACKEND_IDE_TEST)
 $(CDK2_NATIVE_ATA_PACKAGE_TEST): $(CDK2_DIR)/tests/ata_atapi_package_test.c | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -o "$@" "$<"
 
+$(CDK2_NATIVE_BUILD_DIR)/ata-atapi-entry.o: private CDK2_NATIVE_CFLAGS += -Oz
+
 $(CDK2_NATIVE_BUILD_DIR)/ata-atapi-%.o: $(CDK2_DIR)/src/modules/ata_atapi_pass_thru/%.c | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
 		-mcmodel=large -maccumulate-outgoing-args -MMD -MP -MF "$(@:.o=.d)" -MT "$@" \
