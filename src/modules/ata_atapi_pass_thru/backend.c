@@ -234,6 +234,7 @@ EFI_STATUS cdk2_ata_backend_discover_ide(struct cdk2_ata_controller *controller,
 				&packet, packet.timeout);
 			if (EFI_ERROR(status)) {
 				acb.command = 0xa1U;
+				packet.in_length = sizeof(backend->identify);
 				status = cdk2_ide_execute(controller->ide_engine, channel,
 					device, &packet, packet.timeout);
 				type = CDK2_ATAPI_DEVICE;

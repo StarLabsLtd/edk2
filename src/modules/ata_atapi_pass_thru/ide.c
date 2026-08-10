@@ -131,30 +131,6 @@ static EFI_STATUS issue_task_file(struct cdk2_ide_engine *engine, UINT8 channel,
 	return EFI_SUCCESS;
 }
 
-static EFI_STATUS pio_transfer(struct cdk2_ide_engine *engine, UINT8 channel,
-	struct cdk2_ata_command_packet *packet, UINT64 timeout)
-{
-	UINT8 *buffer = packet->out_length != 0U ? packet->out_data : packet->in_data;
-	UINT32 bytes = packet->out_length != 0U ? packet->out_length : packet->in_length;
-	UINT16 data = engine->channels[channel].command + ATA_DATA; EFI_STATUS status;
-	if ((bytes & 1U) != 0U)
-		return EFI_BAD_BUFFER_SIZE;
-	status = wait_status(engine, channel, ATA_ST_BSY, ATA_ST_DRQ, timeout);
-	if (EFI_ERROR(status))
-		return status;
-	for (UINT32 offset = 0; offset < bytes; offset += 2U) {
-		if (packet->out_length != 0U) {
-			UINT16 value = buffer[offset] | ((UINT16)buffer[offset + 1U] << 8);
-			if (EFI_ERROR(engine->services.write16(engine->services.context, data, value)))
-				return EFI_DEVICE_ERROR;
-		} else {
-			UINT16 value = engine->services.read16(engine->services.context, data);
-			buffer[offset] = (UINT8)value; buffer[offset + 1U] = (UINT8)(value >> 8);
-		}
-	}
-	return wait_status(engine, channel, ATA_ST_BSY | ATA_ST_DRQ, 0, timeout);
-}
-
 struct ide_dma_transaction {
 	void *mappings[CDK2_IDE_MAX_PRD], *prd_mapping;
 	UINT16 mapping_count, entries;
@@ -295,7 +271,7 @@ static EFI_STATUS dma_start_finish(struct cdk2_ide_engine *engine, UINT8 channel
 	return dma_release(engine, channel, transaction, status);
 }
 
-static EFI_STATUS dma_transfer(struct cdk2_ide_engine *engine, UINT8 channel,
+static EFI_STATUS retained_transfer(struct cdk2_ide_engine *engine, UINT8 channel,
 	UINT8 device, struct cdk2_ata_command_packet *packet, UINT64 timeout)
 {
 	struct cdk2_ide_async_request request;
@@ -318,19 +294,14 @@ EFI_STATUS cdk2_ide_execute(struct cdk2_ide_engine *engine, UINT8 channel,
 	if (engine == NULL || !engine->initialized || packet == NULL || packet->acb == NULL ||
 	    channel >= engine->channel_count || device > 1U)
 		return EFI_INVALID_PARAMETER;
-	if (packet->protocol == 6U || packet->protocol == 0x0aU ||
-	    packet->protocol == 0x0bU)
-		return dma_transfer(engine, channel, device, packet, timeout);
+	if (packet->protocol == 2U || packet->protocol == 4U ||
+	    packet->protocol == 5U || packet->protocol == 6U ||
+	    packet->protocol == 0x0aU || packet->protocol == 0x0bU)
+		return retained_transfer(engine, channel, device, packet, timeout);
 	status = issue_task_file(engine, channel, device, packet->acb, timeout);
-	if (EFI_ERROR(status))
-		return status;
-	if (packet->protocol == 4U || packet->protocol == 5U)
-		status = pio_transfer(engine, channel, packet, timeout);
-	else
+	if (!EFI_ERROR(status))
 		status = wait_status(engine, channel, ATA_ST_BSY | ATA_ST_DRQ, 0, timeout);
 	capture_status(engine, channel, packet->asb);
-	if (EFI_ERROR(status))
-		(void)cdk2_ide_reset(engine, channel, timeout);
 	return status;
 }
 

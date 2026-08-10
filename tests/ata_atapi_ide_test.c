@@ -12,7 +12,7 @@
 struct fixture {
 	UINT8 status, bm_status; UINT16 data;
 	unsigned int writes8, writes16, writes32, maps, unmaps, flushes, timings;
-	unsigned int data_reads;
+	unsigned int data_reads, clear_after_reads;
 	unsigned int fail_map, hold_busy, bm_reads;
 	unsigned int atapi, resets, prdt_ready, packet_issued, bm_starts;
 	unsigned int ordering_bad, fail_cdb;
@@ -41,7 +41,7 @@ static UINT8 read8(void *opaque, UINT16 port)
 	return 0; }
 static UINT16 read16(void *opaque, UINT16 port)
 { struct fixture *f = opaque; (void)port; UINT16 value = f->data++; f->data_reads++;
-	if (f->data_reads == 256U)
+	if (f->data_reads == f->clear_after_reads)
 		f->status = 0;
 	return value; }
 static EFI_STATUS write8(void *opaque, UINT16 port, UINT8 value)
@@ -103,6 +103,7 @@ static void initialize(struct fixture *fixture, struct cdk2_ide_engine *engine)
 		{ .command = 0x170, .control = 0x376, .bus_master = 0xc008 } };
 	memset(fixture, 0, sizeof(*fixture)); fixture->status = 0;
 	fixture->bm_status = 0x04; fixture->data = 0x1234;
+	fixture->clear_after_reads = 256U;
 	services = (struct cdk2_ide_services) { .context = fixture, .read8 = read8,
 		.read16 = read16, .write8 = write8, .write16 = write16,
 		.write32 = write32, .map = map, .unmap = unmap, .flush = flush,
@@ -123,6 +124,17 @@ int main(void)
 	CHECK(fixture.timings == 1 && fixture.writes16 == 0 && data[0] == 0x34 &&
 		data[1] == 0x12);
 	CHECK(asb.status == 0 && asb.error == 0);
+	{
+		UINT8 odd[3] = { 0 };
+
+		packet.in_data = odd; packet.in_length = sizeof(odd);
+		packet.protocol = 4U; fixture.status = 0U;
+		fixture.clear_after_reads = fixture.data_reads + 2U;
+		CHECK(cdk2_ide_execute(&engine, 0, 0, &packet, 100) == EFI_SUCCESS &&
+			packet.in_length == sizeof(odd));
+		CHECK(odd[0] != 0U || odd[1] != 0U || odd[2] != 0U);
+		fixture.clear_after_reads = fixture.data_reads + 256U;
+	}
 	packet.in_data = NULL; packet.in_length = 0; packet.out_data = data;
 	packet.out_length = 512; packet.protocol = 5; fixture.status = 0;
 	CHECK(cdk2_ide_execute(&engine, 1, 1, &packet, 100) == EFI_SUCCESS);
