@@ -14,6 +14,7 @@ struct cdk2_ata_bus_entry {
 	void *image, *driver_handle;
 	struct cdk2_ata_driver_binding driver;
 	struct cdk2_ata_component_name component, component2;
+	void *parent_calls;
 	BOOLEAN published;
 };
 

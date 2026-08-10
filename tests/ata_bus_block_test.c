@@ -14,11 +14,26 @@ struct fixture {
 	struct cdk2_block_io2_token *reentrant;
 	struct cdk2_ata_bus_block_instance *instance;
 	UINT8 *buffer;
+	cdk2_ata_bus_complete_fn *complete; void *complete_context;
 };
 static EFI_STATUS execute(void *opaque, struct cdk2_ata_bus_child *child,
 	struct cdk2_ata_command_packet *packet)
 { struct fixture *fixture = opaque; (void)child; (void)packet; fixture->executes++;
 	return EFI_SUCCESS; }
+static EFI_STATUS submit(void *opaque, struct cdk2_ata_bus_child *child,
+	struct cdk2_ata_command_packet *packet, cdk2_ata_bus_complete_fn *complete,
+	void *complete_context)
+{ struct fixture *fixture = opaque; EFI_STATUS status = execute(opaque, child, packet);
+	if (EFI_ERROR(status)) return status;
+	CHECK(fixture->complete == NULL);
+	fixture->complete = complete; fixture->complete_context = complete_context;
+	return EFI_SUCCESS; }
+static EFI_STATUS wait_idle(void *opaque)
+{ struct fixture *fixture = opaque; cdk2_ata_bus_complete_fn *complete;
+	void *context; if (fixture->complete == NULL) return EFI_NOT_READY;
+	complete = fixture->complete; context = fixture->complete_context;
+	fixture->complete = NULL; fixture->complete_context = NULL;
+	complete(context, EFI_SUCCESS); return EFI_SUCCESS; }
 static EFI_STATUS reset(void *opaque, struct cdk2_ata_bus_child *child,
 	BOOLEAN extended)
 { (void)opaque; (void)child; (void)extended; return EFI_SUCCESS; }
@@ -39,7 +54,7 @@ static EFI_STATUS defer(void *opaque, struct cdk2_ata_bus_block_instance *instan
 int main(void)
 {
 	struct fixture fixture = { 0 };
-	struct cdk2_ata_bus_transport transport = { &fixture, execute, reset,
+	struct cdk2_ata_bus_transport transport = { &fixture, execute, submit, wait_idle, reset,
 		signal_event };
 	struct cdk2_ata_bus_scheduler scheduler;
 	struct cdk2_ata_bus_block_instance instance;
@@ -59,25 +74,20 @@ int main(void)
 		instance.block.media == &instance.media && instance.media.last_block == 99);
 	CHECK(instance.block2.read_blocks(&instance.block2, 0, 0, &first, 512,
 		buffer) == EFI_SUCCESS);
-	CHECK(fixture.defers == 1 && fixture.executes == 0 && fixture.signals == 0 &&
+	CHECK(fixture.defers == 0 && fixture.executes == 1 && fixture.signals == 0 &&
 		first.transaction_status == EFI_NOT_READY);
 	CHECK(instance.block2.write_blocks(&instance.block2, 0, 1, &second, 512,
-		buffer + 512) == EFI_SUCCESS && fixture.defers == 1);
+		buffer + 512) == EFI_SUCCESS && fixture.executes == 1);
 	fixture.reentrant = &first;
-	CHECK(cdk2_ata_bus_block_worker(&instance) == EFI_SUCCESS &&
-		fixture.executes == 1 && fixture.signals == 1 &&
-		first.transaction_status == EFI_NOT_READY && fixture.defers == 2);
-	CHECK(cdk2_ata_bus_block_worker(&instance) == EFI_SUCCESS &&
-		fixture.executes == 2 && second.transaction_status == EFI_SUCCESS);
-	CHECK(cdk2_ata_bus_block_worker(&instance) == EFI_SUCCESS &&
+	CHECK(wait_idle(&fixture) == EFI_SUCCESS && fixture.executes == 2 &&
+		fixture.signals == 1 && first.transaction_status == EFI_NOT_READY);
+	CHECK(wait_idle(&fixture) == EFI_SUCCESS &&
+		fixture.executes == 3 && second.transaction_status == EFI_SUCCESS);
+	CHECK(fixture.executes == 3 && wait_idle(&fixture) == EFI_SUCCESS &&
 		fixture.executes == 3 && first.transaction_status == EFI_SUCCESS &&
 		fixture.signals == 3);
 	CHECK(instance.block.read_blocks(&instance.block, 0, 3, 512, buffer) ==
 		EFI_SUCCESS && fixture.executes == 4);
-	fixture.fail_defer = fixture.defers + 1U;
-	CHECK(instance.block2.read_blocks(&instance.block2, 0, 4, &first, 512,
-		buffer) == EFI_OUT_OF_RESOURCES && scheduler.count == 0 &&
-		first.transaction_status == EFI_OUT_OF_RESOURCES);
 	CHECK(instance.block2.read_blocks(&instance.block2, 0, 4, NULL, 512,
 		buffer) == EFI_SUCCESS && fixture.executes == 5);
 	free(buffer); puts("ata bus block protocol tests: PASS"); return 0;

@@ -165,7 +165,7 @@ int main(void)
 	struct cdk2_ata_bus_entry entry;
 	struct cdk2_block_io2_token token = { (void *)9, EFI_NOT_READY };
 	struct cdk2_block_io2_token token2 = { (void *)10, EFI_NOT_READY };
-	UINT8 buffer[512] __attribute__((aligned(512)));
+	UINT8 buffer[512] __aligned(512);
 	CHAR16 *name;
 	void *image = (void *)1;
 
@@ -226,16 +226,22 @@ int main(void)
 	fixture.fail = FAIL_SIGNAL;
 	CHECK(entry.binding.controllers[0]->children[0]->block.block2.read_blocks(
 		&entry.binding.controllers[0]->children[0]->block.block2, 0, 0, &token,
-		sizeof(buffer), buffer) == EFI_DEVICE_ERROR &&
+		sizeof(buffer), buffer) == EFI_SUCCESS &&
+		entry.binding.controllers[0]->scheduler.count == 1);
+	fixture.notify((void *)0x99, fixture.notify_context);
+	CHECK(token.transaction_status == EFI_SUCCESS &&
 		entry.binding.controllers[0]->scheduler.count == 0);
 	fixture.fail = FAIL_NONE;
 	CHECK(entry.binding.controllers[0]->children[0]->block.block2.read_blocks(
 		&entry.binding.controllers[0]->children[0]->block.block2, 0, 0, &token,
-		sizeof(buffer), buffer) == EFI_SUCCESS && token.transaction_status == EFI_SUCCESS &&
-		fixture.creates == 3 && fixture.signals == 3);
+		sizeof(buffer), buffer) == EFI_SUCCESS && token.transaction_status == EFI_NOT_READY);
+	fixture.notify((void *)0x99, fixture.notify_context);
+	CHECK(token.transaction_status == EFI_SUCCESS && fixture.creates == 3);
 	CHECK(entry.binding.controllers[1]->children[0]->block.block2.read_blocks(
 		&entry.binding.controllers[1]->children[0]->block.block2, 0, 0, &token2,
-		sizeof(buffer), buffer) == EFI_SUCCESS && token2.transaction_status == EFI_SUCCESS &&
+		sizeof(buffer), buffer) == EFI_SUCCESS && token2.transaction_status == EFI_NOT_READY);
+	fixture.notify((void *)0x99, fixture.notify_context);
+	CHECK(token2.transaction_status == EFI_SUCCESS &&
 		entry.binding.controllers[0]->scheduler.count == 0 &&
 		entry.binding.controllers[1]->scheduler.count == 0);
 	fixture.fail = FAIL_UNINSTALL;

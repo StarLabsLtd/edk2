@@ -58,16 +58,9 @@ static EFI_STATUS async_request(struct cdk2_ata_bus_block_instance *instance,
 	status = cdk2_ata_bus_submit(instance->scheduler, &request);
 	if (EFI_ERROR(status))
 		return status;
-	if (instance->scheduler->deferred)
-		return EFI_SUCCESS;
-	instance->scheduler->deferred = 1;
-	status = instance->defer(instance->defer_context, instance);
-	if (EFI_ERROR(status)) {
-		instance->scheduler->deferred = 0;
-		(void)cdk2_ata_bus_cancel_token(instance->scheduler, token);
-		token->transaction_status = status;
-	}
-	return status;
+	return instance->scheduler->worker_active || instance->scheduler->dispatching ?
+		EFI_SUCCESS :
+		cdk2_ata_bus_worker(instance->scheduler);
 }
 
 static EFI_STATUS CDK2_MS_ABI block2_reset(struct cdk2_block_io2 *block,
@@ -122,17 +115,7 @@ EFI_STATUS cdk2_ata_bus_block_init(struct cdk2_ata_bus_block_instance *instance,
 
 EFI_STATUS cdk2_ata_bus_block_worker(struct cdk2_ata_bus_block_instance *instance)
 {
-	EFI_STATUS status;
 	if (instance == NULL)
 		return EFI_INVALID_PARAMETER;
-	status = cdk2_ata_bus_worker(instance->scheduler);
-	instance->scheduler->deferred = 0;
-	if (instance->scheduler->count != 0U) {
-		EFI_STATUS defer_status;
-		instance->scheduler->deferred = 1;
-		defer_status = instance->defer(instance->defer_context, instance);
-		if (EFI_ERROR(defer_status))
-			instance->scheduler->deferred = 0;
-	}
-	return status;
+	return cdk2_ata_bus_worker(instance->scheduler);
 }

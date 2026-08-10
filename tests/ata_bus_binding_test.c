@@ -163,6 +163,14 @@ static EFI_STATUS execute(void *context, struct cdk2_ata_bus_child *child,
 }
 static EFI_STATUS reset(void *context, struct cdk2_ata_bus_child *child, BOOLEAN ext)
 { (void)context; (void)child; (void)ext; return EFI_SUCCESS; }
+static EFI_STATUS submit(void *context, struct cdk2_ata_bus_child *child,
+	struct cdk2_ata_command_packet *packet, cdk2_ata_bus_complete_fn *complete,
+	void *complete_context)
+{ EFI_STATUS status = execute(context, child, packet);
+	if (!EFI_ERROR(status)) complete(complete_context, EFI_SUCCESS);
+	return status; }
+static EFI_STATUS wait_idle(void *context)
+{ (void)context; return EFI_NOT_READY; }
 static void signal_event(void *context, void *event)
 {
 	struct fixture *f = context;
@@ -189,7 +197,7 @@ static void init(struct fixture *f, struct cdk2_ata_bus_binding *binding)
 		.open_parent = open_parent, .close_parent = close_parent, .marker = marker,
 		.allocate = allocate_pool, .release = release_pool, .install_child = install_child,
 		.uninstall_child = uninstall_child, .child_link = child_link, .defer = defer,
-		.transport = { f, execute, reset, signal_event } };
+		.transport = { f, execute, submit, wait_idle, reset, signal_event } };
 	CHECK(cdk2_ata_bus_binding_init(binding, &services) == EFI_SUCCESS);
 }
 
@@ -199,7 +207,7 @@ int main(void)
 	struct cdk2_ata_bus_binding binding;
 	UINT8 path[10] = { 3, 18, 10 };
 	UINT8 end[4] = { 0x7f, 0xff, 4, 0 };
-	UINT8 buffer[512] __attribute__((aligned(512)));
+	UINT8 buffer[512] __aligned(512);
 	UINT8 identify_buffer[512];
 	struct cdk2_block_io2_token token = { (void *)1, EFI_NOT_READY };
 	UINTN transferred;
@@ -270,11 +278,12 @@ int main(void)
 		buffer) == EFI_DEVICE_ERROR && buffer[0] == 0x33);
 	f.ata_error = 0;
 	execute_before = f.execute;
+	f.reentrant_stop = 1;
 	CHECK(binding.controllers[1]->children[0]->block.block2.read_blocks(
 		&binding.controllers[1]->children[0]->block.block2, 0, 0, &token,
-		sizeof(buffer), buffer) == EFI_SUCCESS && f.defers == 1 &&
-		f.execute == execute_before);
-	f.reentrant_stop = 1;
+		sizeof(buffer), buffer) == EFI_SUCCESS && f.defers == 0 &&
+		f.execute == execute_before + 1U && token.transaction_status == EFI_SUCCESS &&
+		f.reentrant_status == EFI_NOT_READY);
 	targets[0] = binding.controllers[1]->children[0]->handle; f.failure = FAIL_UNLINK;
 	CHECK(cdk2_ata_bus_binding_stop(&binding, (void *)2, 1, targets) == EFI_DEVICE_ERROR &&
 		binding.controllers[1]->child_count == 2 && f.execute == execute_before + 1U &&

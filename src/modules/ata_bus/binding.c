@@ -41,7 +41,8 @@ EFI_STATUS cdk2_ata_bus_binding_init(struct cdk2_ata_bus_binding *binding,
 	    services->allocate == NULL || services->release == NULL ||
 	    services->install_child == NULL || services->uninstall_child == NULL ||
 	    services->child_link == NULL || services->defer == NULL ||
-	    services->transport.execute == NULL || services->transport.reset == NULL ||
+	    services->transport.execute == NULL || services->transport.submit == NULL ||
+	    services->transport.wait == NULL || services->transport.reset == NULL ||
 	    services->transport.signal == NULL)
 		return EFI_INVALID_PARAMETER;
 	memset(binding, 0, sizeof(*binding)); binding->services = *services;
@@ -268,7 +269,8 @@ EFI_STATUS cdk2_ata_bus_binding_stop(struct cdk2_ata_bus_binding *binding,
 	owner = find_controller(binding, controller, &position);
 	if (owner == NULL)
 		return EFI_NOT_STARTED;
-	if (owner->scheduler.worker_active)
+	if (owner->scheduler.worker_active || owner->scheduler.dispatching ||
+	    owner->scheduler.parent_active)
 		return EFI_NOT_READY;
 	first = child_count == 0U ? cdk2_ata_bus_stop_scheduler(&owner->scheduler) :
 		cdk2_ata_bus_drain_scheduler(&owner->scheduler);

@@ -79,6 +79,11 @@ struct cdk2_ata_bus_request {
 
 typedef EFI_STATUS cdk2_ata_bus_execute_fn(void *context,
 	struct cdk2_ata_bus_child *child, struct cdk2_ata_command_packet *packet);
+typedef void cdk2_ata_bus_complete_fn(void *context, EFI_STATUS status);
+typedef EFI_STATUS cdk2_ata_bus_submit_fn(void *context,
+	struct cdk2_ata_bus_child *child, struct cdk2_ata_command_packet *packet,
+	cdk2_ata_bus_complete_fn *complete, void *complete_context);
+typedef EFI_STATUS cdk2_ata_bus_wait_fn(void *context);
 typedef EFI_STATUS cdk2_ata_bus_reset_fn(void *context,
 	struct cdk2_ata_bus_child *child, BOOLEAN extended_verification);
 typedef void cdk2_ata_bus_signal_fn(void *context, void *event);
@@ -86,6 +91,8 @@ typedef void cdk2_ata_bus_signal_fn(void *context, void *event);
 struct cdk2_ata_bus_transport {
 	void *context;
 	cdk2_ata_bus_execute_fn *execute;
+	cdk2_ata_bus_submit_fn *submit;
+	cdk2_ata_bus_wait_fn *wait;
 	cdk2_ata_bus_reset_fn *reset;
 	cdk2_ata_bus_signal_fn *signal;
 };
@@ -94,7 +101,16 @@ struct cdk2_ata_bus_scheduler {
 	struct cdk2_ata_bus_transport transport;
 	struct cdk2_ata_bus_request queue[CDK2_ATA_BUS_QUEUE_DEPTH];
 	UINTN head, count;
-	BOOLEAN stopping, worker_active, deferred;
+	struct cdk2_ata_bus_request active;
+	struct cdk2_ata_command_block active_acb;
+	struct cdk2_ata_status_block active_asb;
+	struct cdk2_ata_command_packet active_packet;
+	UINT64 active_lba;
+	UINT8 *active_buffer;
+	UINTN active_remaining;
+	EFI_STATUS active_status;
+	BOOLEAN stopping, worker_active, deferred, parent_active;
+	BOOLEAN dispatching, completion_pending, abort_active, resetting;
 };
 
 struct cdk2_ata_bus_block_instance;
