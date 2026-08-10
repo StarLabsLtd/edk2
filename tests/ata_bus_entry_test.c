@@ -156,7 +156,9 @@ int main(void)
 {
 	struct cdk2_ata_bus_entry entry;
 	struct cdk2_block_io2_token token = { (void *)9, EFI_NOT_READY };
+	struct cdk2_block_io2_token token2 = { (void *)10, EFI_NOT_READY };
 	UINT8 buffer[512] __attribute__((aligned(512)));
+	CHAR16 *name;
 	void *image = (void *)1;
 
 	for (enum fail_stage fail = FAIL_HANDLE; fail <= FAIL_PUBLISH; fail++) {
@@ -182,6 +184,28 @@ int main(void)
 	CHECK(entry.driver.start(&entry.driver, (void *)2, NULL) == EFI_SUCCESS &&
 		entry.binding.controller_count == 1 && fixture.child_links == 1);
 	CHECK(entry.driver.start(&entry.driver, (void *)2, NULL) == EFI_ALREADY_STARTED);
+	CHECK(entry.driver.start(&entry.driver, (void *)2,
+		entry.binding.controllers[0]->children[0]->model.device_path) ==
+		EFI_ALREADY_STARTED && entry.binding.controllers[0]->child_count == 1);
+	CHECK(entry.driver.start(&entry.driver, (void *)3, NULL) == EFI_SUCCESS &&
+		entry.binding.controller_count == 2 &&
+		entry.binding.controllers[0]->children[0]->handle !=
+		entry.binding.controllers[1]->children[0]->handle &&
+		&entry.binding.controllers[0]->scheduler !=
+		&entry.binding.controllers[1]->scheduler);
+	CHECK(entry.component.get_driver_name(&entry.component, "eng", &name) == EFI_SUCCESS &&
+		name == driver_name && entry.component.get_driver_name(&entry.component, "en", &name) ==
+		EFI_UNSUPPORTED);
+	CHECK(entry.component2.get_driver_name(&entry.component2, "en", &name) == EFI_SUCCESS &&
+		entry.component2.get_driver_name(&entry.component2, "eng", &name) == EFI_UNSUPPORTED);
+	CHECK(entry.component.get_controller_name(&entry.component, (void *)2, NULL,
+		"eng", &name) == EFI_SUCCESS &&
+		entry.component2.get_controller_name(&entry.component2, (void *)2,
+			entry.binding.controllers[0]->children[0]->handle, "en", &name) == EFI_SUCCESS &&
+		entry.component.get_controller_name(&entry.component, (void *)99, NULL,
+			"eng", &name) == EFI_UNSUPPORTED &&
+		entry.component.get_controller_name(&entry.component, (void *)2, (void *)99,
+			"eng", &name) == EFI_UNSUPPORTED);
 	fixture.fail = FAIL_EVENT;
 	CHECK(entry.binding.controllers[0]->children[0]->block.block2.read_blocks(
 		&entry.binding.controllers[0]->children[0]->block.block2, 0, 0, &token,
@@ -197,6 +221,11 @@ int main(void)
 		&entry.binding.controllers[0]->children[0]->block.block2, 0, 0, &token,
 		sizeof(buffer), buffer) == EFI_SUCCESS && token.transaction_status == EFI_SUCCESS &&
 		fixture.creates == 3 && fixture.signals == 3);
+	CHECK(entry.binding.controllers[1]->children[0]->block.block2.read_blocks(
+		&entry.binding.controllers[1]->children[0]->block.block2, 0, 0, &token2,
+		sizeof(buffer), buffer) == EFI_SUCCESS && token2.transaction_status == EFI_SUCCESS &&
+		entry.binding.controllers[0]->scheduler.count == 0 &&
+		entry.binding.controllers[1]->scheduler.count == 0);
 	fixture.fail = FAIL_UNINSTALL;
 	CHECK(cdk2_ata_bus_entry_unload(image) == EFI_DEVICE_ERROR && active == &entry);
 	fixture.fail = FAIL_NONE;

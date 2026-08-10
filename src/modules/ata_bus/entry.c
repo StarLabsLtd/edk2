@@ -254,11 +254,27 @@ static EFI_STATUS CDK2_MS_ABI get_controller_name(
 	struct cdk2_ata_component_name *component, void *controller, void *child,
 	CHAR8 *language, CHAR16 **name)
 {
-	(void)controller; (void)child;
+	struct cdk2_ata_bus_entry *entry;
+	struct cdk2_ata_bus_bound_controller *owner;
+	BOOLEAN found = 0;
+
 	if (component == NULL || language == NULL || name == NULL)
 		return EFI_INVALID_PARAMETER;
 	if (!language_equal(language, component->languages))
 		return EFI_UNSUPPORTED;
+	entry = (struct cdk2_ata_bus_entry *)((UINT8 *)component -
+		(component->languages[2] == 0 ? offsetof(struct cdk2_ata_bus_entry, component2) :
+		offsetof(struct cdk2_ata_bus_entry, component)));
+	owner = owner_for(entry, controller);
+	if (owner == NULL)
+		return EFI_UNSUPPORTED;
+	if (child != NULL) {
+		for (UINTN index = 0; index < owner->child_count; index++)
+			if (owner->children[index]->handle == child)
+				found = 1;
+		if (!found)
+			return EFI_UNSUPPORTED;
+	}
 	*name = controller_name; return EFI_SUCCESS;
 }
 
