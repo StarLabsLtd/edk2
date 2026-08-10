@@ -104,9 +104,9 @@ static EFI_STATUS ahci_write(void *opaque, UINT16 port, UINT16 offset, UINT32 va
 		adapter->ahci_bar, address, 1, &value);
 }
 static UINT64 adapter_time(void *opaque)
-{ return ((struct cdk2_ata_pci_adapter *)opaque)->ticks++; }
+{ return ((struct cdk2_ata_pci_adapter *)opaque)->ticks; }
 static void adapter_delay(void *opaque, UINTN microseconds)
-{ ((struct cdk2_ata_pci_adapter *)opaque)->ticks += microseconds; }
+{ ((struct cdk2_ata_pci_adapter *)opaque)->ticks += microseconds * 10U; }
 
 static void decode_port(UINT16 encoded, UINT8 *bar, UINT64 *offset)
 { *bar = (UINT8)(encoded >> 12); *offset = encoded & 0x0fffU; }

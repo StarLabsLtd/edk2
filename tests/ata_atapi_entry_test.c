@@ -22,11 +22,14 @@ typedef EFI_STATUS CDK2_MS_ABI open_t(void *, const struct guid *, void **,
 typedef EFI_STATUS CDK2_MS_ABI close_t(void *, const struct guid *, void *, void *);
 typedef EFI_STATUS CDK2_MS_ABI allocate_t(UINT32, UINTN, void **);
 typedef EFI_STATUS CDK2_MS_ABI free_t(void *);
+typedef UINTN CDK2_MS_ABI raise_tpl_t(UINTN);
+typedef void CDK2_MS_ABI restore_tpl_t(UINTN);
 typedef EFI_STATUS CDK2_MS_ABI create_event_t(UINT32, UINTN,
 	void (CDK2_MS_ABI *)(void *, void *), void *, void **);
 typedef EFI_STATUS CDK2_MS_ABI set_timer_t(void *, UINT32, UINT64);
 typedef EFI_STATUS CDK2_MS_ABI event_t(void *);
-struct fake_boot { UINT8 before_allocate[64]; allocate_t *allocate; free_t *free;
+struct fake_boot { raise_tpl_t *raise_tpl; restore_tpl_t *restore_tpl;
+	UINT8 before_allocate[48]; allocate_t *allocate; free_t *free;
 	create_event_t *create_event; set_timer_t *set_timer; void *wait;
 	event_t *signal_event; event_t *close_event; UINT8 before_handle[32]; handle_t *handle;
 	UINT8 before_open[120]; open_t *open; close_t *close;
@@ -43,6 +46,8 @@ struct fake_event { void (CDK2_MS_ABI *notify)(void *, void *); void *context; }
 static struct cdk2_ata_pass_thru_protocol *installed_ata;
 static struct fake_event *pending_event;
 static struct fixture *active;
+static UINTN CDK2_MS_ABI raise_tpl(UINTN tpl) { return tpl; }
+static void CDK2_MS_ABI restore_tpl(UINTN tpl) { (void)tpl; }
 static EFI_STATUS CDK2_MS_ABI allocate_pool(UINT32 type, UINTN size, void **buffer)
 { (void)type; *buffer = calloc(1, size); return *buffer == NULL ?
 	EFI_OUT_OF_RESOURCES : EFI_SUCCESS; }
@@ -229,6 +234,7 @@ static void initialize(struct fixture *fixture, struct cdk2_ata_binding *binding
 		.uninstall = publish_protocols };
 	memset(fixture, 0, sizeof(*fixture)); active = fixture;
 	fixture->boot.handle = handle; fixture->boot.install = install;
+	fixture->boot.raise_tpl = raise_tpl; fixture->boot.restore_tpl = restore_tpl;
 	fixture->boot.allocate = allocate_pool; fixture->boot.free = free_pool;
 	fixture->boot.create_event = create_event; fixture->boot.set_timer = set_timer;
 	fixture->boot.signal_event = signal_event; fixture->boot.close_event = close_event;

@@ -15,13 +15,16 @@ typedef EFI_STATUS CDK2_MS_ABI open_t(void *, const struct guid *, void **,
 typedef EFI_STATUS CDK2_MS_ABI close_t(void *, const struct guid *, void *, void *);
 typedef EFI_STATUS CDK2_MS_ABI allocate_t(UINT32, UINTN, void **);
 typedef EFI_STATUS CDK2_MS_ABI free_t(void *);
+typedef UINTN CDK2_MS_ABI raise_tpl_t(UINTN);
+typedef void CDK2_MS_ABI restore_tpl_t(UINTN);
 typedef EFI_STATUS CDK2_MS_ABI create_event_t(UINT32, UINTN,
 	void (CDK2_MS_ABI *)(void *, void *), void *, void **);
 typedef EFI_STATUS CDK2_MS_ABI set_timer_t(void *, UINT32, UINT64);
 typedef EFI_STATUS CDK2_MS_ABI signal_event_t(void *);
 typedef EFI_STATUS CDK2_MS_ABI close_event_t(void *);
 struct cdk2_ata_boot_services {
-	UINT8 before_allocate[64]; allocate_t *allocate_pool; free_t *free_pool;
+	raise_tpl_t *raise_tpl; restore_tpl_t *restore_tpl;
+	UINT8 before_allocate[48]; allocate_t *allocate_pool; free_t *free_pool;
 	create_event_t *create_event; set_timer_t *set_timer; void *wait_for_event;
 	signal_event_t *signal_event; close_event_t *close_event;
 	UINT8 before_handle[32]; handle_t *handle_protocol;
@@ -231,7 +234,10 @@ static EFI_STATUS async_abort_task(void *opaque,
 static void CDK2_MS_ABI async_notify(void *event, void *opaque)
 { struct async_call *call = opaque; struct cdk2_ata_controller_backend *backend =
 		call->backend;
+	UINTN tpl = active_entry->boot->raise_tpl(8U);
+	backend->adapter.ticks += 10000U;
 	(void)cdk2_ata_async_poll(&backend->async);
+	active_entry->boot->restore_tpl(tpl);
 	if (backend->async_call == call) {
 		backend->async_call = NULL; backend->async_event = NULL;
 	}
@@ -262,9 +268,11 @@ static EFI_STATUS async_signal(void *opaque, void *event)
 static EFI_STATUS protocol_async_submit(void *opaque,
 	struct cdk2_ata_controller *controller, UINT16 port, UINT16 multiplier,
 	struct cdk2_ata_command_packet *packet, void *event)
-{ (void)opaque; return cdk2_ata_async_submit(
-	&((struct cdk2_ata_controller_backend *)controller->backend)->async,
-	port, multiplier, packet, event); }
+{ struct cdk2_ata_async_controller *async =
+		&((struct cdk2_ata_controller_backend *)controller->backend)->async;
+	UINTN tpl = active_entry->boot->raise_tpl(8U); EFI_STATUS status; (void)opaque;
+	status = cdk2_ata_async_submit(async, port, multiplier, packet, event);
+	active_entry->boot->restore_tpl(tpl); return status; }
 static EFI_STATUS protocol_async_cancel(void *opaque,
 	struct cdk2_ata_controller *controller)
 {
@@ -273,7 +281,11 @@ static EFI_STATUS protocol_async_cancel(void *opaque,
 	EFI_STATUS status;
 
 	(void)opaque;
+	{
+		UINTN tpl = active_entry->boot->raise_tpl(8U);
 	status = cdk2_ata_async_stop(async);
+		active_entry->boot->restore_tpl(tpl);
+	}
 	if (async->count == 0U)
 		async->stopping = 0;
 	return status;
@@ -323,7 +335,9 @@ static void service_destroy_protocols(void *opaque,
 	if (controller != NULL && controller->backend != NULL) {
 		struct cdk2_ata_controller_backend *backend = controller->backend;
 
+		UINTN tpl = active_entry->boot->raise_tpl(8U);
 		(void)cdk2_ata_async_stop(&backend->async);
+		active_entry->boot->restore_tpl(tpl);
 		if (backend->async_event != NULL) {
 			(void)active_entry->boot->set_timer(backend->async_event, 0U, 0U);
 			(void)active_entry->boot->close_event(backend->async_event);
