@@ -31,9 +31,14 @@ struct boot_services_view {
 	UINT8 before_install_multiple[328];
 	install_multiple_fn *install_multiple;
 	uninstall_multiple_fn *uninstall_multiple;
-	UINT8 before_create_event_ex[32];
+	UINT8 before_create_event_ex[24];
 	create_event_ex_fn *create_event_ex;
 };
+
+_Static_assert(offsetof(struct boot_services_view, install_multiple) == 328,
+	       "InstallMultipleProtocolInterfaces offset");
+_Static_assert(offsetof(struct boot_services_view, create_event_ex) == 368,
+	       "CreateEventEx offset");
 struct runtime_services_view {
 	UINT8 before_convert_pointer[64];
 	convert_pointer_fn *convert_pointer;
