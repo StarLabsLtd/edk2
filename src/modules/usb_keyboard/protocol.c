@@ -82,7 +82,7 @@ static EFI_STATUS CDK2_MS_ABI set_state(
 
 static EFI_STATUS CDK2_MS_ABI register_notify(
 	struct cdk2_simple_text_input_ex *protocol,
-	struct cdk2_usb_keyboard_key *key, cdk2_key_notify_fn *notify, void **handle)
+	struct cdk2_usb_keyboard_key *key, cdk2_key_notify_fn * notify, void **handle)
 {
 	struct cdk2_usb_keyboard_device *device;
 

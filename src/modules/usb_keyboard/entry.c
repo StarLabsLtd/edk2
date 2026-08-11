@@ -37,27 +37,28 @@ typedef EFI_STATUS CDK2_MS_ABI uninstall_fn(void *, const struct guid *, void *,
 typedef EFI_STATUS CDK2_MS_ABI unload_fn(void *);
 struct boot_services {
 	UINT8 header[24], before_allocate[40];
-	allocate_fn *allocate_pool; free_fn *free_pool;
+	allocate_fn * allocate_pool; free_fn * free_pool;
 	create_event_fn *create_event; UINT8 before_signal[16];
-	signal_event_fn *signal_event; close_event_fn *close_event;
-	UINT8 before_handle[32]; handle_fn *handle_protocol;
-	UINT8 before_open[120]; open_fn *open_protocol; close_fn *close_protocol;
-	UINT8 before_install[32]; install_fn *install_multiple;
+	signal_event_fn * signal_event; close_event_fn * close_event;
+	UINT8 before_handle[32]; handle_fn * handle_protocol;
+	UINT8 before_open[120]; open_fn * open_protocol; close_fn * close_protocol;
+	UINT8 before_install[32]; install_fn * install_multiple;
 	uninstall_fn *uninstall_multiple;
 };
 struct system_table { UINT8 before_boot[96]; struct boot_services *boot; };
-struct loaded_image { UINT8 before_unload[88]; unload_fn *unload; };
+struct loaded_image { UINT8 before_unload[88]; unload_fn * unload; };
 struct driver_binding;
 typedef EFI_STATUS CDK2_MS_ABI supported_fn(struct driver_binding *, void *, void *);
 typedef EFI_STATUS CDK2_MS_ABI start_fn(struct driver_binding *, void *, void *);
 typedef EFI_STATUS CDK2_MS_ABI stop_fn(struct driver_binding *, void *, UINTN, void **);
-struct driver_binding { supported_fn *supported; start_fn *start; stop_fn *stop;
+struct driver_binding { supported_fn * supported; start_fn * start;
+	stop_fn * stop;
 	UINT32 version; void *image, *handle; };
-typedef EFI_STATUS CDK2_MS_ABI driver_name_fn(void *, CHAR8 *, CHAR16 **);
+typedef EFI_STATUS CDK2_MS_ABI driver_name_fn(void *, CHAR8 *, CHAR16 * *);
 typedef EFI_STATUS CDK2_MS_ABI controller_name_fn(void *, void *, void *, CHAR8 *,
-	CHAR16 **);
-struct component_name { driver_name_fn *driver_name;
-	controller_name_fn *controller_name; CHAR8 *languages; };
+	CHAR16 * *);
+struct component_name { driver_name_fn * driver_name;
+	controller_name_fn * controller_name; CHAR8 * languages; };
 
 typedef char allocate_offset_check[offsetof(struct boot_services,
 	allocate_pool) == 64U ? 1 : -1];
