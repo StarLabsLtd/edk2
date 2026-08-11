@@ -334,6 +334,13 @@ config CDK2_NATIVE_USB_MOUSE
 	help
 	  Publish Simple Pointer input for USB boot mice.
 
+config CDK2_NATIVE_SIO_BUS
+	bool "Build native SIO bus driver"
+	default y
+	depends on CDK2_NATIVE_PCI_BUS
+	help
+	  Publish fixed ACPI resource children for the Q35 ISA bridge.
+
 config CDK2_NATIVE_STATUS_CODE_HANDLER
 	bool "Build the native release status-code handler"
 	default y
