@@ -100,6 +100,13 @@ CDK2_NATIVE_SIO_BUS_OBJS := $(addprefix $(CDK2_NATIVE_BUILD_DIR)/sio-bus-,\
 CDK2_NATIVE_SIO_BUS_PE ?= $(CDK2_NATIVE_BUILD_DIR)/SioBusDxe.efi
 CDK2_NATIVE_SIO_BUS_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/SioBusDxe.ffs
 CDK2_NATIVE_SIO_BUS_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-sio-bus.fv
+CDK2_NATIVE_PS2_MOUSE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ps2-mouse-test
+CDK2_NATIVE_PS2_MOUSE_DRIVER_TEST ?= \
+	$(CDK2_NATIVE_BUILD_DIR)/cdk2-ps2-mouse-driver-test
+CDK2_NATIVE_PS2_MOUSE_OBJS := $(addprefix $(CDK2_NATIVE_BUILD_DIR)/ps2-mouse-,\
+	ps2_mouse.o driver.o entry.o)
+CDK2_NATIVE_PS2_MOUSE_PE ?= $(CDK2_NATIVE_BUILD_DIR)/Ps2MouseDxe.efi
+CDK2_NATIVE_PS2_MOUSE_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/Ps2MouseDxe.ffs
 CDK2_NATIVE_SATA_CONTROLLER_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-sata-controller-test
 CDK2_NATIVE_ATA_ATAPI_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-atapi-test
 CDK2_NATIVE_ATA_ATAPI_BINDING_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-atapi-binding-test
@@ -1298,6 +1305,60 @@ $(CDK2_NATIVE_SIO_BUS_PE): $(CDK2_NATIVE_SIO_BUS_OBJS) \
 $(CDK2_NATIVE_SIO_BUS_FFS): $(CDK2_NATIVE_SIO_BUS_PE) $(CDK2_NATIVE_FFSBUILD)
 	@"$(CDK2_NATIVE_FFSBUILD)" 864e1ca8-85eb-4d63-9dcc-6e0fc90ffd55 \
 		SioBusDxe 1.0 0x6042 "$<" "$@" -
+
+.PHONY: native-ps2-mouse-test native-ps2-mouse-package
+native-ps2-mouse-test: $(CDK2_NATIVE_PS2_MOUSE_TEST) \
+		$(CDK2_NATIVE_PS2_MOUSE_DRIVER_TEST)
+	@"$(CDK2_NATIVE_PS2_MOUSE_TEST)"
+	@"$(CDK2_NATIVE_PS2_MOUSE_DRIVER_TEST)"
+
+native-ps2-mouse-package: $(CDK2_NATIVE_PS2_MOUSE_FFS)
+
+$(CDK2_NATIVE_PS2_MOUSE_TEST): $(CDK2_DIR)/tests/ps2_mouse_test.c \
+		$(CDK2_DIR)/src/modules/ps2_mouse/ps2_mouse.c \
+		$(CDK2_DIR)/include/cdk2/ps2_mouse.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) \
+		-fsanitize=address,undefined $(CDK2_NATIVE_INCLUDES) -MMD -MP \
+		-MF "$(@:.test=.d)" -MT "$@" -o "$@" \
+		$(CDK2_DIR)/tests/ps2_mouse_test.c \
+		$(CDK2_DIR)/src/modules/ps2_mouse/ps2_mouse.c
+
+$(CDK2_NATIVE_PS2_MOUSE_DRIVER_TEST): \
+		$(CDK2_DIR)/tests/ps2_mouse_driver_test.c \
+		$(CDK2_DIR)/src/modules/ps2_mouse/ps2_mouse.c \
+		$(CDK2_DIR)/src/modules/ps2_mouse/driver.c \
+		$(CDK2_DIR)/include/cdk2/ps2_mouse_driver.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) \
+		-fsanitize=address,undefined $(CDK2_NATIVE_INCLUDES) -MMD -MP \
+		-MF "$(@:.test=.d)" -MT "$@" -o "$@" \
+		$(CDK2_DIR)/tests/ps2_mouse_driver_test.c \
+		$(CDK2_DIR)/src/modules/ps2_mouse/ps2_mouse.c \
+		$(CDK2_DIR)/src/modules/ps2_mouse/driver.c
+
+$(CDK2_NATIVE_BUILD_DIR)/ps2-mouse-%.o: \
+		$(CDK2_DIR)/src/modules/ps2_mouse/%.c \
+		$(CDK2_DIR)/include/cdk2/ps2_mouse.h \
+		$(CDK2_DIR)/include/cdk2/ps2_mouse_driver.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,\
+		$(CDK2_NATIVE_CFLAGS)) -mcmodel=large -fno-ident \
+		-fcf-protection=none -maccumulate-outgoing-args $(CDK2_NATIVE_INCLUDES) \
+		-MMD -MP -MF "$(@:.o=.d)" -MT "$@" -c "$<" -o "$@"
+
+$(CDK2_NATIVE_PS2_MOUSE_PE): $(CDK2_NATIVE_PS2_MOUSE_OBJS) \
+		$(CDK2_NATIVE_BUILD_DIR)/mem.o \
+		$(CDK2_DIR)/src/modules/ps2_mouse/ps2_mouse.ld \
+		$(CDK2_NATIVE_PERELOCCHECK)
+	@$(LD) -mi386pep --subsystem 11 --entry cdk2_ps2_mouse_entry \
+		--image-base 0 --section-alignment 0x1000 --file-alignment 0x1000 \
+		--build-id=none --no-insert-timestamp -s --nxcompat \
+		-T "$(CDK2_DIR)/src/modules/ps2_mouse/ps2_mouse.ld" -o "$@" \
+		$(CDK2_NATIVE_PS2_MOUSE_OBJS) $(CDK2_NATIVE_BUILD_DIR)/mem.o
+	@"$(CDK2_NATIVE_PERELOCCHECK)" --subsystem 11 "$@"
+
+$(CDK2_NATIVE_PS2_MOUSE_FFS): $(CDK2_NATIVE_PS2_MOUSE_PE) \
+		$(CDK2_NATIVE_FFSBUILD)
+	@"$(CDK2_NATIVE_FFSBUILD)" 08464531-4c99-4c4c-a887-8d8ba4bbb063 \
+		Ps2MouseDxe 1.0 0x7046 "$<" "$@" -
 
 .PHONY: native-usb-mouse-fv-exact
 native-usb-mouse-fv-exact: $(CDK2_NATIVE_USB_MOUSE_FFS) \
