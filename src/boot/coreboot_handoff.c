@@ -21,6 +21,7 @@
 #include <industry_standard/tpm2_acpi.h>
 #include <industry_standard/uefi_tcg_platform.h>
 #include <guid/tcg_physical_presence.h>
+#include <guid/variable_flash_info.h>
 #include <cdk2/hob_payload.h>
 #include <cdk2/config.h>
 
@@ -92,6 +93,12 @@ static const EFI_GUID m_cdk2_smm_store_info_hob_guid = {
 	0x881b,
 	0x44fb,
 	{0x3f, 0x3d, 0x81, 0x89, 0x7c, 0x57, 0xbb, 0x01}
+};
+static const EFI_GUID m_cdk2_variable_flash_info_hob_guid = {
+	0x5d11c653,
+	0x8154,
+	0x4ac3,
+	{0xa8, 0xc2, 0xfb, 0xa2, 0x89, 0x20, 0xfc, 0x90}
 };
 static const EFI_GUID m_cdk2_smram_memory_guid = {
 	0x6dadf1d1,
@@ -1963,6 +1970,11 @@ static EFI_STATUS EFIAPI cdk2_coreboot_build_platform_hobs(struct cdk2_native_co
 	status = cdk2_coreboot_find_record(&m_coreboot_handoff, CB_TAG_SMMSTOREV2,
 					   CDK2_COREBOOT_SMMSTOREV2_MIN_SIZE, &record);
 	if (!EFI_ERROR(status)) {
+		CDK2_VARIABLE_FLASH_INFO flash_info;
+		UINT64 total_size;
+		UINT64 flash_base;
+		UINT64 spare_blocks;
+
 		smm_store = (const struct cb_smmstorev2 *)record;
 		smm_store_info = (SMMSTORE_INFO){0};
 		smm_store_info.com_buffer = smm_store->com_buffer;
@@ -1975,6 +1987,34 @@ static EFI_STATUS EFIAPI cdk2_coreboot_build_platform_hobs(struct cdk2_native_co
 						       &smm_store_info, sizeof(smm_store_info));
 		if (EFI_ERROR(status)) {
 			return status;
+		}
+		total_size = (UINT64)smm_store->num_blocks * smm_store->block_size;
+		flash_base = smm_store->mmap_addr;
+		if (flash_base == 0 && total_size <= 0x100000000ULL)
+			flash_base = 0x100000000ULL - total_size;
+		spare_blocks = smm_store->num_blocks / 2U;
+		if (flash_base != 0 && smm_store->num_blocks >= 4U &&
+		    spare_blocks < smm_store->num_blocks) {
+			flash_info = (CDK2_VARIABLE_FLASH_INFO){
+				.version = 1U,
+				.variable_base = flash_base,
+				.variable_length =
+					(UINT64)(smm_store->num_blocks - spare_blocks - 1U) *
+					smm_store->block_size,
+				.spare_base = flash_base +
+					(UINT64)(smm_store->num_blocks - spare_blocks) *
+					smm_store->block_size,
+				.spare_length = (UINT64)spare_blocks * smm_store->block_size,
+				.working_base = flash_base +
+					(UINT64)(smm_store->num_blocks - spare_blocks - 1U) *
+					smm_store->block_size,
+				.working_length = smm_store->block_size,
+			};
+			status = cdk2_coreboot_append_guid_hob(
+				hob, &m_cdk2_variable_flash_info_hob_guid,
+				&flash_info, sizeof(flash_info));
+			if (EFI_ERROR(status))
+				return status;
 		}
 	} else if (status != EFI_NOT_FOUND) {
 		return status;
