@@ -320,6 +320,13 @@ config CDK2_NATIVE_USB_MASS_STORAGE
 	help
 	  Publish block devices for USB bulk-only mass-storage interfaces.
 
+config CDK2_NATIVE_USB_KEYBOARD
+	bool "Build native USB keyboard driver"
+	default y
+	depends on CDK2_NATIVE_USB_BUS
+	help
+	  Publish Simple Text Input protocols for USB boot keyboards.
+
 config CDK2_NATIVE_STATUS_CODE_HANDLER
 	bool "Build the native release status-code handler"
 	default y

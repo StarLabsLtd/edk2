@@ -8,7 +8,6 @@ hardware-gated	MdeModulePkg/Bus/Pci/SdMmcPciHcDxe/SdMmcPciHcDxe
 hardware-gated	MdeModulePkg/Bus/Pci/UhciDxe/UhciDxe
 hardware-gated	MdeModulePkg/Bus/Sd/EmmcDxe/EmmcDxe
 hardware-gated	MdeModulePkg/Bus/Sd/SdDxe/SdDxe
-subsystem-sized	MdeModulePkg/Bus/Usb/UsbKbDxe/UsbKbDxe
 subsystem-sized	MdeModulePkg/Bus/Usb/UsbMouseDxe/UsbMouseDxe
 unsafe-standalone	MdeModulePkg/Core/Dxe/DxeMain
 unsafe-standalone	MdeModulePkg/Core/PiSmmCore/PiSmmCore
