@@ -111,6 +111,13 @@ CDK2_NATIVE_PS2_MOUSE_FV ?= \
 	$(CDK2_NATIVE_BUILD_DIR)/retained-native-ps2-mouse.fv
 CDK2_NATIVE_PS2_MOUSE_PACKAGE_TEST ?= \
 	$(CDK2_NATIVE_BUILD_DIR)/ps2-mouse-package-test
+CDK2_NATIVE_TERMINAL_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-terminal-test
+CDK2_NATIVE_TERMINAL_DRIVER_TEST ?= \
+	$(CDK2_NATIVE_BUILD_DIR)/cdk2-terminal-driver-test
+CDK2_NATIVE_TERMINAL_OBJS := $(addprefix $(CDK2_NATIVE_BUILD_DIR)/terminal-,\
+	terminal.o driver.o entry.o)
+CDK2_NATIVE_TERMINAL_PE ?= $(CDK2_NATIVE_BUILD_DIR)/TerminalDxe.efi
+CDK2_NATIVE_TERMINAL_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/TerminalDxe.ffs
 CDK2_NATIVE_SATA_CONTROLLER_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-sata-controller-test
 CDK2_NATIVE_ATA_ATAPI_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-atapi-test
 CDK2_NATIVE_ATA_ATAPI_BINDING_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-atapi-binding-test
@@ -1379,6 +1386,60 @@ $(CDK2_NATIVE_PS2_MOUSE_PACKAGE_TEST): \
 		$(CDK2_DIR)/tests/ps2_mouse_package_test.c | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -MMD -MP \
 		-MF "$(@:.test=.d)" -MT "$@" -o "$@" "$<"
+
+.PHONY: native-terminal-test native-terminal-package
+native-terminal-test: $(CDK2_NATIVE_TERMINAL_TEST) \
+		$(CDK2_NATIVE_TERMINAL_DRIVER_TEST)
+	@"$(CDK2_NATIVE_TERMINAL_TEST)"
+	@"$(CDK2_NATIVE_TERMINAL_DRIVER_TEST)"
+
+native-terminal-package: $(CDK2_NATIVE_TERMINAL_FFS)
+
+$(CDK2_NATIVE_TERMINAL_TEST): $(CDK2_DIR)/tests/terminal_test.c \
+		$(CDK2_DIR)/src/modules/terminal/terminal.c \
+		$(CDK2_DIR)/include/cdk2/terminal.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) \
+		-fsanitize=address,undefined $(CDK2_NATIVE_INCLUDES) -MMD -MP \
+		-MF "$(@:.test=.d)" -MT "$@" -o "$@" \
+		$(CDK2_DIR)/tests/terminal_test.c \
+		$(CDK2_DIR)/src/modules/terminal/terminal.c
+
+$(CDK2_NATIVE_TERMINAL_DRIVER_TEST): \
+		$(CDK2_DIR)/tests/terminal_driver_test.c \
+		$(CDK2_DIR)/src/modules/terminal/terminal.c \
+		$(CDK2_DIR)/src/modules/terminal/driver.c \
+		$(CDK2_DIR)/include/cdk2/terminal_driver.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) \
+		-fsanitize=address,undefined $(CDK2_NATIVE_INCLUDES) -MMD -MP \
+		-MF "$(@:.test=.d)" -MT "$@" -o "$@" \
+		$(CDK2_DIR)/tests/terminal_driver_test.c \
+		$(CDK2_DIR)/src/modules/terminal/terminal.c \
+		$(CDK2_DIR)/src/modules/terminal/driver.c
+
+$(CDK2_NATIVE_BUILD_DIR)/terminal-%.o: \
+		$(CDK2_DIR)/src/modules/terminal/%.c \
+		$(CDK2_DIR)/include/cdk2/terminal.h \
+		$(CDK2_DIR)/include/cdk2/terminal_driver.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,\
+		$(CDK2_NATIVE_CFLAGS)) -mcmodel=large -fno-ident \
+		-fcf-protection=none -maccumulate-outgoing-args $(CDK2_NATIVE_INCLUDES) \
+		-MMD -MP -MF "$(@:.o=.d)" -MT "$@" -c "$<" -o "$@"
+
+$(CDK2_NATIVE_TERMINAL_PE): $(CDK2_NATIVE_TERMINAL_OBJS) \
+		$(CDK2_NATIVE_BUILD_DIR)/mem.o \
+		$(CDK2_DIR)/src/modules/terminal/terminal.ld \
+		$(CDK2_NATIVE_PERELOCCHECK)
+	@$(LD) -mi386pep --subsystem 11 --entry cdk2_terminal_driver_entry \
+		--image-base 0 --section-alignment 0x1000 --file-alignment 0x1000 \
+		--build-id=none --no-insert-timestamp -s --nxcompat \
+		-T "$(CDK2_DIR)/src/modules/terminal/terminal.ld" -o "$@" \
+		$(CDK2_NATIVE_TERMINAL_OBJS) $(CDK2_NATIVE_BUILD_DIR)/mem.o
+	@"$(CDK2_NATIVE_PERELOCCHECK)" --subsystem 11 "$@"
+
+$(CDK2_NATIVE_TERMINAL_FFS): $(CDK2_NATIVE_TERMINAL_PE) \
+		$(CDK2_NATIVE_FFSBUILD)
+	@"$(CDK2_NATIVE_FFSBUILD)" 9e863906-a40f-4875-977f-5b93ff237fc6 \
+		TerminalDxe 1.0 0xb046 "$<" "$@" -
 
 .PHONY: native-usb-mouse-fv-exact
 native-usb-mouse-fv-exact: $(CDK2_NATIVE_USB_MOUSE_FFS) \
