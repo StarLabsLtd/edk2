@@ -81,6 +81,7 @@ CDK2_CONFIG_TARGETS := build check manifest modules native-stage \
 	native-ps2-mouse-test native-ps2-mouse-package native-ps2-mouse-fv-exact \
 	native-terminal-test native-terminal-package native-terminal-fv-exact \
 	native-graphics-output-test native-graphics-output-package \
+	native-graphics-output-fv-exact \
 	native-usb-bus-fv-exact \
 	native-scsi-bus-fv-exact native-scsi-bus-oracle \
 	native-capsule-runtime-test native-capsule-runtime-fv \
@@ -138,6 +139,7 @@ CDK2_RECURSIVE_ARGS := \
 	$(if $(CDK2_NATIVE_PRE_SIO_BUS_FV),CDK2_NATIVE_PRE_SIO_BUS_FV="$(CDK2_NATIVE_PRE_SIO_BUS_FV)") \
 	$(if $(CDK2_NATIVE_PRE_PS2_MOUSE_FV),CDK2_NATIVE_PRE_PS2_MOUSE_FV="$(CDK2_NATIVE_PRE_PS2_MOUSE_FV)") \
 	$(if $(CDK2_NATIVE_PRE_TERMINAL_FV),CDK2_NATIVE_PRE_TERMINAL_FV="$(CDK2_NATIVE_PRE_TERMINAL_FV)") \
+	$(if $(CDK2_NATIVE_PRE_GRAPHICS_OUTPUT_FV),CDK2_NATIVE_PRE_GRAPHICS_OUTPUT_FV="$(CDK2_NATIVE_PRE_GRAPHICS_OUTPUT_FV)") \
 	$(if $(CDK2_NATIVE_PCD_DATABASE),CDK2_NATIVE_PCD_DATABASE="$(CDK2_NATIVE_PCD_DATABASE)") \
 	CDK2_NATIVE_DIR="$(CDK2_NATIVE_DIR)" \
 	$(if $(HOSTCC),HOSTCC="$(HOSTCC)") \
@@ -186,6 +188,7 @@ CDK2_RECURSIVE_ARGS := \
 	native-ps2-mouse-test native-ps2-mouse-package native-ps2-mouse-fv-exact \
 	native-terminal-test native-terminal-package native-terminal-fv-exact \
 	native-graphics-output-test native-graphics-output-package \
+	native-graphics-output-fv-exact \
 	native-usb-bus-fv-exact \
 	native-scsi-bus-fv-exact native-scsi-bus-oracle \
 	native-capsule-runtime-test native-capsule-runtime-fv \

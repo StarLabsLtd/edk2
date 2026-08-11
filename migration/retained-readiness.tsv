@@ -22,6 +22,5 @@ hardware-gated	UefiCpuPkg/CpuDxe/CpuDxe
 hardware-gated	UefiCpuPkg/PiSmmCpuDxeSmm/PiSmmCpuDxeSmm
 hardware-gated	UefiPayloadPkg/BlSupportSmm/BlSupportSmm
 hardware-gated	UefiPayloadPkg/EcAcpiBatteryStatusDxe/EcAcpiBatteryStatusDxe
-hardware-gated	UefiPayloadPkg/GraphicsOutputDxe/GraphicsOutputDxe
 hardware-gated	UefiPayloadPkg/SmmStoreFvb/SmmStoreFvbRuntimeDxe
 unsafe-standalone	UefiPayloadPkg/cdk2/backend/edk2/entry/UefiPayloadEntry

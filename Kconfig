@@ -472,10 +472,17 @@ config CDK2_NATIVE_LOCAL_APIC_TIMER
 	  APIC timer input frequency supplied by coreboot. Initialization fails
 	  closed when the platform omits that handoff.
 
+config CDK2_NATIVE_GRAPHICS_OUTPUT
+	bool "Build native graphics output driver"
+	default y
+	depends on CDK2_NATIVE_STAGE
+	help
+	  Publish GOP from a validated Universal Payload framebuffer handoff.
+
 config CDK2_NATIVE_GRAPHICS_CONSOLE
 	bool "Build native graphics console services"
 	default y
-	depends on CDK2_NATIVE_STAGE
+	depends on CDK2_NATIVE_STAGE && CDK2_NATIVE_GRAPHICS_OUTPUT
 	help
 	  Publish Simple Text Output on GOP controllers and own the HII narrow-font
 	  package used to render the complete UEFI console glyph repertoire.
