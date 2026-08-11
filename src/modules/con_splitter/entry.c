@@ -51,6 +51,7 @@ enum binding_kind { BIND_INPUT, BIND_POINTER, BIND_ABSOLUTE, BIND_OUTPUT, BIND_E
 struct binding_context {
 	struct splitter_entry *owner;
 	enum binding_kind kind;
+	void *agent;
 };
 struct wait_context {
 	struct splitter_entry *owner;
@@ -602,14 +603,14 @@ static EFI_STATUS binding_open(void *context, void *controller,
 {
 	struct binding_context *binding = context;
 	return binding->owner->boot->open_protocol(controller, protocol, interface,
-		binding->owner->image, controller, attributes);
+		binding->agent, NULL, attributes);
 }
 static EFI_STATUS binding_close(void *context, void *controller,
 	const EFI_GUID *protocol)
 {
 	struct binding_context *binding = context;
 	return binding->owner->boot->close_protocol(controller, protocol,
-		binding->owner->image, controller);
+		binding->agent, NULL);
 }
 static EFI_STATUS binding_admit(void *context, void *controller, void *interface)
 {
@@ -630,7 +631,7 @@ static EFI_STATUS binding_admit(void *context, void *controller, void *interface
 		if (EFI_ERROR(status))
 			return status;
 		status = owner->boot->open_protocol(controller, &text_in_ex_guid,
-			&physical_ex, owner->image, controller,
+			&physical_ex, binding->agent, NULL,
 			CDK2_CON_SPLITTER_OPEN_BY_DRIVER);
 		if (status == EFI_NOT_FOUND || status == EFI_UNSUPPORTED)
 			return EFI_SUCCESS;
@@ -673,7 +674,7 @@ rollback_ex_notifies:
 		*attachment = (struct input_ex_attachment) { 0 };
 rollback_ex_open:
 		(void)owner->boot->close_protocol(controller, &text_in_ex_guid,
-			owner->image, controller);
+			binding->agent, NULL);
 rollback_simple_input:
 		(void)cdk2_split_text_in_remove(&owner->input_model, interface);
 		return status;
@@ -710,7 +711,7 @@ rollback_simple_input:
 			void *physical_gop = NULL;
 
 			status = owner->boot->open_protocol(controller, &gop_guid,
-				&physical_gop, owner->image, controller,
+				&physical_gop, binding->agent, NULL,
 				CDK2_CON_SPLITTER_OPEN_BY_DRIVER);
 			if (status == EFI_NOT_FOUND || status == EFI_UNSUPPORTED)
 				return EFI_SUCCESS;
@@ -742,7 +743,7 @@ rollback_simple_input:
 
 rollback_gop_open:
 			(void)owner->boot->close_protocol(controller, &gop_guid,
-				owner->image, controller);
+				binding->agent, NULL);
 rollback_text_output:
 			(void)cdk2_split_text_out_remove(&owner->output_model, interface);
 			return status;
@@ -779,7 +780,7 @@ static EFI_STATUS binding_remove(void *context, void *controller, void *interfac
 				}
 			}
 			status = owner->boot->close_protocol(controller, &text_in_ex_guid,
-				owner->image, controller);
+				binding->agent, NULL);
 			if (EFI_ERROR(status)) {
 				for (notify = 0; notify < owner->input_model.notify_count;
 				     notify++)
@@ -809,7 +810,7 @@ static EFI_STATUS binding_remove(void *context, void *controller, void *interfac
 			if (EFI_ERROR(status))
 				return status;
 			status = owner->boot->close_protocol(controller, &gop_guid,
-				owner->image, controller);
+				binding->agent, NULL);
 			if (EFI_ERROR(status)) {
 				device = (struct cdk2_split_gop_device) {
 					physical_gop_query, physical_gop_set,
@@ -901,7 +902,7 @@ EFI_STATUS CDK2_MS_ABI cdk2_con_splitter_entry(void *image,
 			index == BIND_POINTER ? &pointer_guid :
 			index == BIND_ABSOLUTE ? &absolute_guid : &text_out_guid;
 		entry.binding_contexts[index] = (struct binding_context) {
-			&entry, (enum binding_kind)index
+			&entry, (enum binding_kind)index, image
 		};
 		entry.bindings[index] = (struct cdk2_split_binding) {
 			&binding_ops, &entry.binding_contexts[index], protocol, { { 0 } }
@@ -945,6 +946,8 @@ EFI_STATUS CDK2_MS_ABI cdk2_con_splitter_entry(void *image,
 		publish_binding, unpublish_binding, &entry);
 	if (EFI_ERROR(status))
 		goto rollback_gop;
+	for (UINTN index = 0; index < 5U; index++)
+		entry.binding_contexts[index].agent = entry.publications[index].handle;
 	system->console_in_handle = entry.input_handle;
 	system->con_in = &entry.input;
 	system->console_out_handle = entry.output_handle;

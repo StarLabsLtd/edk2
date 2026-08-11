@@ -200,7 +200,9 @@ static EFI_STATUS CDK2_MS_ABI open_protocol(void *controller,
 	void *agent, void *child,
 	UINT32 attributes)
 {
-	(void)controller; (void)agent; (void)child;
+	(void)controller;
+	if (agent == NULL || child != NULL)
+		return EFI_INVALID_PARAMETER;
 	if (attributes != CDK2_CON_SPLITTER_OPEN_BY_DRIVER)
 		return EFI_INVALID_PARAMETER;
 	if (protocol->data1 == 0x387477c1U) {
@@ -222,7 +224,9 @@ static EFI_STATUS CDK2_MS_ABI close_protocol(void *controller,
 	guid_ptr protocol,
 	void *agent, void *child)
 {
-	(void)controller; (void)agent; (void)child;
+	(void)controller;
+	if (agent == NULL || child != NULL)
+		return EFI_INVALID_PARAMETER;
 	if (protocol->data1 == 0xdd9e7534U)
 		ex_closes++;
 	if (protocol->data1 == 0x9042a9deU) {
