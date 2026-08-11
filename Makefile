@@ -76,7 +76,7 @@ CDK2_CONFIG_TARGETS := build check manifest modules native-stage \
 	native-usb-mass-test native-usb-mass-package native-usb-mass-fv-exact \
 	native-usb-keyboard-test native-usb-keyboard-package \
 	native-usb-keyboard-fv-exact \
-	native-usb-mouse-test native-usb-mouse-package \
+	native-usb-mouse-test native-usb-mouse-package native-usb-mouse-fv-exact \
 	native-usb-bus-fv-exact \
 	native-scsi-bus-fv-exact native-scsi-bus-oracle \
 	native-capsule-runtime-test native-capsule-runtime-fv \
@@ -130,6 +130,7 @@ CDK2_RECURSIVE_ARGS := \
 	$(if $(CDK2_NATIVE_PRE_USB_BUS_FV),CDK2_NATIVE_PRE_USB_BUS_FV="$(CDK2_NATIVE_PRE_USB_BUS_FV)") \
 	$(if $(CDK2_NATIVE_PRE_USB_MASS_FV),CDK2_NATIVE_PRE_USB_MASS_FV="$(CDK2_NATIVE_PRE_USB_MASS_FV)") \
 	$(if $(CDK2_NATIVE_PRE_USB_KEYBOARD_FV),CDK2_NATIVE_PRE_USB_KEYBOARD_FV="$(CDK2_NATIVE_PRE_USB_KEYBOARD_FV)") \
+	$(if $(CDK2_NATIVE_PRE_USB_MOUSE_FV),CDK2_NATIVE_PRE_USB_MOUSE_FV="$(CDK2_NATIVE_PRE_USB_MOUSE_FV)") \
 	$(if $(CDK2_NATIVE_PCD_DATABASE),CDK2_NATIVE_PCD_DATABASE="$(CDK2_NATIVE_PCD_DATABASE)") \
 	CDK2_NATIVE_DIR="$(CDK2_NATIVE_DIR)" \
 	$(if $(HOSTCC),HOSTCC="$(HOSTCC)") \
@@ -173,7 +174,7 @@ CDK2_RECURSIVE_ARGS := \
 	native-usb-mass-test native-usb-mass-package native-usb-mass-fv-exact \
 	native-usb-keyboard-test native-usb-keyboard-package \
 	native-usb-keyboard-fv-exact \
-	native-usb-mouse-test native-usb-mouse-package \
+	native-usb-mouse-test native-usb-mouse-package native-usb-mouse-fv-exact \
 	native-usb-bus-fv-exact \
 	native-scsi-bus-fv-exact native-scsi-bus-oracle \
 	native-capsule-runtime-test native-capsule-runtime-fv \
