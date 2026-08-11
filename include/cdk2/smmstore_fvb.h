@@ -57,9 +57,9 @@ cdk2_fvb_set_attributes_fn(struct cdk2_fvb_protocol *, UINT64 *);
 typedef EFI_STATUS CDK2_MS_ABI
 cdk2_fvb_get_address_fn(struct cdk2_fvb_protocol *, EFI_PHYSICAL_ADDRESS *);
 typedef EFI_STATUS CDK2_MS_ABI cdk2_fvb_get_block_size_fn(
-	struct cdk2_fvb_protocol *, UINT32, UINTN *, UINTN *);
+	struct cdk2_fvb_protocol *, UINT64, UINTN *, UINTN *);
 typedef EFI_STATUS CDK2_MS_ABI cdk2_fvb_rw_fn(struct cdk2_fvb_protocol *,
-					      UINT32, UINTN, UINTN *, void *);
+					      UINT64, UINTN, UINTN *, void *);
 typedef EFI_STATUS CDK2_MS_ABI cdk2_fvb_erase_fn(struct cdk2_fvb_protocol *,
 						 ...);
 

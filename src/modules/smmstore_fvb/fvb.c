@@ -48,7 +48,7 @@ static EFI_STATUS CDK2_MS_ABI get_physical_address(
 }
 
 static EFI_STATUS CDK2_MS_ABI get_block_size(struct cdk2_fvb_protocol *protocol,
-						     UINT32 block,
+						     UINT64 block,
 						     UINTN * block_size,
 						     UINTN * remaining_blocks)
 {
@@ -65,22 +65,22 @@ static EFI_STATUS CDK2_MS_ABI get_block_size(struct cdk2_fvb_protocol *protocol,
 }
 
 static EFI_STATUS CDK2_MS_ABI read_block(struct cdk2_fvb_protocol *protocol,
-					 UINT32 block, UINTN offset,
+					 UINT64 block, UINTN offset,
 						 UINTN * size, void *buffer)
 {
 	if (protocol == NULL || offset > MAX_UINT32)
 		return EFI_INVALID_PARAMETER;
-	return cdk2_smmstore_read(&from_protocol(protocol)->store, block,
+	return cdk2_smmstore_read(&from_protocol(protocol)->store, (UINT32)block,
 				  (UINT32)offset, size, buffer);
 }
 
 static EFI_STATUS CDK2_MS_ABI write_block(struct cdk2_fvb_protocol *protocol,
-					  UINT32 block, UINTN offset,
+					  UINT64 block, UINTN offset,
 						  UINTN * size, void *buffer)
 {
 	if (protocol == NULL || offset > MAX_UINT32)
 		return EFI_INVALID_PARAMETER;
-	return cdk2_smmstore_write(&from_protocol(protocol)->store, block,
+	return cdk2_smmstore_write(&from_protocol(protocol)->store, (UINT32)block,
 				   (UINT32)offset, size, buffer);
 }
 
@@ -107,7 +107,7 @@ static EFI_STATUS CDK2_MS_ABI erase_blocks(struct cdk2_fvb_protocol *protocol,
 {
 	struct cdk2_smmstore_fvb *fvb;
 	va_list ranges;
-	UINT32 start;
+	UINT64 start;
 	EFI_STATUS status = EFI_SUCCESS;
 
 	if (protocol == NULL)
@@ -115,13 +115,18 @@ static EFI_STATUS CDK2_MS_ABI erase_blocks(struct cdk2_fvb_protocol *protocol,
 	fvb = from_protocol(protocol);
 	va_start(ranges, protocol);
 	for (;;) {
-		UINT32 count;
+		UINTN count;
 
-		start = va_arg(ranges, UINT32);
-		if (start == ERASE_LIST_END)
+		start = va_arg(ranges, UINT64);
+		if (start == MAX_UINT64)
 			break;
-		count = va_arg(ranges, UINT32);
-		status = cdk2_smmstore_fvb_erase_range(fvb, start, count);
+		count = va_arg(ranges, UINTN);
+		if (start > MAX_UINT32 || count > MAX_UINT32) {
+			status = EFI_INVALID_PARAMETER;
+			break;
+		}
+		status = cdk2_smmstore_fvb_erase_range(
+			fvb, (UINT32)start, (UINT32)count);
 		if (EFI_ERROR(status))
 			break;
 	}
