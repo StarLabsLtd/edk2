@@ -127,9 +127,19 @@ static EFI_STATUS CDK2_MS_ABI get_driver_name(
 	CHAR16 **name)
 {
 	static CHAR16 driver_name[] = L"CDK2 Console Splitter Driver";
+	BOOLEAN exact;
 
 	if (component == NULL || language == NULL || name == NULL ||
-	    language[0] != 'e' || language[1] != 'n')
+	    component->supported_languages == NULL)
+		return EFI_UNSUPPORTED;
+	exact = language[0] == 'e' && language[1] == 'n' &&
+		component->supported_languages[0] == 'e' &&
+		component->supported_languages[1] == 'n';
+	if (component->supported_languages[2] == 'g')
+		exact = exact && language[2] == 'g' && language[3] == '\0';
+	else
+		exact = exact && language[2] == '\0';
+	if (!exact)
 		return EFI_UNSUPPORTED;
 	*name = driver_name;
 	return EFI_SUCCESS;

@@ -8,7 +8,8 @@
 
 typedef EFI_STATUS CDK2_MS_ABI install_multiple_fn(void **, ...);
 typedef EFI_STATUS CDK2_MS_ABI uninstall_multiple_fn(void *, ...);
-typedef EFI_STATUS CDK2_MS_ABI allocate_pool_fn(UINTN, UINTN, void **);
+typedef EFI_STATUS CDK2_MS_ABI allocate_pool_fn(UINT32, UINTN, void **);
+typedef EFI_STATUS CDK2_MS_ABI calculate_crc32_fn(void *, UINTN, UINT32 *);
 typedef void CDK2_MS_ABI event_notify_fn(void *, void *);
 typedef EFI_STATUS CDK2_MS_ABI create_event_fn(UINT32, UINTN, event_notify_fn *,
 	void *, void **);
@@ -36,6 +37,7 @@ struct boot_services_view {
 	void *through_locate_protocol[4];
 	install_multiple_fn *install_multiple;
 	uninstall_multiple_fn *uninstall_multiple;
+	calculate_crc32_fn *calculate_crc32;
 };
 struct cdk2_split_system_table {
 	UINT8 header[24];
@@ -48,6 +50,7 @@ struct cdk2_split_system_table {
 };
 static UINTN installs, uninstalls, fail_at, fail_event;
 static UINTN events, event_closes, event_signals;
+static UINTN crc_calls;
 static void *event_handles[4];
 static struct cdk2_split_driver_binding *drivers[5];
 static struct cdk2_split_text_in_ex_protocol *virtual_ex;
@@ -94,8 +97,10 @@ static EFI_STATUS CDK2_MS_ABI close_event(void *event)
 { if (event == NULL) return EFI_INVALID_PARAMETER; event_closes++; return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI check_event(void *event)
 { return event == (void *)999 ? EFI_SUCCESS : EFI_NOT_READY; }
-static EFI_STATUS CDK2_MS_ABI allocate_pool(UINTN type, UINTN size, void **buffer)
+static EFI_STATUS CDK2_MS_ABI allocate_pool(UINT32 type, UINTN size, void **buffer)
 { (void)type; *buffer = malloc(size); return *buffer == NULL ? EFI_OUT_OF_RESOURCES : EFI_SUCCESS; }
+static EFI_STATUS CDK2_MS_ABI calculate_crc32(void *data, UINTN size, UINT32 *crc)
+{ if (data == NULL || size != 24U || crc == NULL) return EFI_INVALID_PARAMETER; crc_calls++; *crc = 0x12345678U; return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI free_pool(void *buffer)
 { free(buffer); return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI physical_input_reset(
@@ -240,7 +245,7 @@ int main(void)
 		.free_pool = free_pool, .create_event = create_event,
 		.signal_event = signal_event, .close_event = close_event,
 		.check_event = check_event, .open_protocol = open_protocol,
-		.close_protocol = close_protocol };
+		.close_protocol = close_protocol, .calculate_crc32 = calculate_crc32 };
 	struct cdk2_split_system_table system = { .boot = &boot };
 	UINTN columns, rows, index;
 	struct cdk2_split_key_data ex_key = { 0 };
@@ -248,10 +253,13 @@ int main(void)
 	void *notify_handle;
 	UINT8 toggle = 4U;
 	int failures = 0;
+	*(UINT32 *)&system.header[12] = 24U;
 
 	failures += expect(cdk2_con_splitter_entry((void *)1, &system) == EFI_SUCCESS &&
 		installs == 12U && system.input != NULL && system.output != NULL &&
-		system.error != NULL, "virtual console protocols were not published");
+		system.error != NULL && crc_calls == 1U &&
+		*(UINT32 *)&system.header[16] == 0x12345678U,
+		"virtual console protocols or SystemTable CRC were not published");
 	failures += expect(system.output->query(system.output, 0U, &columns, &rows) ==
 		EFI_SUCCESS && columns == 80U && rows == 25U &&
 		system.output->output(system.output, L"A") == EFI_SUCCESS &&

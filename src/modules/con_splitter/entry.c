@@ -5,7 +5,7 @@
 
 typedef EFI_STATUS CDK2_MS_ABI install_multiple_fn(void **, ...);
 typedef EFI_STATUS CDK2_MS_ABI uninstall_multiple_fn(void *, ...);
-typedef EFI_STATUS CDK2_MS_ABI allocate_pool_fn(UINTN, UINTN, void **);
+typedef EFI_STATUS CDK2_MS_ABI allocate_pool_fn(UINT32, UINTN, void **);
 typedef EFI_STATUS CDK2_MS_ABI free_pool_fn(void *);
 typedef EFI_STATUS CDK2_MS_ABI open_protocol_fn(void *, const EFI_GUID *, void **,
 	void *, void *, UINT32);
@@ -15,6 +15,7 @@ typedef void CDK2_MS_ABI event_notify_fn(void *, void *);
 typedef EFI_STATUS CDK2_MS_ABI create_event_fn(UINT32, UINTN, event_notify_fn *,
 	void *, void **);
 typedef EFI_STATUS CDK2_MS_ABI event_fn(void *);
+typedef EFI_STATUS CDK2_MS_ABI calculate_crc32_fn(void *, UINTN, UINT32 *);
 struct boot_services_view {
 	UINT8 header[24];
 	void *raise_tpl, *restore_tpl, *allocate_pages, *free_pages, *get_memory_map;
@@ -31,6 +32,7 @@ struct boot_services_view {
 	void *slots_after_close[4];
 	install_multiple_fn *install_multiple;
 	uninstall_multiple_fn *uninstall_multiple;
+	calculate_crc32_fn *calculate_crc32;
 };
 struct cdk2_split_system_table {
 	UINT8 header[24];
@@ -403,8 +405,7 @@ static EFI_STATUS CDK2_MS_ABI pointer_reset(
 	struct cdk2_split_pointer_protocol *protocol, BOOLEAN extended)
 {
 	(void)protocol;
-	(void)extended;
-	return EFI_SUCCESS;
+	return cdk2_split_pointer_reset(&entry.pointer_model, extended);
 }
 
 static EFI_STATUS CDK2_MS_ABI pointer_get_state(
@@ -419,8 +420,7 @@ static EFI_STATUS CDK2_MS_ABI absolute_reset(
 	struct cdk2_split_absolute_protocol *protocol, BOOLEAN extended)
 {
 	(void)protocol;
-	(void)extended;
-	return EFI_SUCCESS;
+	return cdk2_split_absolute_reset(&entry.absolute_model, extended);
 }
 
 static EFI_STATUS CDK2_MS_ABI absolute_get_state(
@@ -951,6 +951,15 @@ EFI_STATUS CDK2_MS_ABI cdk2_con_splitter_entry(void *image,
 	system->con_out = &entry.output;
 	system->standard_error_handle = entry.error_handle;
 	system->standard_error = &entry.error;
+	if (system->boot->calculate_crc32 != NULL) {
+		UINT32 *crc = (UINT32 *)&system->header[16];
+		UINT32 header_size = *(UINT32 *)&system->header[12];
+
+		*crc = 0U;
+		status = system->boot->calculate_crc32(system, header_size, crc);
+		if (EFI_ERROR(status))
+			return status;
+	}
 	return EFI_SUCCESS;
 
 rollback_gop:

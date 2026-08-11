@@ -63,6 +63,7 @@ int main(void)
 	};
 	struct cdk2_split_binding binding = { &ops, NULL, &protocol, { { 0 } } };
 	struct cdk2_split_publication publications[5] = { 0 };
+	CHAR16 *name;
 	UINTN index;
 	int failures = 0;
 
@@ -90,6 +91,15 @@ int main(void)
 		!binding.instances[0].active, "successful Stop retained ownership");
 	for (index = 0; index < 5U; index++)
 		cdk2_split_publication_prepare(&publications[index], &binding, (void *)8);
+	failures += expect(publications[0].component_name.get_driver_name(
+		&publications[0].component_name, "eng", &name) == EFI_SUCCESS &&
+		publications[0].component_name.get_driver_name(
+			&publications[0].component_name, "en", &name) == EFI_UNSUPPORTED &&
+		publications[0].component_name2.get_driver_name(
+			&publications[0].component_name2, "en", &name) == EFI_SUCCESS &&
+		publications[0].component_name2.get_driver_name(
+			&publications[0].component_name2, "english", &name) == EFI_UNSUPPORTED,
+		"ComponentName language matching was not exact");
 	fail_publish = 4U;
 	failures += expect(cdk2_split_publications_install(publications, 5U, publish,
 		unpublish, NULL) == EFI_DEVICE_ERROR && unpublishes == 3U,
