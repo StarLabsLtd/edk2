@@ -89,6 +89,11 @@ static const EFI_GUID fvb_protocol_guid = {
 	0xe850U,
 	0x4db1U,
 	{0x9cU, 0xe2U, 0x0bU, 0x44U, 0x69U, 0x8eU, 0x8dU, 0xa4U}};
+static const EFI_GUID fvb_ready_guid = {
+	0xd1a86e3fU,
+	0x0707U,
+	0x4c35U,
+	{0x83U, 0xcdU, 0xdcU, 0x2cU, 0x29U, 0xc8U, 0x91U, 0xa3U}};
 static const EFI_GUID virtual_address_change_guid = {
 	0x13fa7698U,
 	0xc831U,
@@ -230,6 +235,7 @@ EFI_STATUS CDK2_MS_ABI cdk2_smmstore_fvb_entry(void *image,
 	if (EFI_ERROR(status))
 		return status;
 	status = boot_services->install_multiple(&driver_handle,
+						 &fvb_ready_guid, NULL,
 						 &fvb_protocol_guid,
 						 &runtime_fvb.protocol, NULL);
 	if (EFI_ERROR(status))
@@ -239,7 +245,8 @@ EFI_STATUS CDK2_MS_ABI cdk2_smmstore_fvb_entry(void *image,
 		&virtual_address_change_guid, &virtual_address_event);
 	if (EFI_ERROR(status)) {
 		(void)boot_services->uninstall_multiple(
-			driver_handle, &fvb_protocol_guid,
+			driver_handle, &fvb_ready_guid, NULL,
+			&fvb_protocol_guid,
 			&runtime_fvb.protocol, NULL);
 		return status;
 	}
