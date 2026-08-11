@@ -25,30 +25,6 @@
 
 ACPI_BOARD_INFO  mAcpiBoardInfo;
 
-STATIC
-VOID
-TriggerReset (
-  IN BOOLEAN  FullReset
-  )
-{
-  if ((mAcpiBoardInfo.ResetRegAddress != 0) && (mAcpiBoardInfo.ResetValue != 0)) {
-    IoWrite8 ((UINTN)mAcpiBoardInfo.ResetRegAddress, mAcpiBoardInfo.ResetValue);
-  }
-
-  //
-  // Some Intel platforms do not reliably reset from a single FADT reset write
-  // once fwupd-efi has finished a capsule update. Assert the CF9 sequence
-  // explicitly as a fallback before entering the required dead loop.
-  //
-  if (FullReset) {
-    IoWrite8 (LEGACY_RESET_CONTROL_REG, LEGACY_RESET_FULL | LEGACY_RESET_SYSTEM);
-    IoWrite8 (LEGACY_RESET_CONTROL_REG, LEGACY_RESET_FULL | LEGACY_RESET_CPU | LEGACY_RESET_SYSTEM);
-  } else {
-    IoWrite8 (LEGACY_RESET_CONTROL_REG, LEGACY_RESET_SYSTEM);
-    IoWrite8 (LEGACY_RESET_CONTROL_REG, LEGACY_RESET_CPU | LEGACY_RESET_SYSTEM);
-  }
-}
-
 /**
   The constructor function to initialize mAcpiBoardInfo.
 
@@ -102,7 +78,16 @@ ResetCold (
   // Flush before asserting reset so the platform does not hang mid-reboot.
   //
   AsmWbinvd ();
-  TriggerReset (TRUE);
+  if (mAcpiBoardInfo.ResetRegAddress == LEGACY_RESET_CONTROL_REG) {
+    IoWrite8 (LEGACY_RESET_CONTROL_REG, LEGACY_RESET_FULL | LEGACY_RESET_SYSTEM);
+    IoWrite8 (
+      LEGACY_RESET_CONTROL_REG,
+      LEGACY_RESET_FULL | LEGACY_RESET_CPU | LEGACY_RESET_SYSTEM
+      );
+  } else {
+    IoWrite8 ((UINTN)mAcpiBoardInfo.ResetRegAddress, mAcpiBoardInfo.ResetValue);
+  }
+
   CpuDeadLoop ();
 }
 
@@ -123,7 +108,7 @@ ResetWarm (
   // Keep the warm reset path consistent with cold reset for capsule updates.
   //
   AsmWbinvd ();
-  TriggerReset (FALSE);
+  IoWrite8 ((UINTN)mAcpiBoardInfo.ResetRegAddress, mAcpiBoardInfo.ResetValue);
   CpuDeadLoop ();
 }
 
