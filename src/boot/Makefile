@@ -80,6 +80,13 @@ CDK2_NATIVE_USB_KEYBOARD_FV ?= \
 	$(CDK2_NATIVE_BUILD_DIR)/retained-native-usb-keyboard.fv
 CDK2_NATIVE_USB_KEYBOARD_PACKAGE_TEST ?= \
 	$(CDK2_NATIVE_BUILD_DIR)/usb-keyboard-package-test
+CDK2_NATIVE_USB_MOUSE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-usb-mouse-test
+CDK2_NATIVE_USB_MOUSE_ENTRY_TEST ?= \
+	$(CDK2_NATIVE_BUILD_DIR)/cdk2-usb-mouse-entry-test
+CDK2_NATIVE_USB_MOUSE_OBJS := $(addprefix $(CDK2_NATIVE_BUILD_DIR)/usb-mouse-,\
+	model.o binding.o entry.o)
+CDK2_NATIVE_USB_MOUSE_PE ?= $(CDK2_NATIVE_BUILD_DIR)/UsbMouseDxe.efi
+CDK2_NATIVE_USB_MOUSE_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/UsbMouseDxe.ffs
 CDK2_NATIVE_SATA_CONTROLLER_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-sata-controller-test
 CDK2_NATIVE_ATA_ATAPI_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-atapi-test
 CDK2_NATIVE_ATA_ATAPI_BINDING_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-atapi-binding-test
@@ -1201,6 +1208,61 @@ native-usb-keyboard-package: $(CDK2_NATIVE_USB_KEYBOARD_FFS) \
 		$(CDK2_NATIVE_USB_KEYBOARD_PACKAGE_TEST)
 	@"$(CDK2_NATIVE_USB_KEYBOARD_PACKAGE_TEST)" \
 		"$(CDK2_NATIVE_USB_KEYBOARD_FFS)"
+
+.PHONY: native-usb-mouse-test native-usb-mouse-package
+native-usb-mouse-test: $(CDK2_NATIVE_USB_MOUSE_TEST) \
+		$(CDK2_NATIVE_USB_MOUSE_ENTRY_TEST)
+	@"$(CDK2_NATIVE_USB_MOUSE_TEST)"
+	@"$(CDK2_NATIVE_USB_MOUSE_ENTRY_TEST)"
+
+native-usb-mouse-package: $(CDK2_NATIVE_USB_MOUSE_FFS)
+	@printf '%s\n' "native USB mouse FFS: $(CDK2_NATIVE_USB_MOUSE_FFS)"
+
+$(CDK2_NATIVE_USB_MOUSE_TEST): $(CDK2_DIR)/tests/usb_mouse_test.c \
+		$(CDK2_DIR)/src/modules/usb_mouse/model.c \
+		$(CDK2_DIR)/src/modules/usb_mouse/binding.c \
+		$(CDK2_DIR)/include/cdk2/usb_mouse.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -fsanitize=address,undefined \
+		$(CDK2_NATIVE_INCLUDES) -MMD -MP -MF "$(@:.test=.d)" -MT "$@" \
+		-o "$@" $(CDK2_DIR)/tests/usb_mouse_test.c \
+		$(CDK2_DIR)/src/modules/usb_mouse/model.c \
+		$(CDK2_DIR)/src/modules/usb_mouse/binding.c
+
+$(CDK2_NATIVE_USB_MOUSE_ENTRY_TEST): \
+		$(CDK2_DIR)/tests/usb_mouse_entry_test.c \
+		$(CDK2_DIR)/src/modules/usb_mouse/model.c \
+		$(CDK2_DIR)/src/modules/usb_mouse/binding.c \
+		$(CDK2_DIR)/src/modules/usb_mouse/entry.c \
+		$(CDK2_DIR)/include/cdk2/usb_mouse.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -fsanitize=address,undefined \
+		$(CDK2_NATIVE_INCLUDES) -MMD -MP -MF "$(@:.test=.d)" -MT "$@" \
+		-o "$@" $(CDK2_DIR)/tests/usb_mouse_entry_test.c \
+		$(CDK2_DIR)/src/modules/usb_mouse/model.c \
+		$(CDK2_DIR)/src/modules/usb_mouse/binding.c \
+		$(CDK2_DIR)/src/modules/usb_mouse/entry.c
+
+$(CDK2_NATIVE_BUILD_DIR)/usb-mouse-%.o: \
+		$(CDK2_DIR)/src/modules/usb_mouse/%.c \
+		$(CDK2_DIR)/include/cdk2/usb_mouse.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,\
+		$(CDK2_NATIVE_CFLAGS)) -mcmodel=large -fno-ident -fcf-protection=none \
+		-maccumulate-outgoing-args $(CDK2_NATIVE_INCLUDES) -MMD -MP \
+		-MF "$(@:.o=.d)" -MT "$@" -c "$<" -o "$@"
+
+$(CDK2_NATIVE_USB_MOUSE_PE): $(CDK2_NATIVE_USB_MOUSE_OBJS) \
+		$(CDK2_DIR)/src/modules/usb_mouse/usb_mouse.ld \
+		$(CDK2_NATIVE_PERELOCCHECK)
+	@$(LD) -mi386pep --subsystem 11 --entry cdk2_usb_mouse_entry \
+		--image-base 0 --section-alignment 0x1000 --file-alignment 0x1000 \
+		--build-id=none --no-insert-timestamp -s --nxcompat \
+		-T "$(CDK2_DIR)/src/modules/usb_mouse/usb_mouse.ld" -o "$@" \
+		$(CDK2_NATIVE_USB_MOUSE_OBJS)
+	@"$(CDK2_NATIVE_PERELOCCHECK)" --subsystem 11 "$@"
+
+$(CDK2_NATIVE_USB_MOUSE_FFS): $(CDK2_NATIVE_USB_MOUSE_PE) \
+		$(CDK2_NATIVE_FFSBUILD)
+	@"$(CDK2_NATIVE_FFSBUILD)" 2d2e62aa-9ecf-43b7-8219-94e7fc713dfe \
+		UsbMouseDxe 1.0 0x7046 "$<" "$@" -
 
 .PHONY: native-usb-keyboard-fv-exact
 native-usb-keyboard-fv-exact: $(CDK2_NATIVE_USB_KEYBOARD_FFS) \
