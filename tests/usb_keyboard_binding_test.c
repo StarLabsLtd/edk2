@@ -45,7 +45,7 @@ static void release(void *context, void *buffer)
 { (void)context; free(buffer); pools--; }
 static EFI_STATUS CDK2_MS_ABI interface_descriptor(
 	struct cdk2_usb_io_protocol *protocol, void *data)
-{ UINT8 *bytes = data; (void)protocol; memset(bytes, 0, 9U); bytes[5] = 3U;
+{ UINT8 * bytes = data; (void)protocol; memset(bytes, 0, 9U); bytes[5] = 3U;
 	bytes[6] = 1U; bytes[7] = 1U; return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI endpoint_descriptor(
 	struct cdk2_usb_io_protocol *protocol, UINT8 index, void *data)

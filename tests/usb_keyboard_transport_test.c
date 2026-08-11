@@ -17,16 +17,16 @@ static EFI_STATUS CDK2_MS_ABI key_notify(struct cdk2_usb_keyboard_key *key)
 { CHECK(key->unicode_char == 'a'); notifications++; return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI interface_descriptor(
 	struct cdk2_usb_io_protocol *usb, void *data)
-{ UINT8 *bytes = data; (void)usb; memset(bytes, 0, 9U); bytes[2] = 4U;
+{ UINT8 * bytes = data; (void)usb; memset(bytes, 0, 9U); bytes[2] = 4U;
 	bytes[5] = 3U; bytes[6] = 1U; bytes[7] = 1U; return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI endpoint_descriptor(
 	struct cdk2_usb_io_protocol *usb, UINT8 index, void *data)
-{ UINT8 *bytes = data; (void)usb; CHECK(index == 0U); memset(bytes, 0, 7U);
+{ UINT8 * bytes = data; (void)usb; CHECK(index == 0U); memset(bytes, 0, 7U);
 	bytes[2] = 0x81U; bytes[3] = 3U; bytes[4] = 8U; bytes[6] = 10U;
 	return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI control(struct cdk2_usb_io_protocol *usb,
 	struct cdk2_usb_request *request, UINTN direction, UINT32 timeout, void *data,
-	UINTN *length, UINT32 *result)
+	UINTN *length, UINT32 * result)
 { (void)usb; (void)timeout; (void)data; CHECK(direction == 2U && *length == 0U);
 	CHECK(request->request == 10U || request->request == 11U); controls++;
 	*result = 0U; return EFI_SUCCESS; }
@@ -34,8 +34,14 @@ static EFI_STATUS CDK2_MS_ABI interrupt(struct cdk2_usb_io_protocol *usb,
 	UINT8 endpoint, BOOLEAN start, UINTN interval, UINTN length,
 	cdk2_usb2_async_callback_fn *callback, void *context)
 { (void)usb; CHECK(endpoint == 0x81U && interval == 10U && length == 8U);
-	if (start) { starts++; notify = callback; notify_context = context; }
-	else { stops++; CHECK(callback == NULL); }
+	if (start) {
+		starts++;
+		notify = callback;
+		notify_context = context;
+	} else {
+		stops++;
+		CHECK(callback == NULL);
+	}
 	return EFI_SUCCESS; }
 
 int main(void)
