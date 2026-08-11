@@ -71,6 +71,20 @@ static void copy_bytes(void *destination, const void *source, UINTN size)
 		*out++ = *in++;
 }
 
+static EFI_STATUS variable_geometry(const struct cdk2_smmstore *store,
+				    UINT32 *blocks, UINT64 *size)
+{
+	UINT32 spare_blocks;
+
+	if (store == NULL || blocks == NULL || size == NULL ||
+	    store->info.num_blocks < 4U || store->info.block_size == 0)
+		return EFI_UNSUPPORTED;
+	spare_blocks = store->info.num_blocks / 2U;
+	*blocks = store->info.num_blocks - spare_blocks - 1U;
+	*size = (UINT64)*blocks * store->info.block_size;
+	return *blocks == 0 ? EFI_UNSUPPORTED : EFI_SUCCESS;
+}
+
 static BOOLEAN guid_equal(const UINT8 *bytes, const EFI_GUID *guid)
 {
 	const UINT8 *guid_bytes = (const UINT8 *)guid;
@@ -87,9 +101,10 @@ static EFI_STATUS read_linear(struct cdk2_smmstore *store, UINT64 offset,
 {
 	UINT8 *out = buffer;
 	UINT64 total;
+	UINT32 variable_blocks;
 	EFI_STATUS status;
 
-	status = cdk2_smmstore_total_size(store, &total);
+	status = variable_geometry(store, &variable_blocks, &total);
 	if (EFI_ERROR(status) || offset > total || size > total - offset)
 		return EFI_COMPROMISED_DATA;
 	while (size != 0) {
@@ -114,17 +129,18 @@ EFI_STATUS cdk2_variable_store_format(struct cdk2_smmstore *store)
 {
 	UINT8 header[FV_HEADER_LENGTH + VARIABLE_STORE_HEADER_LENGTH];
 	UINT64 total;
+	UINT32 variable_blocks;
 	UINT32 block;
 	UINT32 checksum = 0;
 	UINTN size;
 	UINTN index;
 	EFI_STATUS status;
 
-	status = cdk2_smmstore_total_size(store, &total);
+	status = variable_geometry(store, &variable_blocks, &total);
 	if (EFI_ERROR(status) || total > MAX_UINT32 ||
 	    store->info.block_size < sizeof(header))
 		return EFI_UNSUPPORTED;
-	for (block = 0; block < store->info.num_blocks; block++) {
+	for (block = 0; block < variable_blocks; block++) {
 		status = cdk2_smmstore_erase(store, block);
 		if (EFI_ERROR(status))
 			return status;
@@ -137,7 +153,7 @@ EFI_STATUS cdk2_variable_store_format(struct cdk2_smmstore *store)
 	write16(header + 48, FV_HEADER_LENGTH);
 	write16(header + 52, 0);
 	header[55] = FV_REVISION;
-	write32(header + 56, store->info.num_blocks);
+	write32(header + 56, variable_blocks);
 	write32(header + 60, store->info.block_size);
 	write32(header + 64, 0);
 	write32(header + 68, 0);
@@ -158,16 +174,20 @@ EFI_STATUS cdk2_variable_store_format(struct cdk2_smmstore *store)
 static EFI_STATUS validate_fv(const struct cdk2_smmstore *store,
 			      const UINT8 *header, UINT64 total)
 {
+	UINT32 variable_blocks;
+	UINT64 variable_size;
 	UINT32 checksum = 0;
 	UINTN index;
 
-	if (!guid_equal(header + 16, &system_nv_fv_guid) ||
+	if (EFI_ERROR(variable_geometry(store, &variable_blocks,
+					&variable_size)) || variable_size != total ||
+	    !guid_equal(header + 16, &system_nv_fv_guid) ||
 	    read64(header + 32) != total ||
 	    read32(header + 40) != FV_SIGNATURE ||
 	    read32(header + 44) != FV_ATTRIBUTES ||
 	    read16(header + 48) != FV_HEADER_LENGTH ||
 	    header[55] != FV_REVISION ||
-	    read32(header + 56) != store->info.num_blocks ||
+	    read32(header + 56) != variable_blocks ||
 	    read32(header + 60) != store->info.block_size ||
 	    read32(header + 64) != 0 || read32(header + 68) != 0)
 		return EFI_COMPROMISED_DATA;
@@ -182,6 +202,7 @@ EFI_STATUS cdk2_variable_store_validate(struct cdk2_smmstore *store,
 	UINT8 header[FV_HEADER_LENGTH + VARIABLE_STORE_HEADER_LENGTH];
 	UINT8 variable[AUTH_VARIABLE_HEADER_LENGTH];
 	UINT64 total;
+	UINT32 variable_blocks;
 	UINT64 offset;
 	UINT32 store_size;
 	UINTN count = 0;
@@ -190,7 +211,7 @@ EFI_STATUS cdk2_variable_store_validate(struct cdk2_smmstore *store,
 	if (store == NULL || variable_count == NULL)
 		return EFI_INVALID_PARAMETER;
 	*variable_count = 0;
-	status = cdk2_smmstore_total_size(store, &total);
+	status = variable_geometry(store, &variable_blocks, &total);
 	if (EFI_ERROR(status) || total > MAX_UINT32)
 		return EFI_UNSUPPORTED;
 	status = read_linear(store, 0, sizeof(header), header);

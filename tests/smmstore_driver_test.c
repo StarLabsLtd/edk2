@@ -5,7 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#define BLOCKS 2U
+#define BLOCKS 8U
 #define BLOCK_SIZE 256U
 
 struct table_header {

@@ -5,12 +5,12 @@
 #include <stdio.h>
 #include <string.h>
 
-#define BLOCKS 2U
+#define BLOCKS 8U
 #define BLOCK_SIZE 256U
 
 struct fixture {
 	UINT8 flash[BLOCKS][BLOCK_SIZE];
-	UINT8 communication[BLOCK_SIZE + sizeof(struct cdk2_smmstore_request)];
+	UINT8 communication[BLOCK_SIZE];
 	BOOLEAN fail_erase;
 };
 
