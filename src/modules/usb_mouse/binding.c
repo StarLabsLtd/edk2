@@ -4,6 +4,11 @@
 
 static CHAR16 driver_name[] = L"CDK2 USB Mouse Driver";
 static CHAR16 controller_name[] = L"Generic USB Mouse";
+typedef CHAR16 **char16_result;
+typedef CHAR16 *char16_ptr;
+typedef CHAR8 * char8_ptr;
+typedef void *void_ptr;
+typedef struct cdk2_mouse_component_name *component_ptr;
 
 static struct cdk2_usb_mouse_binding *from_driver(
 	struct cdk2_mouse_driver_binding *driver)
@@ -81,8 +86,8 @@ static EFI_STATUS CDK2_MS_ABI stop(struct cdk2_mouse_driver_binding *driver,
 	return EFI_SUCCESS;
 }
 
-static EFI_STATUS language_name(CHAR8 *language, CHAR16 **name, BOOLEAN modern,
-	CHAR16 *value)
+static EFI_STATUS language_name(char8_ptr language, char16_result name,
+	BOOLEAN modern, char16_ptr value)
 {
 	if (language == NULL || name == NULL)
 		return EFI_INVALID_PARAMETER;
@@ -96,22 +101,22 @@ static EFI_STATUS language_name(CHAR8 *language, CHAR16 **name, BOOLEAN modern,
 }
 
 static EFI_STATUS CDK2_MS_ABI get_driver_name(
-	struct cdk2_mouse_component_name *component, CHAR8 *language, CHAR16 **name)
+	component_ptr component, char8_ptr language, char16_result name)
 {
 	(void)component;
 	return language_name(language, name, FALSE, driver_name);
 }
 
 static EFI_STATUS CDK2_MS_ABI get_driver_name2(
-	struct cdk2_mouse_component_name *component, CHAR8 *language, CHAR16 **name)
+	component_ptr component, char8_ptr language, char16_result name)
 {
 	(void)component;
 	return language_name(language, name, TRUE, driver_name);
 }
 
 static EFI_STATUS CDK2_MS_ABI get_controller_name(
-	struct cdk2_mouse_component_name *component, void *controller, void *child,
-	CHAR8 *language, CHAR16 **name)
+	component_ptr component, void_ptr controller, void_ptr child,
+	char8_ptr language, char16_result name)
 {
 	struct cdk2_usb_mouse_binding *binding;
 	struct cdk2_usb_mouse *mouse;
