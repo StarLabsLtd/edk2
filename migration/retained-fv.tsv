@@ -1,10 +1,10 @@
 # baseline-retained=72
-# retained=26
+# retained=25
 # status	wave	module
 native	boot	FatPkg/EnhancedFatDxe/Fat
 native	storage	MdeModulePkg/Bus/Ata/AtaAtapiPassThru/AtaAtapiPassThru
 native	storage	MdeModulePkg/Bus/Ata/AtaBusDxe/AtaBusDxe
-retain	console	MdeModulePkg/Bus/Isa/Ps2MouseDxe/Ps2MouseDxe
+native	console	MdeModulePkg/Bus/Isa/Ps2MouseDxe/Ps2MouseDxe
 retain	usb	MdeModulePkg/Bus/Pci/EhciDxe/EhciDxe
 retain	storage	MdeModulePkg/Bus/Pci/NvmExpressDxe/NvmExpressDxe
 native	pci	MdeModulePkg/Bus/Pci/PciBusDxe/PciBusDxe
