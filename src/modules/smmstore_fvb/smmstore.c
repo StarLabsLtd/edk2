@@ -40,6 +40,8 @@ EFI_STATUS cdk2_smmstore_initialize(struct cdk2_smmstore *store,
 				info->mmio_address > MAX_UINT64 - total_size))
 		return EFI_INVALID_PARAMETER;
 	store->info = *info;
+	if (store->info.mmio_address == 0 && total_size <= 0x100000000ULL)
+		store->info.mmio_address = 0x100000000ULL - total_size;
 	store->invoke = invoke;
 	store->context = context;
 	store->communication_buffer = (UINT8 *)(UINTN)info->com_buffer;

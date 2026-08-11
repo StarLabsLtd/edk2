@@ -84,6 +84,7 @@ int main(void)
 	};
 	EXPECT(cdk2_smmstore_initialize(&store, &info, invoke, &fixture) ==
 	       EFI_SUCCESS);
+	EXPECT(store.info.mmio_address == 0x100000U);
 	EXPECT(cdk2_smmstore_total_size(&store, &total) == EFI_SUCCESS &&
 	       total == BLOCKS * BLOCK_SIZE);
 	size = sizeof(input);
@@ -116,6 +117,11 @@ int main(void)
 	EXPECT(cdk2_smmstore_initialize(&store, &info, invoke, &fixture) ==
 	       EFI_INVALID_PARAMETER);
 	info.com_buffer_size = sizeof(fixture.communication);
+	info.mmio_address = 0;
+	EXPECT(cdk2_smmstore_initialize(&store, &info, invoke, &fixture) ==
+		       EFI_SUCCESS &&
+	       store.info.mmio_address ==
+		       0x100000000ULL - BLOCKS * BLOCK_SIZE);
 	info.com_buffer = MAX_UINT64 - 4U;
 	EXPECT(cdk2_smmstore_initialize(&store, &info, invoke, &fixture) ==
 	       EFI_INVALID_PARAMETER);
