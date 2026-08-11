@@ -82,7 +82,8 @@ struct cdk2_usb_keyboard_controller {
 typedef EFI_STATUS cdk2_usb_keyboard_open_fn(void *, void *,
 	struct cdk2_usb_io_protocol **);
 typedef EFI_STATUS cdk2_usb_keyboard_close_fn(void *, void *);
-typedef EFI_STATUS cdk2_usb_keyboard_event_fn(void *, void **);
+typedef EFI_STATUS cdk2_usb_keyboard_event_fn(void *,
+	struct cdk2_usb_keyboard_controller *, BOOLEAN, void **);
 typedef EFI_STATUS cdk2_usb_keyboard_close_event_fn(void *, void *);
 typedef EFI_STATUS cdk2_usb_keyboard_publish_fn(void *, void *,
 	struct cdk2_usb_keyboard_controller *);

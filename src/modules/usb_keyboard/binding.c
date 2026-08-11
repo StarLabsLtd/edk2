@@ -68,10 +68,10 @@ EFI_STATUS cdk2_usb_keyboard_binding_start(
 		goto close;
 	memset(owner, 0, sizeof(*owner)); owner->handle = controller;
 	status = binding->services.create_event(binding->services.context,
-		&owner->wait);
+		owner, FALSE, &owner->wait);
 	if (!EFI_ERROR(status))
 		status = binding->services.create_event(binding->services.context,
-			&owner->wait_ex);
+			owner, TRUE, &owner->wait_ex);
 	if (!EFI_ERROR(status))
 		status = cdk2_usb_keyboard_start_io(&owner->device, usb);
 	if (!EFI_ERROR(status))

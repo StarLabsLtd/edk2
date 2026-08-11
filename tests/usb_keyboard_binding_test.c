@@ -17,8 +17,10 @@ static EFI_STATUS open_usb(void *context, void *controller,
 	return EFI_SUCCESS; }
 static EFI_STATUS close_usb(void *context, void *controller)
 { (void)context; CHECK(controller != NULL); closes++; return EFI_SUCCESS; }
-static EFI_STATUS create_event(void *context, void **event)
-{ (void)context; events++; *event = (void *)(events + 0x100U); return EFI_SUCCESS; }
+static EFI_STATUS create_event(void *context,
+	struct cdk2_usb_keyboard_controller *owner, BOOLEAN extended, void **event)
+{ (void)context; CHECK(owner != NULL && extended == (events != 0U)); events++;
+	*event = (void *)(events + 0x100U); return EFI_SUCCESS; }
 static EFI_STATUS close_event(void *context, void *event)
 { (void)context; CHECK(event != NULL); closed_events++; return EFI_SUCCESS; }
 static EFI_STATUS publish(void *context, void *controller,
