@@ -6,6 +6,7 @@
 
 #define CDK2_USB_KEYBOARD_KEYS 6U
 #define CDK2_USB_KEYBOARD_QUEUE 32U
+#define CDK2_USB_KEYBOARD_CONTROLLERS 16U
 #define CDK2_KEY_SHIFT_VALID 0x80000000U
 #define CDK2_KEY_LEFT_SHIFT 0x00000002U
 #define CDK2_KEY_RIGHT_SHIFT 0x00000001U
@@ -73,6 +74,40 @@ struct cdk2_usb_keyboard_device {
 	BOOLEAN active;
 };
 
+struct cdk2_usb_keyboard_controller {
+	struct cdk2_usb_keyboard_device device;
+	void *handle, *wait, *wait_ex;
+	BOOLEAN installed;
+};
+typedef EFI_STATUS cdk2_usb_keyboard_open_fn(void *, void *,
+	struct cdk2_usb_io_protocol **);
+typedef EFI_STATUS cdk2_usb_keyboard_close_fn(void *, void *);
+typedef EFI_STATUS cdk2_usb_keyboard_event_fn(void *, void **);
+typedef EFI_STATUS cdk2_usb_keyboard_close_event_fn(void *, void *);
+typedef EFI_STATUS cdk2_usb_keyboard_publish_fn(void *, void *,
+	struct cdk2_usb_keyboard_controller *);
+typedef EFI_STATUS cdk2_usb_keyboard_remove_fn(void *, void *,
+	struct cdk2_usb_keyboard_controller *);
+typedef EFI_STATUS cdk2_usb_keyboard_allocate_fn(void *, UINTN, void **);
+typedef void cdk2_usb_keyboard_release_fn(void *, void *);
+struct cdk2_usb_keyboard_binding_services {
+	void *context;
+	cdk2_usb_keyboard_open_fn *open;
+	cdk2_usb_keyboard_close_fn *close;
+	cdk2_usb_keyboard_event_fn *create_event;
+	cdk2_usb_keyboard_close_event_fn *close_event;
+	cdk2_usb_keyboard_publish_fn *publish;
+	cdk2_usb_keyboard_remove_fn *remove;
+	cdk2_usb_keyboard_allocate_fn *allocate;
+	cdk2_usb_keyboard_release_fn *release;
+};
+struct cdk2_usb_keyboard_binding {
+	struct cdk2_usb_keyboard_binding_services services;
+	struct cdk2_usb_keyboard_controller *controllers[
+		CDK2_USB_KEYBOARD_CONTROLLERS];
+	UINTN count;
+};
+
 EFI_STATUS cdk2_usb_keyboard_init(struct cdk2_usb_keyboard *keyboard);
 EFI_STATUS cdk2_usb_keyboard_report(struct cdk2_usb_keyboard *keyboard,
 	const void *report, UINTN length);
@@ -83,5 +118,14 @@ EFI_STATUS cdk2_usb_keyboard_start_io(struct cdk2_usb_keyboard_device *device,
 EFI_STATUS cdk2_usb_keyboard_stop_io(struct cdk2_usb_keyboard_device *device);
 EFI_STATUS cdk2_usb_keyboard_protocol_init(
 	struct cdk2_usb_keyboard_device *device, void *wait, void *wait_ex);
+EFI_STATUS cdk2_usb_keyboard_binding_init(
+	struct cdk2_usb_keyboard_binding *binding,
+	const struct cdk2_usb_keyboard_binding_services *services);
+EFI_STATUS cdk2_usb_keyboard_binding_supported(
+	struct cdk2_usb_keyboard_binding *binding, void *controller);
+EFI_STATUS cdk2_usb_keyboard_binding_start(
+	struct cdk2_usb_keyboard_binding *binding, void *controller);
+EFI_STATUS cdk2_usb_keyboard_binding_stop(
+	struct cdk2_usb_keyboard_binding *binding, void *controller);
 
 #endif
