@@ -131,8 +131,8 @@ EFI_STATUS cdk2_usb_keyboard_binding_stop(
 		owner->wait_ex);
 	(void)binding->services.close_event(binding->services.context, owner->wait);
 	binding->services.release(binding->services.context, owner);
-	memmove(&binding->controllers[index], &binding->controllers[index + 1U],
-		(binding->count - index - 1U) * sizeof(binding->controllers[0]));
+	for (UINTN move = index + 1U; move < binding->count; move++)
+		binding->controllers[move - 1U] = binding->controllers[move];
 	binding->count--;
 	return EFI_SUCCESS;
 }

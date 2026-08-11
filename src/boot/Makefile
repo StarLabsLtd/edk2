@@ -71,6 +71,13 @@ CDK2_NATIVE_USB_MASS_PE ?= $(CDK2_NATIVE_BUILD_DIR)/UsbMassStorageDxe.efi
 CDK2_NATIVE_USB_MASS_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/UsbMassStorageDxe.ffs
 CDK2_NATIVE_USB_MASS_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-usb-mass.fv
 CDK2_NATIVE_USB_MASS_PACKAGE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/usb-mass-package-test
+CDK2_NATIVE_USB_KEYBOARD_OBJS := $(addprefix \
+	$(CDK2_NATIVE_BUILD_DIR)/usb-keyboard-,model.o transport.o protocol.o \
+	binding.o entry.o)
+CDK2_NATIVE_USB_KEYBOARD_PE ?= $(CDK2_NATIVE_BUILD_DIR)/UsbKbDxe.efi
+CDK2_NATIVE_USB_KEYBOARD_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/UsbKbDxe.ffs
+CDK2_NATIVE_USB_KEYBOARD_PACKAGE_TEST ?= \
+	$(CDK2_NATIVE_BUILD_DIR)/usb-keyboard-package-test
 CDK2_NATIVE_SATA_CONTROLLER_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-sata-controller-test
 CDK2_NATIVE_ATA_ATAPI_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-atapi-test
 CDK2_NATIVE_ATA_ATAPI_BINDING_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-atapi-binding-test
@@ -1186,6 +1193,40 @@ native-usb-keyboard-test: $(CDK2_NATIVE_BUILD_DIR)/usb-keyboard-model-test \
 	@"$(CDK2_NATIVE_BUILD_DIR)/usb-keyboard-protocol-test"
 	@"$(CDK2_NATIVE_BUILD_DIR)/usb-keyboard-binding-test"
 	@"$(CDK2_NATIVE_BUILD_DIR)/usb-keyboard-entry-test"
+
+.PHONY: native-usb-keyboard-package
+native-usb-keyboard-package: $(CDK2_NATIVE_USB_KEYBOARD_FFS) \
+		$(CDK2_NATIVE_USB_KEYBOARD_PACKAGE_TEST)
+	@"$(CDK2_NATIVE_USB_KEYBOARD_PACKAGE_TEST)" \
+		"$(CDK2_NATIVE_USB_KEYBOARD_FFS)"
+
+$(CDK2_NATIVE_BUILD_DIR)/usb-keyboard-%.o: \
+		$(CDK2_DIR)/src/modules/usb_keyboard/%.c \
+		$(CDK2_DIR)/include/cdk2/usb_keyboard.h \
+		$(CDK2_DIR)/include/cdk2/usb_bus.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,\
+		$(CDK2_NATIVE_CFLAGS)) -mcmodel=large -fno-ident -fcf-protection=none \
+		-maccumulate-outgoing-args $(CDK2_NATIVE_INCLUDES) -MMD -MP \
+		-MF "$(@:.o=.d)" -MT "$@" -c "$<" -o "$@"
+
+$(CDK2_NATIVE_USB_KEYBOARD_PE): $(CDK2_NATIVE_USB_KEYBOARD_OBJS) \
+		$(CDK2_DIR)/src/modules/xhci/xhci.ld $(CDK2_NATIVE_PERELOCCHECK)
+	@$(LD) -mi386pep --subsystem 11 --entry cdk2_usb_keyboard_entry \
+		--image-base 0 --section-alignment 0x1000 --file-alignment 0x1000 \
+		--build-id=none --no-insert-timestamp -s --nxcompat \
+		-T "$(CDK2_DIR)/src/modules/xhci/xhci.ld" -o "$@" \
+		$(CDK2_NATIVE_USB_KEYBOARD_OBJS)
+	@"$(CDK2_NATIVE_PERELOCCHECK)" --subsystem 11 "$@"
+
+$(CDK2_NATIVE_USB_KEYBOARD_FFS): $(CDK2_NATIVE_USB_KEYBOARD_PE) \
+		$(CDK2_NATIVE_FFSBUILD)
+	@"$(CDK2_NATIVE_FFSBUILD)" 2d2e62cf-9ecf-43b7-8219-94e7fc713dfe \
+		UsbKbDxe 1.0 0x9042 "$<" "$@" -
+
+$(CDK2_NATIVE_USB_KEYBOARD_PACKAGE_TEST): \
+		$(CDK2_DIR)/tests/usb_keyboard_package_test.c | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -MMD -MP \
+		-MF "$(@:.test=.d)" -MT "$@" -o "$@" "$<"
 
 $(CDK2_NATIVE_BUILD_DIR)/usb-keyboard-model-test: \
 		$(CDK2_DIR)/tests/usb_keyboard_model_test.c \
