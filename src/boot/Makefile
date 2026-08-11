@@ -4841,6 +4841,8 @@ CDK2_NATIVE_CON_SPLITTER_OBJS := $(CDK2_NATIVE_BUILD_DIR)/con-splitter-model.o \
 	$(CDK2_NATIVE_BUILD_DIR)/con-splitter-binding.o \
 	$(CDK2_NATIVE_BUILD_DIR)/con-splitter-entry.o
 CDK2_NATIVE_CON_SPLITTER_PE ?= $(CDK2_NATIVE_BUILD_DIR)/ConSplitterDxe.efi
+CDK2_NATIVE_CON_SPLITTER_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/ConSplitterDxe.ffs
+CDK2_NATIVE_CON_SPLITTER_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-con-splitter.fv
 
 .PHONY: native-con-splitter-test native-con-splitter-fv native-con-splitter-fv-exact
 native-con-splitter-test: $(CDK2_NATIVE_CON_SPLITTER_MODEL_TEST) \
