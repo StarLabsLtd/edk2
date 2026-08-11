@@ -1177,9 +1177,11 @@ native-usb-mass-test: $(CDK2_NATIVE_BUILD_DIR)/usb-mass-model-test \
 
 .PHONY: native-usb-keyboard-test
 native-usb-keyboard-test: $(CDK2_NATIVE_BUILD_DIR)/usb-keyboard-model-test \
-		$(CDK2_NATIVE_BUILD_DIR)/usb-keyboard-transport-test
+		$(CDK2_NATIVE_BUILD_DIR)/usb-keyboard-transport-test \
+		$(CDK2_NATIVE_BUILD_DIR)/usb-keyboard-protocol-test
 	@"$(CDK2_NATIVE_BUILD_DIR)/usb-keyboard-model-test"
 	@"$(CDK2_NATIVE_BUILD_DIR)/usb-keyboard-transport-test"
+	@"$(CDK2_NATIVE_BUILD_DIR)/usb-keyboard-protocol-test"
 
 $(CDK2_NATIVE_BUILD_DIR)/usb-keyboard-model-test: \
 		$(CDK2_DIR)/tests/usb_keyboard_model_test.c \
@@ -1202,6 +1204,18 @@ $(CDK2_NATIVE_BUILD_DIR)/usb-keyboard-transport-test: \
 		$(CDK2_DIR)/tests/usb_keyboard_transport_test.c \
 		$(CDK2_DIR)/src/modules/usb_keyboard/model.c \
 		$(CDK2_DIR)/src/modules/usb_keyboard/transport.c
+
+$(CDK2_NATIVE_BUILD_DIR)/usb-keyboard-protocol-test: \
+		$(CDK2_DIR)/tests/usb_keyboard_protocol_test.c \
+		$(CDK2_DIR)/src/modules/usb_keyboard/model.c \
+		$(CDK2_DIR)/src/modules/usb_keyboard/protocol.c \
+		$(CDK2_DIR)/include/cdk2/usb_keyboard.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) \
+		-fsanitize=address,undefined $(CDK2_NATIVE_INCLUDES) -MMD -MP \
+		-MF "$(@:.test=.d)" -MT "$@" -o "$@" \
+		$(CDK2_DIR)/tests/usb_keyboard_protocol_test.c \
+		$(CDK2_DIR)/src/modules/usb_keyboard/model.c \
+		$(CDK2_DIR)/src/modules/usb_keyboard/protocol.c
 
 .PHONY: native-usb-mass-package
 native-usb-mass-package: $(CDK2_NATIVE_USB_MASS_FFS) \
