@@ -64,12 +64,12 @@ typedef EFI_STATUS CDK2_MS_ABI get_device_fn(struct usb_io *,
 	struct usb_device_descriptor *);
 typedef EFI_STATUS CDK2_MS_ABI get_interface_fn(struct usb_io *,
 	struct usb_interface_descriptor *);
-typedef EFI_STATUS CDK2_MS_ABI get_string_fn(struct usb_io *, UINT16, UINT8, CHAR16 **);
+typedef EFI_STATUS CDK2_MS_ABI get_string_fn(struct usb_io *, UINT16, UINT8, CHAR16 * *);
 typedef EFI_STATUS CDK2_MS_ABI get_languages_fn(struct usb_io *, UINT16 **, UINT16 *);
 struct usb_io {
-	void *slots[6]; get_device_fn *get_device; void *get_config;
+	void *slots[6]; get_device_fn * get_device; void *get_config;
 	get_interface_fn *get_interface; void *get_endpoint;
-	get_string_fn *get_string; get_languages_fn *get_languages; void *reset;
+	get_string_fn *get_string; get_languages_fn * get_languages; void *reset;
 };
 
 static const UINT8 full_path[] = { 1, 1, 4, 0, 0x7f, 0xff, 4, 0 };
@@ -78,6 +78,7 @@ static const UINT8 short_path[] = {
 	0x7f, 0xff, 4, 0
 };
 static struct cdk2_con_driver_binding *input_driver;
+static struct cdk2_con_component_name *legacy_name, *modern_name;
 static UINTN installs, uninstalls, fail_at, marker_installs, allocations, frees;
 static BOOLEAN fail_string;
 static BOOLEAN fail_descriptor;
@@ -90,7 +91,7 @@ static EFI_STATUS CDK2_MS_ABI allocate_pool(UINT32 type, UINTN size, void **buff
 static EFI_STATUS CDK2_MS_ABI free_pool(void *buffer)
 { frees++; free(buffer); return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI install_multiple_fixed(void **handle,
-	const EFI_GUID *guid, void *interface, void *end)
+	const EFI_GUID * guid, void *interface, void *end)
 {
 	installs++;
 	if (*handle == NULL)
@@ -98,12 +99,16 @@ static EFI_STATUS CDK2_MS_ABI install_multiple_fixed(void **handle,
 	(void)guid; (void)end;
 	if (interface != NULL && input_driver == NULL)
 		input_driver = interface;
+	else if (interface != NULL && legacy_name == NULL)
+		legacy_name = interface;
+	else if (interface != NULL && modern_name == NULL)
+		modern_name = interface;
 	if (interface == NULL)
 		marker_installs++;
 	return installs == fail_at ? EFI_DEVICE_ERROR : EFI_SUCCESS;
 }
 static EFI_STATUS CDK2_MS_ABI uninstall_multiple_fixed(void *handle,
-	const EFI_GUID *guid, void *interface, void *end)
+	const EFI_GUID * guid, void *interface, void *end)
 {
 	(void)guid; (void)interface; (void)end;
 	if (handle == NULL)
@@ -111,7 +116,7 @@ static EFI_STATUS CDK2_MS_ABI uninstall_multiple_fixed(void *handle,
 	uninstalls++;
 	return EFI_SUCCESS;
 }
-static EFI_STATUS CDK2_MS_ABI open_protocol(void *controller, const EFI_GUID *guid,
+static EFI_STATUS CDK2_MS_ABI open_protocol(void *controller, const EFI_GUID * guid,
 	void **interface, void *agent, void *child, UINT32 attributes)
 {
 	(void)controller; (void)guid; (void)agent; (void)child;
@@ -121,18 +126,22 @@ static EFI_STATUS CDK2_MS_ABI open_protocol(void *controller, const EFI_GUID *gu
 		*interface = (void *)1;
 	return EFI_SUCCESS;
 }
-static EFI_STATUS CDK2_MS_ABI close_protocol(void *controller, const EFI_GUID *guid,
+static EFI_STATUS CDK2_MS_ABI close_protocol(void *controller, const EFI_GUID * guid,
 	void *agent, void *child)
 { (void)controller; (void)guid; (void)agent; (void)child; return EFI_SUCCESS; }
-static EFI_STATUS CDK2_MS_ABI get_variable(CHAR16 *name, const EFI_GUID *guid,
-	UINT32 *attributes, UINTN *size, void *data)
+static EFI_STATUS CDK2_MS_ABI get_variable(CHAR16 * name, const EFI_GUID * guid,
+	UINT32 * attributes, UINTN *size, void *data)
 {
 	(void)name; (void)guid; (void)attributes;
-	if (data == NULL) { *size = sizeof(short_path); return EFI_BUFFER_TOO_SMALL; }
-	memcpy(data, short_path, sizeof(short_path)); *size = sizeof(short_path);
+	if (data == NULL) {
+		*size = sizeof(short_path);
+		return EFI_BUFFER_TOO_SMALL;
+	}
+	memcpy(data, short_path, sizeof(short_path));
+	*size = sizeof(short_path);
 	return EFI_SUCCESS;
 }
-static EFI_STATUS CDK2_MS_ABI set_variable(CHAR16 *name, const EFI_GUID *guid,
+static EFI_STATUS CDK2_MS_ABI set_variable(CHAR16 * name, const EFI_GUID * guid,
 	UINT32 attributes, UINTN size, const void *data)
 { (void)name; (void)guid; (void)size; (void)data; return attributes == 6U ? EFI_SUCCESS : EFI_INVALID_PARAMETER; }
 
@@ -156,7 +165,7 @@ static EFI_STATUS CDK2_MS_ABI get_languages(struct usb_io *usb, UINT16 **languag
 	UINT16 *count)
 { static UINT16 language = 0x409; (void)usb; *languages = &language; *count = 1; return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI get_string(struct usb_io *usb, UINT16 language, UINT8 index,
-	CHAR16 **string)
+	CHAR16 * *string)
 {
 	(void)usb; (void)language; (void)index;
 	if (fail_string)
@@ -170,10 +179,10 @@ static struct usb_io usb = {
 	.get_device = get_device, .get_interface = get_interface,
 	.get_string = get_string, .get_languages = get_languages,
 };
-static EFI_STATUS CDK2_MS_ABI locate_device_path(const EFI_GUID *guid, void **path,
+static EFI_STATUS CDK2_MS_ABI locate_device_path(const EFI_GUID * guid, void **path,
 	void **handle)
 { (void)guid; (void)path; *handle = &usb; return EFI_SUCCESS; }
-static EFI_STATUS CDK2_MS_ABI handle_protocol(void *handle, const EFI_GUID *guid,
+static EFI_STATUS CDK2_MS_ABI handle_protocol(void *handle, const EFI_GUID * guid,
 	void **interface)
 { (void)guid; *interface = handle; return EFI_SUCCESS; }
 
@@ -193,16 +202,25 @@ int main(void)
 		.set_variable = set_variable };
 	struct cdk2_con_system_table system = { .runtime = &runtime, .boot = (void *)&boot };
 	UINTN index;
+	CHAR16 *name;
 	int failures = 0;
 
 	failures += expect(cdk2_con_platform_entry((void *)1, &system) == EFI_SUCCESS &&
 		installs == 6U && input_driver != NULL, "protocol publication failed");
+	failures += expect(legacy_name != NULL && modern_name != NULL &&
+		legacy_name->get_driver_name(legacy_name, "eng", &name) == EFI_SUCCESS &&
+		legacy_name->get_driver_name(legacy_name, "en", &name) == EFI_UNSUPPORTED &&
+		modern_name->get_driver_name(modern_name, "en", &name) == EFI_SUCCESS &&
+		modern_name->get_driver_name(modern_name, "english", &name) == EFI_UNSUPPORTED,
+		"component language matching was not exact");
 	for (index = 1; index <= 6; index++) {
 		installs = uninstalls = 0U; fail_at = index; input_driver = NULL;
+		legacy_name = modern_name = NULL;
 		failures += expect(cdk2_con_platform_entry((void *)1, &system) == EFI_DEVICE_ERROR &&
 			uninstalls == index - 1U, "protocol publication rollback failed");
 	}
 	installs = uninstalls = fail_at = marker_installs = 0U; input_driver = NULL;
+	legacy_name = modern_name = NULL;
 	failures += expect(cdk2_con_platform_entry((void *)1, &system) == EFI_SUCCESS,
 		"entry republish failed");
 	failures += expect(input_driver->start(input_driver, (void *)1, NULL) == EFI_SUCCESS &&

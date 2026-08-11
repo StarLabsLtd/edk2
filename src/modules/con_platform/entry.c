@@ -81,7 +81,7 @@ typedef EFI_STATUS CDK2_MS_ABI usb_get_device_fn(struct usb_io_view *,
 typedef EFI_STATUS CDK2_MS_ABI usb_get_interface_fn(struct usb_io_view *,
 	struct usb_interface_descriptor *);
 typedef EFI_STATUS CDK2_MS_ABI usb_get_string_fn(struct usb_io_view *, UINT16, UINT8,
-	CHAR16 **);
+	CHAR16 * *);
 typedef EFI_STATUS CDK2_MS_ABI usb_get_languages_fn(struct usb_io_view *, UINT16 **,
 	UINT16 *);
 struct usb_io_view {
@@ -145,6 +145,8 @@ static UINTN path_size(const void *path)
 	if (path == NULL)
 		return 0U;
 	while (total < 65536U) {
+		if (65536U - total < sizeof(*node))
+			return 0U;
 		UINT16 length = node->length;
 
 		if (length < sizeof(*node) || total + length > 65536U)
@@ -318,7 +320,7 @@ static void release_pool(void *context, void *data)
 }
 
 static BOOLEAN usb_identity(void *context, const void *path,
-	struct cdk2_usb_identity *identity, CHAR16 **serial)
+			    struct cdk2_usb_identity *identity, CHAR16 **serial)
 {
 	struct con_entry_context *state = ((struct con_instance *)context)->entry;
 	struct usb_device_descriptor device;
@@ -387,7 +389,7 @@ static EFI_STATUS edit_path(void *context, const void *current, UINTN current_si
 			node = (const void *)((const UINT8 *)node + length);
 		}
 		if (cdk2_con_path_instance_match(path, size, source, instance_size,
-		    have_usb ? &usb : NULL))
+						 have_usb ? &usb : NULL))
 			found = TRUE;
 		source += instance_size;
 		remaining -= instance_size;
@@ -417,7 +419,7 @@ static EFI_STATUS edit_path(void *context, const void *current, UINTN current_si
 				node = (const void *)((const UINT8 *)node + node->length);
 			}
 			if (!(instance_size == size &&
-			    bytes_equal(source, path, size - sizeof(*node)))) {
+			      bytes_equal(source, path, size - sizeof(*node)))) {
 				__builtin_memcpy(destination, source, instance_size);
 				destination += instance_size;
 				kept += instance_size;
@@ -501,9 +503,17 @@ static const struct cdk2_con_binding_ops binding_ops = {
 static EFI_STATUS CDK2_MS_ABI get_name(struct cdk2_con_component_name *component,
 	CHAR8 * language, cdk2_con_name_ptr * name)
 {
-	(void)component;
+	BOOLEAN legacy = language != NULL && language[0] == 'e' &&
+		language[1] == 'n' && language[2] == 'g' && language[3] == 0;
+	BOOLEAN modern = language != NULL && language[0] == 'e' &&
+		language[1] == 'n' && language[2] == 0;
+
 	if (language == NULL || name == NULL)
 		return EFI_INVALID_PARAMETER;
+	if ((component == &entry.name && !legacy) ||
+	    (component == &entry.name2 && !modern) ||
+	    (component != &entry.name && component != &entry.name2))
+		return EFI_UNSUPPORTED;
 	*name = driver_name;
 	return EFI_SUCCESS;
 }

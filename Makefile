@@ -66,7 +66,7 @@ CDK2_CONFIG_TARGETS := build check manifest modules native-stage \
 	native-pch-smi-dispatch-test native-pch-smi-dispatch-fv \
 	native-local-apic-timer-test native-local-apic-timer-fv \
 	native-graphics-console-test native-graphics-console-fv \
-	native-con-platform-test native-con-platform-fv \
+	native-con-platform-test native-con-platform-fv native-con-platform-fv-exact \
 	native-hii-database-test native-hii-database-ffs native-hii-database-fv \
 	native-hii-database-oracle \
 	native-scsi-bus-test native-scsi-bus-package native-scsi-bus-fv \
@@ -147,6 +147,7 @@ CDK2_RECURSIVE_ARGS := \
 	$(if $(CDK2_NATIVE_PRE_ACPI_TABLE_FV),CDK2_NATIVE_PRE_ACPI_TABLE_FV="$(CDK2_NATIVE_PRE_ACPI_TABLE_FV)") \
 	$(if $(CDK2_NATIVE_PRE_SMMSTORE_FV),CDK2_NATIVE_PRE_SMMSTORE_FV="$(CDK2_NATIVE_PRE_SMMSTORE_FV)") \
 	$(if $(CDK2_NATIVE_PRE_FTW_FV),CDK2_NATIVE_PRE_FTW_FV="$(CDK2_NATIVE_PRE_FTW_FV)") \
+	$(if $(CDK2_NATIVE_PRE_CON_PLATFORM_FV),CDK2_NATIVE_PRE_CON_PLATFORM_FV="$(CDK2_NATIVE_PRE_CON_PLATFORM_FV)") \
 	$(if $(CDK2_NATIVE_PCD_DATABASE),CDK2_NATIVE_PCD_DATABASE="$(CDK2_NATIVE_PCD_DATABASE)") \
 	CDK2_NATIVE_DIR="$(CDK2_NATIVE_DIR)" \
 	$(if $(HOSTCC),HOSTCC="$(HOSTCC)") \
@@ -180,7 +181,7 @@ CDK2_RECURSIVE_ARGS := \
 	native-pch-smi-dispatch-test native-pch-smi-dispatch-fv \
 	native-local-apic-timer-test native-local-apic-timer-fv \
 	native-graphics-console-test native-graphics-console-fv \
-	native-con-platform-test native-con-platform-fv \
+	native-con-platform-test native-con-platform-fv native-con-platform-fv-exact \
 	native-hii-database-test native-hii-database-ffs native-hii-database-fv \
 	native-hii-database-oracle \
 	native-scsi-bus-test native-scsi-bus-package native-scsi-bus-fv \

@@ -3417,6 +3417,19 @@ $(CDK2_NATIVE_FTW_FV): $(CDK2_NATIVE_PRE_FTW_FV)
 	@cp "$<" "$@"
 endif
 
+ifeq ($(CONFIG_CDK2_NATIVE_CON_PLATFORM),y)
+CDK2_NATIVE_PRE_CON_PLATFORM_FV ?= $(CDK2_NATIVE_FINAL_FV)
+CDK2_NATIVE_FINAL_FV := $(CDK2_NATIVE_CON_PLATFORM_FV)
+
+$(CDK2_NATIVE_CON_PLATFORM_FV): $(CDK2_NATIVE_PRE_CON_PLATFORM_FV) \
+		$(CDK2_NATIVE_CON_PLATFORM_FFS) $(CDK2_NATIVE_FVREPLACE)
+	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_PRE_CON_PLATFORM_FV)" 0x2c8288 \
+		"$(CDK2_NATIVE_CON_PLATFORM_FFS)" "$@"
+else
+$(CDK2_NATIVE_CON_PLATFORM_FV): $(CDK2_NATIVE_PRE_CON_PLATFORM_FV)
+	@cp "$<" "$@"
+endif
+
 ifeq ($(CONFIG_CDK2_NATIVE_ENGLISH),y)
 $(CDK2_NATIVE_ENGLISH_OBJ): $(CDK2_DIR)/src/modules/english/english.c $(CDK2_DIR)/include/cdk2/english.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
@@ -4695,25 +4708,38 @@ CDK2_NATIVE_CON_PLATFORM_PATH_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-con-platform
 CDK2_NATIVE_CON_PLATFORM_POLICY_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-con-platform-policy-test
 CDK2_NATIVE_CON_PLATFORM_BINDING_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-con-platform-binding-test
 CDK2_NATIVE_CON_PLATFORM_ENTRY_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-con-platform-entry-test
+CDK2_NATIVE_CON_PLATFORM_PACKAGE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-con-platform-package-test
 CDK2_NATIVE_CON_PLATFORM_OBJS := $(CDK2_NATIVE_BUILD_DIR)/con-platform-path.o \
 	$(CDK2_NATIVE_BUILD_DIR)/con-platform-policy.o \
 	$(CDK2_NATIVE_BUILD_DIR)/con-platform-binding.o \
 	$(CDK2_NATIVE_BUILD_DIR)/con-platform-entry.o
 CDK2_NATIVE_CON_PLATFORM_PE ?= $(CDK2_NATIVE_BUILD_DIR)/ConPlatformDxe.efi
 CDK2_NATIVE_CON_PLATFORM_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/ConPlatformDxe.ffs
+CDK2_NATIVE_CON_PLATFORM_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-con-platform.fv
 
-.PHONY: native-con-platform-test native-con-platform-fv
+.PHONY: native-con-platform-test native-con-platform-fv native-con-platform-fv-exact
 native-con-platform-test: $(CDK2_NATIVE_CON_PLATFORM_PATH_TEST) \
 		$(CDK2_NATIVE_CON_PLATFORM_POLICY_TEST) \
 		$(CDK2_NATIVE_CON_PLATFORM_BINDING_TEST) \
-		$(CDK2_NATIVE_CON_PLATFORM_ENTRY_TEST)
+		$(CDK2_NATIVE_CON_PLATFORM_ENTRY_TEST) \
+		$(CDK2_NATIVE_CON_PLATFORM_PACKAGE_TEST) $(CDK2_NATIVE_CON_PLATFORM_FFS)
 	@"$(CDK2_NATIVE_CON_PLATFORM_PATH_TEST)"
 	@"$(CDK2_NATIVE_CON_PLATFORM_POLICY_TEST)"
 	@"$(CDK2_NATIVE_CON_PLATFORM_BINDING_TEST)"
 	@"$(CDK2_NATIVE_CON_PLATFORM_ENTRY_TEST)"
+	@"$(CDK2_NATIVE_CON_PLATFORM_PACKAGE_TEST)" \
+		"$(CDK2_NATIVE_CON_PLATFORM_FFS)" "$(CDK2_NATIVE_CON_PLATFORM_PE)"
 
 native-con-platform-fv: $(CDK2_NATIVE_CON_PLATFORM_FFS)
 	@printf '%s\n' "native console platform FFS: $(CDK2_NATIVE_CON_PLATFORM_FFS)"
+
+native-con-platform-fv-exact: $(CDK2_NATIVE_CON_PLATFORM_FFS) \
+		$(CDK2_NATIVE_FVREPLACE) $(CDK2_NATIVE_FVINFO)
+	@test -n "$(CDK2_NATIVE_PRE_CON_PLATFORM_FV)"
+	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_PRE_CON_PLATFORM_FV)" 0x2c8288 \
+		"$(CDK2_NATIVE_CON_PLATFORM_FFS)" "$(CDK2_NATIVE_CON_PLATFORM_FV)"
+	@"$(CDK2_NATIVE_FVINFO)" "$(CDK2_NATIVE_CON_PLATFORM_FV)" | grep -q \
+		'^51ccf399-4fdf-4e55-a45b-e123f84d456a[[:space:]]0x002c8288[[:space:]]0x0000704e[[:space:]]0x07[[:space:]]ConPlatformDxe$$'
 
 $(CDK2_NATIVE_CON_PLATFORM_PATH_TEST): $(CDK2_DIR)/tests/con_platform_path_test.c \
 		$(CDK2_DIR)/src/modules/con_platform/path.c \
@@ -4745,6 +4771,10 @@ $(CDK2_NATIVE_CON_PLATFORM_ENTRY_TEST): $(CDK2_DIR)/tests/con_platform_entry_tes
 		"$(CDK2_DIR)/src/modules/con_platform/binding.c" \
 		"$(CDK2_DIR)/src/modules/con_platform/policy.c" \
 		"$(CDK2_DIR)/src/modules/con_platform/path.c"
+
+$(CDK2_NATIVE_CON_PLATFORM_PACKAGE_TEST): \
+		$(CDK2_DIR)/tests/con_platform_package_test.c | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -o "$@" "$<"
 
 $(CDK2_NATIVE_BUILD_DIR)/con-platform-%.o: \
 		$(CDK2_DIR)/src/modules/con_platform/%.c \

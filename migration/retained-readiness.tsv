@@ -12,7 +12,6 @@ unsafe-standalone	MdeModulePkg/Core/PiSmmCore/PiSmmCore
 unsafe-standalone	MdeModulePkg/Core/PiSmmCore/PiSmmIpl
 unsafe-standalone	MdeModulePkg/Core/RuntimeDxe/RuntimeDxe
 subsystem-sized	MdeModulePkg/Universal/BdsDxe/BdsDxe
-subsystem-sized	MdeModulePkg/Universal/Console/ConPlatformDxe/ConPlatformDxe
 subsystem-sized	MdeModulePkg/Universal/Console/ConSplitterDxe/ConSplitterDxe
 subsystem-sized	MdeModulePkg/Universal/Variable/RuntimeDxe/VariableRuntimeDxe
 subsystem-sized	ShellPkg/Application/Shell/Shell

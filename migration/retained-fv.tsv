@@ -1,5 +1,5 @@
 # baseline-retained=72
-# retained=20
+# retained=19
 # status	wave	module
 native	boot	FatPkg/EnhancedFatDxe/Fat
 native	storage	MdeModulePkg/Bus/Ata/AtaAtapiPassThru/AtaAtapiPassThru
@@ -28,7 +28,7 @@ retain	runtime	MdeModulePkg/Core/RuntimeDxe/RuntimeDxe
 native	platform	MdeModulePkg/Universal/Acpi/AcpiTableDxe/AcpiTableDxe
 retain	boot	MdeModulePkg/Universal/BdsDxe/BdsDxe
 native	update	MdeModulePkg/Universal/CapsuleRuntimeDxe/CapsuleRuntimeDxe
-retain	console	MdeModulePkg/Universal/Console/ConPlatformDxe/ConPlatformDxe
+native	console	MdeModulePkg/Universal/Console/ConPlatformDxe/ConPlatformDxe
 retain	console	MdeModulePkg/Universal/Console/ConSplitterDxe/ConSplitterDxe
 native	console	MdeModulePkg/Universal/Console/GraphicsConsoleDxe/GraphicsConsoleDxe
 native	console	MdeModulePkg/Universal/Console/TerminalDxe/TerminalDxe
