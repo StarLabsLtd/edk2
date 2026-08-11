@@ -21,7 +21,7 @@ int main(int argc, char **argv)
 		return 1;
 	output = fopen(argv[1], "wb");
 	if (output == NULL || fwrite(depex, 1, sizeof(depex), output) != sizeof(depex) ||
-	    fclose(output) != 0)
+	   fclose(output) != 0)
 		return 1;
 	return 0;
 }

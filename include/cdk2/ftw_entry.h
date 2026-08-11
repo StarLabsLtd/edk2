@@ -23,23 +23,23 @@ struct cdk2_ftw_system_table_view {
 };
 
 struct cdk2_fvb_protocol_view {
-	EFI_STATUS (CDK2_MS_ABI *get_attributes)(void *, UINT64 *);
-	EFI_STATUS (CDK2_MS_ABI *set_attributes)(void *, UINT64 *);
-	EFI_STATUS (CDK2_MS_ABI *get_physical_address)(void *, UINT64 *);
-	EFI_STATUS (CDK2_MS_ABI *get_block_size)(void *, UINT64, UINTN *, UINTN *);
-	EFI_STATUS (CDK2_MS_ABI *read)(void *, UINT64, UINTN, UINTN *, void *);
-	EFI_STATUS (CDK2_MS_ABI *write)(void *, UINT64, UINTN, UINTN *, const void *);
-	EFI_STATUS (CDK2_MS_ABI *erase_blocks)(void *, ...);
+	EFI_STATUS(CDK2_MS_ABI * get_attributes)(void *, UINT64 *);
+	EFI_STATUS(CDK2_MS_ABI * set_attributes)(void *, UINT64 *);
+	EFI_STATUS(CDK2_MS_ABI * get_physical_address)(void *, UINT64 *);
+	EFI_STATUS(CDK2_MS_ABI * get_block_size)(void *, UINT64, UINTN *, UINTN *);
+	EFI_STATUS(CDK2_MS_ABI * read)(void *, UINT64, UINTN, UINTN *, void *);
+	EFI_STATUS(CDK2_MS_ABI * write)(void *, UINT64, UINTN, UINTN *, const void *);
+	EFI_STATUS(CDK2_MS_ABI * erase_blocks)(void *, ...);
 };
 
 struct cdk2_ftw_protocol_view {
-	EFI_STATUS (CDK2_MS_ABI *get_max_block_size)(void *, UINTN *);
-	EFI_STATUS (CDK2_MS_ABI *allocate)(void *, EFI_GUID *, UINTN, UINTN);
-	EFI_STATUS (CDK2_MS_ABI *write)(void *, UINT64, UINTN, UINTN, void *, void *, void *);
-	EFI_STATUS (CDK2_MS_ABI *restart)(void *, void *);
-	EFI_STATUS (CDK2_MS_ABI *abort)(void *);
-	EFI_STATUS (CDK2_MS_ABI *get_last_write)(void *, EFI_GUID *, UINT64 *, UINTN *,
-		UINTN *, UINTN *, void *, BOOLEAN *);
+	EFI_STATUS(CDK2_MS_ABI * get_max_block_size)(void *, UINTN *);
+	EFI_STATUS(CDK2_MS_ABI * allocate)(void *, EFI_GUID *, UINTN, UINTN);
+	EFI_STATUS(CDK2_MS_ABI * write)(void *, UINT64, UINTN, UINTN, void *, void *, void *);
+	EFI_STATUS(CDK2_MS_ABI * restart)(void *, void *);
+	EFI_STATUS(CDK2_MS_ABI * abort)(void *);
+	EFI_STATUS(CDK2_MS_ABI * get_last_write)(void *, EFI_GUID *, UINT64 *, UINTN *,
+						 UINTN *, UINTN *, void *, BOOLEAN *);
 };
 
 typedef char cdk2_ftw_system_boot_abi[

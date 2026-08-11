@@ -34,7 +34,7 @@ struct cdk2_ftw_fvb {
 
 EFI_STATUS cdk2_ftw_fvb_initialize(struct cdk2_ftw_fvb *adapter, UINT8 *scratch);
 EFI_STATUS cdk2_ftw_fvb_select_target(struct cdk2_ftw_fvb *adapter,
-	void *volume, UINT64 lba);
+				      void *volume, UINT64 lba);
 EFI_STATUS cdk2_ftw_fvb_write(struct cdk2_ftw_fvb *adapter, UINT64 lba,
-	UINTN offset, UINTN length, const void *private_data, const void *buffer);
+			      UINTN offset, UINTN length, const void *private_data, const void *buffer);
 #endif

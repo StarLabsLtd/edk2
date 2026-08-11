@@ -11,5 +11,5 @@ struct cdk2_ftw_geometry {
 	UINT32 block_size, block_count;
 };
 EFI_STATUS cdk2_ftw_geometry_from_smmstore(const SMMSTORE_INFO *info,
-	struct cdk2_ftw_geometry *geometry);
+					   struct cdk2_ftw_geometry *geometry);
 #endif

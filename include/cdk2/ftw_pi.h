@@ -21,12 +21,13 @@ struct cdk2_ftw_pi_record {
 	INT64 relative_offset;
 };
 typedef char cdk2_ftw_pi_work_header_size[(sizeof(struct cdk2_ftw_pi_work_header) == 32) ? 1 : -1];
-typedef char cdk2_ftw_pi_write_header_size[(sizeof(struct cdk2_ftw_pi_write_header) == 40) ? 1 : -1];
+typedef char cdk2_ftw_pi_write_header_size[(sizeof(struct cdk2_ftw_pi_write_header) == 40) ? 1 :
+						 -1];
 typedef char cdk2_ftw_pi_record_size[(sizeof(struct cdk2_ftw_pi_record) == 40) ? 1 : -1];
 
 EFI_STATUS cdk2_ftw_pi_initialize(UINT8 *workspace, UINTN size);
 EFI_STATUS cdk2_ftw_pi_decode(const UINT8 *workspace, UINTN size,
-	struct cdk2_ftw_journal *journal);
+			      struct cdk2_ftw_journal *journal);
 EFI_STATUS cdk2_ftw_pi_encode(UINT8 *workspace, UINTN size,
-	const struct cdk2_ftw_journal *journal);
+			      const struct cdk2_ftw_journal *journal);
 #endif

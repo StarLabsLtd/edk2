@@ -18,8 +18,8 @@ The third dependency is injected by the dynamic PCD library and is present in
 the admitted bytes even though the module INF names only FVB and RuntimeArch in
 its explicit DEPEX expression.
 
-This source lane is inventory-neutral: it does not replace the admitted FFS,
-change either retained-inventory TSV, or alter FV composition.
+The serial integration replaces only this admitted envelope after the native
+SMMSTORE FVB predecessor and changes the retained inventory from 21 to 20.
 
 ## PI working-space compatibility
 
@@ -51,13 +51,13 @@ journal recovery succeeds.  If the admitted FVB has not arrived, it registers
 a protocol notification; event, pool, and failed-publication paths roll back
 their owned resources.
 
-The inventory-neutral build emits a relocatable EFI boot-service-driver PE and
+The native build emits a relocatable EFI boot-service-driver PE and
 an exact `0x8096`-byte FFS with GUID
 `fe5cea76-4f72-49e8-986f-2cd899dffe5d`, file type `0x07`, UI name
 `FaultTolerantWriteDxe`, and the admitted 58-byte triple dependency expression
-documented above.  Native checks execute the DXE entry fault matrix, validate
-the PE relocation contract, and pin the final FFS size.  No FV replacement or
-retained-inventory transition is wired in this source commit.
+documented above. Native checks execute the DXE entry fault matrix, validate
+the PE relocation contract, pin the final FFS size, and byte-check the exact
+replacement at offset `0x103048` without changing predecessor bytes.
 
 ## Admitted Q35 geometry
 

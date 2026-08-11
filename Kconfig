@@ -493,6 +493,14 @@ config CDK2_NATIVE_SMMSTORE_FVB
 	help
 	  Publish runtime firmware-volume access over the SMMSTORE handoff.
 
+config CDK2_NATIVE_FTW
+	bool "Build native fault-tolerant write driver"
+	default y
+	depends on CDK2_NATIVE_STAGE && CDK2_NATIVE_SMMSTORE_FVB
+	help
+	  Publish the PI fault-tolerant-write protocol over native SMMSTORE FVB
+	  geometry and recover pending journal records before publication.
+
 config CDK2_NATIVE_GRAPHICS_CONSOLE
 	bool "Build native graphics console services"
 	default y

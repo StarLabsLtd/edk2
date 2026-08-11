@@ -15,8 +15,9 @@
 #endif
 
 enum cdk2_ftw_phase { CDK2_FTW_EMPTY, CDK2_FTW_ALLOCATED,
-	CDK2_FTW_SPARE_COMPLETE, CDK2_FTW_DESTINATION_COMPLETE,
-	CDK2_FTW_ABORTED, CDK2_FTW_BATCH_COMPLETE };
+		      CDK2_FTW_SPARE_COMPLETE, CDK2_FTW_DESTINATION_COMPLETE,
+		      CDK2_FTW_ABORTED, CDK2_FTW_BATCH_COMPLETE
+		    };
 
 struct cdk2_ftw_record {
 	UINT64 lba, offset, length;
@@ -61,13 +62,13 @@ struct cdk2_ftw {
 UINT32 cdk2_ftw_crc32(const void *data, UINTN bytes);
 EFI_STATUS cdk2_ftw_initialize(struct cdk2_ftw *ftw);
 EFI_STATUS cdk2_ftw_allocate(struct cdk2_ftw *ftw, const EFI_GUID *caller,
-	UINTN private_size, UINTN writes);
+			     UINTN private_size, UINTN writes);
 void cdk2_ftw_set_relative_offset(struct cdk2_ftw *ftw, INT64 relative_offset);
 EFI_STATUS cdk2_ftw_write(struct cdk2_ftw *ftw, UINT64 lba, UINTN offset,
-	UINTN length, const void *private_data, const void *buffer);
+			  UINTN length, const void *private_data, const void *buffer);
 EFI_STATUS cdk2_ftw_restart(struct cdk2_ftw *ftw);
 EFI_STATUS cdk2_ftw_abort(struct cdk2_ftw *ftw);
 EFI_STATUS cdk2_ftw_get_last_write(struct cdk2_ftw *ftw, EFI_GUID *caller,
-	UINT64 *lba, UINTN *offset, UINTN *length, UINTN *private_size,
-	void *private_data, BOOLEAN *complete);
+				   UINT64 *lba, UINTN *offset, UINTN *length, UINTN *private_size,
+				   void *private_data, BOOLEAN *complete);
 #endif

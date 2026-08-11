@@ -3403,6 +3403,19 @@ $(CDK2_NATIVE_SMMSTORE_FV): $(CDK2_NATIVE_PRE_SMMSTORE_FV)
 	@cp "$<" "$@"
 endif
 
+ifeq ($(CONFIG_CDK2_NATIVE_FTW),y)
+CDK2_NATIVE_PRE_FTW_FV ?= $(CDK2_NATIVE_FINAL_FV)
+CDK2_NATIVE_FINAL_FV := $(CDK2_NATIVE_FTW_FV)
+
+$(CDK2_NATIVE_FTW_FV): $(CDK2_NATIVE_PRE_FTW_FV) \
+		$(CDK2_NATIVE_FTW_FFS) $(CDK2_NATIVE_FVREPLACE)
+	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_PRE_FTW_FV)" 0x103048 \
+		"$(CDK2_NATIVE_FTW_FFS)" "$@"
+else
+$(CDK2_NATIVE_FTW_FV): $(CDK2_NATIVE_PRE_FTW_FV)
+	@cp "$<" "$@"
+endif
+
 ifeq ($(CONFIG_CDK2_NATIVE_ENGLISH),y)
 $(CDK2_NATIVE_ENGLISH_OBJ): $(CDK2_DIR)/src/modules/english/english.c $(CDK2_DIR)/include/cdk2/english.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) \
@@ -4605,3 +4618,74 @@ $(CDK2_NATIVE_HII_DATABASE_QEMU_PE): $(CDK2_NATIVE_HII_DATABASE_QEMU_OBJ) \
 	@"$(CDK2_NATIVE_PERELOCCHECK)" --subsystem 10 "$@"
 
 -include $(CDK2_NATIVE_DEPFILES)
+
+CDK2_NATIVE_FTW_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ftw-test
+CDK2_NATIVE_FTW_PI_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ftw-pi-test
+CDK2_NATIVE_FTW_FVB_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ftw-fvb-test
+CDK2_NATIVE_FTW_GEOMETRY_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ftw-geometry-test
+CDK2_NATIVE_FTW_ENTRY_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ftw-entry-test
+CDK2_NATIVE_FTW_PACKAGE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ftw-package-test
+CDK2_NATIVE_FTW_CORE_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/ftw-core.o
+CDK2_NATIVE_FTW_PI_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/ftw-pi.o
+CDK2_NATIVE_FTW_FVB_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/ftw-fvb.o
+CDK2_NATIVE_FTW_GEOMETRY_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/ftw-geometry.o
+CDK2_NATIVE_FTW_ENTRY_OBJ ?= $(CDK2_NATIVE_BUILD_DIR)/ftw-entry.o
+CDK2_NATIVE_FTW_PE ?= $(CDK2_NATIVE_BUILD_DIR)/FaultTolerantWriteDxe.efi
+CDK2_NATIVE_FTW_DEPEX_GEN ?= $(CDK2_NATIVE_BUILD_DIR)/ftw-depex-gen
+CDK2_NATIVE_FTW_DEPEX ?= $(CDK2_NATIVE_BUILD_DIR)/FaultTolerantWriteDxe.depex
+CDK2_NATIVE_FTW_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/FaultTolerantWriteDxe.ffs
+CDK2_NATIVE_FTW_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-ftw.fv
+
+.PHONY: native-ftw-test native-ftw-fv-exact
+native-ftw-test: $(CDK2_NATIVE_FTW_TEST) $(CDK2_NATIVE_FTW_PI_TEST) \
+		$(CDK2_NATIVE_FTW_FVB_TEST) $(CDK2_NATIVE_FTW_GEOMETRY_TEST) \
+		$(CDK2_NATIVE_FTW_ENTRY_TEST) $(CDK2_NATIVE_FTW_PACKAGE_TEST) \
+		$(CDK2_NATIVE_FTW_FFS)
+	@"$(CDK2_NATIVE_FTW_TEST)"
+	@"$(CDK2_NATIVE_FTW_PI_TEST)"
+	@"$(CDK2_NATIVE_FTW_FVB_TEST)"
+	@"$(CDK2_NATIVE_FTW_GEOMETRY_TEST)"
+	@"$(CDK2_NATIVE_FTW_ENTRY_TEST)"
+	@"$(CDK2_NATIVE_FTW_PACKAGE_TEST)" "$(CDK2_NATIVE_FTW_FFS)"
+
+native-ftw-fv-exact: $(CDK2_NATIVE_FTW_FFS) $(CDK2_NATIVE_FVREPLACE) $(CDK2_NATIVE_FVINFO)
+	@test -n "$(CDK2_NATIVE_PRE_FTW_FV)"
+	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_PRE_FTW_FV)" 0x103048 \
+		"$(CDK2_NATIVE_FTW_FFS)" "$(CDK2_NATIVE_FTW_FV)"
+	@"$(CDK2_NATIVE_FVINFO)" "$(CDK2_NATIVE_FTW_FV)" | grep -q \
+		'^fe5cea76-4f72-49e8-986f-2cd899dffe5d[[:space:]]0x00103048[[:space:]]0x00008096[[:space:]]0x07[[:space:]]FaultTolerantWriteDxe$$'
+
+$(CDK2_NATIVE_FTW_TEST): $(CDK2_DIR)/tests/ftw_test.c $(CDK2_DIR)/src/modules/ftw/ftw.c $(CDK2_DIR)/src/modules/ftw/pi_journal.c $(CDK2_DIR)/include/cdk2/ftw.h $(CDK2_DIR)/include/cdk2/ftw_pi.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_DIR)/tests/ftw_test.c" "$(CDK2_DIR)/src/modules/ftw/ftw.c" "$(CDK2_DIR)/src/modules/ftw/pi_journal.c"
+$(CDK2_NATIVE_FTW_PI_TEST): $(CDK2_DIR)/tests/ftw_pi_test.c $(CDK2_DIR)/src/modules/ftw/ftw.c $(CDK2_DIR)/src/modules/ftw/pi_journal.c $(CDK2_DIR)/include/cdk2/ftw_pi.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_DIR)/tests/ftw_pi_test.c" "$(CDK2_DIR)/src/modules/ftw/ftw.c" "$(CDK2_DIR)/src/modules/ftw/pi_journal.c"
+$(CDK2_NATIVE_FTW_FVB_TEST): $(CDK2_DIR)/tests/ftw_fvb_test.c $(CDK2_DIR)/src/modules/ftw/ftw.c $(CDK2_DIR)/src/modules/ftw/fvb.c $(CDK2_DIR)/include/cdk2/ftw_fvb.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_DIR)/tests/ftw_fvb_test.c" "$(CDK2_DIR)/src/modules/ftw/ftw.c" "$(CDK2_DIR)/src/modules/ftw/fvb.c"
+$(CDK2_NATIVE_FTW_GEOMETRY_TEST): $(CDK2_DIR)/tests/ftw_geometry_test.c $(CDK2_DIR)/src/modules/ftw/geometry.c $(CDK2_DIR)/include/cdk2/ftw_geometry.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$<" "$(CDK2_DIR)/src/modules/ftw/geometry.c"
+$(CDK2_NATIVE_FTW_ENTRY_TEST): $(CDK2_DIR)/tests/ftw_entry_test.c $(CDK2_DIR)/src/modules/ftw/entry.c $(CDK2_DIR)/src/modules/ftw/geometry.c $(CDK2_DIR)/src/modules/ftw/fvb.c $(CDK2_DIR)/src/modules/ftw/ftw.c $(CDK2_DIR)/src/modules/ftw/pi_journal.c $(CDK2_DIR)/include/cdk2/ftw_entry.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) $(CDK2_NATIVE_INCLUDES) -o "$@" "$(CDK2_DIR)/tests/ftw_entry_test.c" "$(CDK2_DIR)/src/modules/ftw/entry.c" "$(CDK2_DIR)/src/modules/ftw/geometry.c" "$(CDK2_DIR)/src/modules/ftw/fvb.c" "$(CDK2_DIR)/src/modules/ftw/ftw.c" "$(CDK2_DIR)/src/modules/ftw/pi_journal.c"
+$(CDK2_NATIVE_FTW_PACKAGE_TEST): $(CDK2_DIR)/tests/ftw_package_test.c | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -o "$@" "$<"
+
+$(CDK2_NATIVE_FTW_CORE_OBJ): $(CDK2_DIR)/src/modules/ftw/ftw.c $(CDK2_DIR)/include/cdk2/ftw.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) -mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args $(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+$(CDK2_NATIVE_FTW_PI_OBJ): $(CDK2_DIR)/src/modules/ftw/pi_journal.c $(CDK2_DIR)/include/cdk2/ftw_pi.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) -mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args $(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+$(CDK2_NATIVE_FTW_FVB_OBJ): $(CDK2_DIR)/src/modules/ftw/fvb.c $(CDK2_DIR)/include/cdk2/ftw_fvb.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) -mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args $(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+$(CDK2_NATIVE_FTW_GEOMETRY_OBJ): $(CDK2_DIR)/src/modules/ftw/geometry.c $(CDK2_DIR)/include/cdk2/ftw_geometry.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) -mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args $(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+$(CDK2_NATIVE_FTW_ENTRY_OBJ): $(CDK2_DIR)/src/modules/ftw/entry.c $(CDK2_DIR)/include/cdk2/ftw_entry.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,$(CDK2_NATIVE_CFLAGS)) -mcmodel=large -fno-ident -fcf-protection=none -maccumulate-outgoing-args $(CDK2_NATIVE_INCLUDES) -c "$<" -o "$@"
+$(CDK2_NATIVE_FTW_PE): $(CDK2_NATIVE_FTW_CORE_OBJ) $(CDK2_NATIVE_FTW_PI_OBJ) $(CDK2_NATIVE_FTW_FVB_OBJ) $(CDK2_NATIVE_FTW_GEOMETRY_OBJ) $(CDK2_NATIVE_FTW_ENTRY_OBJ) $(CDK2_DIR)/src/modules/ftw/ftw.ld $(CDK2_NATIVE_PERELOCCHECK)
+	@$(CDK2_NATIVE_LD) -mi386pep --subsystem 11 --entry cdk2_ftw_entry --image-base 0 --section-alignment 0x1000 --file-alignment 0x1000 --build-id=none --no-insert-timestamp -s --nxcompat -T "$(CDK2_DIR)/src/modules/ftw/ftw.ld" -o "$@" $(CDK2_NATIVE_FTW_CORE_OBJ) $(CDK2_NATIVE_FTW_PI_OBJ) $(CDK2_NATIVE_FTW_FVB_OBJ) $(CDK2_NATIVE_FTW_GEOMETRY_OBJ) $(CDK2_NATIVE_FTW_ENTRY_OBJ)
+	@"$(CDK2_NATIVE_PERELOCCHECK)" --subsystem 11 "$@"
+$(CDK2_NATIVE_FTW_DEPEX_GEN): $(CDK2_DIR)/src/modules/ftw/depex.c | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -o "$@" "$<"
+$(CDK2_NATIVE_FTW_DEPEX): $(CDK2_NATIVE_FTW_DEPEX_GEN)
+	@"$<" "$@"
+$(CDK2_NATIVE_FTW_FFS): $(CDK2_NATIVE_FTW_PE) $(CDK2_NATIVE_FTW_DEPEX) $(CDK2_NATIVE_FFSBUILD)
+	@"$(CDK2_NATIVE_FFSBUILD)" fe5cea76-4f72-49e8-986f-2cd899dffe5d FaultTolerantWriteDxe 1.0 0x8096 "$<" "$@" "$(CDK2_NATIVE_FTW_DEPEX)"
+
+native-check: native-ftw-test
