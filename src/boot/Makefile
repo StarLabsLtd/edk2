@@ -146,6 +146,15 @@ CDK2_NATIVE_ACPI_TABLE_FV ?= \
 	$(CDK2_NATIVE_BUILD_DIR)/retained-native-acpi-table.fv
 CDK2_NATIVE_ACPI_TABLE_PACKAGE_TEST ?= \
 	$(CDK2_NATIVE_BUILD_DIR)/acpi-table-package-test
+CDK2_NATIVE_SMMSTORE_OBJS := $(addprefix $(CDK2_NATIVE_BUILD_DIR)/smmstore-,\
+	smmstore.o variable_store.o fvb.o driver.o)
+CDK2_NATIVE_SMMSTORE_PE ?= \
+	$(CDK2_NATIVE_BUILD_DIR)/SmmStoreFvbRuntimeDxe.efi
+CDK2_NATIVE_SMMSTORE_FFS ?= \
+	$(CDK2_NATIVE_BUILD_DIR)/SmmStoreFvbRuntimeDxe.ffs
+CDK2_NATIVE_SMMSTORE_DEPEX_GEN ?= $(CDK2_NATIVE_BUILD_DIR)/smmstore-depex-gen
+CDK2_NATIVE_SMMSTORE_DEPEX ?= \
+	$(CDK2_NATIVE_BUILD_DIR)/SmmStoreFvbRuntimeDxe.depex
 CDK2_NATIVE_ACPI_TABLE_DEPEX_GEN ?= \
 	$(CDK2_NATIVE_BUILD_DIR)/acpi-table-depex-gen
 CDK2_NATIVE_ACPI_TABLE_DEPEX ?= $(CDK2_NATIVE_BUILD_DIR)/AcpiTableDxe.depex
@@ -1641,6 +1650,89 @@ $(CDK2_NATIVE_ACPI_TABLE_PACKAGE_TEST): \
 		$(CDK2_DIR)/tests/acpi_table_package_test.c | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -MMD -MP \
 		-MF "$(@:.test=.d)" -MT "$@" -o "$@" "$<"
+
+.PHONY: native-smmstore-test native-smmstore-package
+native-smmstore-test: $(addprefix $(CDK2_NATIVE_BUILD_DIR)/,\
+	smmstore-test smmstore-variable-test smmstore-fvb-test smmstore-driver-test)
+	@"$(CDK2_NATIVE_BUILD_DIR)/smmstore-test"
+	@"$(CDK2_NATIVE_BUILD_DIR)/smmstore-variable-test"
+	@"$(CDK2_NATIVE_BUILD_DIR)/smmstore-fvb-test"
+	@"$(CDK2_NATIVE_BUILD_DIR)/smmstore-driver-test"
+
+native-smmstore-package: $(CDK2_NATIVE_SMMSTORE_FFS)
+
+$(CDK2_NATIVE_BUILD_DIR)/smmstore-test: $(CDK2_DIR)/tests/smmstore_test.c \
+		$(CDK2_DIR)/src/modules/smmstore_fvb/smmstore.c \
+		$(CDK2_DIR)/include/cdk2/smmstore_fvb.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) \
+		-fsanitize=address,undefined $(CDK2_NATIVE_INCLUDES) -MMD -MP \
+		-MF "$@.d" -MT "$@" -o "$@" "$<" \
+		$(CDK2_DIR)/src/modules/smmstore_fvb/smmstore.c
+
+$(CDK2_NATIVE_BUILD_DIR)/smmstore-variable-test: \
+		$(CDK2_DIR)/tests/variable_store_test.c \
+		$(CDK2_DIR)/src/modules/smmstore_fvb/smmstore.c \
+		$(CDK2_DIR)/src/modules/smmstore_fvb/variable_store.c \
+		$(CDK2_DIR)/include/cdk2/smmstore_fvb.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) \
+		-fsanitize=address,undefined $(CDK2_NATIVE_INCLUDES) -MMD -MP \
+		-MF "$@.d" -MT "$@" -o "$@" "$<" \
+		$(CDK2_DIR)/src/modules/smmstore_fvb/smmstore.c \
+		$(CDK2_DIR)/src/modules/smmstore_fvb/variable_store.c
+
+$(CDK2_NATIVE_BUILD_DIR)/smmstore-fvb-test: \
+		$(CDK2_DIR)/tests/smmstore_fvb_test.c \
+		$(CDK2_DIR)/src/modules/smmstore_fvb/smmstore.c \
+		$(CDK2_DIR)/src/modules/smmstore_fvb/fvb.c \
+		$(CDK2_DIR)/include/cdk2/smmstore_fvb.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) \
+		-fsanitize=address,undefined $(CDK2_NATIVE_INCLUDES) -MMD -MP \
+		-MF "$@.d" -MT "$@" -o "$@" "$<" \
+		$(CDK2_DIR)/src/modules/smmstore_fvb/smmstore.c \
+		$(CDK2_DIR)/src/modules/smmstore_fvb/fvb.c
+
+$(CDK2_NATIVE_BUILD_DIR)/smmstore-driver-test: \
+		$(CDK2_DIR)/tests/smmstore_driver_test.c \
+		$(addprefix $(CDK2_DIR)/src/modules/smmstore_fvb/,\
+		smmstore.c variable_store.c fvb.c driver.c) \
+		$(CDK2_DIR)/include/cdk2/smmstore_fvb.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) \
+		-fsanitize=address,undefined $(CDK2_NATIVE_INCLUDES) -MMD -MP \
+		-MF "$@.d" -MT "$@" -o "$@" "$<" \
+		$(addprefix $(CDK2_DIR)/src/modules/smmstore_fvb/,\
+		smmstore.c variable_store.c fvb.c driver.c)
+
+$(CDK2_NATIVE_BUILD_DIR)/smmstore-%.o: \
+		$(CDK2_DIR)/src/modules/smmstore_fvb/%.c \
+		$(CDK2_DIR)/include/cdk2/smmstore_fvb.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,\
+		$(CDK2_NATIVE_CFLAGS)) -mcmodel=large -fno-ident \
+		-fcf-protection=none -maccumulate-outgoing-args $(CDK2_NATIVE_INCLUDES) \
+		-MMD -MP -MF "$(@:.o=.d)" -MT "$@" -c "$<" -o "$@"
+
+$(CDK2_NATIVE_SMMSTORE_PE): $(CDK2_NATIVE_SMMSTORE_OBJS) \
+		$(CDK2_NATIVE_BUILD_DIR)/mem.o \
+		$(CDK2_DIR)/src/modules/smmstore_fvb/smmstore_fvb.ld \
+		$(CDK2_NATIVE_PERELOCCHECK)
+	@$(LD) -mi386pep --subsystem 12 --entry cdk2_smmstore_fvb_entry \
+		--image-base 0 --section-alignment 0x1000 --file-alignment 0x1000 \
+		--build-id=none --no-insert-timestamp -s --nxcompat \
+		-T "$(CDK2_DIR)/src/modules/smmstore_fvb/smmstore_fvb.ld" -o "$@" \
+		$(CDK2_NATIVE_SMMSTORE_OBJS) $(CDK2_NATIVE_BUILD_DIR)/mem.o
+	@"$(CDK2_NATIVE_PERELOCCHECK)" --subsystem 12 "$@"
+
+$(CDK2_NATIVE_SMMSTORE_DEPEX_GEN): \
+		$(CDK2_DIR)/src/modules/smmstore_fvb/depex.c | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -o "$@" "$<"
+
+$(CDK2_NATIVE_SMMSTORE_DEPEX): $(CDK2_NATIVE_SMMSTORE_DEPEX_GEN)
+	@"$<" "$@"
+
+$(CDK2_NATIVE_SMMSTORE_FFS): $(CDK2_NATIVE_SMMSTORE_PE) \
+		$(CDK2_NATIVE_SMMSTORE_DEPEX) $(CDK2_NATIVE_FFSBUILD)
+	@"$(CDK2_NATIVE_FFSBUILD)" a0402fca-6b25-4cea-b7dd-c08f99714b29 \
+		SmmStoreFvbRuntimeDxe 1.0 0x8072 "$<" "$@" \
+		"$(CDK2_NATIVE_SMMSTORE_DEPEX)"
 
 .PHONY: native-usb-mouse-fv-exact
 native-usb-mouse-fv-exact: $(CDK2_NATIVE_USB_MOUSE_FFS) \
