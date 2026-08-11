@@ -31,10 +31,7 @@ EFI_STATUS cdk2_smmstore_initialize(struct cdk2_smmstore *store,
 	if (store == NULL || info == NULL || invoke == NULL ||
 	    info->num_blocks == 0 || info->block_size == 0 ||
 	    info->com_buffer == 0 ||
-	    info->block_size >
-		    MAX_UINT32 - sizeof(struct cdk2_smmstore_request) ||
-	    info->com_buffer_size <
-		    info->block_size + sizeof(struct cdk2_smmstore_request) ||
+	    info->com_buffer_size < info->block_size ||
 	    info->com_buffer > MAX_UINT64 - info->com_buffer_size ||
 	    info->apm_cmd == 0)
 		return EFI_INVALID_PARAMETER;
@@ -53,7 +50,7 @@ static EFI_STATUS transfer(struct cdk2_smmstore *store, BOOLEAN write,
 			   UINT32 block, UINT32 offset, UINTN *size,
 			   void *buffer)
 {
-	struct cdk2_smmstore_request *request;
+	struct cdk2_smmstore_request request;
 	UINTN transfer_size;
 	EFI_STATUS status = EFI_SUCCESS;
 
@@ -69,19 +66,16 @@ static EFI_STATUS transfer(struct cdk2_smmstore *store, BOOLEAN write,
 	*size = transfer_size;
 	if (transfer_size == 0)
 		return status;
-	request = (struct cdk2_smmstore_request
-			   *)(void *)(store->communication_buffer +
-				      store->info.block_size);
-	request->size = (UINT32)transfer_size;
-	request->offset = offset;
-	request->block = block;
+	request.size = (UINT32)transfer_size;
+	request.offset = offset;
+	request.block = block;
 	if (write)
 		copy_bytes(store->communication_buffer + offset, buffer,
 			   transfer_size);
 	if (store->invoke(store->context,
 			  write ? CDK2_SMMSTORE_RAW_WRITE
 				: CDK2_SMMSTORE_RAW_READ,
-			  request) != 0)
+			  &request) != 0)
 		return EFI_DEVICE_ERROR;
 	if (!write)
 		copy_bytes(buffer, store->communication_buffer + offset,
@@ -103,19 +97,16 @@ EFI_STATUS cdk2_smmstore_write(struct cdk2_smmstore *store, UINT32 block,
 
 EFI_STATUS cdk2_smmstore_erase(struct cdk2_smmstore *store, UINT32 block)
 {
-	struct cdk2_smmstore_request *request;
+	struct cdk2_smmstore_request request;
 
 	if (store == NULL || store->invoke == NULL ||
 	    block >= store->info.num_blocks)
 		return EFI_INVALID_PARAMETER;
-	request = (struct cdk2_smmstore_request
-			   *)(void *)(store->communication_buffer +
-				      store->info.block_size);
-	request->size = 0;
-	request->offset = 0;
-	request->block = block;
+	request.size = 0;
+	request.offset = 0;
+	request.block = block;
 	return store->invoke(store->context, CDK2_SMMSTORE_RAW_CLEAR,
-			     request) == 0
+			     &request) == 0
 		       ? EFI_SUCCESS
 		       : EFI_DEVICE_ERROR;
 }

@@ -65,7 +65,7 @@ EFI_STATUS CDK2_MS_ABI cdk2_smmstore_fvb_entry(void *,
 const struct cdk2_fvb_protocol *cdk2_smmstore_fvb_protocol(void);
 
 static UINT8 flash[BLOCKS][BLOCK_SIZE];
-static UINT8 communication[BLOCK_SIZE + sizeof(struct cdk2_smmstore_request)];
+static UINT8 communication[BLOCK_SIZE];
 static UINTN installs;
 static UINTN uninstalls;
 static UINTN conversions;

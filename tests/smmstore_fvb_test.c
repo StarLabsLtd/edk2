@@ -10,7 +10,7 @@
 
 struct fixture {
 	UINT8 flash[BLOCKS][BLOCK_SIZE];
-	UINT8 communication[BLOCK_SIZE + sizeof(struct cdk2_smmstore_request)];
+	UINT8 communication[BLOCK_SIZE];
 };
 
 static UINTN conversions;

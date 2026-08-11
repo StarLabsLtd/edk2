@@ -10,7 +10,7 @@
 
 struct fixture {
 	UINT8 flash[BLOCKS][BLOCK_SIZE];
-	UINT8 communication[BLOCK_SIZE + sizeof(struct cdk2_smmstore_request)];
+	UINT8 communication[BLOCK_SIZE];
 	UINT8 last_command;
 	BOOLEAN fail;
 };
@@ -112,7 +112,7 @@ int main(void)
 	size = 1U;
 	EXPECT(cdk2_smmstore_read(&store, 0, 0, &size, output) ==
 	       EFI_DEVICE_ERROR);
-	info.com_buffer_size = BLOCK_SIZE;
+	info.com_buffer_size = BLOCK_SIZE - 1U;
 	EXPECT(cdk2_smmstore_initialize(&store, &info, invoke, &fixture) ==
 	       EFI_INVALID_PARAMETER);
 	info.com_buffer_size = sizeof(fixture.communication);
