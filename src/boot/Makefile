@@ -121,6 +121,16 @@ CDK2_NATIVE_TERMINAL_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/TerminalDxe.ffs
 CDK2_NATIVE_TERMINAL_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-terminal.fv
 CDK2_NATIVE_TERMINAL_PACKAGE_TEST ?= \
 	$(CDK2_NATIVE_BUILD_DIR)/terminal-package-test
+CDK2_NATIVE_GRAPHICS_OUTPUT_TEST ?= \
+	$(CDK2_NATIVE_BUILD_DIR)/cdk2-graphics-output-test
+CDK2_NATIVE_GRAPHICS_OUTPUT_DRIVER_TEST ?= \
+	$(CDK2_NATIVE_BUILD_DIR)/cdk2-graphics-output-driver-test
+CDK2_NATIVE_GRAPHICS_OUTPUT_OBJS := $(addprefix \
+	$(CDK2_NATIVE_BUILD_DIR)/graphics-output-,graphics_output.o driver.o entry.o)
+CDK2_NATIVE_GRAPHICS_OUTPUT_PE ?= \
+	$(CDK2_NATIVE_BUILD_DIR)/GraphicsOutputDxe.efi
+CDK2_NATIVE_GRAPHICS_OUTPUT_FFS ?= \
+	$(CDK2_NATIVE_BUILD_DIR)/GraphicsOutputDxe.ffs
 CDK2_NATIVE_SATA_CONTROLLER_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-sata-controller-test
 CDK2_NATIVE_ATA_ATAPI_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-atapi-test
 CDK2_NATIVE_ATA_ATAPI_BINDING_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-atapi-binding-test
@@ -1459,6 +1469,64 @@ $(CDK2_NATIVE_TERMINAL_PACKAGE_TEST): \
 		$(CDK2_DIR)/tests/terminal_package_test.c | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -MMD -MP \
 		-MF "$(@:.test=.d)" -MT "$@" -o "$@" "$<"
+
+.PHONY: native-graphics-output-test native-graphics-output-package
+native-graphics-output-test: $(CDK2_NATIVE_GRAPHICS_OUTPUT_TEST) \
+		$(CDK2_NATIVE_GRAPHICS_OUTPUT_DRIVER_TEST)
+	@"$(CDK2_NATIVE_GRAPHICS_OUTPUT_TEST)"
+	@"$(CDK2_NATIVE_GRAPHICS_OUTPUT_DRIVER_TEST)"
+
+native-graphics-output-package: $(CDK2_NATIVE_GRAPHICS_OUTPUT_FFS)
+
+$(CDK2_NATIVE_GRAPHICS_OUTPUT_TEST): \
+		$(CDK2_DIR)/tests/graphics_output_test.c \
+		$(CDK2_DIR)/src/modules/graphics_output/graphics_output.c \
+		$(CDK2_DIR)/include/cdk2/graphics_output.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) \
+		-fsanitize=address,undefined $(CDK2_NATIVE_INCLUDES) -MMD -MP \
+		-MF "$(@:.test=.d)" -MT "$@" -o "$@" \
+		$(CDK2_DIR)/tests/graphics_output_test.c \
+		$(CDK2_DIR)/src/modules/graphics_output/graphics_output.c
+
+$(CDK2_NATIVE_GRAPHICS_OUTPUT_DRIVER_TEST): \
+		$(CDK2_DIR)/tests/graphics_output_driver_test.c \
+		$(CDK2_DIR)/src/modules/graphics_output/graphics_output.c \
+		$(CDK2_DIR)/src/modules/graphics_output/driver.c \
+		$(CDK2_DIR)/include/cdk2/graphics_output_driver.h | \
+		$(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) \
+		-fsanitize=address,undefined $(CDK2_NATIVE_INCLUDES) -MMD -MP \
+		-MF "$(@:.test=.d)" -MT "$@" -o "$@" \
+		$(CDK2_DIR)/tests/graphics_output_driver_test.c \
+		$(CDK2_DIR)/src/modules/graphics_output/graphics_output.c \
+		$(CDK2_DIR)/src/modules/graphics_output/driver.c
+
+$(CDK2_NATIVE_BUILD_DIR)/graphics-output-%.o: \
+		$(CDK2_DIR)/src/modules/graphics_output/%.c \
+		$(CDK2_DIR)/include/cdk2/graphics_output.h \
+		$(CDK2_DIR)/include/cdk2/graphics_output_driver.h | \
+		$(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,\
+		$(CDK2_NATIVE_CFLAGS)) -mcmodel=large -fno-ident \
+		-fcf-protection=none -maccumulate-outgoing-args $(CDK2_NATIVE_INCLUDES) \
+		-MMD -MP -MF "$(@:.o=.d)" -MT "$@" -c "$<" -o "$@"
+
+$(CDK2_NATIVE_GRAPHICS_OUTPUT_PE): $(CDK2_NATIVE_GRAPHICS_OUTPUT_OBJS) \
+		$(CDK2_NATIVE_BUILD_DIR)/mem.o \
+		$(CDK2_DIR)/src/modules/graphics_output/graphics_output.ld \
+		$(CDK2_NATIVE_PERELOCCHECK)
+	@$(LD) -mi386pep --subsystem 11 --entry cdk2_graphics_output_entry \
+		--image-base 0 --section-alignment 0x1000 --file-alignment 0x1000 \
+		--build-id=none --no-insert-timestamp -s --nxcompat \
+		-T "$(CDK2_DIR)/src/modules/graphics_output/graphics_output.ld" \
+		-o "$@" $(CDK2_NATIVE_GRAPHICS_OUTPUT_OBJS) \
+		$(CDK2_NATIVE_BUILD_DIR)/mem.o
+	@"$(CDK2_NATIVE_PERELOCCHECK)" --subsystem 11 "$@"
+
+$(CDK2_NATIVE_GRAPHICS_OUTPUT_FFS): $(CDK2_NATIVE_GRAPHICS_OUTPUT_PE) \
+		$(CDK2_NATIVE_FFSBUILD)
+	@"$(CDK2_NATIVE_FFSBUILD)" 0b04b2ed-861c-42cd-a22f-c3aafaccb896 \
+		GraphicsOutputDxe 1.0 0x9052 "$<" "$@" -
 
 .PHONY: native-usb-mouse-fv-exact
 native-usb-mouse-fv-exact: $(CDK2_NATIVE_USB_MOUSE_FFS) \

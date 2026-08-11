@@ -80,6 +80,7 @@ CDK2_CONFIG_TARGETS := build check manifest modules native-stage \
 	native-sio-bus-test native-sio-bus-package native-sio-bus-fv-exact \
 	native-ps2-mouse-test native-ps2-mouse-package native-ps2-mouse-fv-exact \
 	native-terminal-test native-terminal-package native-terminal-fv-exact \
+	native-graphics-output-test native-graphics-output-package \
 	native-usb-bus-fv-exact \
 	native-scsi-bus-fv-exact native-scsi-bus-oracle \
 	native-capsule-runtime-test native-capsule-runtime-fv \
@@ -184,6 +185,7 @@ CDK2_RECURSIVE_ARGS := \
 	native-sio-bus-test native-sio-bus-package native-sio-bus-fv-exact \
 	native-ps2-mouse-test native-ps2-mouse-package native-ps2-mouse-fv-exact \
 	native-terminal-test native-terminal-package native-terminal-fv-exact \
+	native-graphics-output-test native-graphics-output-package \
 	native-usb-bus-fv-exact \
 	native-scsi-bus-fv-exact native-scsi-bus-oracle \
 	native-capsule-runtime-test native-capsule-runtime-fv \
