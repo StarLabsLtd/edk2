@@ -15,7 +15,6 @@ hardware-gated	MdeModulePkg/Universal/Acpi/AcpiTableDxe/AcpiTableDxe
 subsystem-sized	MdeModulePkg/Universal/BdsDxe/BdsDxe
 subsystem-sized	MdeModulePkg/Universal/Console/ConPlatformDxe/ConPlatformDxe
 subsystem-sized	MdeModulePkg/Universal/Console/ConSplitterDxe/ConSplitterDxe
-subsystem-sized	MdeModulePkg/Universal/Console/TerminalDxe/TerminalDxe
 subsystem-sized	MdeModulePkg/Universal/FaultTolerantWriteDxe/FaultTolerantWriteDxe
 subsystem-sized	MdeModulePkg/Universal/Variable/RuntimeDxe/VariableRuntimeDxe
 subsystem-sized	ShellPkg/Application/Shell/Shell

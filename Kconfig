@@ -348,6 +348,13 @@ config CDK2_NATIVE_PS2_MOUSE
 	help
 	  Publish Simple Pointer input for the legacy auxiliary controller.
 
+config CDK2_NATIVE_TERMINAL
+	bool "Build native serial terminal driver"
+	default y
+	depends on CDK2_NATIVE_SERIAL_IO
+	help
+	  Publish text input and output protocols over Serial I/O.
+
 config CDK2_NATIVE_STATUS_CODE_HANDLER
 	bool "Build the native release status-code handler"
 	default y
