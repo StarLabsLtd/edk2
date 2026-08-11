@@ -51,9 +51,9 @@ EFI_STATUS cdk2_variable_store_validate(struct cdk2_smmstore *store,
 
 struct cdk2_fvb_protocol;
 typedef EFI_STATUS CDK2_MS_ABI
-cdk2_fvb_get_attributes_fn(struct cdk2_fvb_protocol *, UINT32 *);
+cdk2_fvb_get_attributes_fn(struct cdk2_fvb_protocol *, UINT64 *);
 typedef EFI_STATUS CDK2_MS_ABI
-cdk2_fvb_set_attributes_fn(struct cdk2_fvb_protocol *, UINT32 *);
+cdk2_fvb_set_attributes_fn(struct cdk2_fvb_protocol *, UINT64 *);
 typedef EFI_STATUS CDK2_MS_ABI
 cdk2_fvb_get_address_fn(struct cdk2_fvb_protocol *, EFI_PHYSICAL_ADDRESS *);
 typedef EFI_STATUS CDK2_MS_ABI cdk2_fvb_get_block_size_fn(
@@ -78,7 +78,7 @@ typedef EFI_STATUS cdk2_convert_pointer_fn(void **pointer);
 struct cdk2_smmstore_fvb {
 	struct cdk2_fvb_protocol protocol;
 	struct cdk2_smmstore store;
-	UINT32 attributes;
+	UINT64 attributes;
 };
 
 EFI_STATUS cdk2_smmstore_fvb_initialize(struct cdk2_smmstore_fvb *fvb,

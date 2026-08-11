@@ -69,7 +69,7 @@ int main(void)
 		.apm_cmd = 0xedU,
 	};
 	EFI_PHYSICAL_ADDRESS address;
-	UINT32 attributes;
+	UINT64 attributes;
 	UINT8 bytes[4] = {1U, 2U, 3U, 4U};
 	UINT8 output[4];
 	UINTN block_size;

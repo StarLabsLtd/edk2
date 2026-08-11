@@ -15,7 +15,7 @@ from_protocol(struct cdk2_fvb_protocol *protocol)
 }
 
 static EFI_STATUS CDK2_MS_ABI get_attributes(struct cdk2_fvb_protocol *protocol,
-						     UINT32 * attributes)
+						     UINT64 * attributes)
 {
 	if (protocol == NULL || attributes == NULL)
 		return EFI_INVALID_PARAMETER;
@@ -24,7 +24,7 @@ static EFI_STATUS CDK2_MS_ABI get_attributes(struct cdk2_fvb_protocol *protocol,
 }
 
 static EFI_STATUS CDK2_MS_ABI set_attributes(struct cdk2_fvb_protocol *protocol,
-						     UINT32 * attributes)
+						     UINT64 * attributes)
 {
 	struct cdk2_smmstore_fvb *fvb;
 
