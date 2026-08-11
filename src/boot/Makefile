@@ -152,6 +152,9 @@ CDK2_NATIVE_SMMSTORE_PE ?= \
 	$(CDK2_NATIVE_BUILD_DIR)/SmmStoreFvbRuntimeDxe.efi
 CDK2_NATIVE_SMMSTORE_FFS ?= \
 	$(CDK2_NATIVE_BUILD_DIR)/SmmStoreFvbRuntimeDxe.ffs
+CDK2_NATIVE_SMMSTORE_FV ?= $(CDK2_NATIVE_BUILD_DIR)/retained-native-smmstore.fv
+CDK2_NATIVE_SMMSTORE_PACKAGE_TEST ?= \
+	$(CDK2_NATIVE_BUILD_DIR)/smmstore-package-test
 CDK2_NATIVE_SMMSTORE_DEPEX_GEN ?= $(CDK2_NATIVE_BUILD_DIR)/smmstore-depex-gen
 CDK2_NATIVE_SMMSTORE_DEPEX ?= \
 	$(CDK2_NATIVE_BUILD_DIR)/SmmStoreFvbRuntimeDxe.depex
@@ -1659,7 +1662,18 @@ native-smmstore-test: $(addprefix $(CDK2_NATIVE_BUILD_DIR)/,\
 	@"$(CDK2_NATIVE_BUILD_DIR)/smmstore-fvb-test"
 	@"$(CDK2_NATIVE_BUILD_DIR)/smmstore-driver-test"
 
-native-smmstore-package: $(CDK2_NATIVE_SMMSTORE_FFS)
+native-smmstore-package: $(CDK2_NATIVE_SMMSTORE_FFS) \
+		$(CDK2_NATIVE_SMMSTORE_PACKAGE_TEST)
+	@"$(CDK2_NATIVE_SMMSTORE_PACKAGE_TEST)" "$(CDK2_NATIVE_SMMSTORE_FFS)"
+
+.PHONY: native-smmstore-fv-exact
+native-smmstore-fv-exact: $(CDK2_NATIVE_SMMSTORE_FFS) \
+		$(CDK2_NATIVE_FVREPLACE) $(CDK2_NATIVE_FVINFO)
+	@test -n "$(CDK2_NATIVE_PRE_SMMSTORE_FV)"
+	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_PRE_SMMSTORE_FV)" 0xfafd0 \
+		"$(CDK2_NATIVE_SMMSTORE_FFS)" "$(CDK2_NATIVE_SMMSTORE_FV)"
+	@"$(CDK2_NATIVE_FVINFO)" "$(CDK2_NATIVE_SMMSTORE_FV)" | grep -q \
+		'^a0402fca-6b25-4cea-b7dd-c08f99714b29[[:space:]]0x000fafd0[[:space:]]0x00008072[[:space:]]0x07[[:space:]]SmmStoreFvbRuntimeDxe$$'
 
 $(CDK2_NATIVE_BUILD_DIR)/smmstore-test: $(CDK2_DIR)/tests/smmstore_test.c \
 		$(CDK2_DIR)/src/modules/smmstore_fvb/smmstore.c \
@@ -1733,6 +1747,11 @@ $(CDK2_NATIVE_SMMSTORE_FFS): $(CDK2_NATIVE_SMMSTORE_PE) \
 	@"$(CDK2_NATIVE_FFSBUILD)" a0402fca-6b25-4cea-b7dd-c08f99714b29 \
 		SmmStoreFvbRuntimeDxe 1.0 0x8072 "$<" "$@" \
 		"$(CDK2_NATIVE_SMMSTORE_DEPEX)"
+
+$(CDK2_NATIVE_SMMSTORE_PACKAGE_TEST): \
+		$(CDK2_DIR)/tests/smmstore_package_test.c | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -MMD -MP \
+		-MF "$(@:.test=.d)" -MT "$@" -o "$@" "$<"
 
 .PHONY: native-usb-mouse-fv-exact
 native-usb-mouse-fv-exact: $(CDK2_NATIVE_USB_MOUSE_FFS) \
@@ -3368,6 +3387,19 @@ $(CDK2_NATIVE_ACPI_TABLE_FV): $(CDK2_NATIVE_PRE_ACPI_TABLE_FV) \
 		"$(CDK2_NATIVE_ACPI_TABLE_FFS)" "$@"
 else
 $(CDK2_NATIVE_ACPI_TABLE_FV): $(CDK2_NATIVE_PRE_ACPI_TABLE_FV)
+	@cp "$<" "$@"
+endif
+
+ifeq ($(CONFIG_CDK2_NATIVE_SMMSTORE_FVB),y)
+CDK2_NATIVE_PRE_SMMSTORE_FV ?= $(CDK2_NATIVE_FINAL_FV)
+CDK2_NATIVE_FINAL_FV := $(CDK2_NATIVE_SMMSTORE_FV)
+
+$(CDK2_NATIVE_SMMSTORE_FV): $(CDK2_NATIVE_PRE_SMMSTORE_FV) \
+		$(CDK2_NATIVE_SMMSTORE_FFS) $(CDK2_NATIVE_FVREPLACE)
+	@"$(CDK2_NATIVE_FVREPLACE)" "$(CDK2_NATIVE_PRE_SMMSTORE_FV)" 0xfafd0 \
+		"$(CDK2_NATIVE_SMMSTORE_FFS)" "$@"
+else
+$(CDK2_NATIVE_SMMSTORE_FV): $(CDK2_NATIVE_PRE_SMMSTORE_FV)
 	@cp "$<" "$@"
 endif
 

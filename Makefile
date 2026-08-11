@@ -83,7 +83,7 @@ CDK2_CONFIG_TARGETS := build check manifest modules native-stage \
 	native-graphics-output-test native-graphics-output-package \
 	native-graphics-output-fv-exact \
 	native-acpi-table-test native-acpi-table-package native-acpi-table-fv-exact \
-	native-smmstore-test native-smmstore-package \
+	native-smmstore-test native-smmstore-package native-smmstore-fv-exact \
 	native-usb-bus-fv-exact \
 	native-scsi-bus-fv-exact native-scsi-bus-oracle \
 	native-capsule-runtime-test native-capsule-runtime-fv \
@@ -143,6 +143,7 @@ CDK2_RECURSIVE_ARGS := \
 	$(if $(CDK2_NATIVE_PRE_TERMINAL_FV),CDK2_NATIVE_PRE_TERMINAL_FV="$(CDK2_NATIVE_PRE_TERMINAL_FV)") \
 	$(if $(CDK2_NATIVE_PRE_GRAPHICS_OUTPUT_FV),CDK2_NATIVE_PRE_GRAPHICS_OUTPUT_FV="$(CDK2_NATIVE_PRE_GRAPHICS_OUTPUT_FV)") \
 	$(if $(CDK2_NATIVE_PRE_ACPI_TABLE_FV),CDK2_NATIVE_PRE_ACPI_TABLE_FV="$(CDK2_NATIVE_PRE_ACPI_TABLE_FV)") \
+	$(if $(CDK2_NATIVE_PRE_SMMSTORE_FV),CDK2_NATIVE_PRE_SMMSTORE_FV="$(CDK2_NATIVE_PRE_SMMSTORE_FV)") \
 	$(if $(CDK2_NATIVE_PCD_DATABASE),CDK2_NATIVE_PCD_DATABASE="$(CDK2_NATIVE_PCD_DATABASE)") \
 	CDK2_NATIVE_DIR="$(CDK2_NATIVE_DIR)" \
 	$(if $(HOSTCC),HOSTCC="$(HOSTCC)") \
@@ -193,7 +194,7 @@ CDK2_RECURSIVE_ARGS := \
 	native-graphics-output-test native-graphics-output-package \
 	native-graphics-output-fv-exact \
 	native-acpi-table-test native-acpi-table-package native-acpi-table-fv-exact \
-	native-smmstore-test native-smmstore-package \
+	native-smmstore-test native-smmstore-package native-smmstore-fv-exact \
 	native-usb-bus-fv-exact \
 	native-scsi-bus-fv-exact native-scsi-bus-oracle \
 	native-capsule-runtime-test native-capsule-runtime-fv \

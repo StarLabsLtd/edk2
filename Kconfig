@@ -486,6 +486,13 @@ config CDK2_NATIVE_ACPI_TABLE
 	help
 	  Own ACPI root tables and publish the ACPI Table protocol.
 
+config CDK2_NATIVE_SMMSTORE_FVB
+	bool "Build native SMM store FVB runtime driver"
+	default y
+	depends on CDK2_NATIVE_STAGE
+	help
+	  Publish runtime firmware-volume access over the SMMSTORE handoff.
+
 config CDK2_NATIVE_GRAPHICS_CONSOLE
 	bool "Build native graphics console services"
 	default y
