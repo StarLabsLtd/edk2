@@ -213,10 +213,11 @@ static EFI_STATUS control(struct cdk2_usb_mouse *mouse, UINT8 request_type,
 	UINT32 direction)
 {
 	struct cdk2_usb_request usb_request = { request_type, request, value, index, length };
+	UINTN transfer = length;
 	UINT32 result;
 
 	return mouse->usb_io->control_transfer(mouse->usb_io, &usb_request, direction,
-		3000U, data, length, &result);
+		3000U, data, &transfer, &result);
 }
 
 static EFI_STATUS initialize_device(struct cdk2_usb_mouse *mouse)

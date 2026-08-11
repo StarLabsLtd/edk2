@@ -3,7 +3,7 @@
 #ifndef CDK2_USB_MOUSE_H_
 #define CDK2_USB_MOUSE_H_
 
-#include <uefi.h>
+#include <cdk2/usb_bus.h>
 
 #define CDK2_USB_CLASS_HID 3U
 #define CDK2_USB_SUBCLASS_BOOT 1U
@@ -35,39 +35,11 @@ struct cdk2_usb_endpoint_descriptor {
 	UINT8 interval;
 } __packed;
 
-struct cdk2_usb_io;
-struct cdk2_usb_request { UINT8 request_type; UINT8 request; UINT16 value;
-	UINT16 index; UINT16 length; } __packed;
 struct cdk2_usb_config_descriptor { UINT8 length; UINT8 descriptor_type;
 	UINT16 total_length; UINT8 interface_count; UINT8 configuration_value;
 	UINT8 configuration; UINT8 attributes; UINT8 maximum_power; } __packed;
-typedef EFI_STATUS CDK2_MS_ABI cdk2_usb_control_fn(struct cdk2_usb_io *,
-	struct cdk2_usb_request *, UINT32, UINT32, void *, UINTN, UINT32 *);
-typedef EFI_STATUS CDK2_MS_ABI cdk2_usb_async_callback_fn(void *, UINTN, void *, UINT32);
-typedef EFI_STATUS CDK2_MS_ABI cdk2_usb_async_fn(struct cdk2_usb_io *, UINT8,
-	BOOLEAN, UINTN, UINTN, cdk2_usb_async_callback_fn *, void *);
-typedef EFI_STATUS CDK2_MS_ABI cdk2_usb_interface_fn(struct cdk2_usb_io *,
-	struct cdk2_usb_interface_descriptor *);
-typedef EFI_STATUS CDK2_MS_ABI cdk2_usb_endpoint_fn(struct cdk2_usb_io *, UINT8,
-	struct cdk2_usb_endpoint_descriptor *);
-typedef EFI_STATUS CDK2_MS_ABI cdk2_usb_config_fn(struct cdk2_usb_io *,
-	struct cdk2_usb_config_descriptor *);
-
-struct cdk2_usb_io {
-	cdk2_usb_control_fn *control_transfer;
-	void *bulk_transfer;
-	cdk2_usb_async_fn *async_interrupt_transfer;
-	void *sync_interrupt_transfer;
-	void *isochronous_transfer;
-	void *async_isochronous_transfer;
-	void *get_device_descriptor;
-	cdk2_usb_config_fn *get_config_descriptor;
-	cdk2_usb_interface_fn *get_interface_descriptor;
-	cdk2_usb_endpoint_fn *get_endpoint_descriptor;
-	void *get_string_descriptor;
-	void *get_supported_languages;
-	void *port_reset;
-};
+#define cdk2_usb_io cdk2_usb_io_protocol
+#define cdk2_usb_async_callback_fn cdk2_usb2_async_callback_fn
 
 struct cdk2_simple_pointer_state {
 	INT32 relative_movement_x;

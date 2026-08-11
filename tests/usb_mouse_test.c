@@ -12,8 +12,8 @@ static const UINT8 full_config[] = { 9, 2, 18, 0, 1, 1, 0, 0x80, 50,
 	9, 0x21, 0x11, 0x01, 0, 1, 0x22, sizeof(hid_report), 0 };
 
 static EFI_STATUS CDK2_MS_ABI control_transfer(struct cdk2_usb_io *self,
-	struct cdk2_usb_request *request, UINT32 direction, UINT32 timeout, void *data,
-	UINTN length, UINT32 *result)
+	struct cdk2_usb_request *request, UINTN direction, UINT32 timeout, void *data,
+	UINTN *length, UINT32 *result)
 {
 	const UINT8 *source = NULL;
 	UINTN index;
@@ -33,14 +33,15 @@ static EFI_STATUS CDK2_MS_ABI control_transfer(struct cdk2_usb_io *self,
 		return EFI_SUCCESS;
 	else
 		return EFI_UNSUPPORTED;
-	for (index = 0; index < length; index++)
+	for (index = 0; index < *length; index++)
 		((UINT8 *)data)[index] = source[index];
 	return EFI_SUCCESS;
 }
 
 static EFI_STATUS CDK2_MS_ABI config_descriptor(struct cdk2_usb_io *self,
-	struct cdk2_usb_config_descriptor *descriptor)
+	void *buffer)
 {
+	struct cdk2_usb_config_descriptor *descriptor = buffer;
 	(void)self;
 	*descriptor = (struct cdk2_usb_config_descriptor) { .length = 9,
 		.descriptor_type = 2, .total_length = sizeof(full_config),
@@ -49,8 +50,9 @@ static EFI_STATUS CDK2_MS_ABI config_descriptor(struct cdk2_usb_io *self,
 }
 
 static EFI_STATUS CDK2_MS_ABI interface_descriptor(struct cdk2_usb_io *self,
-	struct cdk2_usb_interface_descriptor *descriptor)
+	void *buffer)
 {
+	struct cdk2_usb_interface_descriptor *descriptor = buffer;
 	(void)self;
 	*descriptor = (struct cdk2_usb_interface_descriptor) { .endpoint_count = 1,
 		.interface_class = 3, .interface_subclass = 1, .interface_protocol = 2 };
@@ -58,8 +60,9 @@ static EFI_STATUS CDK2_MS_ABI interface_descriptor(struct cdk2_usb_io *self,
 }
 
 static EFI_STATUS CDK2_MS_ABI endpoint_descriptor(struct cdk2_usb_io *self, UINT8 index,
-	struct cdk2_usb_endpoint_descriptor *descriptor)
+	void *buffer)
 {
+	struct cdk2_usb_endpoint_descriptor *descriptor = buffer;
 	(void)self;
 	if (index != 0U)
 		return EFI_NOT_FOUND;
