@@ -12,6 +12,9 @@
 static cdk2_usb2_async_callback_fn *notify;
 static void *notify_context;
 static UINTN controls, starts, stops;
+static UINTN notifications;
+static EFI_STATUS CDK2_MS_ABI key_notify(struct cdk2_usb_keyboard_key *key)
+{ CHECK(key->unicode_char == 'a'); notifications++; return EFI_SUCCESS; }
 static EFI_STATUS CDK2_MS_ABI interface_descriptor(
 	struct cdk2_usb_io_protocol *usb, void *data)
 { UINT8 *bytes = data; (void)usb; memset(bytes, 0, 9U); bytes[2] = 4U;
@@ -44,12 +47,21 @@ int main(void)
 	struct cdk2_usb_keyboard_device device;
 	struct cdk2_usb_keyboard_report report = { .keys = { 4U } };
 	struct cdk2_usb_keyboard_key key;
+	void *handle;
 
 	CHECK(cdk2_usb_keyboard_start_io(&device, &usb) == EFI_SUCCESS &&
 		controls == 2U && starts == 1U && notify != NULL);
+	CHECK(cdk2_usb_keyboard_protocol_init(&device, &device, &report) ==
+		EFI_SUCCESS);
+	key = (struct cdk2_usb_keyboard_key) { .unicode_char = 'a' };
+	CHECK(device.input_ex.register_key_notify(&device.input_ex, &key,
+		key_notify, &handle) == EFI_SUCCESS && handle != NULL);
 	CHECK(notify(&report, sizeof(report), notify_context, 0U) == EFI_SUCCESS);
+	CHECK(notifications == 1U);
 	CHECK(cdk2_usb_keyboard_read(&device.keyboard, &key) == EFI_SUCCESS &&
 		key.unicode_char == 'a');
+	CHECK(device.input_ex.unregister_key_notify(&device.input_ex, handle) ==
+		EFI_SUCCESS);
 	CHECK(cdk2_usb_keyboard_stop_io(&device) == EFI_SUCCESS && stops == 1U &&
 		!device.active);
 	puts("usb keyboard transport tests: PASS");

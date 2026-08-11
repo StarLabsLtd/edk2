@@ -8,12 +8,42 @@ static EFI_STATUS CDK2_MS_ABI receive(void *data, UINTN length, void *context,
 	UINT32 status)
 {
 	struct cdk2_usb_keyboard_device *device = context;
+	UINTN previous_count;
+	EFI_STATUS result;
 
 	if (device == NULL || !device->active)
 		return EFI_NOT_READY;
 	if (status != 0U)
 		return EFI_DEVICE_ERROR;
-	return cdk2_usb_keyboard_report(&device->keyboard, data, length);
+	previous_count = device->keyboard.count;
+	result = cdk2_usb_keyboard_report(&device->keyboard, data, length);
+	if (EFI_ERROR(result))
+		return result;
+	for (UINTN added = previous_count; added < device->keyboard.count; added++) {
+		UINTN position = (device->keyboard.head + added) %
+			CDK2_USB_KEYBOARD_QUEUE;
+		struct cdk2_usb_keyboard_key *key = &device->keyboard.queue[position];
+
+		for (UINTN index = 0U; index < CDK2_USB_KEYBOARD_NOTIFICATIONS; index++) {
+			struct cdk2_usb_keyboard_notification *notification =
+				&device->notifications[index];
+			BOOLEAN match;
+
+			if (!notification->active)
+				continue;
+			match = notification->key.scan_code == key->scan_code &&
+				notification->key.unicode_char == key->unicode_char;
+			if (notification->key.shift_state != 0U)
+				match = match && notification->key.shift_state ==
+					key->shift_state;
+			if (notification->key.toggle_state != 0U)
+				match = match && notification->key.toggle_state ==
+					key->toggle_state;
+			if (match)
+				(void)notification->notify(key);
+		}
+	}
+	return EFI_SUCCESS;
 }
 
 static EFI_STATUS class_request(struct cdk2_usb_io_protocol *usb,

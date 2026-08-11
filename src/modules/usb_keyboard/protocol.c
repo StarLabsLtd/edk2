@@ -84,14 +84,54 @@ static EFI_STATUS CDK2_MS_ABI register_notify(
 	struct cdk2_simple_text_input_ex *protocol,
 	struct cdk2_usb_keyboard_key *key, cdk2_key_notify_fn *notify, void **handle)
 {
-	(void)protocol; (void)key; (void)notify; (void)handle;
-	return EFI_UNSUPPORTED;
+	struct cdk2_usb_keyboard_device *device;
+
+	if (protocol == NULL || key == NULL || notify == NULL || handle == NULL)
+		return EFI_INVALID_PARAMETER;
+	device = input_ex_owner(protocol);
+	for (UINTN index = 0U; index < CDK2_USB_KEYBOARD_NOTIFICATIONS; index++) {
+		struct cdk2_usb_keyboard_notification *notification =
+			&device->notifications[index];
+
+		if (notification->active && notification->notify == notify &&
+		    notification->key.scan_code == key->scan_code &&
+		    notification->key.unicode_char == key->unicode_char &&
+		    notification->key.shift_state == key->shift_state &&
+		    notification->key.toggle_state == key->toggle_state) {
+			*handle = notification;
+			return EFI_SUCCESS;
+		}
+	}
+	for (UINTN index = 0U; index < CDK2_USB_KEYBOARD_NOTIFICATIONS; index++) {
+		struct cdk2_usb_keyboard_notification *notification =
+			&device->notifications[index];
+
+		if (!notification->active) {
+			notification->key = *key;
+			notification->notify = notify;
+			notification->active = TRUE;
+			*handle = notification;
+			return EFI_SUCCESS;
+		}
+	}
+	return EFI_OUT_OF_RESOURCES;
 }
 
 static EFI_STATUS CDK2_MS_ABI unregister_notify(
 	struct cdk2_simple_text_input_ex *protocol, void *handle)
 {
-	(void)protocol; (void)handle;
+	struct cdk2_usb_keyboard_device *device;
+
+	if (protocol == NULL || handle == NULL)
+		return EFI_INVALID_PARAMETER;
+	device = input_ex_owner(protocol);
+	for (UINTN index = 0U; index < CDK2_USB_KEYBOARD_NOTIFICATIONS; index++)
+		if (handle == &device->notifications[index] &&
+		    device->notifications[index].active) {
+			device->notifications[index].active = FALSE;
+			device->notifications[index].notify = NULL;
+			return EFI_SUCCESS;
+		}
 	return EFI_INVALID_PARAMETER;
 }
 

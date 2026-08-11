@@ -7,6 +7,7 @@
 #define CDK2_USB_KEYBOARD_KEYS 6U
 #define CDK2_USB_KEYBOARD_QUEUE 32U
 #define CDK2_USB_KEYBOARD_CONTROLLERS 16U
+#define CDK2_USB_KEYBOARD_NOTIFICATIONS 16U
 #define CDK2_KEY_SHIFT_VALID 0x80000000U
 #define CDK2_KEY_LEFT_SHIFT 0x00000002U
 #define CDK2_KEY_RIGHT_SHIFT 0x00000001U
@@ -56,6 +57,11 @@ struct cdk2_simple_text_input_ex {
 	cdk2_text_register_fn *register_key_notify;
 	cdk2_text_unregister_fn *unregister_key_notify;
 };
+struct cdk2_usb_keyboard_notification {
+	struct cdk2_usb_keyboard_key key;
+	cdk2_key_notify_fn *notify;
+	BOOLEAN active;
+};
 
 struct cdk2_usb_keyboard {
 	struct cdk2_usb_keyboard_report previous;
@@ -68,6 +74,8 @@ struct cdk2_usb_keyboard_device {
 	struct cdk2_usb_keyboard keyboard;
 	struct cdk2_simple_text_input input;
 	struct cdk2_simple_text_input_ex input_ex;
+	struct cdk2_usb_keyboard_notification notifications[
+		CDK2_USB_KEYBOARD_NOTIFICATIONS];
 	struct cdk2_usb_io_protocol *usb;
 	UINT8 endpoint, interval;
 	UINT16 packet_size;

@@ -1242,13 +1242,15 @@ $(CDK2_NATIVE_BUILD_DIR)/usb-keyboard-transport-test: \
 		$(CDK2_DIR)/tests/usb_keyboard_transport_test.c \
 		$(CDK2_DIR)/src/modules/usb_keyboard/model.c \
 		$(CDK2_DIR)/src/modules/usb_keyboard/transport.c \
+		$(CDK2_DIR)/src/modules/usb_keyboard/protocol.c \
 		$(CDK2_DIR)/include/cdk2/usb_keyboard.h | $(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) \
 		-fsanitize=address,undefined $(CDK2_NATIVE_INCLUDES) -MMD -MP \
 		-MF "$(@:.test=.d)" -MT "$@" -o "$@" \
 		$(CDK2_DIR)/tests/usb_keyboard_transport_test.c \
 		$(CDK2_DIR)/src/modules/usb_keyboard/model.c \
-		$(CDK2_DIR)/src/modules/usb_keyboard/transport.c
+		$(CDK2_DIR)/src/modules/usb_keyboard/transport.c \
+		$(CDK2_DIR)/src/modules/usb_keyboard/protocol.c
 
 $(CDK2_NATIVE_BUILD_DIR)/usb-keyboard-protocol-test: \
 		$(CDK2_DIR)/tests/usb_keyboard_protocol_test.c \
