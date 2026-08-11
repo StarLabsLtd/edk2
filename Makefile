@@ -82,6 +82,7 @@ CDK2_CONFIG_TARGETS := build check manifest modules native-stage \
 	native-terminal-test native-terminal-package native-terminal-fv-exact \
 	native-graphics-output-test native-graphics-output-package \
 	native-graphics-output-fv-exact \
+	native-acpi-table-test native-acpi-table-package \
 	native-usb-bus-fv-exact \
 	native-scsi-bus-fv-exact native-scsi-bus-oracle \
 	native-capsule-runtime-test native-capsule-runtime-fv \
@@ -189,6 +190,7 @@ CDK2_RECURSIVE_ARGS := \
 	native-terminal-test native-terminal-package native-terminal-fv-exact \
 	native-graphics-output-test native-graphics-output-package \
 	native-graphics-output-fv-exact \
+	native-acpi-table-test native-acpi-table-package \
 	native-usb-bus-fv-exact \
 	native-scsi-bus-fv-exact native-scsi-bus-oracle \
 	native-capsule-runtime-test native-capsule-runtime-fv \

@@ -135,6 +135,16 @@ CDK2_NATIVE_GRAPHICS_OUTPUT_FV ?= \
 	$(CDK2_NATIVE_BUILD_DIR)/retained-native-graphics-output.fv
 CDK2_NATIVE_GRAPHICS_OUTPUT_PACKAGE_TEST ?= \
 	$(CDK2_NATIVE_BUILD_DIR)/graphics-output-package-test
+CDK2_NATIVE_ACPI_TABLE_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-acpi-table-test
+CDK2_NATIVE_ACPI_TABLE_DRIVER_TEST ?= \
+	$(CDK2_NATIVE_BUILD_DIR)/cdk2-acpi-table-driver-test
+CDK2_NATIVE_ACPI_TABLE_OBJS := $(addprefix $(CDK2_NATIVE_BUILD_DIR)/acpi-table-,\
+	acpi_table.o driver.o)
+CDK2_NATIVE_ACPI_TABLE_PE ?= $(CDK2_NATIVE_BUILD_DIR)/AcpiTableDxe.efi
+CDK2_NATIVE_ACPI_TABLE_FFS ?= $(CDK2_NATIVE_BUILD_DIR)/AcpiTableDxe.ffs
+CDK2_NATIVE_ACPI_TABLE_DEPEX_GEN ?= \
+	$(CDK2_NATIVE_BUILD_DIR)/acpi-table-depex-gen
+CDK2_NATIVE_ACPI_TABLE_DEPEX ?= $(CDK2_NATIVE_BUILD_DIR)/AcpiTableDxe.depex
 CDK2_NATIVE_SATA_CONTROLLER_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-sata-controller-test
 CDK2_NATIVE_ATA_ATAPI_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-atapi-test
 CDK2_NATIVE_ATA_ATAPI_BINDING_TEST ?= $(CDK2_NATIVE_BUILD_DIR)/cdk2-ata-atapi-binding-test
@@ -1550,6 +1560,67 @@ $(CDK2_NATIVE_GRAPHICS_OUTPUT_PACKAGE_TEST): \
 		$(CDK2_NATIVE_BUILD_DIR)
 	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -MMD -MP \
 		-MF "$(@:.test=.d)" -MT "$@" -o "$@" "$<"
+
+.PHONY: native-acpi-table-test native-acpi-table-package
+native-acpi-table-test: $(CDK2_NATIVE_ACPI_TABLE_TEST) \
+		$(CDK2_NATIVE_ACPI_TABLE_DRIVER_TEST)
+	@"$(CDK2_NATIVE_ACPI_TABLE_TEST)"
+	@"$(CDK2_NATIVE_ACPI_TABLE_DRIVER_TEST)"
+
+native-acpi-table-package: $(CDK2_NATIVE_ACPI_TABLE_FFS)
+
+$(CDK2_NATIVE_ACPI_TABLE_TEST): $(CDK2_DIR)/tests/acpi_table_test.c \
+		$(CDK2_DIR)/src/modules/acpi_table/acpi_table.c \
+		$(CDK2_DIR)/include/cdk2/acpi_table.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) \
+		-fsanitize=address,undefined $(CDK2_NATIVE_INCLUDES) -MMD -MP \
+		-MF "$(@:.test=.d)" -MT "$@" -o "$@" \
+		$(CDK2_DIR)/tests/acpi_table_test.c \
+		$(CDK2_DIR)/src/modules/acpi_table/acpi_table.c
+
+$(CDK2_NATIVE_ACPI_TABLE_DRIVER_TEST): \
+		$(CDK2_DIR)/tests/acpi_table_driver_test.c \
+		$(CDK2_DIR)/src/modules/acpi_table/acpi_table.c \
+		$(CDK2_DIR)/src/modules/acpi_table/driver.c \
+		$(CDK2_DIR)/include/cdk2/acpi_table.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) \
+		-fsanitize=address,undefined $(CDK2_NATIVE_INCLUDES) -MMD -MP \
+		-MF "$(@:.test=.d)" -MT "$@" -o "$@" \
+		$(CDK2_DIR)/tests/acpi_table_driver_test.c \
+		$(CDK2_DIR)/src/modules/acpi_table/acpi_table.c \
+		$(CDK2_DIR)/src/modules/acpi_table/driver.c
+
+$(CDK2_NATIVE_BUILD_DIR)/acpi-table-%.o: \
+		$(CDK2_DIR)/src/modules/acpi_table/%.c \
+		$(CDK2_DIR)/include/cdk2/acpi_table.h | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_CC) $(filter-out -fdata-sections -ffunction-sections,\
+		$(CDK2_NATIVE_CFLAGS)) -mcmodel=large -fno-ident \
+		-fcf-protection=none -maccumulate-outgoing-args $(CDK2_NATIVE_INCLUDES) \
+		-MMD -MP -MF "$(@:.o=.d)" -MT "$@" -c "$<" -o "$@"
+
+$(CDK2_NATIVE_ACPI_TABLE_PE): $(CDK2_NATIVE_ACPI_TABLE_OBJS) \
+		$(CDK2_NATIVE_BUILD_DIR)/mem.o \
+		$(CDK2_DIR)/src/modules/acpi_table/acpi_table.ld \
+		$(CDK2_NATIVE_PERELOCCHECK)
+	@$(LD) -mi386pep --subsystem 11 --entry cdk2_acpi_table_entry \
+		--image-base 0 --section-alignment 0x1000 --file-alignment 0x1000 \
+		--build-id=none --no-insert-timestamp -s --nxcompat \
+		-T "$(CDK2_DIR)/src/modules/acpi_table/acpi_table.ld" -o "$@" \
+		$(CDK2_NATIVE_ACPI_TABLE_OBJS) $(CDK2_NATIVE_BUILD_DIR)/mem.o
+	@"$(CDK2_NATIVE_PERELOCCHECK)" --subsystem 11 "$@"
+
+$(CDK2_NATIVE_ACPI_TABLE_DEPEX_GEN): \
+		$(CDK2_DIR)/src/modules/acpi_table/depex.c | $(CDK2_NATIVE_BUILD_DIR)
+	@$(CDK2_NATIVE_HOST_CC) $(CDK2_NATIVE_HOST_CFLAGS) -o "$@" "$<"
+
+$(CDK2_NATIVE_ACPI_TABLE_DEPEX): $(CDK2_NATIVE_ACPI_TABLE_DEPEX_GEN)
+	@"$<" "$@"
+
+$(CDK2_NATIVE_ACPI_TABLE_FFS): $(CDK2_NATIVE_ACPI_TABLE_PE) \
+		$(CDK2_NATIVE_ACPI_TABLE_DEPEX) $(CDK2_NATIVE_FFSBUILD)
+	@"$(CDK2_NATIVE_FFSBUILD)" 9622e42c-8e38-4a08-9e8f-54f784652f6b \
+		AcpiTableDxe 1.0 0xb062 "$<" "$@" \
+		"$(CDK2_NATIVE_ACPI_TABLE_DEPEX)"
 
 .PHONY: native-usb-mouse-fv-exact
 native-usb-mouse-fv-exact: $(CDK2_NATIVE_USB_MOUSE_FFS) \
