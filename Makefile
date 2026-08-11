@@ -77,6 +77,7 @@ CDK2_CONFIG_TARGETS := build check manifest modules native-stage \
 	native-usb-keyboard-test native-usb-keyboard-package \
 	native-usb-keyboard-fv-exact \
 	native-usb-mouse-test native-usb-mouse-package native-usb-mouse-fv-exact \
+	native-sio-bus-test native-sio-bus-package \
 	native-usb-bus-fv-exact \
 	native-scsi-bus-fv-exact native-scsi-bus-oracle \
 	native-capsule-runtime-test native-capsule-runtime-fv \
@@ -175,6 +176,7 @@ CDK2_RECURSIVE_ARGS := \
 	native-usb-keyboard-test native-usb-keyboard-package \
 	native-usb-keyboard-fv-exact \
 	native-usb-mouse-test native-usb-mouse-package native-usb-mouse-fv-exact \
+	native-sio-bus-test native-sio-bus-package \
 	native-usb-bus-fv-exact \
 	native-scsi-bus-fv-exact native-scsi-bus-oracle \
 	native-capsule-runtime-test native-capsule-runtime-fv \
