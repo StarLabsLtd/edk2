@@ -479,6 +479,13 @@ config CDK2_NATIVE_GRAPHICS_OUTPUT
 	help
 	  Publish GOP from a validated Universal Payload framebuffer handoff.
 
+config CDK2_NATIVE_ACPI_TABLE
+	bool "Build native ACPI table protocol"
+	default y
+	depends on CDK2_NATIVE_STAGE
+	help
+	  Own ACPI root tables and publish the ACPI Table protocol.
+
 config CDK2_NATIVE_GRAPHICS_CONSOLE
 	bool "Build native graphics console services"
 	default y
