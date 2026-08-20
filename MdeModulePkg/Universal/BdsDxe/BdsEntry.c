@@ -1090,6 +1090,18 @@ BdsEntry (
       PERF_INMODULE_BEGIN ("BdsWait");
       BdsWait (HotkeyTriggered);
       PERF_INMODULE_END ("BdsWait");
+      //
+      // Some input drivers deliver hotkey notifications from ReadKeyStroke().
+      // Perform one event-gated scan even when the timeout is zero.
+      //
+      if (!PcdGetBool (PcdConInConnectOnDemand) &&
+          (gST->ConIn != NULL) &&
+          (gST->ConIn->WaitForKey != NULL) &&
+          !EFI_ERROR (gBS->CheckEvent (gST->ConIn->WaitForKey)))
+      {
+        BdsDrainConsoleInput ();
+      }
+
       EfiBootManagerHotkeyBoot ();
     } else {
       //
