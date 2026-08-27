@@ -20,6 +20,11 @@
 [LibraryClasses]
   PayloadEntryHelperLib|Include/Library/PayloadEntryHelperLib.h
   CbMemLib|Include/Library/CbMemLib.h
+  BootKeyAuthLib|Include/Library/BootKeyAuthLib.h
+  BootKeyAuthenticatorLib|Include/Library/BootKeyAuthenticatorLib.h
+  BootKeyCredentialStoreLib|Include/Library/BootKeyCredentialStoreLib.h
+  BootKeyPlatformSecurityLib|Include/Library/BootKeyPlatformSecurityLib.h
+  BootKeyPowerSafetyLib|Include/Library/BootKeyPowerSafetyLib.h
 
 [Guids]
   # SMMSTORE for coreboot and EDK-2
@@ -79,8 +84,6 @@
   # This PPI is used to trigger Payload callback event in end of PEI.
   #
   gUplReadyToPayloadPpiGuid = { 0x67c8dfb1, 0x61f4, 0x439c, { 0x84, 0x4e, 0x2b, 0xdf, 0xf1, 0x07, 0xad, 0x51 }}
-
-[Protocols]
 
 ################################################################################
 #
@@ -155,6 +158,18 @@ gUefiPayloadPkgTokenSpaceGuid.PcdConnectAllDevices|TRUE|BOOLEAN|0x00000035
 gUefiPayloadPkgTokenSpaceGuid.PcdCbmemTimestamps|FALSE|BOOLEAN|0x00000036
 
 [PcdsFixedAtBuild]
+## Enables the private QEMU boot-key fixtures. This must remain FALSE in
+## production firmware.
+gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyAuthTestEnabled|FALSE|BOOLEAN|0x0000003A
+
+## Allows the DEBUG-only synthetic platform-boundary verifier. This must
+## remain FALSE in production firmware.
+gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyPlatformBoundaryTestEnabled|FALSE|BOOLEAN|0x0000003D
+
+## Allows the DEBUG-only synthetic boot-key power-safety provider. This must
+## remain FALSE in production firmware.
+gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyPowerSafetyTestEnabled|FALSE|BOOLEAN|0x0000003E
+
 ## If PcdPayloadFbHiDpiWideAspectCapSupport is enabled and the physical
 ## framebuffer is wider than the configured aspect ratio, the alternate setup GOP
 ## mode crops to a centered viewport.
@@ -163,3 +178,11 @@ gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiWideAspectCapHeight|9|UINT32|0x00
 
 ## Hardware S5 sleep type written to PM1_CNT by ResetShutdown().
 gUefiPayloadPkgTokenSpaceGuid.PcdResetShutdownSleepType|7|UINT16|0x00000039
+
+## Selects a negative path in the QEMU-only boot-key fixture.
+## This PCD must not be consumed by a production library instance.
+gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyAuthTestScenario|0|UINT32|0x0000003B
+
+## Indicates whether this payload build includes SMM and therefore must prove
+## that SMRAM is closed and locked before boot-key authenticator input.
+gUefiPayloadPkgTokenSpaceGuid.PcdBootKeySmmExpected|FALSE|BOOLEAN|0x0000003C

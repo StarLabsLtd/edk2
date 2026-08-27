@@ -1,0 +1,21 @@
+## @file
+#  Fail-closed boot-key power-safety instance.
+#
+#  Copyright (c) 2026, Star Labs Systems. All rights reserved.<BR>
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION    = 0x00010017
+  BASE_NAME      = BootKeyPowerSafetyLibNull
+  FILE_GUID      = 1176D9B8-2A00-4442-8A9F-FAD88179FE15
+  MODULE_TYPE    = BASE
+  VERSION_STRING = 1.0
+  LIBRARY_CLASS  = BootKeyPowerSafetyLib
+
+[Sources]
+  BootKeyPowerSafetyLibNull.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  UefiPayloadPkg/UefiPayloadPkg.dec

@@ -1,0 +1,28 @@
+## @file
+#  DEBUG-only synthetic boot-key power-safety instance.
+#
+#  Copyright (c) 2026, Star Labs Systems. All rights reserved.<BR>
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION    = 0x00010017
+  BASE_NAME      = BootKeyPowerSafetyTestLib
+  FILE_GUID      = 10571EC9-A434-4333-BF11-3A631AB55B18
+  MODULE_TYPE    = BASE
+  VERSION_STRING = 1.0
+  LIBRARY_CLASS  = BootKeyPowerSafetyLib|DXE_DRIVER
+
+[Sources]
+  BootKeyPowerSafetyTestLib.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  UefiPayloadPkg/UefiPayloadPkg.dec
+
+[LibraryClasses]
+  DebugLib
+  PcdLib
+
+[FixedPcd]
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyPowerSafetyTestEnabled

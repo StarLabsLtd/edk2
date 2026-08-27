@@ -1,0 +1,21 @@
+## @file
+#  Fail-closed boot-key platform security boundary instance.
+#
+#  Copyright (c) 2026, Star Labs Systems. All rights reserved.<BR>
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION    = 0x00010017
+  BASE_NAME      = BootKeyPlatformSecurityLibNull
+  FILE_GUID      = E5E84B46-8D3D-4F62-ADE7-AF83E64287C2
+  MODULE_TYPE    = BASE
+  VERSION_STRING = 1.0
+  LIBRARY_CLASS  = BootKeyPlatformSecurityLib
+
+[Sources]
+  BootKeyPlatformSecurityLibNull.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  UefiPayloadPkg/UefiPayloadPkg.dec

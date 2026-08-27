@@ -1,0 +1,21 @@
+## @file
+#  No-op boot-key authentication policy library.
+#
+#  Copyright (c) 2026, Star Labs Systems. All rights reserved.<BR>
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION    = 0x00010017
+  BASE_NAME      = BootKeyAuthLibNull
+  FILE_GUID      = A9781C07-62B4-4875-BE67-64BE9E1627C0
+  MODULE_TYPE    = BASE
+  VERSION_STRING = 1.0
+  LIBRARY_CLASS  = BootKeyAuthLib|DXE_DRIVER
+
+[Sources]
+  BootKeyAuthLibNull.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  UefiPayloadPkg/UefiPayloadPkg.dec

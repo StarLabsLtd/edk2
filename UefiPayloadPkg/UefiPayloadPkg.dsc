@@ -53,6 +53,12 @@
   DEFINE PAYLOAD_FB_HIDPI_WIDE_ASPECT_CAP_HEIGHT  = 9
   DEFINE CONNECT_ALL_DEVICES          = TRUE
   DEFINE OPAL_PASSWORD_ENABLE         = FALSE
+  DEFINE BOOT_KEY_AUTHENTICATION      = FALSE
+  # Test-only provider containing a private fixture key. Never enable this for
+  # a production image.
+  DEFINE BOOT_KEY_AUTH_TEST            = FALSE
+  DEFINE BOOT_KEY_AUTH_NULL_TEST       = FALSE
+  DEFINE BOOT_KEY_AUTH_TEST_SCENARIO   = 0
   DEFINE MEMORY_TYPE_EFI_ACPI_RECLAIM_MEMORY = 0x19
   DEFINE MEMORY_TYPE_INFORMATION_BIN_BASE = 0
   DEFINE MEMORY_TYPE_INFORMATION_BIN_SIZE = 0
@@ -376,6 +382,15 @@
   PlatformHookLib|UefiPayloadPkg/Library/PlatformHookLib/PlatformHookLib.inf
 !endif
   PlatformBootManagerLib|UefiPayloadPkg/Library/PlatformBootManagerLib/PlatformBootManagerLib.inf
+!if $(BOOT_KEY_AUTHENTICATION) == TRUE
+  BootKeyAuthLib|UefiPayloadPkg/Library/BootKeyAuthLib/BootKeyAuthLib.inf
+!else
+  BootKeyAuthLib|UefiPayloadPkg/Library/BootKeyAuthLibNull/BootKeyAuthLibNull.inf
+!endif
+  BootKeyAuthenticatorLib|UefiPayloadPkg/Library/BootKeyAuthenticatorLibNull/BootKeyAuthenticatorLibNull.inf
+  BootKeyCredentialStoreLib|UefiPayloadPkg/Library/BootKeyCredentialStoreLibNull/BootKeyCredentialStoreLibNull.inf
+  BootKeyPlatformSecurityLib|UefiPayloadPkg/Library/BootKeyPlatformSecurityLibNull/BootKeyPlatformSecurityLibNull.inf
+  BootKeyPowerSafetyLib|UefiPayloadPkg/Library/BootKeyPowerSafetyLibNull/BootKeyPowerSafetyLibNull.inf
   PlatformPasswordLib|UefiPayloadPkg/UserAuthPkg/Library/PlatformPasswordLibNull/PlatformPasswordLibNull.inf
   IoApicLib|PcAtChipsetPkg/Library/BaseIoApicLib/BaseIoApicLib.inf
 
@@ -753,6 +768,19 @@
   gUefiCpuPkgTokenSpaceGuid.PcdCpuSmmEnableBspElection|FALSE
 
 [PcdsFixedAtBuild]
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyAuthTestEnabled|$(BOOT_KEY_AUTH_TEST)
+!if $(BOOT_KEY_AUTH_TEST) == TRUE || $(BOOT_KEY_AUTH_NULL_TEST) == TRUE
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyPlatformBoundaryTestEnabled|TRUE
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyPowerSafetyTestEnabled|TRUE
+!else
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyPlatformBoundaryTestEnabled|FALSE
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyPowerSafetyTestEnabled|FALSE
+!endif
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootKeySmmExpected|$(SMM_SUPPORT)
+!if $(BOOT_KEY_AUTHENTICATION) == TRUE
+  gEfiMdePkgTokenSpaceGuid.PcdEnforceSecureRngAlgorithms|TRUE
+!endif
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyAuthTestScenario|$(BOOT_KEY_AUTH_TEST_SCENARIO)
   gEfiMdePkgTokenSpaceGuid.PcdHardwareErrorRecordLevel|1
   gEfiMdeModulePkgTokenSpaceGuid.PcdMaxVariableSize|0x10000
   gEfiMdeModulePkgTokenSpaceGuid.PcdMaxHardwareErrorVariableSize|0x8000
@@ -1017,7 +1045,11 @@
   gEfiMdePkgTokenSpaceGuid.PcdPciExpressBaseAddress|0
   gEfiMdePkgTokenSpaceGuid.PcdPciExpressBaseSize|0
   gEfiMdeModulePkgTokenSpaceGuid.PcdGhcbBase|0
+!if $(BOOT_KEY_AUTH_TEST) == TRUE
+  gEfiMdeModulePkgTokenSpaceGuid.PcdTestKeyUsed|TRUE
+!else
   gEfiMdeModulePkgTokenSpaceGuid.PcdTestKeyUsed|FALSE
+!endif
   gUefiCpuPkgTokenSpaceGuid.PcdSevEsIsEnabled|0
   gEfiMdeModulePkgTokenSpaceGuid.PcdPciDisableBusEnumeration|TRUE
 
@@ -1139,6 +1171,47 @@
 !endif
 
 [Components.X64, Components.AARCH64]
+!if $(BOOT_KEY_AUTHENTICATION) == TRUE && $(SECURE_BOOT_ENABLE) != TRUE
+  !error "BOOT_KEY_AUTHENTICATION requires SECURE_BOOT_ENABLE"
+!endif
+!if $(BOOT_KEY_AUTHENTICATION) == TRUE && $(TPM2_ENABLE) != TRUE
+  !error "BOOT_KEY_AUTHENTICATION requires TPM2_ENABLE"
+!endif
+!if $(BOOT_KEY_AUTHENTICATION) == TRUE && $(CAPSULE_SUPPORT) == TRUE
+  !error "BOOT_KEY_AUTHENTICATION requires CAPSULE_SUPPORT=FALSE"
+!endif
+!if $(BOOT_KEY_AUTHENTICATION) == TRUE && $(DISABLE_RESET_SYSTEM) == TRUE
+  !error "BOOT_KEY_AUTHENTICATION requires DISABLE_RESET_SYSTEM=FALSE"
+!endif
+!if $(BOOT_KEY_AUTHENTICATION) == TRUE && $(SECURITY_STUB_ENABLE) != TRUE
+  !error "BOOT_KEY_AUTHENTICATION requires SECURITY_STUB_ENABLE"
+!endif
+!if $(BOOT_KEY_AUTHENTICATION) == TRUE && $(CRYPTO_PROTOCOL_SUPPORT) == TRUE
+  !error "BOOT_KEY_AUTHENTICATION requires direct BaseCryptLib services"
+!endif
+!if $(BOOT_KEY_AUTH_TEST) == TRUE && $(BOOT_KEY_AUTHENTICATION) != TRUE
+  !error "BOOT_KEY_AUTH_TEST requires BOOT_KEY_AUTHENTICATION"
+!endif
+!if $(BOOT_KEY_AUTH_TEST) == TRUE && $(TARGET) != DEBUG
+  !error "BOOT_KEY_AUTH_TEST is permitted only in DEBUG builds"
+!endif
+!if $(BOOT_KEY_AUTH_NULL_TEST) == TRUE && $(BOOT_KEY_AUTHENTICATION) != TRUE
+  !error "BOOT_KEY_AUTH_NULL_TEST requires BOOT_KEY_AUTHENTICATION"
+!endif
+!if $(BOOT_KEY_AUTH_NULL_TEST) == TRUE && $(TARGET) != DEBUG
+  !error "BOOT_KEY_AUTH_NULL_TEST is permitted only in DEBUG builds"
+!endif
+!if $(BOOT_KEY_AUTH_TEST) == TRUE && $(BOOT_KEY_AUTH_NULL_TEST) == TRUE
+  !error "BOOT_KEY_AUTH_TEST and BOOT_KEY_AUTH_NULL_TEST are mutually exclusive"
+!endif
+!if $(BOOT_KEY_AUTHENTICATION) == TRUE && $(BOOT_KEY_AUTH_TEST) != TRUE && $(BOOT_KEY_AUTH_NULL_TEST) != TRUE
+!if $(SMM_SUPPORT) != TRUE
+  !error "BOOT_KEY_AUTHENTICATION requires SMM_SUPPORT in production"
+!endif
+!endif
+!if $(BOOT_KEY_AUTHENTICATION) == TRUE && $(BOOT_KEY_AUTH_TEST) != TRUE && $(BOOT_KEY_AUTH_NULL_TEST) != TRUE
+  !error "BOOT_KEY_AUTHENTICATION requires integrated production authenticator, credential-store, hardware-boundary, and independent power-safety providers"
+!endif
 !if $(CBMEM_TIMESTAMPS) == TRUE
   UefiPayloadPkg/CbMemTimestampDxe/CbMemTimestampDxe.inf
 !endif
@@ -1171,7 +1244,21 @@
   UefiPayloadPkg/EnrollDefaultKeys/EnrollDefaultKeys.inf
 !endif
 
-  MdeModulePkg/Universal/BdsDxe/BdsDxe.inf
+  MdeModulePkg/Universal/BdsDxe/BdsDxe.inf {
+    <LibraryClasses>
+!if $(BOOT_KEY_AUTHENTICATION) == TRUE
+      OpensslLib|CryptoPkg/Library/OpensslLib/OpensslLibFull.inf
+      RngLib|MdePkg/Library/DxeRngLib/DxeRngLib.inf
+!if $(BOOT_KEY_AUTH_TEST) == TRUE
+      BootKeyAuthenticatorLib|UefiPayloadPkg/Test/BootKeyAuthTestLib/BootKeyAuthTestLib.inf
+      BootKeyCredentialStoreLib|UefiPayloadPkg/Test/BootKeyCredentialStoreTestLib/BootKeyCredentialStoreTestLib.inf
+!endif
+!if $(BOOT_KEY_AUTH_TEST) == TRUE || $(BOOT_KEY_AUTH_NULL_TEST) == TRUE
+      BootKeyPlatformSecurityLib|UefiPayloadPkg/Test/BootKeyPlatformSecurityTestLib/BootKeyPlatformSecurityTestLib.inf
+      BootKeyPowerSafetyLib|UefiPayloadPkg/Test/BootKeyPowerSafetyTestLib/BootKeyPowerSafetyTestLib.inf
+!endif
+!endif
+  }
 !if $(BOOTSPLASH_IMAGE)
   MdeModulePkg/Logo/LogoDxe.inf
 !endif
@@ -1439,6 +1526,12 @@
 !endif
 
 [Components.X64]
+!if $(BOOT_KEY_AUTHENTICATION) == TRUE
+  SecurityPkg/RandomNumberGenerator/RngDxe/RngDxe.inf {
+    <LibraryClasses>
+      RngLib|MdePkg/Library/BaseRngLib/BaseRngLib.inf
+  }
+!endif
 !if $(OPAL_PASSWORD_ENABLE) == TRUE
   SecurityPkg/Tcg/Opal/OpalPassword/OpalPasswordDxe.inf
 !endif

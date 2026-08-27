@@ -14,7 +14,10 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <IndustryStandard/Pci.h>
 #include <IndustryStandard/Usb.h>
 #include <Library/BmpSupportLib.h>
+#include <Library/BootKeyAuthLib.h>
+#include <Library/BootKeyPowerSafetyLib.h>
 #include <Library/Tcg2PhysicalPresenceLib.h>
+#include <Library/TimerLib.h>
 #include <Protocol/BatteryStatus.h>
 #include <Protocol/EsrtManagement.h>
 #include <Protocol/FirmwareVolume2.h>
@@ -51,6 +54,7 @@ STATIC USB_MASS_STORAGE_DEVICE_PATH  mUsbMassStorageDevicePath = {
 };
 
 #define LOW_BATTERY_BOOT_TIMEOUT  10
+#define BOOT_KEY_FAILURE_STALL_US  250000
 #define BOOT_UI_HIDPI_HORIZONTAL_RESOLUTION  1920
 #define BOOT_UI_HIDPI_VERTICAL_RESOLUTION    1080
 
@@ -60,6 +64,9 @@ STATIC EFI_GUID  mLowBatteryLogoFileGuid = {
 
 STATIC BOOLEAN  mLowBatteryBootGuardActive;
 STATIC BOOLEAN  mLowBatteryBootLogoShown;
+STATIC BOOLEAN  mBootKeyLowBatteryTimerActive;
+STATIC UINT64   mBootKeyLowBatteryLastCounter;
+STATIC UINT64   mBootKeyLowBatteryElapsedNs;
 
 STATIC
 VOID
@@ -716,6 +723,54 @@ IsLowBatteryBootGuardRequired (
 
 STATIC
 VOID
+EFIAPI
+PlatformBootKeyWaitCallback (
+  VOID
+  )
+{
+  UINT64  CounterEnd;
+  UINT64  CounterStart;
+  UINT64  CurrentCounter;
+  UINT64  ElapsedTicks;
+
+  if (!IsLowBatteryBootGuardRequired ()) {
+    mBootKeyLowBatteryTimerActive = FALSE;
+    return;
+  }
+
+  CurrentCounter = GetPerformanceCounter ();
+  if (!mBootKeyLowBatteryTimerActive) {
+    mBootKeyLowBatteryTimerActive = TRUE;
+    mBootKeyLowBatteryLastCounter = CurrentCounter;
+    mBootKeyLowBatteryElapsedNs   = 0;
+    return;
+  }
+
+  GetPerformanceCounterProperties (&CounterStart, &CounterEnd);
+  if (CounterStart < CounterEnd) {
+    ElapsedTicks = (CurrentCounter >= mBootKeyLowBatteryLastCounter) ?
+                   CurrentCounter - mBootKeyLowBatteryLastCounter :
+                   (CounterEnd - mBootKeyLowBatteryLastCounter) +
+                   (CurrentCounter - CounterStart) + 1;
+  } else {
+    ElapsedTicks = (CurrentCounter <= mBootKeyLowBatteryLastCounter) ?
+                   mBootKeyLowBatteryLastCounter - CurrentCounter :
+                   (mBootKeyLowBatteryLastCounter - CounterEnd) +
+                   (CounterStart - CurrentCounter) + 1;
+  }
+
+  mBootKeyLowBatteryLastCounter = CurrentCounter;
+  mBootKeyLowBatteryElapsedNs  += GetTimeInNanoSecond (ElapsedTicks);
+  if (mBootKeyLowBatteryElapsedNs >=
+      (LOW_BATTERY_BOOT_TIMEOUT * 1000000000ULL))
+  {
+    DEBUG ((DEBUG_INFO, "%a: critical battery timeout, shutting down\n", __func__));
+    gRT->ResetSystem (EfiResetShutdown, EFI_SUCCESS, 0, NULL);
+  }
+}
+
+STATIC
+VOID
 ConfigureLowBatteryBootGuard (
   VOID
   )
@@ -751,8 +806,13 @@ PlatformBootManagerGetWaitTimeout (
 /**
   Signal EndOfDxe event and install SMM Ready to lock protocol.
 
+  @retval EFI_SUCCESS  EndOfDxe was signaled and SMM was locked, or this build
+                       does not expect SMM and the platform does not expose it.
+  @return               Error returned while locating SMM or installing the
+                        ReadyToLock protocol.
+
 **/
-VOID
+EFI_STATUS
 InstallReadyToLock (
   VOID
   )
@@ -773,19 +833,38 @@ InstallReadyToLock (
   // Install DxeSmmReadyToLock protocol in order to lock SMM
   //
   Status = gBS->LocateProtocol (&gEfiSmmAccess2ProtocolGuid, NULL, (VOID **)&SmmAccess);
-  if (!EFI_ERROR (Status)) {
-    Handle = NULL;
-    Status = gBS->InstallProtocolInterface (
-                    &Handle,
-                    &gEfiDxeSmmReadyToLockProtocolGuid,
-                    EFI_NATIVE_INTERFACE,
-                    NULL
-                    );
-    ASSERT_EFI_ERROR (Status);
+  if (Status == EFI_NOT_FOUND) {
+    if (FixedPcdGetBool (PcdBootKeySmmExpected)) {
+      DEBUG ((DEBUG_ERROR, "SMM is required but SmmAccess2 is unavailable\n"));
+      return EFI_SECURITY_VIOLATION;
+    }
+
+    DEBUG ((DEBUG_INFO, "SMM is unavailable; no ReadyToLock protocol is required\n"));
+    return EFI_SUCCESS;
+  }
+
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  Handle = NULL;
+  Status = gBS->InstallProtocolInterface (
+                  &Handle,
+                  &gEfiDxeSmmReadyToLockProtocolGuid,
+                  EFI_NATIVE_INTERFACE,
+                  NULL
+                  );
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  if (!SmmAccess->LockState || SmmAccess->OpenState) {
+    DEBUG ((DEBUG_ERROR, "ReadyToLock did not close and lock SMRAM\n"));
+    return EFI_SECURITY_VIOLATION;
   }
 
   DEBUG ((DEBUG_INFO, "InstallReadyToLock  end\n"));
-  return;
+  return EFI_SUCCESS;
 }
 
 /**
@@ -1126,6 +1205,57 @@ PlatformBootManagerBeforeConsole (
   EFI_BOOT_MANAGER_LOAD_OPTION  BootOption;
   EDKII_PLATFORM_LOGO_PROTOCOL  *PlatformLogo;
   BOOLEAN                       ConsoleInitialized;
+  BOOLEAN                       ReadyToLockInstalled;
+
+  ReadyToLockInstalled = FALSE;
+
+  //
+  // Close the EndOfDxe and SMM lock boundary before waiting on any external
+  // authenticator input. Authenticate before capsule processing,
+  // deferred-image dispatch, Driver#### execution, console connection, or
+  // general device discovery. The statically linked authenticator may prepare
+  // only its minimal trusted FIDO transport path.
+  //
+  if (BootKeyAuthenticationRequired ()) {
+    Status = BootKeyPowerSafetyArm ();
+    if (Status != EFI_SUCCESS) {
+      DEBUG ((
+        DEBUG_ERROR,
+        "Boot-key independent power safety could not be established: %r\n",
+        Status
+        ));
+      do {
+        gRT->ResetSystem (EfiResetShutdown, EFI_DEVICE_ERROR, 0, NULL);
+        gBS->Stall (BOOT_KEY_FAILURE_STALL_US);
+      } while (TRUE);
+    }
+
+    Status = InstallReadyToLock ();
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_ERROR, "Boot-key gate could not establish ReadyToLock: %r\n", Status));
+      do {
+        PlatformBootKeyWaitCallback ();
+        gBS->Stall (BOOT_KEY_FAILURE_STALL_US);
+      } while (TRUE);
+    }
+
+    ReadyToLockInstalled          = TRUE;
+    mBootKeyLowBatteryTimerActive = FALSE;
+    BootKeyRequireAuthentication (PlatformBootKeyWaitCallback);
+
+    Status = BootKeyPowerSafetyDisarm ();
+    if (Status != EFI_SUCCESS) {
+      DEBUG ((
+        DEBUG_ERROR,
+        "Boot-key independent power safety could not be removed: %r\n",
+        Status
+        ));
+      do {
+        gRT->ResetSystem (EfiResetShutdown, EFI_DEVICE_ERROR, 0, NULL);
+        gBS->Stall (BOOT_KEY_FAILURE_STALL_US);
+      } while (TRUE);
+    }
+  }
 
   //
   // Register ENTER as CONTINUE key
@@ -1184,7 +1314,16 @@ PlatformBootManagerBeforeConsole (
   // Install ready to lock.
   // This needs to be done before option rom dispatched.
   //
-  InstallReadyToLock ();
+  if (!ReadyToLockInstalled) {
+    Status = InstallReadyToLock ();
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_ERROR, "Boot could not establish ReadyToLock: %r\n", Status));
+      do {
+        PlatformBootKeyWaitCallback ();
+        gBS->Stall (BOOT_KEY_FAILURE_STALL_US);
+      } while (TRUE);
+    }
+  }
 
   //
   // Dispatch deferred images after EndOfDxe event and ReadyToLock installation.

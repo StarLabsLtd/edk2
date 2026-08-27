@@ -37,6 +37,8 @@
 
 [LibraryClasses]
   BaseLib
+  BootKeyAuthLib
+  BootKeyPowerSafetyLib
   BmpSupportLib
   UefiBootServicesTableLib
   UefiRuntimeServicesTableLib
@@ -50,6 +52,7 @@
   HiiLib
   PrintLib
   Tcg2PhysicalPresenceLib
+  TimerLib
   PlatformHookLib
   CapsuleLib
   HobLib
@@ -88,3 +91,6 @@
 
 [FeaturePcd]
   gUefiPayloadPkgTokenSpaceGuid.PcdConnectAllDevices
+
+[FixedPcd]
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootKeySmmExpected

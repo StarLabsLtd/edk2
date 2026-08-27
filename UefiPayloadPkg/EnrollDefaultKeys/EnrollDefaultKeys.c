@@ -16,6 +16,7 @@
 #include <Guid/GlobalVariable.h>
 #include <Guid/ImageAuthentication.h>
 #include <Library/BaseMemoryLib.h>
+#include <Library/BootKeyAuthLib.h>
 #include <Library/DebugLib.h>
 #include <Library/MemoryAllocationLib.h>
 #include <Library/UefiRuntimeServicesTableLib.h>
@@ -567,9 +568,9 @@ GetExact (
   function will fail.
 
   @param[out] Settings      The SETTINGS object to fill.
-  @param[in]  AllowMissing  If FALSE, the required variables must exist; if
-                            TRUE, the function can succeed even if some
-                            variables are missing.
+  @param[in]  AllowMissing  If TRUE, SecureBootEnable may be missing. All
+                            standardized variables and CustomMode are always
+                            required.
 
   @retval EFI_SUCCESS       Settings has been populated.
 
@@ -589,13 +590,13 @@ GetSettings (
   ZeroMem (Settings, sizeof(SETTINGS));
 
   Status = GetExact (EFI_SETUP_MODE_NAME, &gEfiGlobalVariableGuid,
-         &Settings->SetupMode, sizeof Settings->SetupMode, AllowMissing);
+         &Settings->SetupMode, sizeof Settings->SetupMode, FALSE);
   if (EFI_ERROR (Status)) {
     return Status;
   }
 
   Status = GetExact (EFI_SECURE_BOOT_MODE_NAME, &gEfiGlobalVariableGuid,
-         &Settings->SecureBoot, sizeof Settings->SecureBoot, AllowMissing);
+         &Settings->SecureBoot, sizeof Settings->SecureBoot, FALSE);
   if (EFI_ERROR (Status)) {
     return Status;
   }
@@ -608,13 +609,13 @@ GetSettings (
   }
 
   Status = GetExact (EFI_CUSTOM_MODE_NAME, &gEfiCustomModeEnableGuid,
-         &Settings->CustomMode, sizeof Settings->CustomMode, AllowMissing);
+         &Settings->CustomMode, sizeof Settings->CustomMode, FALSE);
   if (EFI_ERROR (Status)) {
     return Status;
   }
 
   Status = GetExact (EFI_VENDOR_KEYS_VARIABLE_NAME, &gEfiGlobalVariableGuid,
-         &Settings->VendorKeys, sizeof Settings->VendorKeys, AllowMissing);
+         &Settings->VendorKeys, sizeof Settings->VendorKeys, FALSE);
   return Status;
 }
 
@@ -688,6 +689,10 @@ EnrollDefaultKeys (
 
   if (Settings.SetupMode != SETUP_MODE) {
     DEBUG ((DEBUG_ERROR, "EnrollDefaultKeys: already in User Mode\n"));
+    if (BootKeyAuthenticationRequired ()) {
+      goto FinalizeSecureBootMode;
+    }
+
     return;
   }
   PrintSettings (&Settings);
@@ -702,27 +707,63 @@ EnrollDefaultKeys (
       DEBUG ((DEBUG_ERROR, "EnrollDefaultKeys: SetVariable(\"%s\", %g): %r\n", EFI_CUSTOM_MODE_NAME,
         &gEfiCustomModeEnableGuid, Status));
       ASSERT_EFI_ERROR (Status);
+      return;
     }
   }
 
   Status = GetSectionFromAnyFv(&gMicrosoftDbUefi2011Guid, EFI_SECTION_RAW, 0, (void **)&DbMicrosoftUefi2011, &DbMicrosoftUefi2011Size);
   ASSERT_EFI_ERROR(Status);
+  if (EFI_ERROR (Status)) {
+    goto FreeResources;
+  }
+
   Status = GetSectionFromAnyFv(&gMicrosoftDbUefi2023Guid, EFI_SECTION_RAW, 0, (void **)&DbMicrosoftUefi2023, &DbMicrosoftUefi2023Size);
   ASSERT_EFI_ERROR(Status);
+  if (EFI_ERROR (Status)) {
+    goto FreeResources;
+  }
+
   Status = GetSectionFromAnyFv(&gMicrosoftDbWin2011Guid, EFI_SECTION_RAW, 0, (void **)&DbMicrosoftWin2011, &DbMicrosoftWin2011Size);
   ASSERT_EFI_ERROR(Status);
+  if (EFI_ERROR (Status)) {
+    goto FreeResources;
+  }
+
   Status = GetSectionFromAnyFv(&gMicrosoftDbWinUefi2023Guid, EFI_SECTION_RAW, 0, (void **)&DbMicrosoftWinuefi2023, &DbMicrosoftWinuefi2023Size);
   ASSERT_EFI_ERROR(Status);
+  if (EFI_ERROR (Status)) {
+    goto FreeResources;
+  }
+
   Status = GetSectionFromAnyFv(&gMicrosoftDbxUpdateGuid, EFI_SECTION_RAW, 0, (void **)&DbxMicrosoftUpdate, &DbxMicrosoftUpdateSize);
   ASSERT_EFI_ERROR(Status);
+  if (EFI_ERROR (Status)) {
+    goto FreeResources;
+  }
+
   Status = GetSectionFromAnyFv(&gMicrosoftKek2011Guid, EFI_SECTION_RAW, 0, (void **)&KekMicrosoft2011, &KekMicrosoft2011Size);
   ASSERT_EFI_ERROR(Status);
+  if (EFI_ERROR (Status)) {
+    goto FreeResources;
+  }
+
   Status = GetSectionFromAnyFv(&gMicrosoftKek2023Guid, EFI_SECTION_RAW, 0, (void **)&KekMicrosoft2023, &KekMicrosoft2023Size);
   ASSERT_EFI_ERROR(Status);
+  if (EFI_ERROR (Status)) {
+    goto FreeResources;
+  }
+
   Status = GetSectionFromAnyFv(&gMicrosoftKekUefi2023Guid, EFI_SECTION_RAW, 0, (void **)&KekMicrosoftUefi2023, &KekMicrosoftUefi2023Size);
   ASSERT_EFI_ERROR(Status);
+  if (EFI_ERROR (Status)) {
+    goto FreeResources;
+  }
+
   Status = GetSectionFromAnyFv(&gMicrosoftPkOem2023Guid, EFI_SECTION_RAW, 0, (void **)&PkMicrosoftOem2023, &PkMicrosoftOem2023Size);
   ASSERT_EFI_ERROR(Status);
+  if (EFI_ERROR (Status)) {
+    goto FreeResources;
+  }
 
   Status = gRT->SetVariable (EFI_IMAGE_SECURITY_DATABASE1, &gEfiImageSecurityDatabaseGuid,
            (EFI_VARIABLE_NON_VOLATILE |
@@ -731,6 +772,9 @@ EnrollDefaultKeys (
             EFI_VARIABLE_TIME_BASED_AUTHENTICATED_WRITE_ACCESS),
             DbxMicrosoftUpdateSize, DbxMicrosoftUpdate);
   ASSERT_EFI_ERROR (Status);
+  if (EFI_ERROR (Status)) {
+    goto FreeResources;
+  }
 
   Status = EnrollListOfCerts (
     EFI_IMAGE_SECURITY_DATABASE,
@@ -742,6 +786,9 @@ EnrollDefaultKeys (
     DbMicrosoftWinuefi2023, DbMicrosoftWinuefi2023Size, &gMicrosoftVendorGuid,
     NULL);
   ASSERT_EFI_ERROR (Status);
+  if (EFI_ERROR (Status)) {
+    goto FreeResources;
+  }
 
   Status = EnrollListOfCerts (
     EFI_KEY_EXCHANGE_KEY_NAME,
@@ -752,6 +799,9 @@ EnrollDefaultKeys (
     KekMicrosoftUefi2023, KekMicrosoftUefi2023Size, &gMicrosoftVendorGuid,
     NULL);
   ASSERT_EFI_ERROR (Status);
+  if (EFI_ERROR (Status)) {
+    goto FreeResources;
+  }
 
   Status = EnrollListOfCerts (
     EFI_PLATFORM_KEY_NAME,
@@ -760,17 +810,52 @@ EnrollDefaultKeys (
     PkMicrosoftOem2023, PkMicrosoftOem2023Size, &gMicrosoftVendorGuid,
     NULL);
   ASSERT_EFI_ERROR (Status);
+  if (EFI_ERROR (Status)) {
+    goto FreeResources;
+  }
 
-  FreePool(DbMicrosoftUefi2011);
-  FreePool(DbMicrosoftUefi2023);
-  FreePool(DbMicrosoftWin2011);
-  FreePool(DbMicrosoftWinuefi2023);
-  FreePool(DbxMicrosoftUpdate);
-  FreePool(KekMicrosoft2011);
-  FreePool(KekMicrosoft2023);
-  FreePool(KekMicrosoftUefi2023);
-  FreePool(PkMicrosoftOem2023);
+FreeResources:
+  if (DbMicrosoftUefi2011 != NULL) {
+    FreePool (DbMicrosoftUefi2011);
+  }
 
+  if (DbMicrosoftUefi2023 != NULL) {
+    FreePool (DbMicrosoftUefi2023);
+  }
+
+  if (DbMicrosoftWin2011 != NULL) {
+    FreePool (DbMicrosoftWin2011);
+  }
+
+  if (DbMicrosoftWinuefi2023 != NULL) {
+    FreePool (DbMicrosoftWinuefi2023);
+  }
+
+  if (DbxMicrosoftUpdate != NULL) {
+    FreePool (DbxMicrosoftUpdate);
+  }
+
+  if (KekMicrosoft2011 != NULL) {
+    FreePool (KekMicrosoft2011);
+  }
+
+  if (KekMicrosoft2023 != NULL) {
+    FreePool (KekMicrosoft2023);
+  }
+
+  if (KekMicrosoftUefi2023 != NULL) {
+    FreePool (KekMicrosoftUefi2023);
+  }
+
+  if (PkMicrosoftOem2023 != NULL) {
+    FreePool (PkMicrosoftOem2023);
+  }
+
+  if (EFI_ERROR (Status)) {
+    return;
+  }
+
+FinalizeSecureBootMode:
   Settings.CustomMode = STANDARD_SECURE_BOOT_MODE;
   Status = gRT->SetVariable (EFI_CUSTOM_MODE_NAME, &gEfiCustomModeEnableGuid,
            EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_BOOTSERVICE_ACCESS,
@@ -779,12 +864,14 @@ EnrollDefaultKeys (
     DEBUG ((DEBUG_ERROR, "EnrollDefaultKeys: SetVariable(\"%s\", %g): %r\n", EFI_CUSTOM_MODE_NAME,
       &gEfiCustomModeEnableGuid, Status));
     ASSERT_EFI_ERROR (Status);
+    return;
   }
 
   // FIXME: Force SecureBoot to ON. The AuthService will do this if authenticated variables
   // are supported, which aren't as the SMM handler isn't able to verify them.
 
-  Settings.SecureBootEnable = SECURE_BOOT_DISABLE;
+  Settings.SecureBootEnable = BootKeyAuthenticationRequired () ?
+                              SECURE_BOOT_ENABLE : SECURE_BOOT_DISABLE;
   Status = gRT->SetVariable (EFI_SECURE_BOOT_ENABLE_NAME, &gEfiSecureBootEnableDisableGuid,
            EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_BOOTSERVICE_ACCESS,
            sizeof Settings.SecureBootEnable, &Settings.SecureBootEnable);
@@ -792,9 +879,11 @@ EnrollDefaultKeys (
     DEBUG ((DEBUG_ERROR, "EnrollDefaultKeys: SetVariable(\"%s\", %g): %r\n", EFI_SECURE_BOOT_ENABLE_NAME,
       &gEfiSecureBootEnableDisableGuid, Status));
     ASSERT_EFI_ERROR (Status);
+    return;
   }
 
-  Settings.SecureBoot = SECURE_BOOT_DISABLE;
+  Settings.SecureBoot = BootKeyAuthenticationRequired () ?
+                        SECURE_BOOT_MODE_ENABLE : SECURE_BOOT_MODE_DISABLE;
   Status = gRT->SetVariable (EFI_SECURE_BOOT_MODE_NAME, &gEfiGlobalVariableGuid,
            EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS,
            sizeof Settings.SecureBoot, &Settings.SecureBoot);
@@ -802,10 +891,14 @@ EnrollDefaultKeys (
     DEBUG ((DEBUG_ERROR, "EnrollDefaultKeys: SetVariable(\"%s\", %g): %r\n", EFI_SECURE_BOOT_MODE_NAME,
       &gEfiGlobalVariableGuid, Status));
     ASSERT_EFI_ERROR (Status);
+    return;
   }
 
   Status = GetSettings (&Settings, FALSE);
   ASSERT_EFI_ERROR (Status);
+  if (EFI_ERROR (Status)) {
+    return;
+  }
 
   //
   // Final sanity check:
@@ -841,9 +934,13 @@ EnrollDefaultKeys (
 
   PrintSettings (&Settings);
 
+  //
+  // VendorKeys reports whether the platform's key set is still vendor
+  // supplied; either value is compatible with enforcement.  SetupMode,
+  // SecureBoot, SecureBootEnable, and CustomMode determine the active policy.
+  //
   if (Settings.SetupMode != 0 || Settings.SecureBoot != 1 ||
-      Settings.SecureBootEnable != 1 || Settings.CustomMode != 0 ||
-      Settings.VendorKeys != 0) {
+      Settings.SecureBootEnable != 1 || Settings.CustomMode != 0) {
     DEBUG ((DEBUG_ERROR, "EnrollDefaultKeys: disabled\n"));
     return;
   }
