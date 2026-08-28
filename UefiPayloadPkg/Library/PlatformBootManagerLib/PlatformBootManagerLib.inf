@@ -40,9 +40,9 @@
   BootKeyAuthLib
   BootKeyCredentialStoreLib
   BootKeyPlatformSecurityLib
-  BootKeyPowerSafetyLib
   BootKeyProvisionLib
   BmpSupportLib
+  FrameBufferBltLib
   UefiBootServicesTableLib
   UefiRuntimeServicesTableLib
   UefiLib
@@ -67,6 +67,7 @@
   gEfiEventReadyToBootGuid
   gEfiGlobalVariableGuid
   gEfiCustomModeEnableGuid
+  gEfiGraphicsInfoHobGuid
   gEfiSecureBootEnableDisableGuid
   gUefiShellFileGuid
 
@@ -98,5 +99,7 @@
   gUefiPayloadPkgTokenSpaceGuid.PcdConnectAllDevices
 
 [FixedPcd]
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyAuthTestEnabled
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyAuthTestScenario
   gUefiPayloadPkgTokenSpaceGuid.PcdBootKeySmmExpected
   gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyModeEnabled

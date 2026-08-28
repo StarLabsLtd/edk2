@@ -47,6 +47,33 @@ BootKeyGetCredentialSet (
 
 EFI_STATUS
 EFIAPI
+BootKeyPrepareAuthenticationAttempt (
+  OUT UINT32  *DelaySeconds
+  )
+{
+  return EFI_NOT_FOUND;
+}
+
+EFI_STATUS
+EFIAPI
+BootKeyBeginAuthenticationAttempt (
+  VOID
+  )
+{
+  return EFI_NOT_FOUND;
+}
+
+EFI_STATUS
+EFIAPI
+BootKeyCommitAuthenticationFailure (
+  VOID
+  )
+{
+  return EFI_NOT_FOUND;
+}
+
+EFI_STATUS
+EFIAPI
 BootKeyCommitSignCount (
   IN CONST UINT8  *CredentialId,
   IN UINTN        CredentialIdSize,
@@ -58,31 +85,9 @@ BootKeyCommitSignCount (
 
 EFI_STATUS
 EFIAPI
-BootKeyProvisionCredential (
-  IN CONST UINT8  *CredentialId,
-  IN UINTN        CredentialIdSize,
-  IN CONST UINT8  PublicKey[65],
-  IN CONST UINT8  DeviceIdentity[BOOT_KEY_DEVICE_IDENTITY_SIZE]
-  )
-{
-  return EFI_NOT_FOUND;
-}
-
-EFI_STATUS
-EFIAPI
 BootKeyProvisionCredentialSet (
   IN CONST BOOT_KEY_PROVISIONING_CREDENTIAL  *Credentials,
   IN UINTN                                   CredentialCount
-  )
-{
-  return EFI_NOT_FOUND;
-}
-
-EFI_STATUS
-EFIAPI
-BootKeyRemoveCredential (
-  IN CONST UINT8  *CredentialId,
-  IN UINTN        CredentialIdSize
   )
 {
   return EFI_NOT_FOUND;

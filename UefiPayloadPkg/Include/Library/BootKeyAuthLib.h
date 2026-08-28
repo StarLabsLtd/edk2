@@ -11,10 +11,17 @@
 #include <Library/BootKeyAuthenticatorLib.h>
 #include <Library/BootKeyCredentialStoreLib.h>
 
+typedef enum {
+  BootKeyAuthWaitUnavailable,
+  BootKeyAuthWaitLockout,
+  BootKeyAuthWaitPrompt
+} BOOT_KEY_AUTH_WAIT_STATE;
+
 typedef
 VOID
 (EFIAPI *BOOT_KEY_AUTH_WAIT_CALLBACK)(
-  VOID
+  IN BOOT_KEY_AUTH_WAIT_STATE  State,
+  IN UINT32                    SecondsRemaining
   );
 
 /**
@@ -51,8 +58,9 @@ BootKeyVerifyAssertion (
 
   This function does not return until authentication succeeds.
 
-  @param[in] WaitCallback  Optional platform safety callback invoked before
-                           and after each assertion attempt.
+  @param[in] WaitCallback  Optional trusted platform status and safety callback
+                           invoked while the gate is unavailable, locked out,
+                           or waiting for the authenticator.
 **/
 VOID
 EFIAPI

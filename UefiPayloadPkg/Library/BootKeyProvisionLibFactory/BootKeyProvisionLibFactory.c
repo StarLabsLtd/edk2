@@ -15,7 +15,6 @@
 #include <Library/BootKeyAuthenticatorLib.h>
 #include <Library/BootKeyCredentialStoreLib.h>
 #include <Library/BootKeyPlatformSecurityLib.h>
-#include <Library/BootKeyPowerSafetyLib.h>
 #include <Library/BootKeyProvisionLib.h>
 #include <Library/DebugLib.h>
 #include <Library/RngLib.h>
@@ -209,12 +208,17 @@ BootKeyVerifyRegistration (
 STATIC
 EFI_STATUS
 BootKeyWaitForAuthenticator (
-  VOID
+  IN BOOT_KEY_PROVISION_WAIT_CALLBACK  WaitCallback OPTIONAL,
+  IN UINTN                             CredentialNumber
   )
 {
   EFI_STATUS  Status;
 
   do {
+    if (WaitCallback != NULL) {
+      WaitCallback (BootKeyProvisionWaitInsert, CredentialNumber);
+    }
+
     Status = BootKeyAuthenticatorPrepare ();
     if (Status == EFI_NOT_READY) {
       DEBUG ((DEBUG_INFO, "BOOT_KEY_PROVISION_INSERT_KEY\n"));
@@ -228,12 +232,17 @@ BootKeyWaitForAuthenticator (
 STATIC
 EFI_STATUS
 BootKeyWaitForRemoval (
-  VOID
+  IN BOOT_KEY_PROVISION_WAIT_CALLBACK  WaitCallback OPTIONAL,
+  IN UINTN                             CredentialNumber
   )
 {
   EFI_STATUS  Status;
 
   do {
+    if (WaitCallback != NULL) {
+      WaitCallback (BootKeyProvisionWaitRemove, CredentialNumber);
+    }
+
     Status = BootKeyAuthenticatorRequireRemoval ();
     if (Status == EFI_NOT_READY) {
       DEBUG ((DEBUG_INFO, "BOOT_KEY_PROVISION_REMOVE_KEY\n"));
@@ -256,7 +265,7 @@ BootKeyFactoryProvisioningRequired (
 EFI_STATUS
 EFIAPI
 BootKeyProvisionFactorySet (
-  VOID
+  IN BOOT_KEY_PROVISION_WAIT_CALLBACK  WaitCallback OPTIONAL
   )
 {
   BOOT_KEY_PROVISIONING_CREDENTIAL  Pending[BOOT_KEY_MAX_ENROLLED_CREDENTIALS];
@@ -274,11 +283,6 @@ BootKeyProvisionFactorySet (
   UINTN                CredentialIdSize;
   UINTN                Index;
   EFI_STATUS           Status;
-
-  Status = BootKeyPowerSafetyArm ();
-  if (Status != EFI_SUCCESS) {
-    return EFI_SECURITY_VIOLATION;
-  }
 
   Status = BootKeyVerifyPlatformSecurityBoundary ();
   if (Status != EFI_SUCCESS) {
@@ -299,7 +303,10 @@ BootKeyProvisionFactorySet (
   CredentialCount = 0;
 
   while (CredentialCount < BOOT_KEY_MAX_ENROLLED_CREDENTIALS) {
-    Status = BootKeyWaitForAuthenticator ();
+    Status = BootKeyWaitForAuthenticator (
+               WaitCallback,
+               CredentialCount + 1
+               );
     if (EFI_ERROR (Status)) {
       return Status;
     }
@@ -315,6 +322,10 @@ BootKeyProvisionFactorySet (
 
     CopyMem (Challenge, Random, sizeof (Challenge));
     do {
+      if (WaitCallback != NULL) {
+        WaitCallback (BootKeyProvisionWaitTouch, CredentialCount + 1);
+      }
+
       CredentialIdSize           = sizeof (CredentialId);
       AttestationCertificateSize = sizeof (AttestationCertificate);
       Status                     = BootKeyMakeCredential (
@@ -398,7 +409,7 @@ BootKeyProvisionFactorySet (
       BOOT_KEY_MAX_ENROLLED_CREDENTIALS
       ));
 
-    Status = BootKeyWaitForRemoval ();
+    Status = BootKeyWaitForRemoval (WaitCallback, CredentialCount);
     if (EFI_ERROR (Status)) {
       return Status;
     }
@@ -410,9 +421,8 @@ BootKeyProvisionFactorySet (
   }
 
   //
-  // The caller powers the machine off immediately. Keep the autonomous EC
-  // guard armed until power-off, including if ResetSystem() unexpectedly
-  // returns.
+  // The caller powers the machine off immediately after the complete set is
+  // committed and the TPM write window is closed.
   //
   return EFI_SUCCESS;
 }

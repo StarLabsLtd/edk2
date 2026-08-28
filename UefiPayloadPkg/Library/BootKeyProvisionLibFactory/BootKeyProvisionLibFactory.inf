@@ -31,7 +31,6 @@
   BootKeyAuthenticatorLib
   BootKeyCredentialStoreLib
   BootKeyPlatformSecurityLib
-  BootKeyPowerSafetyLib
   DebugLib
   RngLib
   UefiBootServicesTableLib

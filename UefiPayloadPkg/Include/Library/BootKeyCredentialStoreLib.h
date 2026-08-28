@@ -12,6 +12,7 @@
 
 #define BOOT_KEY_MAX_ENROLLED_CREDENTIALS         3
 #define BOOT_KEY_PUBLIC_KEY_CERTIFICATE_MAX_SIZE  1024
+#define BOOT_KEY_FAILURE_STAGE_MAX                 4
 
 typedef struct {
   UINTN     CredentialIdSize;
@@ -83,7 +84,44 @@ BootKeyGetCredentialSet (
   );
 
 /**
-  Atomically advance an enrolled credential's signature counter.
+  Recover an interrupted authentication attempt and return the delay that must
+  elapse before another attempt may begin.
+
+  An attempt left active by reset or power loss is atomically converted into a
+  failure before this function returns. The delay is restarted in full on each
+  boot, so removing power never shortens a lockout.
+**/
+EFI_STATUS
+EFIAPI
+BootKeyPrepareAuthenticationAttempt (
+  OUT UINT32  *DelaySeconds
+  );
+
+/**
+  Durably mark the beginning of the 60-second authenticator prompt.
+
+  The prompt must not accept authenticator input unless this operation
+  succeeds. A reset or power loss before success is treated as a failure on
+  the next boot.
+**/
+EFI_STATUS
+EFIAPI
+BootKeyBeginAuthenticationAttempt (
+  VOID
+  );
+
+/**
+  Atomically record a failed or expired authentication attempt.
+**/
+EFI_STATUS
+EFIAPI
+BootKeyCommitAuthenticationFailure (
+  VOID
+  );
+
+/**
+  Atomically advance an enrolled credential's signature counter and clear the
+  active attempt and failure stage.
 
   EFI_SUCCESS means the new counter is durably committed to authenticated,
   rollback-resistant storage before this function returns. Implementations
@@ -99,22 +137,6 @@ BootKeyCommitSignCount (
   );
 
 /**
-  Atomically add a factory-provisioned P-256 credential.
-
-  PublicKey is the uncompressed 65-byte SEC1 point (0x04 || X || Y). The
-  operation must reject duplicates and must not expose a partially updated
-  credential set.
-**/
-EFI_STATUS
-EFIAPI
-BootKeyProvisionCredential (
-  IN CONST UINT8  *CredentialId,
-  IN UINTN        CredentialIdSize,
-  IN CONST UINT8  PublicKey[65],
-  IN CONST UINT8  DeviceIdentity[BOOT_KEY_DEVICE_IDENTITY_SIZE]
-  );
-
-/**
   Atomically create the complete factory enrollment set with one NV write.
 **/
 EFI_STATUS
@@ -122,14 +144,4 @@ EFIAPI
 BootKeyProvisionCredentialSet (
   IN CONST BOOT_KEY_PROVISIONING_CREDENTIAL  *Credentials,
   IN UINTN                                   CredentialCount
-  );
-
-/**
-  Atomically remove an enrolled credential while preserving at least one.
-**/
-EFI_STATUS
-EFIAPI
-BootKeyRemoveCredential (
-  IN CONST UINT8  *CredentialId,
-  IN UINTN        CredentialIdSize
   );

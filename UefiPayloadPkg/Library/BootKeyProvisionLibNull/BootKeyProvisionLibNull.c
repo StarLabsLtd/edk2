@@ -21,8 +21,9 @@ BootKeyFactoryProvisioningRequired (
 EFI_STATUS
 EFIAPI
 BootKeyProvisionFactorySet (
-  VOID
+  IN BOOT_KEY_PROVISION_WAIT_CALLBACK  WaitCallback OPTIONAL
   )
 {
+  (VOID)WaitCallback;
   return EFI_UNSUPPORTED;
 }

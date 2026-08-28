@@ -131,6 +131,11 @@ BootKeyGetAssertion (
     return EFI_NOT_FOUND;
   }
 
+  if (FixedPcdGet32 (PcdBootKeyAuthTestScenario) == 13) {
+    DEBUG ((DEBUG_INFO, "BOOT_KEY_QEMU_KEY_ABSENT\n"));
+    return EFI_NOT_READY;
+  }
+
   if (FixedPcdGet32 (PcdBootKeyAuthTestScenario) == 10) {
     if (!mAssertionPending) {
       CopyMem (
@@ -252,6 +257,13 @@ BootKeyAuthenticatorPrepare (
   VOID
   )
 {
+  if (FixedPcdGet32 (PcdBootKeyAuthTestScenario) == 15) {
+    DEBUG ((DEBUG_INFO, "BOOT_KEY_QEMU_PREPARE_HUNG\n"));
+    do {
+      CpuPause ();
+    } while (TRUE);
+  }
+
   if (FixedPcdGet32 (PcdBootKeyAuthTestScenario) == 9) {
     DEBUG ((DEBUG_INFO, "BOOT_KEY_QEMU_PREPARE_WARNING\n"));
     return EFI_WARN_WRITE_FAILURE;

@@ -9,6 +9,19 @@
 
 #include <Uefi.h>
 
+typedef enum {
+  BootKeyProvisionWaitInsert,
+  BootKeyProvisionWaitTouch,
+  BootKeyProvisionWaitRemove
+} BOOT_KEY_PROVISION_WAIT_STATE;
+
+typedef
+VOID
+(EFIAPI *BOOT_KEY_PROVISION_WAIT_CALLBACK)(
+  IN BOOT_KEY_PROVISION_WAIT_STATE  State,
+  IN UINTN                          CredentialNumber
+  );
+
 BOOLEAN
 EFIAPI
 BootKeyFactoryProvisioningRequired (
@@ -26,5 +39,5 @@ BootKeyFactoryProvisioningRequired (
 EFI_STATUS
 EFIAPI
 BootKeyProvisionFactorySet (
-  VOID
+  IN BOOT_KEY_PROVISION_WAIT_CALLBACK  WaitCallback OPTIONAL
   );

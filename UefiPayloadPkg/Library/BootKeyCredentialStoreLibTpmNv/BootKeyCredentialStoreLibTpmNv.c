@@ -3,9 +3,10 @@
 
   Writes are authorized by a policy session bound to an OEM PCR 6 write-window
   state and to TPM2_NV_Write. Firmware irreversibly extends PCR 6 to close the
-  window before any external code executes. The index is platform-created and
-  firmware disables the platform hierarchy before accepting external input.
-  Credential data is held in two alternating records so interrupted writes
+  window before any general device discovery or external code executes. The
+  indices are platform-created and firmware disables the platform hierarchy
+  before accepting authenticator input. Credential, attempt, and escalating
+  lockout state are held in two alternating records so interrupted writes
   preserve the last valid generation. TPMA_NV_WRITEALL makes each individual
   slot update a single TPM command; it does not itself provide crash atomicity.
 
@@ -21,7 +22,6 @@
 #include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
 #include <Library/BootKeyCredentialStoreLib.h>
-#include <Library/BootKeyNvAuthLib.h>
 #include <Library/DebugLib.h>
 #include <Library/MemoryAllocationLib.h>
 #include <Library/RngLib.h>
@@ -30,12 +30,17 @@
 #include <Library/UefiBootServicesTableLib.h>
 #include <Protocol/Tcg2Protocol.h>
 
-#define BOOT_KEY_NV_GATE_INDEX       0x0180f1cfU
 #define BOOT_KEY_NV_INDEX_A          0x0180f1d0U
 #define BOOT_KEY_NV_INDEX_B          0x0180f1d1U
 #define BOOT_KEY_NV_SLOT_COUNT       2
 #define BOOT_KEY_NV_RECORD_MAGIC     SIGNATURE_32 ('B', 'K', 'N', 'V')
-#define BOOT_KEY_NV_RECORD_VERSION   2
+//
+// Version 3 replaces the unreleased EC-secret-backed version 2 policy. The
+// policies are intentionally incompatible: production fails closed on old
+// indices, while the dedicated factory image undefines and reprovisions them.
+// Do not deploy this format as an in-place upgrade over a provisioned v2 unit.
+//
+#define BOOT_KEY_NV_RECORD_VERSION   3
 #define BOOT_KEY_NV_POLICY_PCR       6
 #define BOOT_KEY_PUBLIC_POINT_SIZE   65
 #define BOOT_KEY_X509_PUBLIC_OFFSET  177
@@ -56,7 +61,9 @@ typedef struct {
   UINT16                    Size;
   UINT64                    Generation;
   UINT8                     CredentialCount;
-  UINT8                     Reserved[3];
+  UINT8                     FailureStage;
+  UINT8                     AttemptActive;
+  UINT8                     Reserved;
   UINT8                     Digest[SHA256_DIGEST_SIZE];
   BOOT_KEY_NV_CREDENTIAL    Credentials[BOOT_KEY_MAX_ENROLLED_CREDENTIALS];
 } BOOT_KEY_NV_RECORD;
@@ -65,9 +72,6 @@ typedef struct {
 STATIC BOOLEAN                 mBootKeyStorePrepared;
 STATIC BOOLEAN                 mBootKeyFactoryInitialization;
 STATIC BOOLEAN                 mBootKeyWriteWindowClosed;
-STATIC TPMI_SH_AUTH_SESSION    mBootKeyWriteSession = TPM_RH_NULL;
-STATIC TPMS_AUTH_COMMAND       mBootKeyWriteAuthorization;
-STATIC UINTN                   mBootKeyWriteCount;
 STATIC BOOLEAN                 mBootKeyCachedRecordValid[BOOT_KEY_NV_SLOT_COUNT];
 STATIC BOOT_KEY_NV_RECORD      mBootKeyCachedRecord[BOOT_KEY_NV_SLOT_COUNT];
 STATIC UINTN                   mBootKeyCurrentSlot;
@@ -259,13 +263,24 @@ STATIC
 VOID
 BootKeyPasswordAuthorization (
   OUT TPMS_AUTH_COMMAND  *Authorization,
-  IN  CONST UINT8        Auth[BOOT_KEY_NV_AUTH_SIZE]
+  IN  CONST UINT8        *Auth,
+  IN  UINT16             AuthSize
   )
 {
   ZeroMem (Authorization, sizeof (*Authorization));
   Authorization->sessionHandle = TPM_RS_PW;
-  Authorization->hmac.size     = BOOT_KEY_NV_AUTH_SIZE;
-  CopyMem (Authorization->hmac.buffer, Auth, BOOT_KEY_NV_AUTH_SIZE);
+  Authorization->hmac.size     = AuthSize;
+  CopyMem (Authorization->hmac.buffer, Auth, AuthSize);
+}
+
+STATIC
+VOID
+BootKeyEmptyAuthorization (
+  OUT TPMS_AUTH_COMMAND  *Authorization
+  )
+{
+  ZeroMem (Authorization, sizeof (*Authorization));
+  Authorization->sessionHandle = TPM_RS_PW;
 }
 
 STATIC
@@ -312,19 +327,13 @@ BootKeyStartPolicySession (
 
 STATIC
 EFI_STATUS
-BootKeyStartCompositePolicySession (
-  IN  CONST UINT8             Auth[BOOT_KEY_NV_AUTH_SIZE],
+BootKeyStartWritePolicySession (
   OUT TPMI_SH_AUTH_SESSION    *Session,
   OUT TPMS_AUTH_COMMAND       *Authorization OPTIONAL,
   OUT TPM2B_DIGEST            *PolicyDigest OPTIONAL
   )
 {
-  TPMS_AUTH_COMMAND  PasswordAuthorization;
-  TPM2B_DIGEST       CpHash;
   TPM2B_NONCE        NonceTpm;
-  TPM2B_NONCE        PolicyRef;
-  TPMT_TK_AUTH       PolicyTicket;
-  TPM2B_TIMEOUT      Timeout;
   EFI_STATUS         Status;
 
   Status = BootKeyStartPolicySession (Session, &NonceTpm);
@@ -333,27 +342,6 @@ BootKeyStartCompositePolicySession (
   }
 
   Status = BootKeyPolicyWriteWindow (*Session);
-  if (EFI_ERROR (Status)) {
-    goto Error;
-  }
-
-  BootKeyPasswordAuthorization (&PasswordAuthorization, Auth);
-  ZeroMem (&CpHash, sizeof (CpHash));
-  ZeroMem (&PolicyRef, sizeof (PolicyRef));
-  ZeroMem (&PolicyTicket, sizeof (PolicyTicket));
-  ZeroMem (&Timeout, sizeof (Timeout));
-  Status = Tpm2PolicySecret (
-             BOOT_KEY_NV_GATE_INDEX,
-             *Session,
-             &PasswordAuthorization,
-             &NonceTpm,
-             &CpHash,
-             &PolicyRef,
-             0,
-             &Timeout,
-             &PolicyTicket
-             );
-  BootKeyWipe (&PasswordAuthorization, sizeof (PasswordAuthorization));
   if (EFI_ERROR (Status)) {
     goto Error;
   }
@@ -381,70 +369,6 @@ Error:
   Tpm2FlushContext (*Session);
   *Session = TPM_RH_NULL;
   return Status;
-}
-
-STATIC
-EFI_STATUS
-BootKeyValidateWriteWindow (
-  VOID
-  )
-{
-  TPMI_SH_AUTH_SESSION  Session;
-  TPM2B_NONCE           NonceTpm;
-  EFI_STATUS            Status;
-
-  Status = BootKeyStartPolicySession (&Session, &NonceTpm);
-  if (EFI_ERROR (Status)) {
-    return Status;
-  }
-
-  Status = BootKeyPolicyWriteWindow (Session);
-  if (!EFI_ERROR (Status)) {
-    Tpm2FlushContext (Session);
-  } else {
-    Tpm2FlushContext (Session);
-  }
-
-  return Status;
-}
-
-STATIC
-EFI_STATUS
-BootKeyValidateGatePublic (
-  VOID
-  )
-{
-  TPM2B_NAME       Name;
-  TPM2B_NV_PUBLIC  Public;
-  TPMA_NV          ExpectedAttributes;
-  EFI_STATUS       Status;
-
-  ZeroMem (&Name, sizeof (Name));
-  ZeroMem (&Public, sizeof (Public));
-  Status = Tpm2NvReadPublic (BOOT_KEY_NV_GATE_INDEX, &Public, &Name);
-  if (EFI_ERROR (Status)) {
-    return Status;
-  }
-
-  ZeroMem (&ExpectedAttributes, sizeof (ExpectedAttributes));
-  ExpectedAttributes.TPMA_NV_PPWRITE        = 1;
-  ExpectedAttributes.TPMA_NV_AUTHREAD       = 1;
-  ExpectedAttributes.TPMA_NV_NO_DA          = 1;
-  ExpectedAttributes.TPMA_NV_PLATFORMCREATE = 1;
-  if ((Public.nvPublic.nvIndex != BOOT_KEY_NV_GATE_INDEX) ||
-      (Public.nvPublic.nameAlg != TPM_ALG_SHA256) ||
-      (CompareMem (
-         &Public.nvPublic.attributes,
-         &ExpectedAttributes,
-         sizeof (ExpectedAttributes)
-         ) != 0) ||
-      (Public.nvPublic.authPolicy.size != 0) ||
-      (Public.nvPublic.dataSize != 1))
-  {
-    return EFI_SECURITY_VIOLATION;
-  }
-
-  return EFI_SUCCESS;
 }
 
 STATIC
@@ -506,8 +430,7 @@ STATIC
 EFI_STATUS
 BootKeyDefineNvIndex (
   IN TPMI_RH_NV_INDEX  NvIndex,
-  IN TPM2B_DIGEST      *PolicyDigest,
-  IN CONST UINT8       AuthValue[BOOT_KEY_NV_AUTH_SIZE]
+  IN TPM2B_DIGEST      *PolicyDigest
   )
 {
   TPM2B_AUTH       Auth;
@@ -515,8 +438,6 @@ BootKeyDefineNvIndex (
   EFI_STATUS       Status;
 
   ZeroMem (&Auth, sizeof (Auth));
-  Auth.size = BOOT_KEY_NV_AUTH_SIZE;
-  CopyMem (Auth.buffer, AuthValue, BOOT_KEY_NV_AUTH_SIZE);
   ZeroMem (&Public, sizeof (Public));
   Public.size = sizeof (Public.nvPublic.nvIndex) +
                 sizeof (Public.nvPublic.nameAlg) +
@@ -534,38 +455,6 @@ BootKeyDefineNvIndex (
   Public.nvPublic.authPolicy                        = *PolicyDigest;
   Public.nvPublic.dataSize                          = sizeof (BOOT_KEY_NV_RECORD);
   Status                                            = Tpm2NvDefineSpace (TPM_RH_PLATFORM, NULL, &Auth, &Public);
-  BootKeyWipe (&Auth, sizeof (Auth));
-  return Status;
-}
-
-STATIC
-EFI_STATUS
-BootKeyDefineGate (
-  IN CONST UINT8  AuthValue[BOOT_KEY_NV_AUTH_SIZE]
-  )
-{
-  TPM2B_AUTH       Auth;
-  TPM2B_NV_PUBLIC  Public;
-  EFI_STATUS       Status;
-
-  ZeroMem (&Auth, sizeof (Auth));
-  Auth.size = BOOT_KEY_NV_AUTH_SIZE;
-  CopyMem (Auth.buffer, AuthValue, BOOT_KEY_NV_AUTH_SIZE);
-  ZeroMem (&Public, sizeof (Public));
-  Public.size = sizeof (Public.nvPublic.nvIndex) +
-                sizeof (Public.nvPublic.nameAlg) +
-                sizeof (Public.nvPublic.attributes) +
-                sizeof (Public.nvPublic.authPolicy.size) +
-                sizeof (Public.nvPublic.dataSize);
-  Public.nvPublic.nvIndex                           = BOOT_KEY_NV_GATE_INDEX;
-  Public.nvPublic.nameAlg                           = TPM_ALG_SHA256;
-  Public.nvPublic.attributes.TPMA_NV_PPWRITE        = 1;
-  Public.nvPublic.attributes.TPMA_NV_AUTHREAD       = 1;
-  Public.nvPublic.attributes.TPMA_NV_NO_DA          = 1;
-  Public.nvPublic.attributes.TPMA_NV_PLATFORMCREATE = 1;
-  Public.nvPublic.dataSize                          = 1;
-  Status = Tpm2NvDefineSpace (TPM_RH_PLATFORM, NULL, &Auth, &Public);
-  BootKeyWipe (&Auth, sizeof (Auth));
   return Status;
 }
 
@@ -573,7 +462,6 @@ STATIC
 EFI_STATUS
 BootKeyLoadRecord (
   IN  TPMI_RH_NV_INDEX    NvIndex,
-  IN  CONST UINT8         AuthValue[BOOT_KEY_NV_AUTH_SIZE],
   OUT BOOT_KEY_NV_RECORD  *Record
   )
 {
@@ -581,7 +469,7 @@ BootKeyLoadRecord (
   TPMS_AUTH_COMMAND Authorization;
   EFI_STATUS        Status;
 
-  BootKeyPasswordAuthorization (&Authorization, AuthValue);
+  BootKeyEmptyAuthorization (&Authorization);
   ZeroMem (&Data, sizeof (Data));
   Status = Tpm2NvRead (
              NvIndex,
@@ -591,7 +479,6 @@ BootKeyLoadRecord (
              0,
              &Data
              );
-  BootKeyWipe (&Authorization, sizeof (Authorization));
   if (EFI_ERROR (Status)) {
     return Status;
   }
@@ -602,37 +489,6 @@ BootKeyLoadRecord (
 
   CopyMem (Record, Data.buffer, sizeof (*Record));
   return BootKeyRecordValid (Record) ? EFI_SUCCESS : EFI_COMPROMISED_DATA;
-}
-
-STATIC
-EFI_STATUS
-BootKeyUndefineIndex (
-  IN TPMI_RH_NV_INDEX  NvIndex
-  )
-{
-  EFI_STATUS  Status;
-
-  Status = Tpm2NvUndefineSpace (TPM_RH_PLATFORM, NvIndex, NULL);
-  return (Status == EFI_NOT_FOUND) ? EFI_SUCCESS : Status;
-}
-
-STATIC
-EFI_STATUS
-BootKeyUndefineAllIndices (
-  VOID
-  )
-{
-  UINTN       Index;
-  EFI_STATUS  Status;
-
-  for (Index = 0; Index < BOOT_KEY_NV_SLOT_COUNT; Index++) {
-    Status = BootKeyUndefineIndex (mBootKeyNvIndex[Index]);
-    if (EFI_ERROR (Status)) {
-      return Status;
-    }
-  }
-
-  return BootKeyUndefineIndex (BOOT_KEY_NV_GATE_INDEX);
 }
 
 STATIC
@@ -660,7 +516,11 @@ BootKeyDisablePlatformHierarchy (
     goto Done;
   }
 
-  BootKeyPasswordAuthorization (&Authorization, PlatformAuth.buffer);
+  BootKeyPasswordAuthorization (
+    &Authorization,
+    PlatformAuth.buffer,
+    PlatformAuth.size
+    );
   Status = Tpm2HierarchyControl (
              TPM_RH_PLATFORM,
              &Authorization,
@@ -681,17 +541,13 @@ BootKeyPrepareCredentialStore (
   IN BOOLEAN  FactoryInitialization
   )
 {
-  UINT8                  NvAuth[BOOT_KEY_NV_AUTH_SIZE];
   BOOLEAN                Defined[BOOT_KEY_NV_SLOT_COUNT];
-  BOOLEAN                ProvisionRequired;
   BOOLEAN                Repairable[BOOT_KEY_NV_SLOT_COUNT];
   BOOLEAN                Written[BOOT_KEY_NV_SLOT_COUNT];
   TPM2B_DIGEST           PolicyDigest;
-  TPM2B_DIGEST           ProvisionPolicyDigest;
-  TPMI_SH_AUTH_SESSION   ProvisionSession;
+  TPMI_SH_AUTH_SESSION   PolicySession;
   UINTN                  Index;
   UINTN                  ValidCount;
-  EFI_STATUS             CloseStatus;
   EFI_STATUS             Status;
 
   if (mBootKeyStorePrepared) {
@@ -699,113 +555,29 @@ BootKeyPrepareCredentialStore (
            EFI_SUCCESS : EFI_ACCESS_DENIED;
   }
 
-  ZeroMem (NvAuth, sizeof (NvAuth));
   ZeroMem (Defined, sizeof (Defined));
   ZeroMem (Repairable, sizeof (Repairable));
   ZeroMem (Written, sizeof (Written));
   ZeroMem (&PolicyDigest, sizeof (PolicyDigest));
-  ZeroMem (&ProvisionPolicyDigest, sizeof (ProvisionPolicyDigest));
   ZeroMem (mBootKeyCachedRecord, sizeof (mBootKeyCachedRecord));
   ZeroMem (mBootKeyCachedRecordValid, sizeof (mBootKeyCachedRecordValid));
-  ProvisionRequired = FALSE;
-  ProvisionSession  = TPM_RH_NULL;
+  PolicySession = TPM_RH_NULL;
 
   //
-  // Validate the live PCR state before repairing NV indices or accepting a
-  // YubiKey touch. A trial policy session alone only computes the policy
-  // digest and does not prove that PCR 6 is still in the open state.
+  // Build the policy from a live session. This both computes the exact public
+  // policy and proves that PCR 6 is still in the initial write-window state.
   //
-  Status = BootKeyValidateWriteWindow ();
-  if (EFI_ERROR (Status)) {
-    goto Done;
-  }
-
-  Status = BootKeyNvAuthAcquire (
-             FactoryInitialization,
-             NvAuth,
-             &ProvisionRequired
-             );
-  if (EFI_ERROR (Status)) {
-    goto Done;
-  }
-
-  if (ProvisionRequired) {
-    Status = BootKeyUndefineAllIndices ();
-    if (EFI_ERROR (Status)) {
-      goto Done;
-    }
-
-    Status = BootKeyDefineGate (NvAuth);
-    if (EFI_ERROR (Status)) {
-      goto Done;
-    }
-  }
-
-  Status = BootKeyValidateGatePublic ();
-  if (EFI_ERROR (Status)) {
-    goto Done;
-  }
-
-  Status = BootKeyStartCompositePolicySession (
-             NvAuth,
-             ProvisionRequired ? &ProvisionSession : &mBootKeyWriteSession,
-             ProvisionRequired ? NULL : &mBootKeyWriteAuthorization,
+  Status = BootKeyStartWritePolicySession (
+             &PolicySession,
+             NULL,
              &PolicyDigest
              );
   if (EFI_ERROR (Status)) {
     goto Done;
   }
 
-  if (ProvisionRequired) {
-    Tpm2FlushContext (ProvisionSession);
-    ProvisionSession = TPM_RH_NULL;
-    for (Index = 0; Index < BOOT_KEY_NV_SLOT_COUNT; Index++) {
-      Status = BootKeyDefineNvIndex (
-                 mBootKeyNvIndex[Index],
-                 &PolicyDigest,
-                 NvAuth
-                 );
-      if (EFI_ERROR (Status)) {
-        goto Done;
-      }
-
-      Status = BootKeyValidateNvPublic (
-                 mBootKeyNvIndex[Index],
-                 &PolicyDigest,
-                 &Written[Index]
-                 );
-      if (EFI_ERROR (Status) || Written[Index]) {
-        Status = EFI_SECURITY_VIOLATION;
-        goto Done;
-      }
-    }
-
-    Status = BootKeyNvAuthCommit (NvAuth);
-    if (EFI_ERROR (Status)) {
-      goto Done;
-    }
-
-    Status = BootKeyStartCompositePolicySession (
-               NvAuth,
-               &mBootKeyWriteSession,
-               &mBootKeyWriteAuthorization,
-               &ProvisionPolicyDigest
-               );
-    if (EFI_ERROR (Status) ||
-        (PolicyDigest.size != ProvisionPolicyDigest.size) ||
-        (CompareMem (
-           PolicyDigest.buffer,
-           ProvisionPolicyDigest.buffer,
-           PolicyDigest.size
-           ) != 0))
-    {
-      Status = EFI_SECURITY_VIOLATION;
-      goto Done;
-    }
-
-    ValidCount = 0;
-    goto SelectRecord;
-  }
+  Tpm2FlushContext (PolicySession);
+  PolicySession = TPM_RH_NULL;
 
   ValidCount = 0;
   for (Index = 0; Index < BOOT_KEY_NV_SLOT_COUNT; Index++) {
@@ -837,7 +609,6 @@ BootKeyPrepareCredentialStore (
 
     Status = BootKeyLoadRecord (
                mBootKeyNvIndex[Index],
-               NvAuth,
                &mBootKeyCachedRecord[Index]
                );
     if ((Status == EFI_COMPROMISED_DATA) || (Status == EFI_NOT_FOUND)) {
@@ -876,8 +647,7 @@ BootKeyPrepareCredentialStore (
 
     Status = BootKeyDefineNvIndex (
                mBootKeyNvIndex[Index],
-               &PolicyDigest,
-               NvAuth
+               &PolicyDigest
                );
     if (EFI_ERROR (Status)) {
       goto Done;
@@ -895,7 +665,6 @@ BootKeyPrepareCredentialStore (
     }
   }
 
-SelectRecord:
   if (ValidCount == 0) {
     mBootKeyCurrentSlot = 1;
   } else if (ValidCount == 1) {
@@ -935,34 +704,12 @@ SelectRecord:
 
   mBootKeyFactoryInitialization = FactoryInitialization;
   mBootKeyStorePrepared         = TRUE;
-  mBootKeyWriteCount            = 0;
 
 Done:
-  if (ProvisionSession != TPM_RH_NULL) {
-    Tpm2FlushContext (ProvisionSession);
+  if (PolicySession != TPM_RH_NULL) {
+    Tpm2FlushContext (PolicySession);
   }
 
-  //
-  // Keep any persistent indices from an incomplete transaction.  A factory
-  // retry with a blank EC secret removes them before rebuilding, while an EC
-  // commit whose final acknowledgement was lost can resume with the matching
-  // indices.
-  //
-  if (EFI_ERROR (Status)) {
-    if (mBootKeyWriteSession != TPM_RH_NULL) {
-      Tpm2FlushContext (mBootKeyWriteSession);
-      mBootKeyWriteSession = TPM_RH_NULL;
-    }
-
-    BootKeyWipe (&mBootKeyWriteAuthorization, sizeof (mBootKeyWriteAuthorization));
-  }
-
-  CloseStatus = BootKeyNvAuthClose ();
-  if (!EFI_ERROR (Status) && EFI_ERROR (CloseStatus)) {
-    Status = CloseStatus;
-  }
-
-  BootKeyWipe (NvAuth, sizeof (NvAuth));
   return Status;
 }
 
@@ -991,13 +738,13 @@ BootKeyCloseCredentialStore (
   {
     Status = BootKeyDisablePlatformHierarchy ();
     if (EFI_ERROR (Status)) {
-      goto FlushSession;
+      return Status;
     }
   }
 
   Status = gBS->LocateProtocol (&gEfiTcg2ProtocolGuid, NULL, (VOID **)&Tcg2);
   if (EFI_ERROR (Status)) {
-    goto FlushSession;
+    return Status;
   }
 
   EventDataSize = sizeof (mBootKeyWriteWindowClosedEvent) - 1;
@@ -1006,7 +753,7 @@ BootKeyCloseCredentialStore (
                     );
   if (Event == NULL) {
     Status = EFI_OUT_OF_RESOURCES;
-    goto FlushSession;
+    return Status;
   }
 
   Event->Size                 = (UINT32)(sizeof (*Event) - sizeof (Event->Event) + EventDataSize);
@@ -1028,24 +775,10 @@ BootKeyCloseCredentialStore (
     mBootKeyWriteWindowClosed = TRUE;
   }
 
-FlushSession:
-  if (mBootKeyWriteSession != TPM_RH_NULL) {
-    EFI_STATUS  FlushStatus;
-
-    FlushStatus          = Tpm2FlushContext (mBootKeyWriteSession);
-    mBootKeyWriteSession = TPM_RH_NULL;
-    if (EFI_ERROR (FlushStatus) &&
-        ((Status == EFI_SUCCESS) || (Status == EFI_VOLUME_FULL)))
-    {
-      Status = FlushStatus;
-    }
-  }
-
   if (Status == EFI_VOLUME_FULL) {
     Status = EFI_SUCCESS;
   }
 
-  BootKeyWipe (&mBootKeyWriteAuthorization, sizeof (mBootKeyWriteAuthorization));
   return Status;
 }
 
@@ -1057,13 +790,7 @@ BootKeyAbortCredentialStore (
 {
   if (mBootKeyStorePrepared && !mBootKeyWriteWindowClosed) {
     BootKeyCloseCredentialStore ();
-  } else if (mBootKeyWriteSession != TPM_RH_NULL) {
-    Tpm2FlushContext (mBootKeyWriteSession);
-    mBootKeyWriteSession = TPM_RH_NULL;
   }
-
-  (VOID)BootKeyNvAuthClose ();
-  BootKeyWipe (&mBootKeyWriteAuthorization, sizeof (mBootKeyWriteAuthorization));
 }
 
 STATIC
@@ -1089,7 +816,9 @@ BootKeyRecordValid (
       (Record->Version != BOOT_KEY_NV_RECORD_VERSION) ||
       (Record->Size != sizeof (*Record)) ||
       (Record->CredentialCount == 0) ||
-      (Record->CredentialCount > BOOT_KEY_MAX_ENROLLED_CREDENTIALS))
+      (Record->CredentialCount > BOOT_KEY_MAX_ENROLLED_CREDENTIALS) ||
+      (Record->FailureStage > BOOT_KEY_FAILURE_STAGE_MAX) ||
+      (Record->AttemptActive > 1) || (Record->Reserved != 0))
   {
     return FALSE;
   }
@@ -1147,10 +876,6 @@ BootKeyWriteRecord (
     return EFI_ACCESS_DENIED;
   }
 
-  if ((mBootKeyWriteSession == TPM_RH_NULL) || (mBootKeyWriteCount != 0)) {
-    return EFI_ACCESS_DENIED;
-  }
-
   if (Record->Generation == MAX_UINT64) {
     return EFI_VOLUME_FULL;
   }
@@ -1166,11 +891,16 @@ BootKeyWriteRecord (
   Data.size = sizeof (*Record);
   CopyMem (Data.buffer, Record, sizeof (*Record));
 
-  Session                   = mBootKeyWriteSession;
-  mBootKeyWriteSession      = TPM_RH_NULL;
-  Authorization             = mBootKeyWriteAuthorization;
-  mBootKeyWriteCount        = 1;
-  BootKeyWipe (&mBootKeyWriteAuthorization, sizeof (mBootKeyWriteAuthorization));
+  Session = TPM_RH_NULL;
+  Status  = BootKeyStartWritePolicySession (
+              &Session,
+              &Authorization,
+              NULL
+              );
+  if (EFI_ERROR (Status)) {
+    BootKeyWipe (&Authorization, sizeof (Authorization));
+    return Status;
+  }
 
   Status = Tpm2NvWrite (
              mBootKeyNvIndex[TargetSlot],
@@ -1262,6 +992,108 @@ BootKeyGetCredentialSet (
   return EFI_SUCCESS;
 }
 
+STATIC
+UINT32
+BootKeyDelayForFailureStage (
+  IN UINT8  FailureStage
+  )
+{
+  switch (FailureStage) {
+    case 0:
+      return 0;
+    case 1:
+      return 60;
+    case 2:
+      return 120;
+    case 3:
+      return 600;
+    default:
+      return 3600;
+  }
+}
+
+EFI_STATUS
+EFIAPI
+BootKeyPrepareAuthenticationAttempt (
+  OUT UINT32  *DelaySeconds
+  )
+{
+  BOOT_KEY_NV_RECORD  Record;
+  EFI_STATUS          Status;
+
+  if (DelaySeconds == NULL) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  Status = BootKeyReadRecord (&Record);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  if (Record.AttemptActive != 0) {
+    if (Record.FailureStage < BOOT_KEY_FAILURE_STAGE_MAX) {
+      Record.FailureStage++;
+    }
+
+    Record.AttemptActive = 0;
+    Status               = BootKeyWriteRecord (&Record);
+    if (EFI_ERROR (Status)) {
+      return Status;
+    }
+  }
+
+  *DelaySeconds = BootKeyDelayForFailureStage (Record.FailureStage);
+  return EFI_SUCCESS;
+}
+
+EFI_STATUS
+EFIAPI
+BootKeyBeginAuthenticationAttempt (
+  VOID
+  )
+{
+  BOOT_KEY_NV_RECORD  Record;
+  EFI_STATUS          Status;
+
+  Status = BootKeyReadRecord (&Record);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  if (Record.AttemptActive != 0) {
+    return EFI_ALREADY_STARTED;
+  }
+
+  Record.AttemptActive = 1;
+  return BootKeyWriteRecord (&Record);
+}
+
+EFI_STATUS
+EFIAPI
+BootKeyCommitAuthenticationFailure (
+  VOID
+  )
+{
+  BOOT_KEY_NV_RECORD  Record;
+  EFI_STATUS          Status;
+
+  Status = BootKeyReadRecord (&Record);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  if (Record.AttemptActive == 0) {
+    return EFI_ACCESS_DENIED;
+  }
+
+  if (Record.FailureStage < BOOT_KEY_FAILURE_STAGE_MAX) {
+    Record.FailureStage++;
+  }
+
+  Record.AttemptActive = 0;
+  return BootKeyWriteRecord (&Record);
+}
+
 EFI_STATUS
 EFIAPI
 BootKeyCommitSignCount (
@@ -1286,6 +1118,10 @@ BootKeyCommitSignCount (
     return Status;
   }
 
+  if (Record.AttemptActive == 0) {
+    return EFI_ACCESS_DENIED;
+  }
+
   for (Index = 0; Index < Record.CredentialCount; Index++) {
     if (!BootKeyCredentialMatches (
            &Record.Credentials[Index],
@@ -1301,7 +1137,9 @@ BootKeyCommitSignCount (
     }
 
     Record.Credentials[Index].SignCount = SignCount;
-    Status = BootKeyWriteRecord (&Record);
+    Record.FailureStage                 = 0;
+    Record.AttemptActive                = 0;
+    Status                              = BootKeyWriteRecord (&Record);
     if (EFI_ERROR (Status)) {
       BootKeyAbortCredentialStore ();
     }
@@ -1310,74 +1148,6 @@ BootKeyCommitSignCount (
   }
 
   return EFI_NOT_FOUND;
-}
-
-EFI_STATUS
-EFIAPI
-BootKeyProvisionCredential (
-  IN CONST UINT8  *CredentialId,
-  IN UINTN        CredentialIdSize,
-  IN CONST UINT8  PublicKey[BOOT_KEY_PUBLIC_POINT_SIZE],
-  IN CONST UINT8  DeviceIdentity[BOOT_KEY_DEVICE_IDENTITY_SIZE]
-  )
-{
-  BOOT_KEY_NV_CREDENTIAL  *Credential;
-  BOOT_KEY_NV_RECORD      Record;
-  UINTN                   Index;
-  EFI_STATUS              Status;
-
-  if ((CredentialId == NULL) || (CredentialIdSize == 0) ||
-      (CredentialIdSize > BOOT_KEY_CREDENTIAL_ID_MAX_SIZE) ||
-      (DeviceIdentity == NULL) || !BootKeyPublicPointValid (PublicKey))
-  {
-    return EFI_INVALID_PARAMETER;
-  }
-
-  ZeroMem (&Record, sizeof (Record));
-  Status = BootKeyReadRecord (&Record);
-  if ((Status == EFI_NOT_FOUND) && !mBootKeyFactoryInitialization) {
-    return EFI_ACCESS_DENIED;
-  }
-
-  if (EFI_ERROR (Status) && (Status != EFI_NOT_FOUND)) {
-    return Status;
-  }
-
-  for (Index = 0; Index < Record.CredentialCount; Index++) {
-    if (BootKeyCredentialMatches (
-          &Record.Credentials[Index],
-          CredentialId,
-          CredentialIdSize
-          ))
-    {
-      return EFI_ALREADY_STARTED;
-    }
-
-    if (CompareMem (
-          Record.Credentials[Index].DeviceIdentity,
-          DeviceIdentity,
-          BOOT_KEY_DEVICE_IDENTITY_SIZE
-          ) == 0)
-    {
-      return EFI_ALREADY_STARTED;
-    }
-  }
-
-  if (Record.CredentialCount >= BOOT_KEY_MAX_ENROLLED_CREDENTIALS) {
-    return EFI_OUT_OF_RESOURCES;
-  }
-
-  Credential = &Record.Credentials[Record.CredentialCount++];
-  ZeroMem (Credential, sizeof (*Credential));
-  Credential->CredentialIdSize = (UINT8)CredentialIdSize;
-  CopyMem (Credential->CredentialId, CredentialId, CredentialIdSize);
-  CopyMem (Credential->PublicKey, PublicKey, BOOT_KEY_PUBLIC_POINT_SIZE);
-  CopyMem (
-    Credential->DeviceIdentity,
-    DeviceIdentity,
-    BOOT_KEY_DEVICE_IDENTITY_SIZE
-    );
-  return BootKeyWriteRecord (&Record);
 }
 
 EFI_STATUS
@@ -1446,59 +1216,4 @@ BootKeyProvisionCredentialSet (
   }
 
   return BootKeyWriteRecord (&Record);
-}
-
-EFI_STATUS
-EFIAPI
-BootKeyRemoveCredential (
-  IN CONST UINT8  *CredentialId,
-  IN UINTN        CredentialIdSize
-  )
-{
-  BOOT_KEY_NV_RECORD  Record;
-  UINTN               Index;
-  EFI_STATUS          Status;
-
-  if ((CredentialId == NULL) || (CredentialIdSize == 0) ||
-      (CredentialIdSize > BOOT_KEY_CREDENTIAL_ID_MAX_SIZE))
-  {
-    return EFI_INVALID_PARAMETER;
-  }
-
-  Status = BootKeyReadRecord (&Record);
-  if (EFI_ERROR (Status)) {
-    return Status;
-  }
-
-  if (Record.CredentialCount <= 1) {
-    return EFI_ACCESS_DENIED;
-  }
-
-  for (Index = 0; Index < Record.CredentialCount; Index++) {
-    if (!BootKeyCredentialMatches (
-           &Record.Credentials[Index],
-           CredentialId,
-           CredentialIdSize
-           ))
-    {
-      continue;
-    }
-
-    Record.CredentialCount--;
-    if (Index != Record.CredentialCount) {
-      CopyMem (
-        &Record.Credentials[Index],
-        &Record.Credentials[Record.CredentialCount],
-        sizeof (Record.Credentials[Index])
-        );
-    }
-
-    ZeroMem (
-      &Record.Credentials[Record.CredentialCount],
-      sizeof (Record.Credentials[Record.CredentialCount])
-      );
-    return BootKeyWriteRecord (&Record);
-  }
-
-  return EFI_NOT_FOUND;
 }

@@ -36,8 +36,10 @@ typedef struct {
   Production implementations must not connect general storage, network,
   option-ROM, or Driver#### paths from this function.
 
-  The function must return control within one second. While waiting on device
-  discovery, return EFI_NOT_READY so platform safety callbacks can run.
+  Transport operations must use finite hardware timeouts. The caller arms an
+  asynchronous reset deadline before invoking this function so synchronous
+  UEFI driver binding cannot suppress the bounded boot attempt. While waiting
+  on device discovery, return EFI_NOT_READY so platform callbacks can run.
 **/
 EFI_STATUS
 EFIAPI

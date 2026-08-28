@@ -57,13 +57,13 @@
   DEFINE BOOT_KEY_FACTORY_PROVISIONING = FALSE
   DEFINE BOOT_KEY_USB_FIDO             = FALSE
   DEFINE BOOT_KEY_TPM_NV_STORE         = FALSE
-  DEFINE BOOT_KEY_MERLIN_POWER_SAFETY  = FALSE
   DEFINE BOOT_KEY_INTEL_MTL_BOUNDARY    = FALSE
   # Test-only provider containing a private fixture key. Never enable this for
   # a production image.
   DEFINE BOOT_KEY_AUTH_TEST            = FALSE
   DEFINE BOOT_KEY_AUTH_NULL_TEST       = FALSE
   DEFINE BOOT_KEY_AUTH_TEST_SCENARIO   = 0
+  DEFINE BOOT_KEY_ATTEMPT_TIMEOUT_SECONDS = 60
   DEFINE MEMORY_TYPE_EFI_ACPI_RECLAIM_MEMORY = 0x19
   DEFINE MEMORY_TYPE_INFORMATION_BIN_BASE = 0
   DEFINE MEMORY_TYPE_INFORMATION_BIN_SIZE = 0
@@ -394,9 +394,7 @@
 !endif
   BootKeyAuthenticatorLib|UefiPayloadPkg/Library/BootKeyAuthenticatorLibNull/BootKeyAuthenticatorLibNull.inf
   BootKeyCredentialStoreLib|UefiPayloadPkg/Library/BootKeyCredentialStoreLibNull/BootKeyCredentialStoreLibNull.inf
-  BootKeyNvAuthLib|UefiPayloadPkg/Library/BootKeyNvAuthLibNull/BootKeyNvAuthLibNull.inf
   BootKeyPlatformSecurityLib|UefiPayloadPkg/Library/BootKeyPlatformSecurityLibNull/BootKeyPlatformSecurityLibNull.inf
-  BootKeyPowerSafetyLib|UefiPayloadPkg/Library/BootKeyPowerSafetyLibNull/BootKeyPowerSafetyLibNull.inf
   BootKeyProvisionLib|UefiPayloadPkg/Library/BootKeyProvisionLibNull/BootKeyProvisionLibNull.inf
   PlatformPasswordLib|UefiPayloadPkg/UserAuthPkg/Library/PlatformPasswordLibNull/PlatformPasswordLibNull.inf
   IoApicLib|PcAtChipsetPkg/Library/BaseIoApicLib/BaseIoApicLib.inf
@@ -778,10 +776,8 @@
   gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyAuthTestEnabled|$(BOOT_KEY_AUTH_TEST)
 !if $(BOOT_KEY_AUTH_TEST) == TRUE || $(BOOT_KEY_AUTH_NULL_TEST) == TRUE
   gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyPlatformBoundaryTestEnabled|TRUE
-  gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyPowerSafetyTestEnabled|TRUE
 !else
   gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyPlatformBoundaryTestEnabled|FALSE
-  gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyPowerSafetyTestEnabled|FALSE
 !endif
   gUefiPayloadPkgTokenSpaceGuid.PcdBootKeySmmExpected|$(SMM_SUPPORT)
 !if $(BOOT_KEY_AUTHENTICATION) == TRUE || $(BOOT_KEY_FACTORY_PROVISIONING) == TRUE
@@ -793,6 +789,7 @@
   gEfiMdePkgTokenSpaceGuid.PcdEnforceSecureRngAlgorithms|TRUE
 !endif
   gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyAuthTestScenario|$(BOOT_KEY_AUTH_TEST_SCENARIO)
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyAttemptTimeoutSeconds|$(BOOT_KEY_ATTEMPT_TIMEOUT_SECONDS)
   gEfiMdePkgTokenSpaceGuid.PcdHardwareErrorRecordLevel|1
   gEfiMdeModulePkgTokenSpaceGuid.PcdMaxVariableSize|0x10000
   gEfiMdeModulePkgTokenSpaceGuid.PcdMaxHardwareErrorVariableSize|0x8000
@@ -1207,6 +1204,9 @@
 !if $(BOOT_KEY_AUTH_TEST) == TRUE && $(TARGET) != DEBUG
   !error "BOOT_KEY_AUTH_TEST is permitted only in DEBUG builds"
 !endif
+!if $(BOOT_KEY_AUTH_TEST) == TRUE && $(VARIABLE_SUPPORT) != "SMMSTORE"
+  !error "BOOT_KEY_AUTH_TEST requires persistent SMMSTORE variables"
+!endif
 !if $(BOOT_KEY_AUTH_NULL_TEST) == TRUE && $(BOOT_KEY_AUTHENTICATION) != TRUE
   !error "BOOT_KEY_AUTH_NULL_TEST requires BOOT_KEY_AUTHENTICATION"
 !endif
@@ -1267,9 +1267,6 @@
 !if $(BOOT_KEY_INTEL_MTL_BOUNDARY) != TRUE
   !error "Factory boot-key provisioning requires a hardware-boundary provider"
 !endif
-!if $(BOOT_KEY_MERLIN_POWER_SAFETY) != TRUE
-  !error "Factory boot-key provisioning requires independent power safety"
-!endif
 !endif
 !if $(BOOT_KEY_AUTHENTICATION) == TRUE && $(BOOT_KEY_AUTH_TEST) != TRUE && $(BOOT_KEY_AUTH_NULL_TEST) != TRUE
 !if $(BOOT_KEY_USB_FIDO) != TRUE
@@ -1280,9 +1277,6 @@
 !endif
 !if $(BOOT_KEY_INTEL_MTL_BOUNDARY) != TRUE
   !error "Production boot-key authentication requires a hardware-boundary provider"
-!endif
-!if $(BOOT_KEY_MERLIN_POWER_SAFETY) != TRUE
-  !error "Production boot-key authentication requires independent power safety"
 !endif
 !endif
 !if $(CBMEM_TIMESTAMPS) == TRUE
@@ -1338,14 +1332,9 @@
 !endif
 !if $(BOOT_KEY_AUTH_TEST) == TRUE || $(BOOT_KEY_AUTH_NULL_TEST) == TRUE
       BootKeyPlatformSecurityLib|UefiPayloadPkg/Test/BootKeyPlatformSecurityTestLib/BootKeyPlatformSecurityTestLib.inf
-      BootKeyPowerSafetyLib|UefiPayloadPkg/Test/BootKeyPowerSafetyTestLib/BootKeyPowerSafetyTestLib.inf
 !else
 !if $(BOOT_KEY_INTEL_MTL_BOUNDARY) == TRUE
       BootKeyPlatformSecurityLib|UefiPayloadPkg/Library/BootKeyPlatformSecurityLibIntelMtl/BootKeyPlatformSecurityLibIntelMtl.inf
-!endif
-!if $(BOOT_KEY_MERLIN_POWER_SAFETY) == TRUE
-      BootKeyPowerSafetyLib|UefiPayloadPkg/Library/BootKeyPowerSafetyLibMerlinEc/BootKeyPowerSafetyLibMerlinEc.inf
-      BootKeyNvAuthLib|UefiPayloadPkg/Library/BootKeyNvAuthLibMerlinEc/BootKeyNvAuthLibMerlinEc.inf
 !endif
 !endif
 !if $(BOOT_KEY_FACTORY_PROVISIONING) == TRUE

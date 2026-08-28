@@ -41,3 +41,6 @@
   gEfiCustomModeEnableGuid
   gEfiGlobalVariableGuid
   gEfiSecureBootEnableDisableGuid
+
+[FixedPcd]
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyAttemptTimeoutSeconds
