@@ -31,3 +31,37 @@ BootKeyGetAssertion (
 {
   return EFI_NOT_FOUND;
 }
+
+EFI_STATUS
+EFIAPI
+BootKeyMakeCredential (
+  IN  CONST CHAR8  *RpId,
+  IN  CONST UINT8  Challenge[BOOT_KEY_CLIENT_DATA_HASH_SIZE],
+  OUT UINT8        *CredentialId,
+  IN OUT UINTN     *CredentialIdSize,
+  OUT UINT8        PublicKey[65],
+  OUT UINT8        *AttestationCertificate,
+  IN OUT UINTN     *AttestationCertificateSize,
+  OUT UINT8        Signature[BOOT_KEY_ES256_SIGNATURE_SIZE]
+  )
+{
+  return EFI_NOT_FOUND;
+}
+
+EFI_STATUS
+EFIAPI
+BootKeyGetAuthenticatorIdentity (
+  OUT UINT8  Identity[BOOT_KEY_DEVICE_IDENTITY_SIZE]
+  )
+{
+  return EFI_NOT_FOUND;
+}
+
+EFI_STATUS
+EFIAPI
+BootKeyAuthenticatorRequireRemoval (
+  VOID
+  )
+{
+  return EFI_NOT_FOUND;
+}

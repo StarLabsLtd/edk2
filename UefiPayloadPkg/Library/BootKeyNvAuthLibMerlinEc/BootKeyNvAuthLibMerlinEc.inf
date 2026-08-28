@@ -1,0 +1,27 @@
+## @file
+#  Merlin EC reset-bounded TPM NV authorization provider.
+#
+#  Copyright (c) 2026, Star Labs Systems. All rights reserved.<BR>
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION    = 0x00010017
+  BASE_NAME      = BootKeyNvAuthLibMerlinEc
+  FILE_GUID      = E3259367-30D4-42D1-916C-3BF13FA0057D
+  MODULE_TYPE    = BASE
+  VERSION_STRING = 1.0
+  LIBRARY_CLASS  = BootKeyNvAuthLib|DXE_DRIVER
+
+[Sources]
+  BootKeyNvAuthLibMerlinEc.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  UefiPayloadPkg/UefiPayloadPkg.dec
+
+[LibraryClasses]
+  BaseMemoryLib
+  IoLib
+  RngLib
+  TimerLib

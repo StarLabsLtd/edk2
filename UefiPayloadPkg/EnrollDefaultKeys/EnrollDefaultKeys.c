@@ -17,6 +17,7 @@
 #include <Guid/ImageAuthentication.h>
 #include <Library/BaseMemoryLib.h>
 #include <Library/BootKeyAuthLib.h>
+#include <Library/BootKeyProvisionLib.h>
 #include <Library/DebugLib.h>
 #include <Library/MemoryAllocationLib.h>
 #include <Library/UefiRuntimeServicesTableLib.h>
@@ -73,20 +74,20 @@ STATIC
 EFI_STATUS
 EFIAPI
 EnrollListOfCerts (
-  IN CHAR16   *VariableName,
-  IN EFI_GUID *VendorGuid,
-  IN EFI_GUID *CertType,
+  IN CHAR16    *VariableName,
+  IN EFI_GUID  *VendorGuid,
+  IN EFI_GUID  *CertType,
   ...
   )
 {
-  UINTN DataSize;
-  SINGLE_HEADER    *SingleHeader;
-  REPEATING_HEADER *RepeatingHeader;
-  VA_LIST Marker;
-  CONST UINT8      *Cert;
-  EFI_STATUS Status;
-  UINT8            *Data;
-  UINT8            *Position;
+  UINTN             DataSize;
+  SINGLE_HEADER     *SingleHeader;
+  REPEATING_HEADER  *RepeatingHeader;
+  VA_LIST           Marker;
+  CONST UINT8       *Cert;
+  EFI_STATUS        Status;
+  UINT8             *Data;
+  UINT8             *Position;
 
   Status = EFI_SUCCESS;
 
@@ -97,25 +98,30 @@ EnrollListOfCerts (
   VA_START (Marker, CertType);
   for (Cert = VA_ARG (Marker, CONST UINT8 *);
        Cert != NULL;
-       Cert = VA_ARG (Marker, CONST UINT8 *)) {
-    UINTN CertSize;
+       Cert = VA_ARG (Marker, CONST UINT8 *))
+  {
+    UINTN  CertSize;
 
     CertSize = VA_ARG (Marker, UINTN);
     (VOID)VA_ARG (Marker, CONST EFI_GUID *);
 
-    if (CertSize == 0 ||
-        CertSize > MAX_UINT32 - sizeof *RepeatingHeader ||
-        DataSize > MAX_UINT32 - sizeof *RepeatingHeader - CertSize) {
+    if ((CertSize == 0) ||
+        (CertSize > MAX_UINT32 - sizeof *RepeatingHeader) ||
+        (DataSize > MAX_UINT32 - sizeof *RepeatingHeader - CertSize))
+    {
       Status = EFI_INVALID_PARAMETER;
       break;
     }
+
     DataSize += sizeof *RepeatingHeader + CertSize;
   }
+
   VA_END (Marker);
 
   if (DataSize == sizeof *SingleHeader) {
     Status = EFI_INVALID_PARAMETER;
   }
+
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "EnrollDefaultKeys: Invalid certificate parameters\n"));
     goto Out;
@@ -130,18 +136,19 @@ EnrollListOfCerts (
   Position = Data;
 
   SingleHeader = (SINGLE_HEADER *)Position;
-  Status = gRT->GetTime (&SingleHeader->TimeStamp, NULL);
+  Status       = gRT->GetTime (&SingleHeader->TimeStamp, NULL);
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_INFO, "EnrollDefaultKeys: GetTime failed\n"));
     // Fill in dummy values
-    SingleHeader->TimeStamp.Year       = 2018;
-    SingleHeader->TimeStamp.Month      = 1;
-    SingleHeader->TimeStamp.Day        = 1;
-    SingleHeader->TimeStamp.Hour       = 0;
-    SingleHeader->TimeStamp.Minute     = 0;
-    SingleHeader->TimeStamp.Second     = 0;
-    Status = EFI_SUCCESS;
+    SingleHeader->TimeStamp.Year   = 2018;
+    SingleHeader->TimeStamp.Month  = 1;
+    SingleHeader->TimeStamp.Day    = 1;
+    SingleHeader->TimeStamp.Hour   = 0;
+    SingleHeader->TimeStamp.Minute = 0;
+    SingleHeader->TimeStamp.Second = 0;
+    Status                         = EFI_SUCCESS;
   }
+
   SingleHeader->TimeStamp.Pad1       = 0;
   SingleHeader->TimeStamp.Nanosecond = 0;
   SingleHeader->TimeStamp.TimeZone   = 0;
@@ -163,16 +170,17 @@ EnrollListOfCerts (
   VA_START (Marker, CertType);
   for (Cert = VA_ARG (Marker, CONST UINT8 *);
        Cert != NULL;
-       Cert = VA_ARG (Marker, CONST UINT8 *)) {
-    UINTN CertSize;
-    CONST EFI_GUID   *OwnerGuid;
+       Cert = VA_ARG (Marker, CONST UINT8 *))
+  {
+    UINTN           CertSize;
+    CONST EFI_GUID  *OwnerGuid;
 
     CertSize  = VA_ARG (Marker, UINTN);
     OwnerGuid = VA_ARG (Marker, CONST EFI_GUID *);
 
     RepeatingHeader = (REPEATING_HEADER *)Position;
     CopyGuid (&RepeatingHeader->SignatureType, CertType);
-    RepeatingHeader->SignatureListSize   =
+    RepeatingHeader->SignatureListSize =
       (UINT32)(sizeof *RepeatingHeader + CertSize);
     RepeatingHeader->SignatureHeaderSize = 0;
     RepeatingHeader->SignatureSize       =
@@ -183,24 +191,36 @@ EnrollListOfCerts (
     CopyMem (Position, Cert, CertSize);
     Position += CertSize;
   }
+
   VA_END (Marker);
 
   ASSERT (Data + DataSize == Position);
 
-  Status = gRT->SetVariable (VariableName, VendorGuid,
-           (EFI_VARIABLE_NON_VOLATILE |
-            EFI_VARIABLE_RUNTIME_ACCESS |
-            EFI_VARIABLE_BOOTSERVICE_ACCESS |
-            EFI_VARIABLE_TIME_BASED_AUTHENTICATED_WRITE_ACCESS),
-           DataSize, Data);
+  Status = gRT->SetVariable (
+                  VariableName,
+                  VendorGuid,
+                  (EFI_VARIABLE_NON_VOLATILE |
+                   EFI_VARIABLE_RUNTIME_ACCESS |
+                   EFI_VARIABLE_BOOTSERVICE_ACCESS |
+                   EFI_VARIABLE_TIME_BASED_AUTHENTICATED_WRITE_ACCESS),
+                  DataSize,
+                  Data
+                  );
 
   FreePool (Data);
 
 Out:
   if (EFI_ERROR (Status)) {
-    DEBUG ((DEBUG_ERROR, "EnrollDefaultKeys: %a(\"%s\", %g): %r\n", __func__, VariableName,
-      VendorGuid, Status));
+    DEBUG ((
+      DEBUG_ERROR,
+      "EnrollDefaultKeys: %a(\"%s\", %g): %r\n",
+      __func__,
+      VariableName,
+      VendorGuid,
+      Status
+      ));
   }
+
   return Status;
 }
 
@@ -232,7 +252,8 @@ ProvisionSigListDefault (
   VA_START (Marker, CertType);
   for (Cert = VA_ARG (Marker, CONST UINT8 *);
        Cert != NULL;
-       Cert = VA_ARG (Marker, CONST UINT8 *)) {
+       Cert = VA_ARG (Marker, CONST UINT8 *))
+  {
     UINTN  CertSize;
 
     CertSize = VA_ARG (Marker, UINTN);
@@ -240,13 +261,15 @@ ProvisionSigListDefault (
 
     if ((CertSize == 0) ||
         (CertSize > MAX_UINT32 - sizeof *RepeatingHeader) ||
-        (DataSize > MAX_UINT32 - sizeof *RepeatingHeader - CertSize)) {
+        (DataSize > MAX_UINT32 - sizeof *RepeatingHeader - CertSize))
+    {
       VA_END (Marker);
       return;
     }
 
     DataSize += sizeof *RepeatingHeader + CertSize;
   }
+
   VA_END (Marker);
 
   if (DataSize == 0) {
@@ -262,7 +285,8 @@ ProvisionSigListDefault (
   VA_START (Marker, CertType);
   for (Cert = VA_ARG (Marker, CONST UINT8 *);
        Cert != NULL;
-       Cert = VA_ARG (Marker, CONST UINT8 *)) {
+       Cert = VA_ARG (Marker, CONST UINT8 *))
+  {
     UINTN           CertSize;
     CONST EFI_GUID  *OwnerGuid;
 
@@ -280,6 +304,7 @@ ProvisionSigListDefault (
     CopyMem (Position, Cert, CertSize);
     Position += CertSize;
   }
+
   VA_END (Marker);
 
   Status = gRT->SetVariable (
@@ -321,7 +346,8 @@ ProvisionDbxDefaultFromAuthPayload (
   Header         = (SINGLE_HEADER *)Blob;
   DescriptorSize = OFFSET_OF (SINGLE_HEADER, dwLength) + Header->dwLength;
   if ((DescriptorSize >= BlobSize) ||
-      (DescriptorSize < OFFSET_OF (SINGLE_HEADER, dwLength))) {
+      (DescriptorSize < OFFSET_OF (SINGLE_HEADER, dwLength)))
+  {
     return;
   }
 
@@ -367,15 +393,15 @@ ProvisionKeyDefaults (
   UINT8       *PkMicrosoftOem2023;
   UINTN       PkMicrosoftOem2023Size;
 
-  DbMicrosoftUefi2011      = NULL;
-  DbMicrosoftUefi2023      = NULL;
-  DbMicrosoftWin2011       = NULL;
-  DbMicrosoftWinuefi2023   = NULL;
-  DbxMicrosoftUpdate       = NULL;
-  KekMicrosoft2011         = NULL;
-  KekMicrosoft2023         = NULL;
-  KekMicrosoftUefi2023     = NULL;
-  PkMicrosoftOem2023       = NULL;
+  DbMicrosoftUefi2011    = NULL;
+  DbMicrosoftUefi2023    = NULL;
+  DbMicrosoftWin2011     = NULL;
+  DbMicrosoftWinuefi2023 = NULL;
+  DbxMicrosoftUpdate     = NULL;
+  KekMicrosoft2011       = NULL;
+  KekMicrosoft2023       = NULL;
+  KekMicrosoftUefi2023   = NULL;
+  PkMicrosoftOem2023     = NULL;
 
   Status = GetSectionFromAnyFv (&gMicrosoftPkOem2023Guid, EFI_SECTION_RAW, 0, (VOID **)&PkMicrosoftOem2023, &PkMicrosoftOem2023Size);
   if (!EFI_ERROR (Status)) {
@@ -518,32 +544,44 @@ STATIC
 EFI_STATUS
 EFIAPI
 GetExact (
-  IN CHAR16   *VariableName,
-  IN EFI_GUID *VendorGuid,
-  OUT VOID    *Data,
-  IN UINTN DataSize,
-  IN BOOLEAN AllowMissing
+  IN CHAR16    *VariableName,
+  IN EFI_GUID  *VendorGuid,
+  OUT VOID     *Data,
+  IN UINTN     DataSize,
+  IN BOOLEAN   AllowMissing
   )
 {
-  UINTN Size;
-  EFI_STATUS Status;
+  UINTN       Size;
+  EFI_STATUS  Status;
 
-  Size = DataSize;
+  Size   = DataSize;
   Status = gRT->GetVariable (VariableName, VendorGuid, NULL, &Size, Data);
   if (EFI_ERROR (Status)) {
-    if (Status == EFI_NOT_FOUND && AllowMissing) {
+    if ((Status == EFI_NOT_FOUND) && AllowMissing) {
       ZeroMem (Data, DataSize);
       return EFI_SUCCESS;
     }
 
-    DEBUG ((DEBUG_ERROR, "EnrollDefaultKeys: GetVariable(\"%s\", %g): %r\n", VariableName,
-      VendorGuid, Status));
+    DEBUG ((
+      DEBUG_ERROR,
+      "EnrollDefaultKeys: GetVariable(\"%s\", %g): %r\n",
+      VariableName,
+      VendorGuid,
+      Status
+      ));
     return Status;
   }
 
   if (Size != DataSize) {
-    DEBUG ((DEBUG_INFO, "EnrollDefaultKeys: GetVariable(\"%s\", %g): expected size 0x%Lx, "
-      "got 0x%Lx\n", VariableName, VendorGuid, (UINT64)DataSize, (UINT64)Size));
+    DEBUG ((
+      DEBUG_INFO,
+      "EnrollDefaultKeys: GetVariable(\"%s\", %g): expected size 0x%Lx, "
+      "got 0x%Lx\n",
+      VariableName,
+      VendorGuid,
+      (UINT64)DataSize,
+      (UINT64)Size
+      ));
     return EFI_PROTOCOL_ERROR;
   }
 
@@ -581,41 +619,65 @@ STATIC
 EFI_STATUS
 EFIAPI
 GetSettings (
-  OUT SETTINGS *Settings,
-  BOOLEAN AllowMissing
+  OUT SETTINGS  *Settings,
+  BOOLEAN       AllowMissing
   )
 {
-  EFI_STATUS Status;
+  EFI_STATUS  Status;
 
-  ZeroMem (Settings, sizeof(SETTINGS));
+  ZeroMem (Settings, sizeof (SETTINGS));
 
-  Status = GetExact (EFI_SETUP_MODE_NAME, &gEfiGlobalVariableGuid,
-         &Settings->SetupMode, sizeof Settings->SetupMode, FALSE);
+  Status = GetExact (
+             EFI_SETUP_MODE_NAME,
+             &gEfiGlobalVariableGuid,
+             &Settings->SetupMode,
+             sizeof Settings->SetupMode,
+             FALSE
+             );
   if (EFI_ERROR (Status)) {
     return Status;
   }
 
-  Status = GetExact (EFI_SECURE_BOOT_MODE_NAME, &gEfiGlobalVariableGuid,
-         &Settings->SecureBoot, sizeof Settings->SecureBoot, FALSE);
+  Status = GetExact (
+             EFI_SECURE_BOOT_MODE_NAME,
+             &gEfiGlobalVariableGuid,
+             &Settings->SecureBoot,
+             sizeof Settings->SecureBoot,
+             FALSE
+             );
   if (EFI_ERROR (Status)) {
     return Status;
   }
 
-  Status = GetExact (EFI_SECURE_BOOT_ENABLE_NAME,
-         &gEfiSecureBootEnableDisableGuid, &Settings->SecureBootEnable,
-         sizeof Settings->SecureBootEnable, AllowMissing);
+  Status = GetExact (
+             EFI_SECURE_BOOT_ENABLE_NAME,
+             &gEfiSecureBootEnableDisableGuid,
+             &Settings->SecureBootEnable,
+             sizeof Settings->SecureBootEnable,
+             AllowMissing
+             );
   if (EFI_ERROR (Status)) {
     return Status;
   }
 
-  Status = GetExact (EFI_CUSTOM_MODE_NAME, &gEfiCustomModeEnableGuid,
-         &Settings->CustomMode, sizeof Settings->CustomMode, FALSE);
+  Status = GetExact (
+             EFI_CUSTOM_MODE_NAME,
+             &gEfiCustomModeEnableGuid,
+             &Settings->CustomMode,
+             sizeof Settings->CustomMode,
+             FALSE
+             );
   if (EFI_ERROR (Status)) {
     return Status;
   }
 
-  Status = GetExact (EFI_VENDOR_KEYS_VARIABLE_NAME, &gEfiGlobalVariableGuid,
-         &Settings->VendorKeys, sizeof Settings->VendorKeys, FALSE);
+  Status = GetExact (
+             EFI_VENDOR_KEYS_VARIABLE_NAME,
+             &gEfiGlobalVariableGuid,
+             &Settings->VendorKeys,
+             sizeof Settings->VendorKeys,
+             FALSE
+             );
   return Status;
 }
 
@@ -630,12 +692,19 @@ STATIC
 VOID
 EFIAPI
 PrintSettings (
-  IN CONST SETTINGS *Settings
+  IN CONST SETTINGS  *Settings
   )
 {
-  DEBUG ((DEBUG_INFO, "EnrollDefaultKeys: SetupMode=%d SecureBoot=%d SecureBootEnable=%d "
-    "CustomMode=%d VendorKeys=%d\n", Settings->SetupMode, Settings->SecureBoot,
-    Settings->SecureBootEnable, Settings->CustomMode, Settings->VendorKeys));
+  DEBUG ((
+    DEBUG_INFO,
+    "EnrollDefaultKeys: SetupMode=%d SecureBoot=%d SecureBootEnable=%d "
+    "CustomMode=%d VendorKeys=%d\n",
+    Settings->SetupMode,
+    Settings->SecureBoot,
+    Settings->SecureBootEnable,
+    Settings->CustomMode,
+    Settings->VendorKeys
+    ));
 }
 
 /**
@@ -647,32 +716,33 @@ PrintSettings (
 VOID
 EFIAPI
 EnrollDefaultKeys (
-  IN EFI_EVENT                      Event,
-  IN VOID                           *Context
+  IN EFI_EVENT  Event,
+  IN VOID       *Context
   )
 {
   EFI_STATUS  Status;
   VOID        *Protocol;
-  SETTINGS Settings;
+  SETTINGS    Settings;
+  BOOLEAN     SecurityRequired;
 
-  UINT8 *DbMicrosoftUefi2011 = 0;
-  UINTN DbMicrosoftUefi2011Size;
-  UINT8 *DbMicrosoftUefi2023 = 0;
-  UINTN DbMicrosoftUefi2023Size;
-  UINT8 *DbMicrosoftWin2011 = 0;
-  UINTN DbMicrosoftWin2011Size;
-  UINT8 *DbMicrosoftWinuefi2023 = 0;
-  UINTN DbMicrosoftWinuefi2023Size;
-  UINT8 *DbxMicrosoftUpdate = 0;
-  UINTN DbxMicrosoftUpdateSize;
-  UINT8 *KekMicrosoft2011 = 0;
-  UINTN KekMicrosoft2011Size;
-  UINT8 *KekMicrosoft2023 = 0;
-  UINTN KekMicrosoft2023Size;
-  UINT8 *KekMicrosoftUefi2023 = 0;
-  UINTN KekMicrosoftUefi2023Size;
-  UINT8 *PkMicrosoftOem2023 = 0;
-  UINTN PkMicrosoftOem2023Size;
+  UINT8  *DbMicrosoftUefi2011 = 0;
+  UINTN  DbMicrosoftUefi2011Size;
+  UINT8  *DbMicrosoftUefi2023 = 0;
+  UINTN  DbMicrosoftUefi2023Size;
+  UINT8  *DbMicrosoftWin2011 = 0;
+  UINTN  DbMicrosoftWin2011Size;
+  UINT8  *DbMicrosoftWinuefi2023 = 0;
+  UINTN  DbMicrosoftWinuefi2023Size;
+  UINT8  *DbxMicrosoftUpdate = 0;
+  UINTN  DbxMicrosoftUpdateSize;
+  UINT8  *KekMicrosoft2011 = 0;
+  UINTN  KekMicrosoft2011Size;
+  UINT8  *KekMicrosoft2023 = 0;
+  UINTN  KekMicrosoft2023Size;
+  UINT8  *KekMicrosoftUefi2023 = 0;
+  UINTN  KekMicrosoftUefi2023Size;
+  UINT8  *PkMicrosoftOem2023 = 0;
+  UINTN  PkMicrosoftOem2023Size;
 
   Status = gBS->LocateProtocol (&gEfiVariableWriteArchProtocolGuid, NULL, (VOID **)&Protocol);
   if (EFI_ERROR (Status)) {
@@ -680,6 +750,9 @@ EnrollDefaultKeys (
   }
 
   ProvisionKeyDefaults ();
+
+  SecurityRequired = BootKeyAuthenticationRequired () ||
+                     BootKeyFactoryProvisioningRequired ();
 
   Status = GetSettings (&Settings, TRUE);
   if (EFI_ERROR (Status)) {
@@ -689,126 +762,159 @@ EnrollDefaultKeys (
 
   if (Settings.SetupMode != SETUP_MODE) {
     DEBUG ((DEBUG_ERROR, "EnrollDefaultKeys: already in User Mode\n"));
-    if (BootKeyAuthenticationRequired ()) {
+    if (SecurityRequired) {
       goto FinalizeSecureBootMode;
     }
 
     return;
   }
+
   PrintSettings (&Settings);
 
   if (Settings.CustomMode != CUSTOM_SECURE_BOOT_MODE) {
     Settings.CustomMode = CUSTOM_SECURE_BOOT_MODE;
-    Status = gRT->SetVariable (EFI_CUSTOM_MODE_NAME, &gEfiCustomModeEnableGuid,
-             (EFI_VARIABLE_NON_VOLATILE |
-              EFI_VARIABLE_BOOTSERVICE_ACCESS),
-             sizeof Settings.CustomMode, &Settings.CustomMode);
+    Status              = gRT->SetVariable (
+                                 EFI_CUSTOM_MODE_NAME,
+                                 &gEfiCustomModeEnableGuid,
+                                 (EFI_VARIABLE_NON_VOLATILE |
+                                  EFI_VARIABLE_BOOTSERVICE_ACCESS),
+                                 sizeof Settings.CustomMode,
+                                 &Settings.CustomMode
+                                 );
     if (EFI_ERROR (Status)) {
-      DEBUG ((DEBUG_ERROR, "EnrollDefaultKeys: SetVariable(\"%s\", %g): %r\n", EFI_CUSTOM_MODE_NAME,
-        &gEfiCustomModeEnableGuid, Status));
+      DEBUG ((
+        DEBUG_ERROR,
+        "EnrollDefaultKeys: SetVariable(\"%s\", %g): %r\n",
+        EFI_CUSTOM_MODE_NAME,
+        &gEfiCustomModeEnableGuid,
+        Status
+        ));
       ASSERT_EFI_ERROR (Status);
       return;
     }
   }
 
-  Status = GetSectionFromAnyFv(&gMicrosoftDbUefi2011Guid, EFI_SECTION_RAW, 0, (void **)&DbMicrosoftUefi2011, &DbMicrosoftUefi2011Size);
-  ASSERT_EFI_ERROR(Status);
+  Status = GetSectionFromAnyFv (&gMicrosoftDbUefi2011Guid, EFI_SECTION_RAW, 0, (void **)&DbMicrosoftUefi2011, &DbMicrosoftUefi2011Size);
+  ASSERT_EFI_ERROR (Status);
   if (EFI_ERROR (Status)) {
     goto FreeResources;
   }
 
-  Status = GetSectionFromAnyFv(&gMicrosoftDbUefi2023Guid, EFI_SECTION_RAW, 0, (void **)&DbMicrosoftUefi2023, &DbMicrosoftUefi2023Size);
-  ASSERT_EFI_ERROR(Status);
+  Status = GetSectionFromAnyFv (&gMicrosoftDbUefi2023Guid, EFI_SECTION_RAW, 0, (void **)&DbMicrosoftUefi2023, &DbMicrosoftUefi2023Size);
+  ASSERT_EFI_ERROR (Status);
   if (EFI_ERROR (Status)) {
     goto FreeResources;
   }
 
-  Status = GetSectionFromAnyFv(&gMicrosoftDbWin2011Guid, EFI_SECTION_RAW, 0, (void **)&DbMicrosoftWin2011, &DbMicrosoftWin2011Size);
-  ASSERT_EFI_ERROR(Status);
+  Status = GetSectionFromAnyFv (&gMicrosoftDbWin2011Guid, EFI_SECTION_RAW, 0, (void **)&DbMicrosoftWin2011, &DbMicrosoftWin2011Size);
+  ASSERT_EFI_ERROR (Status);
   if (EFI_ERROR (Status)) {
     goto FreeResources;
   }
 
-  Status = GetSectionFromAnyFv(&gMicrosoftDbWinUefi2023Guid, EFI_SECTION_RAW, 0, (void **)&DbMicrosoftWinuefi2023, &DbMicrosoftWinuefi2023Size);
-  ASSERT_EFI_ERROR(Status);
+  Status = GetSectionFromAnyFv (&gMicrosoftDbWinUefi2023Guid, EFI_SECTION_RAW, 0, (void **)&DbMicrosoftWinuefi2023, &DbMicrosoftWinuefi2023Size);
+  ASSERT_EFI_ERROR (Status);
   if (EFI_ERROR (Status)) {
     goto FreeResources;
   }
 
-  Status = GetSectionFromAnyFv(&gMicrosoftDbxUpdateGuid, EFI_SECTION_RAW, 0, (void **)&DbxMicrosoftUpdate, &DbxMicrosoftUpdateSize);
-  ASSERT_EFI_ERROR(Status);
+  Status = GetSectionFromAnyFv (&gMicrosoftDbxUpdateGuid, EFI_SECTION_RAW, 0, (void **)&DbxMicrosoftUpdate, &DbxMicrosoftUpdateSize);
+  ASSERT_EFI_ERROR (Status);
   if (EFI_ERROR (Status)) {
     goto FreeResources;
   }
 
-  Status = GetSectionFromAnyFv(&gMicrosoftKek2011Guid, EFI_SECTION_RAW, 0, (void **)&KekMicrosoft2011, &KekMicrosoft2011Size);
-  ASSERT_EFI_ERROR(Status);
+  Status = GetSectionFromAnyFv (&gMicrosoftKek2011Guid, EFI_SECTION_RAW, 0, (void **)&KekMicrosoft2011, &KekMicrosoft2011Size);
+  ASSERT_EFI_ERROR (Status);
   if (EFI_ERROR (Status)) {
     goto FreeResources;
   }
 
-  Status = GetSectionFromAnyFv(&gMicrosoftKek2023Guid, EFI_SECTION_RAW, 0, (void **)&KekMicrosoft2023, &KekMicrosoft2023Size);
-  ASSERT_EFI_ERROR(Status);
+  Status = GetSectionFromAnyFv (&gMicrosoftKek2023Guid, EFI_SECTION_RAW, 0, (void **)&KekMicrosoft2023, &KekMicrosoft2023Size);
+  ASSERT_EFI_ERROR (Status);
   if (EFI_ERROR (Status)) {
     goto FreeResources;
   }
 
-  Status = GetSectionFromAnyFv(&gMicrosoftKekUefi2023Guid, EFI_SECTION_RAW, 0, (void **)&KekMicrosoftUefi2023, &KekMicrosoftUefi2023Size);
-  ASSERT_EFI_ERROR(Status);
+  Status = GetSectionFromAnyFv (&gMicrosoftKekUefi2023Guid, EFI_SECTION_RAW, 0, (void **)&KekMicrosoftUefi2023, &KekMicrosoftUefi2023Size);
+  ASSERT_EFI_ERROR (Status);
   if (EFI_ERROR (Status)) {
     goto FreeResources;
   }
 
-  Status = GetSectionFromAnyFv(&gMicrosoftPkOem2023Guid, EFI_SECTION_RAW, 0, (void **)&PkMicrosoftOem2023, &PkMicrosoftOem2023Size);
-  ASSERT_EFI_ERROR(Status);
+  Status = GetSectionFromAnyFv (&gMicrosoftPkOem2023Guid, EFI_SECTION_RAW, 0, (void **)&PkMicrosoftOem2023, &PkMicrosoftOem2023Size);
+  ASSERT_EFI_ERROR (Status);
   if (EFI_ERROR (Status)) {
     goto FreeResources;
   }
 
-  Status = gRT->SetVariable (EFI_IMAGE_SECURITY_DATABASE1, &gEfiImageSecurityDatabaseGuid,
-           (EFI_VARIABLE_NON_VOLATILE |
-            EFI_VARIABLE_RUNTIME_ACCESS |
-            EFI_VARIABLE_BOOTSERVICE_ACCESS |
-            EFI_VARIABLE_TIME_BASED_AUTHENTICATED_WRITE_ACCESS),
-            DbxMicrosoftUpdateSize, DbxMicrosoftUpdate);
+  Status = gRT->SetVariable (
+                  EFI_IMAGE_SECURITY_DATABASE1,
+                  &gEfiImageSecurityDatabaseGuid,
+                  (EFI_VARIABLE_NON_VOLATILE |
+                   EFI_VARIABLE_RUNTIME_ACCESS |
+                   EFI_VARIABLE_BOOTSERVICE_ACCESS |
+                   EFI_VARIABLE_TIME_BASED_AUTHENTICATED_WRITE_ACCESS),
+                  DbxMicrosoftUpdateSize,
+                  DbxMicrosoftUpdate
+                  );
   ASSERT_EFI_ERROR (Status);
   if (EFI_ERROR (Status)) {
     goto FreeResources;
   }
 
   Status = EnrollListOfCerts (
-    EFI_IMAGE_SECURITY_DATABASE,
-    &gEfiImageSecurityDatabaseGuid,
-    &gEfiCertX509Guid,
-    DbMicrosoftUefi2011,    DbMicrosoftUefi2011Size,    &gMicrosoftVendorGuid,
-    DbMicrosoftUefi2023,    DbMicrosoftUefi2023Size,    &gMicrosoftVendorGuid,
-    DbMicrosoftWin2011,     DbMicrosoftWin2011Size,     &gMicrosoftVendorGuid,
-    DbMicrosoftWinuefi2023, DbMicrosoftWinuefi2023Size, &gMicrosoftVendorGuid,
-    NULL);
+             EFI_IMAGE_SECURITY_DATABASE,
+             &gEfiImageSecurityDatabaseGuid,
+             &gEfiCertX509Guid,
+             DbMicrosoftUefi2011,
+             DbMicrosoftUefi2011Size,
+             &gMicrosoftVendorGuid,
+             DbMicrosoftUefi2023,
+             DbMicrosoftUefi2023Size,
+             &gMicrosoftVendorGuid,
+             DbMicrosoftWin2011,
+             DbMicrosoftWin2011Size,
+             &gMicrosoftVendorGuid,
+             DbMicrosoftWinuefi2023,
+             DbMicrosoftWinuefi2023Size,
+             &gMicrosoftVendorGuid,
+             NULL
+             );
   ASSERT_EFI_ERROR (Status);
   if (EFI_ERROR (Status)) {
     goto FreeResources;
   }
 
   Status = EnrollListOfCerts (
-    EFI_KEY_EXCHANGE_KEY_NAME,
-    &gEfiGlobalVariableGuid,
-    &gEfiCertX509Guid,
-    KekMicrosoft2011, KekMicrosoft2011Size, &gMicrosoftVendorGuid,
-    KekMicrosoft2023, KekMicrosoft2023Size, &gMicrosoftVendorGuid,
-    KekMicrosoftUefi2023, KekMicrosoftUefi2023Size, &gMicrosoftVendorGuid,
-    NULL);
+             EFI_KEY_EXCHANGE_KEY_NAME,
+             &gEfiGlobalVariableGuid,
+             &gEfiCertX509Guid,
+             KekMicrosoft2011,
+             KekMicrosoft2011Size,
+             &gMicrosoftVendorGuid,
+             KekMicrosoft2023,
+             KekMicrosoft2023Size,
+             &gMicrosoftVendorGuid,
+             KekMicrosoftUefi2023,
+             KekMicrosoftUefi2023Size,
+             &gMicrosoftVendorGuid,
+             NULL
+             );
   ASSERT_EFI_ERROR (Status);
   if (EFI_ERROR (Status)) {
     goto FreeResources;
   }
 
   Status = EnrollListOfCerts (
-    EFI_PLATFORM_KEY_NAME,
-    &gEfiGlobalVariableGuid,
-    &gEfiCertX509Guid,
-    PkMicrosoftOem2023, PkMicrosoftOem2023Size, &gMicrosoftVendorGuid,
-    NULL);
+             EFI_PLATFORM_KEY_NAME,
+             &gEfiGlobalVariableGuid,
+             &gEfiCertX509Guid,
+             PkMicrosoftOem2023,
+             PkMicrosoftOem2023Size,
+             &gMicrosoftVendorGuid,
+             NULL
+             );
   ASSERT_EFI_ERROR (Status);
   if (EFI_ERROR (Status)) {
     goto FreeResources;
@@ -857,12 +963,21 @@ FreeResources:
 
 FinalizeSecureBootMode:
   Settings.CustomMode = STANDARD_SECURE_BOOT_MODE;
-  Status = gRT->SetVariable (EFI_CUSTOM_MODE_NAME, &gEfiCustomModeEnableGuid,
-           EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_BOOTSERVICE_ACCESS,
-           sizeof Settings.CustomMode, &Settings.CustomMode);
+  Status              = gRT->SetVariable (
+                               EFI_CUSTOM_MODE_NAME,
+                               &gEfiCustomModeEnableGuid,
+                               EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_BOOTSERVICE_ACCESS,
+                               sizeof Settings.CustomMode,
+                               &Settings.CustomMode
+                               );
   if (EFI_ERROR (Status)) {
-    DEBUG ((DEBUG_ERROR, "EnrollDefaultKeys: SetVariable(\"%s\", %g): %r\n", EFI_CUSTOM_MODE_NAME,
-      &gEfiCustomModeEnableGuid, Status));
+    DEBUG ((
+      DEBUG_ERROR,
+      "EnrollDefaultKeys: SetVariable(\"%s\", %g): %r\n",
+      EFI_CUSTOM_MODE_NAME,
+      &gEfiCustomModeEnableGuid,
+      Status
+      ));
     ASSERT_EFI_ERROR (Status);
     return;
   }
@@ -870,26 +985,44 @@ FinalizeSecureBootMode:
   // FIXME: Force SecureBoot to ON. The AuthService will do this if authenticated variables
   // are supported, which aren't as the SMM handler isn't able to verify them.
 
-  Settings.SecureBootEnable = BootKeyAuthenticationRequired () ?
+  Settings.SecureBootEnable = SecurityRequired ?
                               SECURE_BOOT_ENABLE : SECURE_BOOT_DISABLE;
-  Status = gRT->SetVariable (EFI_SECURE_BOOT_ENABLE_NAME, &gEfiSecureBootEnableDisableGuid,
-           EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_BOOTSERVICE_ACCESS,
-           sizeof Settings.SecureBootEnable, &Settings.SecureBootEnable);
+  Status = gRT->SetVariable (
+                  EFI_SECURE_BOOT_ENABLE_NAME,
+                  &gEfiSecureBootEnableDisableGuid,
+                  EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_BOOTSERVICE_ACCESS,
+                  sizeof Settings.SecureBootEnable,
+                  &Settings.SecureBootEnable
+                  );
   if (EFI_ERROR (Status)) {
-    DEBUG ((DEBUG_ERROR, "EnrollDefaultKeys: SetVariable(\"%s\", %g): %r\n", EFI_SECURE_BOOT_ENABLE_NAME,
-      &gEfiSecureBootEnableDisableGuid, Status));
+    DEBUG ((
+      DEBUG_ERROR,
+      "EnrollDefaultKeys: SetVariable(\"%s\", %g): %r\n",
+      EFI_SECURE_BOOT_ENABLE_NAME,
+      &gEfiSecureBootEnableDisableGuid,
+      Status
+      ));
     ASSERT_EFI_ERROR (Status);
     return;
   }
 
-  Settings.SecureBoot = BootKeyAuthenticationRequired () ?
+  Settings.SecureBoot = SecurityRequired ?
                         SECURE_BOOT_MODE_ENABLE : SECURE_BOOT_MODE_DISABLE;
-  Status = gRT->SetVariable (EFI_SECURE_BOOT_MODE_NAME, &gEfiGlobalVariableGuid,
-           EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS,
-           sizeof Settings.SecureBoot, &Settings.SecureBoot);
+  Status = gRT->SetVariable (
+                  EFI_SECURE_BOOT_MODE_NAME,
+                  &gEfiGlobalVariableGuid,
+                  EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS,
+                  sizeof Settings.SecureBoot,
+                  &Settings.SecureBoot
+                  );
   if (EFI_ERROR (Status)) {
-    DEBUG ((DEBUG_ERROR, "EnrollDefaultKeys: SetVariable(\"%s\", %g): %r\n", EFI_SECURE_BOOT_MODE_NAME,
-      &gEfiGlobalVariableGuid, Status));
+    DEBUG ((
+      DEBUG_ERROR,
+      "EnrollDefaultKeys: SetVariable(\"%s\", %g): %r\n",
+      EFI_SECURE_BOOT_MODE_NAME,
+      &gEfiGlobalVariableGuid,
+      Status
+      ));
     ASSERT_EFI_ERROR (Status);
     return;
   }
@@ -939,8 +1072,9 @@ FinalizeSecureBootMode:
   // supplied; either value is compatible with enforcement.  SetupMode,
   // SecureBoot, SecureBootEnable, and CustomMode determine the active policy.
   //
-  if (Settings.SetupMode != 0 || Settings.SecureBoot != 1 ||
-      Settings.SecureBootEnable != 1 || Settings.CustomMode != 0) {
+  if ((Settings.SetupMode != 0) || (Settings.SecureBoot != 1) ||
+      (Settings.SecureBootEnable != 1) || (Settings.CustomMode != 0))
+  {
     DEBUG ((DEBUG_ERROR, "EnrollDefaultKeys: disabled\n"));
     return;
   }
@@ -951,11 +1085,11 @@ FinalizeSecureBootMode:
 EFI_STATUS
 EFIAPI
 DriverEntry (
-  IN EFI_HANDLE ImageHandle,
-  IN EFI_SYSTEM_TABLE            *SystemTable
+  IN EFI_HANDLE        ImageHandle,
+  IN EFI_SYSTEM_TABLE  *SystemTable
   )
 {
-  VOID *Registration;
+  VOID  *Registration;
 
   DEBUG ((DEBUG_INFO, "EnrollDefaultKeys hook\n"));
 
@@ -969,7 +1103,8 @@ DriverEntry (
     TPL_CALLBACK,
     EnrollDefaultKeys,
     NULL,
-    &Registration);
+    &Registration
+    );
 
   return EFI_SUCCESS;
 }

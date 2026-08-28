@@ -1,0 +1,38 @@
+## @file
+#  USB HID FIDO/U2F boot-key authenticator.
+#
+#  Copyright (c) 2026, Star Labs Systems. All rights reserved.<BR>
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION                    = 0x00010017
+  BASE_NAME                      = BootKeyAuthenticatorLibUsbFido
+  FILE_GUID                      = 3F0732C9-99C3-47A0-9C8C-5C3A23B84C3E
+  MODULE_TYPE                    = BASE
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = BootKeyAuthenticatorLib|DXE_DRIVER
+
+[Sources]
+  BootKeyAuthenticatorLibUsbFido.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  CryptoPkg/CryptoPkg.dec
+  UefiPayloadPkg/UefiPayloadPkg.dec
+
+[LibraryClasses]
+  BaseCryptLib
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  DevicePathLib
+  MemoryAllocationLib
+  RngLib
+  TimerLib
+  UefiBootServicesTableLib
+
+[Protocols]
+  gEfiPciIoProtocolGuid
+  gEfiUsbIoProtocolGuid

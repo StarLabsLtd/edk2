@@ -26,6 +26,32 @@ STATIC CONST UINT8  mShortCredentialId[] = { 0x10, 0x20, 0x30 };
 
 EFI_STATUS
 EFIAPI
+BootKeyPrepareCredentialStore (
+  IN BOOLEAN  FactoryInitialization
+  )
+{
+  return FactoryInitialization ? EFI_UNSUPPORTED : EFI_SUCCESS;
+}
+
+EFI_STATUS
+EFIAPI
+BootKeyCloseCredentialStore (
+  VOID
+  )
+{
+  return EFI_SUCCESS;
+}
+
+VOID
+EFIAPI
+BootKeyAbortCredentialStore (
+  VOID
+  )
+{
+}
+
+EFI_STATUS
+EFIAPI
 BootKeyGetCredentialSet (
   OUT    BOOT_KEY_CREDENTIAL  *Credentials,
   IN OUT UINTN                *CredentialCount

@@ -23,8 +23,10 @@
   BootKeyAuthLib|Include/Library/BootKeyAuthLib.h
   BootKeyAuthenticatorLib|Include/Library/BootKeyAuthenticatorLib.h
   BootKeyCredentialStoreLib|Include/Library/BootKeyCredentialStoreLib.h
+  BootKeyNvAuthLib|Include/Library/BootKeyNvAuthLib.h
   BootKeyPlatformSecurityLib|Include/Library/BootKeyPlatformSecurityLib.h
   BootKeyPowerSafetyLib|Include/Library/BootKeyPowerSafetyLib.h
+  BootKeyProvisionLib|Include/Library/BootKeyProvisionLib.h
 
 [Guids]
   # SMMSTORE for coreboot and EDK-2
@@ -169,6 +171,10 @@ gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyPlatformBoundaryTestEnabled|FALSE|BOOLEA
 ## Allows the DEBUG-only synthetic boot-key power-safety provider. This must
 ## remain FALSE in production firmware.
 gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyPowerSafetyTestEnabled|FALSE|BOOLEAN|0x0000003E
+
+## Prevents normal-boot TPM physical-presence maintenance after the boot-key
+## credential store has disabled the platform hierarchy.
+gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyModeEnabled|FALSE|BOOLEAN|0x00000041
 
 ## If PcdPayloadFbHiDpiWideAspectCapSupport is enabled and the physical
 ## framebuffer is wider than the configured aspect ratio, the alternate setup GOP

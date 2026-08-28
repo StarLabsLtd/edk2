@@ -38,7 +38,10 @@
 [LibraryClasses]
   BaseLib
   BootKeyAuthLib
+  BootKeyCredentialStoreLib
+  BootKeyPlatformSecurityLib
   BootKeyPowerSafetyLib
+  BootKeyProvisionLib
   BmpSupportLib
   UefiBootServicesTableLib
   UefiRuntimeServicesTableLib
@@ -63,6 +66,8 @@
   gEfiEndOfDxeEventGroupGuid
   gEfiEventReadyToBootGuid
   gEfiGlobalVariableGuid
+  gEfiCustomModeEnableGuid
+  gEfiSecureBootEnableDisableGuid
   gUefiShellFileGuid
 
 [Protocols]
@@ -94,3 +99,4 @@
 
 [FixedPcd]
   gUefiPayloadPkgTokenSpaceGuid.PcdBootKeySmmExpected
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyModeEnabled

@@ -1,0 +1,310 @@
+/** @file
+  Intel Meteor Lake boot-key hardware-boundary verifier.
+
+  Copyright (c) 2026, Star Labs Systems. All rights reserved.<BR>
+  SPDX-License-Identifier: BSD-2-Clause-Patent
+**/
+
+#include <PiDxe.h>
+#include <Uefi.h>
+
+#include <IndustryStandard/Pci.h>
+#include <IndustryStandard/TpmPtp.h>
+#include <Library/BaseLib.h>
+#include <Library/BaseMemoryLib.h>
+#include <Library/BootKeyPlatformSecurityLib.h>
+#include <Library/DebugLib.h>
+#include <Library/IoLib.h>
+#include <Library/MemoryAllocationLib.h>
+#include <Library/PcdLib.h>
+#include <Library/PciSegmentLib.h>
+#include <Library/UefiBootServicesTableLib.h>
+#include <Protocol/MpService.h>
+
+#define MTL_ROOT_BRIDGE(Register)  PCI_SEGMENT_LIB_ADDRESS (0, 0, 0, 0, (Register))
+#define MTL_SPI_DEVICE(Register)   PCI_SEGMENT_LIB_ADDRESS (0, 0, 31, 5, (Register))
+#define MTL_CSE_DEVICE(Register)   PCI_SEGMENT_LIB_ADDRESS (0, 0, 22, 0, (Register))
+
+#define MTL_INTEL_VENDOR_ID            0x8086
+#define MTL_INTEL_PTT_DEVICE_ID         0xa13a
+#define MTL_CSE_HFSTS4                  0x64
+#define MTL_CSE_HFSTS4_PTT_ENABLED      BIT19
+#define MTL_PTT_BASE_ADDRESS            0xfed40000U
+#define MTL_SA_SMRAMC                  0x88
+#define MTL_SA_SMRAMC_D_OPEN           BIT6
+#define MTL_SA_SMRAMC_D_LCK            BIT4
+#define MTL_SA_SMRAMC_G_SMRAME         BIT3
+#define MTL_SPI_BAR0                   0x10
+#define MTL_SPI_BAR_MASK               0xfffff000U
+#define MTL_SPI_BIOS_CONTROL           0xdc
+#define MTL_SPI_BIOS_CONTROL_WPD       BIT0
+#define MTL_SPI_BIOS_CONTROL_LE        BIT1
+#define MTL_SPI_BIOS_CONTROL_EISS      BIT5
+#define MTL_SPI_BIOS_CONTROL_BILD      BIT7
+#define MTL_SPI_BIOS_CONTROL_EXT_LOCK  BIT28
+#define MTL_SPI_HSFSTS_CTL             0x04
+#define MTL_SPI_HSFSTS_FDV             BIT14
+#define MTL_SPI_HSFSTS_FLOCKDN         BIT15
+#define MTL_MSR_SMRR_PHYSBASE          0x1f2
+#define MTL_MSR_SMRR_PHYSMASK          0x1f3
+#define MTL_MSR_SMRR_MASK_LOCK         BIT10
+#define MTL_MSR_SMRR_MASK_VALID        BIT11
+#define MTL_MSR_SMRR_MEMORY_TYPE_MASK  0xff
+#define MTL_MSR_SMRR_MEMORY_TYPE_WB    0x06
+#define MTL_MSR_SMRR_ADDRESS_MASK      0x00000000fffff000ULL
+#define MTL_MSR_SMRR_BASE_ALLOWED      (MTL_MSR_SMRR_ADDRESS_MASK | MTL_MSR_SMRR_MEMORY_TYPE_MASK)
+#define MTL_MSR_SMRR_MASK_ALLOWED      (MTL_MSR_SMRR_ADDRESS_MASK | MTL_MSR_SMRR_MASK_LOCK | MTL_MSR_SMRR_MASK_VALID)
+
+typedef struct {
+  UINT64     Base;
+  UINT64     Size;
+  BOOLEAN    Valid;
+} MTL_SMRR_CHECK;
+
+STATIC
+VOID
+EFIAPI
+MtlCheckSmrrOnProcessor (
+  IN VOID  *Buffer
+  )
+{
+  MTL_SMRR_CHECK  *Check;
+  UINT64          SmrrBase;
+  UINT64          SmrrMask;
+  UINT64          SmrrSize;
+
+  Check    = Buffer;
+  SmrrBase = AsmReadMsr64 (MTL_MSR_SMRR_PHYSBASE);
+  SmrrMask = AsmReadMsr64 (MTL_MSR_SMRR_PHYSMASK);
+  SmrrSize = ((~SmrrMask) & MTL_MSR_SMRR_ADDRESS_MASK) + SIZE_4KB;
+
+  if (((SmrrMask & (MTL_MSR_SMRR_MASK_LOCK | MTL_MSR_SMRR_MASK_VALID)) !=
+       (MTL_MSR_SMRR_MASK_LOCK | MTL_MSR_SMRR_MASK_VALID)) ||
+      ((SmrrBase & MTL_MSR_SMRR_MEMORY_TYPE_MASK) !=
+       MTL_MSR_SMRR_MEMORY_TYPE_WB) ||
+      ((SmrrBase & ~MTL_MSR_SMRR_BASE_ALLOWED) != 0) ||
+      ((SmrrMask & ~MTL_MSR_SMRR_MASK_ALLOWED) != 0) ||
+      ((SmrrBase & MTL_MSR_SMRR_ADDRESS_MASK) != Check->Base) ||
+      (SmrrSize != Check->Size))
+  {
+    Check->Valid = FALSE;
+  }
+}
+
+STATIC
+EFI_STATUS
+MtlVerifySmramBoundary (
+  VOID
+  )
+{
+  MTL_SMRR_CHECK            Check;
+  EFI_MP_SERVICES_PROTOCOL  *MpServices;
+  UINTN                     *FailedCpuList;
+  UINTN                     EnabledProcessors;
+  UINTN                     NumberOfProcessors;
+  UINT8                     Smramc;
+  UINT64                    SmrrBase;
+  UINT64                    SmrrMask;
+  EFI_STATUS                Status;
+
+  Smramc = PciSegmentRead8 (MTL_ROOT_BRIDGE (MTL_SA_SMRAMC));
+  if (((Smramc & (MTL_SA_SMRAMC_D_LCK | MTL_SA_SMRAMC_G_SMRAME)) !=
+       (MTL_SA_SMRAMC_D_LCK | MTL_SA_SMRAMC_G_SMRAME)) ||
+      ((Smramc & MTL_SA_SMRAMC_D_OPEN) != 0))
+  {
+    DEBUG ((DEBUG_ERROR, "Boot-key MTL SMRAMC is not closed and locked: 0x%02x\n", Smramc));
+    return EFI_SECURITY_VIOLATION;
+  }
+
+  ZeroMem (&Check, sizeof (Check));
+  SmrrBase   = AsmReadMsr64 (MTL_MSR_SMRR_PHYSBASE);
+  SmrrMask   = AsmReadMsr64 (MTL_MSR_SMRR_PHYSMASK);
+  Check.Base = SmrrBase & MTL_MSR_SMRR_ADDRESS_MASK;
+  Check.Size = ((~SmrrMask) & MTL_MSR_SMRR_ADDRESS_MASK) + SIZE_4KB;
+  if (((SmrrMask & (MTL_MSR_SMRR_MASK_LOCK | MTL_MSR_SMRR_MASK_VALID)) !=
+       (MTL_MSR_SMRR_MASK_LOCK | MTL_MSR_SMRR_MASK_VALID)) ||
+      ((SmrrBase & MTL_MSR_SMRR_MEMORY_TYPE_MASK) !=
+       MTL_MSR_SMRR_MEMORY_TYPE_WB) ||
+      ((SmrrBase & ~MTL_MSR_SMRR_BASE_ALLOWED) != 0) ||
+      ((SmrrMask & ~MTL_MSR_SMRR_MASK_ALLOWED) != 0) ||
+      (Check.Base < SIZE_1MB) ||
+      (Check.Size == 0) ||
+      ((Check.Size & (Check.Size - 1)) != 0) ||
+      ((Check.Base & (Check.Size - 1)) != 0) ||
+      (Check.Base >= SIZE_4GB) ||
+      (Check.Size > (SIZE_4GB - Check.Base)))
+  {
+    return EFI_SECURITY_VIOLATION;
+  }
+
+  Check.Valid = TRUE;
+  MtlCheckSmrrOnProcessor (&Check);
+  if (!Check.Valid) {
+    return EFI_SECURITY_VIOLATION;
+  }
+
+  Status = gBS->LocateProtocol (&gEfiMpServiceProtocolGuid, NULL, (VOID **)&MpServices);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  Status = MpServices->GetNumberOfProcessors (
+                         MpServices,
+                         &NumberOfProcessors,
+                         &EnabledProcessors
+                         );
+  if (EFI_ERROR (Status) || (EnabledProcessors == 0) ||
+      (NumberOfProcessors < EnabledProcessors))
+  {
+    return EFI_SECURITY_VIOLATION;
+  }
+
+  if (EnabledProcessors > 1) {
+    FailedCpuList = NULL;
+    Status        = MpServices->StartupAllAPs (
+                                  MpServices,
+                                  MtlCheckSmrrOnProcessor,
+                                  TRUE,
+                                  NULL,
+                                  1000000,
+                                  &Check,
+                                  &FailedCpuList
+                                  );
+    if (FailedCpuList != NULL) {
+      FreePool (FailedCpuList);
+    }
+
+    if (EFI_ERROR (Status) || !Check.Valid) {
+      return EFI_SECURITY_VIOLATION;
+    }
+  }
+
+  return EFI_SUCCESS;
+}
+
+STATIC
+EFI_STATUS
+MtlVerifyPttBoundary (
+  VOID
+  )
+{
+  PTP_CRB_INTERFACE_IDENTIFIER  InterfaceId;
+  UINT16                        DeviceId;
+  UINT32                        Hfsts4;
+  UINT16                        VendorId;
+
+  VendorId = MmioRead16 (
+               MTL_PTT_BASE_ADDRESS + OFFSET_OF (PTP_CRB_REGISTERS, Vid)
+               );
+  DeviceId = MmioRead16 (
+               MTL_PTT_BASE_ADDRESS + OFFSET_OF (PTP_CRB_REGISTERS, Did)
+               );
+  InterfaceId.Uint32 = MmioRead32 (
+                         MTL_PTT_BASE_ADDRESS +
+                         OFFSET_OF (PTP_CRB_REGISTERS, InterfaceId)
+                         );
+  Hfsts4 = PciSegmentRead32 (MTL_CSE_DEVICE (MTL_CSE_HFSTS4));
+
+  if ((PciSegmentRead16 (MTL_CSE_DEVICE (PCI_VENDOR_ID_OFFSET)) !=
+       MTL_INTEL_VENDOR_ID) ||
+      ((Hfsts4 & MTL_CSE_HFSTS4_PTT_ENABLED) == 0) ||
+      (VendorId != MTL_INTEL_VENDOR_ID) ||
+      (DeviceId != MTL_INTEL_PTT_DEVICE_ID) ||
+      (InterfaceId.Bits.InterfaceType !=
+       PTP_INTERFACE_IDENTIFIER_INTERFACE_TYPE_CRB) ||
+      ((InterfaceId.Bits.InterfaceVersion !=
+        PTP_INTERFACE_IDENTIFIER_INTERFACE_VERSION_CRB) &&
+       (InterfaceId.Bits.InterfaceVersion !=
+        PTP_INTERFACE_IDENTIFIER_INTERFACE_VERSION_CRB_V2)) ||
+      (InterfaceId.Bits.CapCRB == 0) ||
+      (InterfaceId.Bits.InterfaceSelector !=
+       PTP_INTERFACE_IDENTIFIER_INTERFACE_SELECTOR_CRB) ||
+      (InterfaceId.Bits.IntfSelLock == 0))
+  {
+    DEBUG ((
+      DEBUG_ERROR,
+      "Boot-key MTL requires Intel PTT CRB: HFSTS4=0x%08x VID=0x%04x DID=0x%04x IF=0x%08x\n",
+      Hfsts4,
+      VendorId,
+      DeviceId,
+      InterfaceId.Uint32
+      ));
+    return EFI_SECURITY_VIOLATION;
+  }
+
+  return EFI_SUCCESS;
+}
+
+STATIC
+EFI_STATUS
+MtlVerifySpiBoundary (
+  VOID
+  )
+{
+  UINT32  BiosControl;
+  UINT32  Hsfs;
+  UINT32  SpiBar;
+
+  if ((PciSegmentRead16 (MTL_SPI_DEVICE (PCI_VENDOR_ID_OFFSET)) !=
+       MTL_INTEL_VENDOR_ID) ||
+      ((PciSegmentRead16 (MTL_SPI_DEVICE (PCI_COMMAND_OFFSET)) &
+        EFI_PCI_COMMAND_MEMORY_SPACE) == 0))
+  {
+    return EFI_SECURITY_VIOLATION;
+  }
+
+  SpiBar = PciSegmentRead32 (MTL_SPI_DEVICE (MTL_SPI_BAR0)) & MTL_SPI_BAR_MASK;
+  if (SpiBar == 0) {
+    return EFI_SECURITY_VIOLATION;
+  }
+
+  BiosControl = PciSegmentRead32 (MTL_SPI_DEVICE (MTL_SPI_BIOS_CONTROL));
+  if (((BiosControl & MTL_SPI_BIOS_CONTROL_WPD) != 0) ||
+      ((BiosControl & (MTL_SPI_BIOS_CONTROL_LE |
+                       MTL_SPI_BIOS_CONTROL_EISS |
+                       MTL_SPI_BIOS_CONTROL_BILD |
+                       MTL_SPI_BIOS_CONTROL_EXT_LOCK)) !=
+       (MTL_SPI_BIOS_CONTROL_LE |
+        MTL_SPI_BIOS_CONTROL_EISS |
+        MTL_SPI_BIOS_CONTROL_BILD |
+        MTL_SPI_BIOS_CONTROL_EXT_LOCK)))
+  {
+    DEBUG ((DEBUG_ERROR, "Boot-key MTL BIOS control is not locked: 0x%08x\n", BiosControl));
+    return EFI_SECURITY_VIOLATION;
+  }
+
+  Hsfs = MmioRead32 ((UINTN)SpiBar + MTL_SPI_HSFSTS_CTL);
+  if ((Hsfs & (MTL_SPI_HSFSTS_FDV | MTL_SPI_HSFSTS_FLOCKDN)) !=
+      (MTL_SPI_HSFSTS_FDV | MTL_SPI_HSFSTS_FLOCKDN))
+  {
+    DEBUG ((
+      DEBUG_ERROR,
+      "Boot-key MTL SPI controller is not locked: HSFS=0x%08x\n",
+      Hsfs
+      ));
+    return EFI_SECURITY_VIOLATION;
+  }
+
+  return EFI_SUCCESS;
+}
+
+EFI_STATUS
+EFIAPI
+BootKeyVerifyPlatformSecurityBoundary (
+  VOID
+  )
+{
+  EFI_STATUS  Status;
+
+  Status = MtlVerifyPttBoundary ();
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  Status = MtlVerifySmramBoundary ();
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  return MtlVerifySpiBoundary ();
+}

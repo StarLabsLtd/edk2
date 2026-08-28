@@ -164,14 +164,14 @@ BootKeyVerifyAssertion (
        BOOT_KEY_PUBLIC_KEY_CERTIFICATE_MAX_SIZE) ||
       (Assertion->CredentialIdSize == 0) ||
       (Assertion->CredentialIdSize > BOOT_KEY_CREDENTIAL_ID_MAX_SIZE) ||
-      (Assertion->CredentialIdSize != Credential->CredentialIdSize) ||
       ((Assertion->AuthenticatorData[BOOT_KEY_RP_ID_HASH_SIZE] &
         ~BOOT_KEY_AUTH_DATA_ALLOWED_FLAGS) != 0))
   {
     return EFI_INVALID_PARAMETER;
   }
 
-  if (!BootKeyEqual (
+  if ((Assertion->CredentialIdSize != Credential->CredentialIdSize) ||
+      !BootKeyEqual (
          Credential->CredentialId,
          Assertion->CredentialId,
          Credential->CredentialIdSize

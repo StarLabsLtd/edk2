@@ -1,0 +1,25 @@
+## @file
+#  Merlin EC independent boot-key power-safety provider.
+#
+#  Copyright (c) 2026, Star Labs Systems. All rights reserved.<BR>
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION    = 0x00010017
+  BASE_NAME      = BootKeyPowerSafetyLibMerlinEc
+  FILE_GUID      = 6D857AFE-68D6-4D11-B614-11F1337940C0
+  MODULE_TYPE    = BASE
+  VERSION_STRING = 1.0
+  LIBRARY_CLASS  = BootKeyPowerSafetyLib|DXE_DRIVER
+
+[Sources]
+  BootKeyPowerSafetyLibMerlinEc.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  UefiPayloadPkg/UefiPayloadPkg.dec
+
+[LibraryClasses]
+  IoLib
+  TimerLib

@@ -10,12 +10,16 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include "PlatformBootManager.h"
 #include "PlatformConsole.h"
 #include <Guid/EventGroup.h>
+#include <Guid/AuthenticatedVariableFormat.h>
 #include <Guid/GlobalVariable.h>
 #include <IndustryStandard/Pci.h>
 #include <IndustryStandard/Usb.h>
 #include <Library/BmpSupportLib.h>
 #include <Library/BootKeyAuthLib.h>
+#include <Library/BootKeyCredentialStoreLib.h>
+#include <Library/BootKeyPlatformSecurityLib.h>
 #include <Library/BootKeyPowerSafetyLib.h>
+#include <Library/BootKeyProvisionLib.h>
 #include <Library/Tcg2PhysicalPresenceLib.h>
 #include <Library/TimerLib.h>
 #include <Protocol/BatteryStatus.h>
@@ -53,8 +57,8 @@ STATIC USB_MASS_STORAGE_DEVICE_PATH  mUsbMassStorageDevicePath = {
   }
 };
 
-#define LOW_BATTERY_BOOT_TIMEOUT  10
-#define BOOT_KEY_FAILURE_STALL_US  250000
+#define LOW_BATTERY_BOOT_TIMEOUT             10
+#define BOOT_KEY_FAILURE_STALL_US            250000
 #define BOOT_UI_HIDPI_HORIZONTAL_RESOLUTION  1920
 #define BOOT_UI_HIDPI_VERTICAL_RESOLUTION    1080
 
@@ -67,6 +71,60 @@ STATIC BOOLEAN  mLowBatteryBootLogoShown;
 STATIC BOOLEAN  mBootKeyLowBatteryTimerActive;
 STATIC UINT64   mBootKeyLowBatteryLastCounter;
 STATIC UINT64   mBootKeyLowBatteryElapsedNs;
+
+STATIC
+BOOLEAN
+PlatformBootKeyVariableEquals (
+  IN CHAR16    *Name,
+  IN EFI_GUID  *Guid,
+  IN UINT32    ExpectedAttributes,
+  IN UINT8     ExpectedValue
+  )
+{
+  UINT32      Attributes;
+  UINT8       Value;
+  UINTN       Size;
+  EFI_STATUS  Status;
+
+  Attributes = 0;
+  Value      = 0;
+  Size       = sizeof (Value);
+  Status     = gRT->GetVariable (Name, Guid, &Attributes, &Size, &Value);
+  return (Status == EFI_SUCCESS) && (Size == sizeof (Value)) &&
+         (Attributes == ExpectedAttributes) && (Value == ExpectedValue);
+}
+
+STATIC
+BOOLEAN
+PlatformBootKeySecureBootEnabled (
+  VOID
+  )
+{
+  return PlatformBootKeyVariableEquals (
+           EFI_SETUP_MODE_NAME,
+           &gEfiGlobalVariableGuid,
+           EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS,
+           0
+           ) &&
+         PlatformBootKeyVariableEquals (
+           EFI_SECURE_BOOT_MODE_NAME,
+           &gEfiGlobalVariableGuid,
+           EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS,
+           1
+           ) &&
+         PlatformBootKeyVariableEquals (
+           EFI_SECURE_BOOT_ENABLE_NAME,
+           &gEfiSecureBootEnableDisableGuid,
+           EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_BOOTSERVICE_ACCESS,
+           1
+           ) &&
+         PlatformBootKeyVariableEquals (
+           EFI_CUSTOM_MODE_NAME,
+           &gEfiCustomModeEnableGuid,
+           EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_BOOTSERVICE_ACCESS,
+           0
+           );
+}
 
 STATIC
 VOID
@@ -157,7 +215,6 @@ GetBootPromptGraphicsOutput (
   return Status;
 }
 
-
 STATIC
 EFI_STATUS
 ScaleBitmap2x (
@@ -201,8 +258,8 @@ ScaleBitmap2x (
       EFI_GRAPHICS_OUTPUT_BLT_PIXEL  Pixel;
       UINTN                          DestinationColumn;
 
-      Pixel             = Source[Row * SourceStride + Column];
-      DestinationColumn = Column * 2;
+      Pixel                                                 = Source[Row * SourceStride + Column];
+      DestinationColumn                                     = Column * 2;
       ScaledBitmap[DestinationRow0 + DestinationColumn]     = Pixel;
       ScaledBitmap[DestinationRow0 + DestinationColumn + 1] = Pixel;
       ScaledBitmap[DestinationRow1 + DestinationColumn]     = Pixel;
@@ -224,26 +281,26 @@ DrawBootPromptLine (
   IN UINTN                         TextScale
   )
 {
-  EFI_STATUS             Status;
-  EFI_HII_FONT_PROTOCOL  *HiiFont;
-  EFI_IMAGE_OUTPUT       *Blt;
-  EFI_IMAGE_OUTPUT       *ScaledBlt;
-  EFI_IMAGE_OUTPUT       *RenderBlt;
-  EFI_FONT_DISPLAY_INFO  FontInfo;
-  EFI_HII_ROW_INFO       *RowInfoArray;
-  UINTN                  RowInfoArraySize;
-  UINTN                  GlyphWidth;
-  UINTN                  GlyphHeight;
-  UINTN                  PointX;
-  UINTN                  PointY;
-  UINTN                  BitmapWidth;
-  UINTN                  BitmapHeight;
-  UINTN                  RenderWidth;
-  UINTN                  RenderHeight;
-  UINTN                  BltWidth;
-  UINTN                  BltHeight;
-  UINTN                  BltDelta;
-  UINTN                  Index;
+  EFI_STATUS                     Status;
+  EFI_HII_FONT_PROTOCOL          *HiiFont;
+  EFI_IMAGE_OUTPUT               *Blt;
+  EFI_IMAGE_OUTPUT               *ScaledBlt;
+  EFI_IMAGE_OUTPUT               *RenderBlt;
+  EFI_FONT_DISPLAY_INFO          FontInfo;
+  EFI_HII_ROW_INFO               *RowInfoArray;
+  UINTN                          RowInfoArraySize;
+  UINTN                          GlyphWidth;
+  UINTN                          GlyphHeight;
+  UINTN                          PointX;
+  UINTN                          PointY;
+  UINTN                          BitmapWidth;
+  UINTN                          BitmapHeight;
+  UINTN                          RenderWidth;
+  UINTN                          RenderHeight;
+  UINTN                          BltWidth;
+  UINTN                          BltHeight;
+  UINTN                          BltDelta;
+  UINTN                          Index;
   EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *ScaledBitmap;
 
   if ((GraphicsOutput == NULL) || (String == NULL) || (TextScale == 0) || (TextScale > 2)) {
@@ -256,17 +313,17 @@ DrawBootPromptLine (
     return Status;
   }
 
-  GlyphWidth            = EFI_GLYPH_WIDTH * TextScale;
-  GlyphHeight           = EFI_GLYPH_HEIGHT * TextScale;
-  PointX                = Column * GlyphWidth;
-  PointY                = Row * GlyphHeight;
+  GlyphWidth  = EFI_GLYPH_WIDTH * TextScale;
+  GlyphHeight = EFI_GLYPH_HEIGHT * TextScale;
+  PointX      = Column * GlyphWidth;
+  PointY      = Row * GlyphHeight;
 
   Blt = AllocateZeroPool (sizeof (EFI_IMAGE_OUTPUT));
   if (Blt == NULL) {
     return EFI_OUT_OF_RESOURCES;
   }
 
-  BitmapWidth = (StrLen (String) + 2) * EFI_GLYPH_WIDTH;
+  BitmapWidth  = (StrLen (String) + 2) * EFI_GLYPH_WIDTH;
   BitmapHeight = EFI_GLYPH_HEIGHT * 2;
   if ((BitmapWidth == 0) || (BitmapHeight == 0)) {
     Status = EFI_INVALID_PARAMETER;
@@ -282,17 +339,17 @@ DrawBootPromptLine (
   }
 
   ZeroMem (&FontInfo, sizeof (FontInfo));
-  FontInfo.ForegroundColor.Blue     = 0xc0;
-  FontInfo.ForegroundColor.Green    = 0xc0;
-  FontInfo.ForegroundColor.Red      = 0xc0;
-  FontInfo.BackgroundColor.Blue     = 0x00;
-  FontInfo.BackgroundColor.Green    = 0x00;
-  FontInfo.BackgroundColor.Red      = 0x00;
-  FontInfo.FontInfoMask             = EFI_FONT_INFO_SYS_FONT | EFI_FONT_INFO_SYS_SIZE | EFI_FONT_INFO_SYS_STYLE;
-  FontInfo.FontInfo.FontSize        = EFI_GLYPH_HEIGHT;
-  FontInfo.FontInfo.FontName[0]     = CHAR_NULL;
-  RowInfoArray                      = NULL;
-  RowInfoArraySize                  = 0;
+  FontInfo.ForegroundColor.Blue  = 0xc0;
+  FontInfo.ForegroundColor.Green = 0xc0;
+  FontInfo.ForegroundColor.Red   = 0xc0;
+  FontInfo.BackgroundColor.Blue  = 0x00;
+  FontInfo.BackgroundColor.Green = 0x00;
+  FontInfo.BackgroundColor.Red   = 0x00;
+  FontInfo.FontInfoMask          = EFI_FONT_INFO_SYS_FONT | EFI_FONT_INFO_SYS_SIZE | EFI_FONT_INFO_SYS_STYLE;
+  FontInfo.FontInfo.FontSize     = EFI_GLYPH_HEIGHT;
+  FontInfo.FontInfo.FontName[0]  = CHAR_NULL;
+  RowInfoArray                   = NULL;
+  RowInfoArraySize               = 0;
 
   Status = HiiFont->StringToImage (
                       HiiFont,
@@ -826,7 +883,12 @@ InstallReadyToLock (
   // Inform the SMM infrastructure that we're entering BDS and may run 3rd party code hereafter
   // Since PI1.2.1, we need signal EndOfDxe as ExitPmAuth
   //
-  EfiEventGroupSignal (&gEfiEndOfDxeEventGroupGuid);
+  Status = EfiEventGroupSignal (&gEfiEndOfDxeEventGroupGuid);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "Failed to signal EndOfDxe: %r\n", Status));
+    return Status;
+  }
+
   DEBUG ((DEBUG_INFO, "All EndOfDxe callbacks have returned successfully\n"));
 
   //
@@ -1173,11 +1235,11 @@ PlatformConnectRemovableMedia (
 
     DEBUG ((DEBUG_INFO, "Connecting USB mass-storage paths on PCI controller\n"));
     gBS->ConnectController (
-             Handles[Index],
-             NULL,
-             (EFI_DEVICE_PATH_PROTOCOL *)&mUsbMassStorageDevicePath,
-             TRUE
-             );
+           Handles[Index],
+           NULL,
+           (EFI_DEVICE_PATH_PROTOCOL *)&mUsbMassStorageDevicePath,
+           TRUE
+           );
   }
 
   FreePool (Handles);
@@ -1205,18 +1267,23 @@ PlatformBootManagerBeforeConsole (
   EFI_BOOT_MANAGER_LOAD_OPTION  BootOption;
   EDKII_PLATFORM_LOGO_PROTOCOL  *PlatformLogo;
   BOOLEAN                       ConsoleInitialized;
+  BOOLEAN                       AuthenticationRequired;
+  BOOLEAN                       FactoryProvisioningRequired;
   BOOLEAN                       ReadyToLockInstalled;
 
-  ReadyToLockInstalled = FALSE;
+  AuthenticationRequired      = BootKeyAuthenticationRequired ();
+  FactoryProvisioningRequired = BootKeyFactoryProvisioningRequired ();
+  ReadyToLockInstalled        = FALSE;
 
   //
-  // Close the EndOfDxe and SMM lock boundary before waiting on any external
-  // authenticator input. Authenticate before capsule processing,
+  // Close the EndOfDxe boundary before waiting on any external authenticator
+  // input. The platform verifier separately checks the coreboot-owned SMM
+  // boundary directly in hardware. Authenticate before capsule processing,
   // deferred-image dispatch, Driver#### execution, console connection, or
   // general device discovery. The statically linked authenticator may prepare
   // only its minimal trusted FIDO transport path.
   //
-  if (BootKeyAuthenticationRequired ()) {
+  if (AuthenticationRequired || FactoryProvisioningRequired) {
     Status = BootKeyPowerSafetyArm ();
     if (Status != EFI_SUCCESS) {
       DEBUG ((
@@ -1224,8 +1291,28 @@ PlatformBootManagerBeforeConsole (
         "Boot-key independent power safety could not be established: %r\n",
         Status
         ));
+      BootKeyAbortCredentialStore ();
       do {
         gRT->ResetSystem (EfiResetShutdown, EFI_DEVICE_ERROR, 0, NULL);
+        gBS->Stall (BOOT_KEY_FAILURE_STALL_US);
+      } while (TRUE);
+    }
+
+    Status = BootKeyVerifyPlatformSecurityBoundary ();
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_ERROR, "Boot-key platform boundary is not protected: %r\n", Status));
+      BootKeyAbortCredentialStore ();
+      do {
+        PlatformBootKeyWaitCallback ();
+        gBS->Stall (BOOT_KEY_FAILURE_STALL_US);
+      } while (TRUE);
+    }
+
+    if (!PlatformBootKeySecureBootEnabled ()) {
+      DEBUG ((DEBUG_ERROR, "Boot-key gate requires active Secure Boot.\n"));
+      BootKeyAbortCredentialStore ();
+      do {
+        PlatformBootKeyWaitCallback ();
         gBS->Stall (BOOT_KEY_FAILURE_STALL_US);
       } while (TRUE);
     }
@@ -1233,27 +1320,51 @@ PlatformBootManagerBeforeConsole (
     Status = InstallReadyToLock ();
     if (EFI_ERROR (Status)) {
       DEBUG ((DEBUG_ERROR, "Boot-key gate could not establish ReadyToLock: %r\n", Status));
+      BootKeyAbortCredentialStore ();
       do {
         PlatformBootKeyWaitCallback ();
         gBS->Stall (BOOT_KEY_FAILURE_STALL_US);
       } while (TRUE);
     }
 
-    ReadyToLockInstalled          = TRUE;
-    mBootKeyLowBatteryTimerActive = FALSE;
-    BootKeyRequireAuthentication (PlatformBootKeyWaitCallback);
-
-    Status = BootKeyPowerSafetyDisarm ();
-    if (Status != EFI_SUCCESS) {
-      DEBUG ((
-        DEBUG_ERROR,
-        "Boot-key independent power safety could not be removed: %r\n",
-        Status
-        ));
+    ReadyToLockInstalled = TRUE;
+    Status               = BootKeyPrepareCredentialStore (FactoryProvisioningRequired);
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_ERROR, "Boot-key credential store is not protected: %r\n", Status));
+      BootKeyAbortCredentialStore ();
       do {
-        gRT->ResetSystem (EfiResetShutdown, EFI_DEVICE_ERROR, 0, NULL);
+        PlatformBootKeyWaitCallback ();
         gBS->Stall (BOOT_KEY_FAILURE_STALL_US);
       } while (TRUE);
+    }
+
+    mBootKeyLowBatteryTimerActive = FALSE;
+    if (AuthenticationRequired) {
+      BootKeyRequireAuthentication (PlatformBootKeyWaitCallback);
+
+      Status = BootKeyCloseCredentialStore ();
+      if (EFI_ERROR (Status)) {
+        DEBUG ((DEBUG_ERROR, "Boot-key credential write window did not close: %r\n", Status));
+        BootKeyAbortCredentialStore ();
+        do {
+          PlatformBootKeyWaitCallback ();
+          gBS->Stall (BOOT_KEY_FAILURE_STALL_US);
+        } while (TRUE);
+      }
+
+      Status = BootKeyPowerSafetyDisarm ();
+      if (Status != EFI_SUCCESS) {
+        DEBUG ((
+          DEBUG_ERROR,
+          "Boot-key independent power safety could not be removed: %r\n",
+          Status
+          ));
+        BootKeyAbortCredentialStore ();
+        do {
+          gRT->ResetSystem (EfiResetShutdown, EFI_DEVICE_ERROR, 0, NULL);
+          gBS->Stall (BOOT_KEY_FAILURE_STALL_US);
+        } while (TRUE);
+      }
     }
   }
 
@@ -1326,6 +1437,34 @@ PlatformBootManagerBeforeConsole (
   }
 
   //
+  // Factory provisioning deliberately runs at the same closed hardware and
+  // PCR 6 write-window boundary as the production gate. A provisioning image
+  // is never a
+  // general-purpose boot image: whether provisioning succeeds or fails, power
+  // the machine off so production firmware must be programmed before use.
+  //
+  if (FactoryProvisioningRequired) {
+    Status = BootKeyProvisionFactorySet ();
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_ERROR, "BOOT_KEY_PROVISION_FAILED: %r\n", Status));
+      BootKeyAbortCredentialStore ();
+    } else {
+      Status = BootKeyCloseCredentialStore ();
+      if (EFI_ERROR (Status)) {
+        DEBUG ((DEBUG_ERROR, "BOOT_KEY_PROVISION_CLOSE_FAILED: %r\n", Status));
+        BootKeyAbortCredentialStore ();
+      } else {
+        DEBUG ((DEBUG_INFO, "BOOT_KEY_PROVISION_COMPLETE\n"));
+      }
+    }
+
+    do {
+      gRT->ResetSystem (EfiResetShutdown, Status, 0, NULL);
+      gBS->Stall (BOOT_KEY_FAILURE_STALL_US);
+    } while (TRUE);
+  }
+
+  //
   // Dispatch deferred images after EndOfDxe event and ReadyToLock installation.
   //
   EfiBootManagerDispatchDeferredImages ();
@@ -1357,9 +1496,18 @@ PlatformBootManagerAfterConsole (
   ConfigureLowBatteryBootGuard ();
 
   //
-  // Ensure TCG2 physical presence variables are initialized for the OPAL BlockSID UI.
+  // A boot-key image disables the platform hierarchy before external input.
+  // TPM Clear, PCR allocation, and other platform-authorized maintenance must
+  // therefore use separately signed recovery firmware instead of the normal
+  // OS-requested PPI path.
   //
-  Tcg2PhysicalPresenceLibProcessRequest (NULL);
+  if (!FixedPcdGetBool (PcdBootKeyModeEnabled)) {
+    //
+    // Ensure TCG2 physical presence variables are initialized for the OPAL
+    // BlockSID UI.
+    //
+    Tcg2PhysicalPresenceLibProcessRequest (NULL);
+  }
 
   //
   // Connecting removable media can perturb the memory map used for S4 resume.
@@ -1412,11 +1560,14 @@ PlatformBootManagerAfterConsole (
   SyncEsrtFmpInfo ();
 
   //
-  // Process TPM PPI request
+  // Process TPM PPI requests only when platform-authorized maintenance is
+  // available in this image.
   //
-  Status=TcgPhysicalPresenceLibProcessRequest (); // Check for TPM1.2 First
-  if (EFI_ERROR (Status)) {
-    Tcg2PhysicalPresenceLibProcessRequest (NULL); //Check for TPM2.0
+  if (!FixedPcdGetBool (PcdBootKeyModeEnabled)) {
+    Status = TcgPhysicalPresenceLibProcessRequest (); // Check for TPM1.2 First
+    if (EFI_ERROR (Status)) {
+      Tcg2PhysicalPresenceLibProcessRequest (NULL); // Check for TPM2.0
+    }
   }
 
   DisplayPlatformBootLogo ();
@@ -1509,6 +1660,7 @@ PlatformBootManagerWaitCallback (
     gST->ConOut->ClearScreen (gST->ConOut);
     BootLogoEnableLogo ();
   }
+
   return;
 }
 

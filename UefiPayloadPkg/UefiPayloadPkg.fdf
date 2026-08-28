@@ -417,11 +417,16 @@ INF MdeModulePkg/Bus/Pci/UhciDxe/UhciDxe.inf
 INF MdeModulePkg/Bus/Pci/EhciDxe/EhciDxe.inf
 INF MdeModulePkg/Bus/Pci/XhciDxe/XhciDxe.inf
 INF MdeModulePkg/Bus/Usb/UsbBusDxe/UsbBusDxe.inf
+## Boot-key images intentionally permit only the minimal FIDO transport in
+## firmware. USB keyboard, mouse and storage support remains an OS concern
+## after ExitBootServices; firmware USB boot is not part of this security mode.
+!if $(BOOT_KEY_AUTHENTICATION) != TRUE && $(BOOT_KEY_FACTORY_PROVISIONING) != TRUE
 INF MdeModulePkg/Bus/Usb/UsbKbDxe/UsbKbDxe.inf
 INF MdeModulePkg/Bus/Usb/UsbMassStorageDxe/UsbMassStorageDxe.inf
 INF MdeModulePkg/Bus/Usb/UsbMouseDxe/UsbMouseDxe.inf
+!endif
 
-!if $(BOOT_KEY_AUTHENTICATION) == TRUE
+!if $(BOOT_KEY_AUTHENTICATION) == TRUE || $(BOOT_KEY_FACTORY_PROVISIONING) == TRUE
 INF SecurityPkg/RandomNumberGenerator/RngDxe/RngDxe.inf
 !endif
 

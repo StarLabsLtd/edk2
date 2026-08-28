@@ -10,7 +10,7 @@
 #include <Uefi.h>
 #include <Library/BootKeyAuthenticatorLib.h>
 
-#define BOOT_KEY_MAX_ENROLLED_CREDENTIALS         8
+#define BOOT_KEY_MAX_ENROLLED_CREDENTIALS         3
 #define BOOT_KEY_PUBLIC_KEY_CERTIFICATE_MAX_SIZE  1024
 
 typedef struct {
@@ -25,6 +25,46 @@ typedef struct {
   UINT8     PublicKeyCertificate[BOOT_KEY_PUBLIC_KEY_CERTIFICATE_MAX_SIZE];
   UINT32    SignCount;
 } BOOT_KEY_CREDENTIAL;
+
+typedef struct {
+  UINTN    CredentialIdSize;
+  UINT8    CredentialId[BOOT_KEY_CREDENTIAL_ID_MAX_SIZE];
+  UINT8    PublicKey[65];
+  UINT8    DeviceIdentity[BOOT_KEY_DEVICE_IDENTITY_SIZE];
+} BOOT_KEY_PROVISIONING_CREDENTIAL;
+
+/**
+  Validate or factory-create the credential store, then disable the TPM
+  platform hierarchy before any external input is accepted.
+
+  FactoryInitialization may permit creation or recovery of a validated but
+  unwritten index. Production callers must pass FALSE and fail closed unless a
+  complete record already exists.
+**/
+EFI_STATUS
+EFIAPI
+BootKeyPrepareCredentialStore (
+  IN BOOLEAN  FactoryInitialization
+  );
+
+/**
+  Irreversibly close the current boot's TPM credential-store write window and
+  log the transition before any external code can execute.
+**/
+EFI_STATUS
+EFIAPI
+BootKeyCloseCredentialStore (
+  VOID
+  );
+
+/**
+  Best-effort, idempotent cleanup for every boot-key failure path.
+**/
+VOID
+EFIAPI
+BootKeyAbortCredentialStore (
+  VOID
+  );
 
 /**
   Read the complete enrolled credential set as one coherent snapshot.
@@ -56,4 +96,40 @@ BootKeyCommitSignCount (
   IN CONST UINT8  *CredentialId,
   IN UINTN        CredentialIdSize,
   IN UINT32       SignCount
+  );
+
+/**
+  Atomically add a factory-provisioned P-256 credential.
+
+  PublicKey is the uncompressed 65-byte SEC1 point (0x04 || X || Y). The
+  operation must reject duplicates and must not expose a partially updated
+  credential set.
+**/
+EFI_STATUS
+EFIAPI
+BootKeyProvisionCredential (
+  IN CONST UINT8  *CredentialId,
+  IN UINTN        CredentialIdSize,
+  IN CONST UINT8  PublicKey[65],
+  IN CONST UINT8  DeviceIdentity[BOOT_KEY_DEVICE_IDENTITY_SIZE]
+  );
+
+/**
+  Atomically create the complete factory enrollment set with one NV write.
+**/
+EFI_STATUS
+EFIAPI
+BootKeyProvisionCredentialSet (
+  IN CONST BOOT_KEY_PROVISIONING_CREDENTIAL  *Credentials,
+  IN UINTN                                   CredentialCount
+  );
+
+/**
+  Atomically remove an enrolled credential while preserving at least one.
+**/
+EFI_STATUS
+EFIAPI
+BootKeyRemoveCredential (
+  IN CONST UINT8  *CredentialId,
+  IN UINTN        CredentialIdSize
   );
