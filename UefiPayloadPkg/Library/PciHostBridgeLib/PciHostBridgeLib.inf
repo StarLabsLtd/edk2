@@ -32,6 +32,7 @@
 [Packages]
   MdeModulePkg/MdeModulePkg.dec
   MdePkg/MdePkg.dec
+  UefiPayloadPkg/UefiPayloadPkg.dec
 
 [LibraryClasses]
   BaseMemoryLib
@@ -39,6 +40,7 @@
   DevicePathLib
   MemoryAllocationLib
   PciLib
+  PcdLib
   DxeServicesTableLib
 
 [Guids]
@@ -46,3 +48,4 @@
 
 [Pcd]
   gEfiMdeModulePkgTokenSpaceGuid.PcdPciDisableBusEnumeration
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyModeEnabled

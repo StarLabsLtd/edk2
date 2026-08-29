@@ -327,6 +327,7 @@ struct cb_range {
 } __attribute__ ((packed));
 
 #define CB_TAG_CFR_ROOT  0x0047
+#define CB_TAG_ROOT_BRIDGE_INFO  0x0048
 struct cb_cfr {
   UINT32 tag;
   UINT32 size;
@@ -334,6 +335,8 @@ struct cb_cfr {
   UINT32 checksum;  /* Of the following data only; excludes these 4 fields */
   /* CFR_FORM forms[] */
 };
+
+#define CBMEM_ID_RB_INFO  0x50524249
 
 /* Helpful macros */
 
