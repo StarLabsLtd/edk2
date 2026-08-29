@@ -24,6 +24,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Library/Tcg2PhysicalPresenceLib.h>
 #include <Library/TimerLib.h>
 #include <Protocol/BatteryStatus.h>
+#include <Protocol/BootKeyDmaIsolation.h>
 #include <Protocol/EsrtManagement.h>
 #include <Protocol/FirmwareVolume2.h>
 #include <Protocol/PciIo.h>
@@ -57,6 +58,41 @@ STATIC USB_MASS_STORAGE_DEVICE_PATH  mUsbMassStorageDevicePath = {
     { END_DEVICE_PATH_LENGTH, 0 }
   }
 };
+
+STATIC
+EFI_STATUS
+PlatformAuthorizePostGateDma (
+  VOID
+  )
+{
+  BOOT_KEY_DMA_ISOLATION_PROTOCOL  *DmaIsolation;
+  EFI_STATUS                       Status;
+
+  if (!FixedPcdGetBool (PcdBootKeyDmaIsolationRequired)) {
+    return EFI_SUCCESS;
+  }
+
+  DmaIsolation = NULL;
+  Status       = gBS->LocateProtocol (
+                        &gBootKeyDmaIsolationProtocolGuid,
+                        NULL,
+                        (VOID **)&DmaIsolation
+                        );
+  if (EFI_ERROR (Status) || (DmaIsolation == NULL) ||
+      (DmaIsolation->Revision != BOOT_KEY_DMA_ISOLATION_PROTOCOL_REVISION) ||
+      (DmaIsolation->Verify == NULL) ||
+      (DmaIsolation->AuthorizePostGate == NULL))
+  {
+    return EFI_SECURITY_VIOLATION;
+  }
+
+  Status = DmaIsolation->Verify (DmaIsolation);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  return DmaIsolation->AuthorizePostGate (DmaIsolation);
+}
 
 #define LOW_BATTERY_BOOT_TIMEOUT             10
 #define BOOT_KEY_FAILURE_STALL_US            250000
@@ -1063,6 +1099,53 @@ PlatformDisplayBootKeyStatus (
 
 STATIC
 VOID
+PlatformMonitorBootKeyLowBattery (
+  VOID
+  )
+{
+  UINT64  CounterEnd;
+  UINT64  CounterStart;
+  UINT64  CurrentCounter;
+  UINT64  ElapsedTicks;
+
+  if (!IsLowBatteryBootGuardRequired ()) {
+    mBootKeyLowBatteryTimerActive = FALSE;
+    return;
+  }
+
+  CurrentCounter = GetPerformanceCounter ();
+  if (!mBootKeyLowBatteryTimerActive) {
+    mBootKeyLowBatteryTimerActive = TRUE;
+    mBootKeyLowBatteryLastCounter = CurrentCounter;
+    mBootKeyLowBatteryElapsedNs   = 0;
+    return;
+  }
+
+  GetPerformanceCounterProperties (&CounterStart, &CounterEnd);
+  if (CounterStart < CounterEnd) {
+    ElapsedTicks = (CurrentCounter >= mBootKeyLowBatteryLastCounter) ?
+                   CurrentCounter - mBootKeyLowBatteryLastCounter :
+                   (CounterEnd - mBootKeyLowBatteryLastCounter) +
+                   (CurrentCounter - CounterStart) + 1;
+  } else {
+    ElapsedTicks = (CurrentCounter <= mBootKeyLowBatteryLastCounter) ?
+                   mBootKeyLowBatteryLastCounter - CurrentCounter :
+                   (mBootKeyLowBatteryLastCounter - CounterEnd) +
+                   (CounterStart - CurrentCounter) + 1;
+  }
+
+  mBootKeyLowBatteryLastCounter = CurrentCounter;
+  mBootKeyLowBatteryElapsedNs  += GetTimeInNanoSecond (ElapsedTicks);
+  if (mBootKeyLowBatteryElapsedNs >=
+      (LOW_BATTERY_BOOT_TIMEOUT * 1000000000ULL))
+  {
+    DEBUG ((DEBUG_INFO, "%a: critical battery timeout, shutting down\n", __func__));
+    gRT->ResetSystem (EfiResetShutdown, EFI_SUCCESS, 0, NULL);
+  }
+}
+
+STATIC
+VOID
 EFIAPI
 PlatformDisplayBootKeyProvisionStatus (
   IN BOOT_KEY_PROVISION_WAIT_STATE  State,
@@ -1074,6 +1157,8 @@ PlatformDisplayBootKeyProvisionStatus (
   CHAR16                        Message[80];
   UINTN                         Index;
   EFI_STATUS                    Status;
+
+  PlatformMonitorBootKeyLowBattery ();
 
   if (mBootKeyProvisionStatusShown &&
       (mBootKeyProvisionStatusState == State) &&
@@ -1151,47 +1236,8 @@ PlatformBootKeyWaitCallback (
   IN UINT32                    SecondsRemaining
   )
 {
-  UINT64  CounterEnd;
-  UINT64  CounterStart;
-  UINT64  CurrentCounter;
-  UINT64  ElapsedTicks;
-
   PlatformDisplayBootKeyStatus (State, SecondsRemaining);
-
-  if (!IsLowBatteryBootGuardRequired ()) {
-    mBootKeyLowBatteryTimerActive = FALSE;
-    return;
-  }
-
-  CurrentCounter = GetPerformanceCounter ();
-  if (!mBootKeyLowBatteryTimerActive) {
-    mBootKeyLowBatteryTimerActive = TRUE;
-    mBootKeyLowBatteryLastCounter = CurrentCounter;
-    mBootKeyLowBatteryElapsedNs   = 0;
-    return;
-  }
-
-  GetPerformanceCounterProperties (&CounterStart, &CounterEnd);
-  if (CounterStart < CounterEnd) {
-    ElapsedTicks = (CurrentCounter >= mBootKeyLowBatteryLastCounter) ?
-                   CurrentCounter - mBootKeyLowBatteryLastCounter :
-                   (CounterEnd - mBootKeyLowBatteryLastCounter) +
-                   (CurrentCounter - CounterStart) + 1;
-  } else {
-    ElapsedTicks = (CurrentCounter <= mBootKeyLowBatteryLastCounter) ?
-                   mBootKeyLowBatteryLastCounter - CurrentCounter :
-                   (mBootKeyLowBatteryLastCounter - CounterEnd) +
-                   (CounterStart - CurrentCounter) + 1;
-  }
-
-  mBootKeyLowBatteryLastCounter = CurrentCounter;
-  mBootKeyLowBatteryElapsedNs  += GetTimeInNanoSecond (ElapsedTicks);
-  if (mBootKeyLowBatteryElapsedNs >=
-      (LOW_BATTERY_BOOT_TIMEOUT * 1000000000ULL))
-  {
-    DEBUG ((DEBUG_INFO, "%a: critical battery timeout, shutting down\n", __func__));
-    gRT->ResetSystem (EfiResetShutdown, EFI_SUCCESS, 0, NULL);
-  }
+  PlatformMonitorBootKeyLowBattery ();
 }
 
 STATIC
@@ -1699,6 +1745,16 @@ PlatformBootManagerBeforeConsole (
       Status = BootKeyCloseCredentialStore ();
       if (EFI_ERROR (Status)) {
         DEBUG ((DEBUG_ERROR, "Boot-key credential write window did not close: %r\n", Status));
+        BootKeyAbortCredentialStore ();
+        do {
+          PlatformBootKeyWaitCallback (BootKeyAuthWaitUnavailable, 0);
+          gBS->Stall (BOOT_KEY_FAILURE_STALL_US);
+        } while (TRUE);
+      }
+
+      Status = PlatformAuthorizePostGateDma ();
+      if (EFI_ERROR (Status)) {
+        DEBUG ((DEBUG_ERROR, "Boot-key DMA boundary did not authorize post-gate devices: %r\n", Status));
         BootKeyAbortCredentialStore ();
         do {
           PlatformBootKeyWaitCallback (BootKeyAuthWaitUnavailable, 0);

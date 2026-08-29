@@ -26,6 +26,7 @@
 #include <Library/UefiBootServicesTableLib.h>
 #include <Protocol/DevicePath.h>
 #include <Protocol/PciIo.h>
+#include <Protocol/PciRootBridgeIo.h>
 #include <Protocol/UsbIo.h>
 
 #define FIDO_HID_CLASS                        3
@@ -64,6 +65,8 @@
 #define FIDO_RECEIVE_REPORT_LIMIT             2
 #define FIDO_INTERFACE_SCAN_LIMIT             4
 #define FIDO_DEVICE_PATH_MAX_SIZE             1024
+#define FIDO_MTL_XHCI_PCI_DEVICE              0x14
+#define FIDO_MTL_XHCI_PCI_FUNCTION            0
 
 typedef struct {
   EFI_HANDLE             Handle;
@@ -98,6 +101,11 @@ typedef struct {
   USB_CLASS_DEVICE_PATH       Fido;
   EFI_DEVICE_PATH_PROTOCOL    End;
 } FIDO_USB_CLASS_DEVICE_PATH;
+
+typedef struct {
+  PCI_DEVICE_PATH             Pci;
+  EFI_DEVICE_PATH_PROTOCOL    End;
+} FIDO_PCI_CONTROLLER_DEVICE_PATH;
 #pragma pack ()
 
 STATIC FIDO_USB_CONTEXT  mFido;
@@ -209,6 +217,70 @@ STATIC FIDO_USB_CLASS_DEVICE_PATH  mFidoDevicePath = {
   }
 };
 
+STATIC FIDO_PCI_CONTROLLER_DEVICE_PATH  mFidoControllerDevicePath = {
+  {
+    {
+      HARDWARE_DEVICE_PATH,
+      HW_PCI_DP,
+      { sizeof (PCI_DEVICE_PATH), 0 }
+    },
+    FIDO_MTL_XHCI_PCI_FUNCTION,
+    FIDO_MTL_XHCI_PCI_DEVICE
+  },
+  {
+    END_DEVICE_PATH_TYPE,
+    END_ENTIRE_DEVICE_PATH_SUBTYPE,
+    { sizeof (EFI_DEVICE_PATH_PROTOCOL), 0 }
+  }
+};
+
+STATIC
+EFI_STATUS
+FidoConnectMtlXhciController (
+  IN OUT FIDO_DEADLINE  *Deadline
+  )
+{
+  EFI_HANDLE  *Handles;
+  UINTN       HandleCount;
+  UINTN       Index;
+  EFI_STATUS  Result;
+  EFI_STATUS  Status;
+
+  Handles = NULL;
+  Status  = gBS->LocateHandleBuffer (
+                   ByProtocol,
+                   &gEfiPciRootBridgeIoProtocolGuid,
+                   NULL,
+                   &HandleCount,
+                   &Handles
+                   );
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  Result = EFI_NOT_FOUND;
+  for (Index = 0; Index < HandleCount; Index++) {
+    if (FidoRemainingTimeoutMs (Deadline) == 0) {
+      Result = EFI_TIMEOUT;
+      break;
+    }
+
+    Status = gBS->ConnectController (
+                    Handles[Index],
+                    NULL,
+                    (EFI_DEVICE_PATH_PROTOCOL *)&mFidoControllerDevicePath,
+                    FALSE
+                    );
+    if (!EFI_ERROR (Status)) {
+      Result = EFI_SUCCESS;
+      break;
+    }
+  }
+
+  FreePool (Handles);
+  return Result;
+}
+
 STATIC
 EFI_STATUS
 FidoConnectUsbClassPath (
@@ -223,6 +295,17 @@ FidoConnectUsbClassPath (
   UINTN                ScanOffset;
   UINTN                StartIndex;
   UINT8                ClassCode[3];
+
+  //
+  // The gate runs before PlatformConsoleInit(), so PciBusDxe has not created
+  // child PciIo handles on a fresh BDS path. Connect only Meteor Lake's fixed
+  // 00:14.0 xHCI path; do not enumerate unrelated PCI devices before the
+  // authentication boundary.
+  //
+  Status = FidoConnectMtlXhciController (Deadline);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
 
   Handles = NULL;
   Status  = gBS->LocateHandleBuffer (

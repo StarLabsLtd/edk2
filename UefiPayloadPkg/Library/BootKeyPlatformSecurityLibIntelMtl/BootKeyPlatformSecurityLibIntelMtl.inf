@@ -31,5 +31,8 @@
   UefiBootServicesTableLib
 
 [Protocols]
+  gBootKeyDmaIsolationProtocolGuid
   gEfiMpServiceProtocolGuid
 
+[FixedPcd]
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyDmaIsolationRequired

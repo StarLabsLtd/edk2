@@ -34,5 +34,7 @@
   UefiBootServicesTableLib
 
 [Protocols]
+  gEfiDevicePathProtocolGuid
   gEfiPciIoProtocolGuid
+  gEfiPciRootBridgeIoProtocolGuid
   gEfiUsbIoProtocolGuid

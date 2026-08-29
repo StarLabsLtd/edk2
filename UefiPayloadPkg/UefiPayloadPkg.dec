@@ -77,6 +77,9 @@
   gMicrosoftKekUefi2023Guid   = { 0xf5a81b7b, 0x419a, 0x4a92, { 0x82, 0x12, 0x1c, 0x36, 0x9b, 0xcb, 0xe2, 0xcb } }
   gMicrosoftPkOem2023Guid     = { 0x701649dd, 0x8739, 0x40b9, { 0xbb, 0xdb, 0x9c, 0xa4, 0x34, 0xfd, 0xcd, 0x3b } }
 
+[Protocols]
+  gBootKeyDmaIsolationProtocolGuid = { 0x74334e17, 0xbc49, 0x4bed, { 0xb0, 0xd7, 0x48, 0x11, 0x97, 0x8d, 0x3e, 0x60 } }
+
 [Ppis]
   gEfiPayLoadHobBasePpiGuid = { 0xdbe23aa1, 0xa342, 0x4b97, {0x85, 0xb6, 0xb2, 0x26, 0xf1, 0x61, 0x73, 0x89} }
 
@@ -172,6 +175,12 @@ gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyModeEnabled|FALSE|BOOLEAN|0x00000041
 
 ## Number of seconds an absent key may be presented before the attempt fails.
 gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyAttemptTimeoutSeconds|60|UINT32|0x00000042
+
+## Requires the coreboot/FSP PMR handoff and the boot-key DMA bounce driver.
+gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyDmaIsolationRequired|FALSE|BOOLEAN|0x00000043
+
+## Exact size of coreboot's PMR-excluded DMA bounce arena.
+gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyDmaArenaSize|0x00400000|UINT32|0x00000044
 
 ## If PcdPayloadFbHiDpiWideAspectCapSupport is enabled and the physical
 ## framebuffer is wider than the configured aspect ratio, the alternate setup GOP

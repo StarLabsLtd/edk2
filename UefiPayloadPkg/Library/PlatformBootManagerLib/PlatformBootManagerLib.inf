@@ -72,6 +72,7 @@
   gUefiShellFileGuid
 
 [Protocols]
+  gBootKeyDmaIsolationProtocolGuid  ## CONSUMES
   gEsrtManagementProtocolGuid      ## CONSUMES
   gEfiGenericMemTestProtocolGuid  ## CONSUMES
   gEfiGraphicsOutputProtocolGuid  ## CONSUMES
@@ -101,5 +102,6 @@
 [FixedPcd]
   gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyAuthTestEnabled
   gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyAuthTestScenario
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyDmaIsolationRequired
   gUefiPayloadPkgTokenSpaceGuid.PcdBootKeySmmExpected
   gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyModeEnabled

@@ -815,8 +815,7 @@ BootKeyRecordValid (
   if ((Record->Magic != BOOT_KEY_NV_RECORD_MAGIC) ||
       (Record->Version != BOOT_KEY_NV_RECORD_VERSION) ||
       (Record->Size != sizeof (*Record)) ||
-      (Record->CredentialCount == 0) ||
-      (Record->CredentialCount > BOOT_KEY_MAX_ENROLLED_CREDENTIALS) ||
+      (Record->CredentialCount != BOOT_KEY_MAX_ENROLLED_CREDENTIALS) ||
       (Record->FailureStage > BOOT_KEY_FAILURE_STAGE_MAX) ||
       (Record->AttemptActive > 1) || (Record->Reserved != 0))
   {
@@ -964,7 +963,10 @@ BootKeyGetCredentialSet (
     return EFI_BUFFER_TOO_SMALL;
   }
 
-  ZeroMem (Credentials, *CredentialCount * sizeof (*Credentials));
+  ZeroMem (
+    Credentials,
+    Record.CredentialCount * sizeof (*Credentials)
+    );
   for (Index = 0; Index < Record.CredentialCount; Index++) {
     Credentials[Index].CredentialIdSize =
       Record.Credentials[Index].CredentialIdSize;

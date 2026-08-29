@@ -272,6 +272,47 @@ CbMemFind (
 
 RETURN_STATUS
 EFIAPI
+CbMemFindDmaRange (
+  OUT PHYSICAL_ADDRESS  *Address,
+  OUT UINT32            *Size
+  )
+{
+  struct cb_record  *Record;
+  struct cb_range   *Range;
+  UINT64            RangeAddress;
+  RETURN_STATUS     Status;
+
+  if ((Address == NULL) || (Size == NULL)) {
+    return RETURN_INVALID_PARAMETER;
+  }
+
+  *Address = 0;
+  *Size    = 0;
+  Status   = FindCorebootRecord (CB_TAG_DMA, &Record, NULL);
+  if (RETURN_ERROR (Status)) {
+    return Status;
+  }
+
+  if (Record->size != sizeof (*Range)) {
+    return RETURN_COMPROMISED_DATA;
+  }
+
+  Range        = (struct cb_range *)Record;
+  RangeAddress = CbMemUnpackReferenceAddress (Range->range_start);
+  if ((RangeAddress == 0) || (Range->range_size == 0) ||
+      (RangeAddress > MAX_UINTN) ||
+      (RangeAddress + Range->range_size < RangeAddress))
+  {
+    return RETURN_COMPROMISED_DATA;
+  }
+
+  *Address = RangeAddress;
+  *Size    = Range->range_size;
+  return RETURN_SUCCESS;
+}
+
+RETURN_STATUS
+EFIAPI
 CbMemPublishTableHob (
   VOID
   )

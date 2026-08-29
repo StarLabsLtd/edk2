@@ -37,6 +37,23 @@ CbMemFind (
   );
 
 /**
+  Find the DMA bounce range exported by coreboot.
+
+  @param[out] Address     Physical base address.
+  @param[out] Size        Range size in bytes.
+
+  @retval RETURN_SUCCESS  Range found and validated.
+  @retval RETURN_NOT_FOUND Coreboot did not export a DMA range.
+  @retval RETURN_COMPROMISED_DATA The range record is malformed.
+**/
+RETURN_STATUS
+EFIAPI
+CbMemFindDmaRange (
+  OUT PHYSICAL_ADDRESS  *Address,
+  OUT UINT32            *Size
+  );
+
+/**
   Publish the validated coreboot table address for later payload modules.
 
   The entry module's bootloader-parameter PCD is patchable per module, so

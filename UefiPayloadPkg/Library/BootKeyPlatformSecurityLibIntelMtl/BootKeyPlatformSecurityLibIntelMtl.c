@@ -19,6 +19,7 @@
 #include <Library/PcdLib.h>
 #include <Library/PciSegmentLib.h>
 #include <Library/UefiBootServicesTableLib.h>
+#include <Protocol/BootKeyDmaIsolation.h>
 #include <Protocol/MpService.h>
 
 #define MTL_ROOT_BRIDGE(Register)  PCI_SEGMENT_LIB_ADDRESS (0, 0, 0, 0, (Register))
@@ -184,6 +185,35 @@ MtlVerifySmramBoundary (
 
 STATIC
 EFI_STATUS
+MtlVerifyDmaBoundary (
+  VOID
+  )
+{
+  BOOT_KEY_DMA_ISOLATION_PROTOCOL  *DmaIsolation;
+  EFI_STATUS                       Status;
+
+  if (!FixedPcdGetBool (PcdBootKeyDmaIsolationRequired)) {
+    return EFI_SECURITY_VIOLATION;
+  }
+
+  DmaIsolation = NULL;
+  Status       = gBS->LocateProtocol (
+                        &gBootKeyDmaIsolationProtocolGuid,
+                        NULL,
+                        (VOID **)&DmaIsolation
+                        );
+  if (EFI_ERROR (Status) || (DmaIsolation == NULL) ||
+      (DmaIsolation->Revision != BOOT_KEY_DMA_ISOLATION_PROTOCOL_REVISION) ||
+      (DmaIsolation->Verify == NULL))
+  {
+    return EFI_SECURITY_VIOLATION;
+  }
+
+  return DmaIsolation->Verify (DmaIsolation);
+}
+
+STATIC
+EFI_STATUS
 MtlVerifyPttBoundary (
   VOID
   )
@@ -295,6 +325,11 @@ BootKeyVerifyPlatformSecurityBoundary (
   )
 {
   EFI_STATUS  Status;
+
+  Status = MtlVerifyDmaBoundary ();
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
 
   Status = MtlVerifyPttBoundary ();
   if (EFI_ERROR (Status)) {

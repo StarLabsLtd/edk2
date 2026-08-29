@@ -277,7 +277,10 @@ BootKeyStartAuthentication (
   }
 
   if ((mBootKeyAuthTransaction.CredentialCount == 0) ||
-      (mBootKeyAuthTransaction.CredentialCount > BOOT_KEY_MAX_ENROLLED_CREDENTIALS))
+      (mBootKeyAuthTransaction.CredentialCount > BOOT_KEY_MAX_ENROLLED_CREDENTIALS) ||
+      (!FixedPcdGetBool (PcdBootKeyAuthTestEnabled) &&
+       (mBootKeyAuthTransaction.CredentialCount !=
+        BOOT_KEY_MAX_ENROLLED_CREDENTIALS)))
   {
     return EFI_SECURITY_VIOLATION;
   }

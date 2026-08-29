@@ -58,6 +58,8 @@
   DEFINE BOOT_KEY_USB_FIDO             = FALSE
   DEFINE BOOT_KEY_TPM_NV_STORE         = FALSE
   DEFINE BOOT_KEY_INTEL_MTL_BOUNDARY    = FALSE
+  DEFINE BOOT_KEY_DMA_ISOLATION          = FALSE
+  DEFINE BOOT_KEY_DMA_ARENA_SIZE         = 0x00400000
   # Test-only provider containing a private fixture key. Never enable this for
   # a production image.
   DEFINE BOOT_KEY_AUTH_TEST            = FALSE
@@ -790,6 +792,8 @@
 !endif
   gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyAuthTestScenario|$(BOOT_KEY_AUTH_TEST_SCENARIO)
   gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyAttemptTimeoutSeconds|$(BOOT_KEY_ATTEMPT_TIMEOUT_SECONDS)
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyDmaIsolationRequired|$(BOOT_KEY_DMA_ISOLATION)
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyDmaArenaSize|$(BOOT_KEY_DMA_ARENA_SIZE)
   gEfiMdePkgTokenSpaceGuid.PcdHardwareErrorRecordLevel|1
   gEfiMdeModulePkgTokenSpaceGuid.PcdMaxVariableSize|0x10000
   gEfiMdeModulePkgTokenSpaceGuid.PcdMaxHardwareErrorVariableSize|0x8000
@@ -1230,6 +1234,13 @@
 !if $(BOOT_KEY_FACTORY_PROVISIONING) == TRUE && $(BOOT_KEY_AUTHENTICATION) == TRUE
   !error "BOOT_KEY_FACTORY_PROVISIONING and BOOT_KEY_AUTHENTICATION are mutually exclusive"
 !endif
+!if $(BOOT_KEY_DMA_ISOLATION) == TRUE
+!if $(BOOT_KEY_AUTHENTICATION) != TRUE
+!if $(BOOT_KEY_FACTORY_PROVISIONING) != TRUE
+  !error "BOOT_KEY_DMA_ISOLATION requires a boot-key gate"
+!endif
+!endif
+!endif
 !if $(BOOT_KEY_FACTORY_PROVISIONING) == TRUE && $(SECURE_BOOT_ENABLE) != TRUE
   !error "BOOT_KEY_FACTORY_PROVISIONING requires SECURE_BOOT_ENABLE"
 !endif
@@ -1258,6 +1269,9 @@
   !error "BOOT_KEY_FACTORY_PROVISIONING requires direct BaseCryptLib services"
 !endif
 !if $(BOOT_KEY_FACTORY_PROVISIONING) == TRUE
+!if $(BOOT_KEY_DMA_ISOLATION) != TRUE
+  !error "Factory boot-key provisioning requires pre-gate DMA isolation"
+!endif
 !if $(BOOT_KEY_USB_FIDO) != TRUE
   !error "Factory boot-key provisioning requires BOOT_KEY_USB_FIDO"
 !endif
@@ -1269,6 +1283,9 @@
 !endif
 !endif
 !if $(BOOT_KEY_AUTHENTICATION) == TRUE && $(BOOT_KEY_AUTH_TEST) != TRUE && $(BOOT_KEY_AUTH_NULL_TEST) != TRUE
+!if $(BOOT_KEY_DMA_ISOLATION) != TRUE
+  !error "Production boot-key authentication requires pre-gate DMA isolation"
+!endif
 !if $(BOOT_KEY_USB_FIDO) != TRUE
   !error "Production boot-key authentication requires BOOT_KEY_USB_FIDO"
 !endif
@@ -1444,6 +1461,9 @@
     <LibraryClasses>
       PciHostBridgeLib|UefiPayloadPkg/Library/PciHostBridgeLib/PciHostBridgeLib.inf
   }
+!if $(BOOT_KEY_DMA_ISOLATION) == TRUE
+  UefiPayloadPkg/BootKeyDmaIsolationDxe/BootKeyDmaIsolationDxe.inf
+!endif
 
   #
   # SCSI/ATA/IDE/DISK Support

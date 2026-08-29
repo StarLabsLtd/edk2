@@ -333,6 +333,9 @@ FILE FREEFORM = be6e1243-682c-4186-8151-448d48afe341 {
 #
 # PCI Support
 #
+!if $(BOOT_KEY_DMA_ISOLATION) == TRUE
+INF UefiPayloadPkg/BootKeyDmaIsolationDxe/BootKeyDmaIsolationDxe.inf
+!endif
 INF MdeModulePkg/Bus/Pci/PciBusDxe/PciBusDxe.inf
 INF MdeModulePkg/Bus/Pci/PciHostBridgeDxe/PciHostBridgeDxe.inf
 

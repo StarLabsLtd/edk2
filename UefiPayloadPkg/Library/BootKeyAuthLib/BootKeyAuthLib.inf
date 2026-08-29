@@ -43,4 +43,5 @@
   gEfiSecureBootEnableDisableGuid
 
 [FixedPcd]
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyAuthTestEnabled
   gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyAttemptTimeoutSeconds
