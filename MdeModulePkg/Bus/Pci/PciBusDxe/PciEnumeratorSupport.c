@@ -222,38 +222,102 @@ PciDevicePresent (
   return EFI_NOT_FOUND;
 }
 
+STATIC
+PCI_IO_DEVICE *
+FindPciDeviceOnBridge (
+  IN PCI_IO_DEVICE  *Bridge,
+  IN UINT8          Bus,
+  IN UINT8          Device,
+  IN UINT8          Func
+  )
+{
+  LIST_ENTRY     *CurrentLink;
+  PCI_IO_DEVICE  *PciIoDevice;
+
+  CurrentLink = Bridge->ChildList.ForwardLink;
+  while ((CurrentLink != NULL) && (CurrentLink != &Bridge->ChildList)) {
+    PciIoDevice = PCI_IO_DEVICE_FROM_LINK (CurrentLink);
+    if ((PciIoDevice->BusNumber == Bus) &&
+        (PciIoDevice->DeviceNumber == Device) &&
+        (PciIoDevice->FunctionNumber == Func))
+    {
+      return PciIoDevice;
+    }
+
+    CurrentLink = CurrentLink->ForwardLink;
+  }
+
+  return NULL;
+}
+
 /**
-  Collect all the resource information under this root bridge.
+  Collect resource information under this root bridge.
 
   A database that records all the information about pci device subject to this
   root bridge will then be created.
 
-  @param Bridge         Parent bridge instance.
-  @param StartBusNumber Bus number of beginning.
+  @param Bridge              Parent bridge instance.
+  @param StartBusNumber      Bus number of beginning.
+  @param RemainingDevicePath Optional path selecting one child hierarchy.
 
   @retval EFI_SUCCESS   PCI device is found.
   @retval other         Some error occurred when reading PCI bridge information.
 
 **/
+STATIC
 EFI_STATUS
-PciPciDeviceInfoCollector (
-  IN PCI_IO_DEVICE  *Bridge,
-  IN UINT8          StartBusNumber
+PciPciDeviceInfoCollectorInternal (
+  IN PCI_IO_DEVICE             *Bridge,
+  IN UINT8                     StartBusNumber,
+  IN EFI_DEVICE_PATH_PROTOCOL  *RemainingDevicePath OPTIONAL
   )
 {
-  EFI_STATUS           Status;
-  PCI_TYPE00           Pci;
-  UINT8                Device;
-  UINT8                Func;
-  UINT8                SecBus;
-  PCI_IO_DEVICE        *PciIoDevice;
-  EFI_PCI_IO_PROTOCOL  *PciIo;
+  EFI_STATUS                Status;
+  PCI_TYPE00                Pci;
+  UINT8                     Device;
+  UINT8                     DeviceLimit;
+  UINT8                     Func;
+  UINT8                     FuncLimit;
+  UINT8                     SecBus;
+  PCI_IO_DEVICE             *PciIoDevice;
+  EFI_PCI_IO_PROTOCOL       *PciIo;
+  EFI_DEV_PATH_PTR          Node;
+  EFI_DEVICE_PATH_PROTOCOL  *NextDevicePath;
+  BOOLEAN                   Found;
 
-  Status = EFI_SUCCESS;
-  SecBus = 0;
+  Status         = EFI_SUCCESS;
+  SecBus         = 0;
+  Device         = 0;
+  DeviceLimit    = PCI_MAX_DEVICE;
+  Func           = 0;
+  FuncLimit      = PCI_MAX_FUNC;
+  NextDevicePath = NULL;
+  Found          = FALSE;
 
-  for (Device = 0; Device <= PCI_MAX_DEVICE; Device++) {
-    for (Func = 0; Func <= PCI_MAX_FUNC; Func++) {
+  if (RemainingDevicePath != NULL) {
+    if ((DevicePathType (RemainingDevicePath) != HARDWARE_DEVICE_PATH) ||
+        (DevicePathSubType (RemainingDevicePath) != HW_PCI_DP) ||
+        (DevicePathNodeLength (RemainingDevicePath) != sizeof (PCI_DEVICE_PATH)))
+    {
+      return EFI_UNSUPPORTED;
+    }
+
+    Node.DevPath   = RemainingDevicePath;
+    if ((Node.Pci->Device > PCI_MAX_DEVICE) ||
+        (Node.Pci->Function > PCI_MAX_FUNC))
+    {
+      return EFI_UNSUPPORTED;
+    }
+
+    Device         = Node.Pci->Device;
+    DeviceLimit    = Device;
+    Func           = Node.Pci->Function;
+    FuncLimit      = Func;
+    NextDevicePath = NextDevicePathNode (RemainingDevicePath);
+  }
+
+  for ( ; Device <= DeviceLimit; Device++) {
+    for ( ; Func <= FuncLimit; Func++) {
       //
       // Check to see whether PCI device is present
       //
@@ -284,22 +348,26 @@ PciPciDeviceInfoCollector (
       }
 
       if (!EFI_ERROR (Status)) {
-        //
-        // Call back to host bridge function
-        //
-        PreprocessController (Bridge, (UINT8)StartBusNumber, Device, Func, EfiPciBeforeResourceCollection);
+        Found       = TRUE;
+        PciIoDevice = FindPciDeviceOnBridge (Bridge, StartBusNumber, Device, Func);
+        if (PciIoDevice == NULL) {
+          //
+          // Call back to host bridge function
+          //
+          PreprocessController (Bridge, (UINT8)StartBusNumber, Device, Func, EfiPciBeforeResourceCollection);
 
-        //
-        // Collect all the information about the PCI device discovered
-        //
-        Status = PciSearchDevice (
-                   Bridge,
-                   &Pci,
-                   (UINT8)StartBusNumber,
-                   Device,
-                   Func,
-                   &PciIoDevice
-                   );
+          //
+          // Collect all the information about the PCI device discovered
+          //
+          Status = PciSearchDevice (
+                     Bridge,
+                     &Pci,
+                     (UINT8)StartBusNumber,
+                     Device,
+                     Func,
+                     &PciIoDevice
+                     );
+        }
 
         //
         // Recursively scan PCI busses on the other side of PCI-PCI bridges
@@ -330,13 +398,16 @@ PciPciDeviceInfoCollector (
           //
           GetResourcePaddingPpb (PciIoDevice);
 
-          //
-          // Deep enumerate the next level bus
-          //
-          Status = PciPciDeviceInfoCollector (
-                     PciIoDevice,
-                     (UINT8)(SecBus)
-                     );
+          if ((RemainingDevicePath == NULL) || !IsDevicePathEnd (NextDevicePath)) {
+            //
+            // Deep enumerate the next level bus
+            //
+            Status = PciPciDeviceInfoCollectorInternal (
+                       PciIoDevice,
+                       (UINT8)(SecBus),
+                       NextDevicePath
+                       );
+          }
         }
 
         if ((Func == 0) && !IS_PCI_MULTI_FUNC (&Pci)) {
@@ -347,9 +418,41 @@ PciPciDeviceInfoCollector (
         }
       }
     }
+
+    Func = 0;
+  }
+
+  if (RemainingDevicePath != NULL) {
+    if (!Found) {
+      return EFI_NOT_FOUND;
+    }
+
+    return Status;
   }
 
   return EFI_SUCCESS;
+}
+
+/**
+  Collect all the resource information under this root bridge.
+
+  A database that records all the information about pci device subject to this
+  root bridge will then be created.
+
+  @param Bridge         Parent bridge instance.
+  @param StartBusNumber Bus number of beginning.
+
+  @retval EFI_SUCCESS   PCI device is found.
+  @retval other         Some error occurred when reading PCI bridge information.
+
+**/
+EFI_STATUS
+PciPciDeviceInfoCollector (
+  IN PCI_IO_DEVICE  *Bridge,
+  IN UINT8          StartBusNumber
+  )
+{
+  return PciPciDeviceInfoCollectorInternal (Bridge, StartBusNumber, NULL);
 }
 
 /**
@@ -2655,13 +2758,39 @@ CreatePciIoDevice (
   return PciIoDevice;
 }
 
+STATIC
+PCI_IO_DEVICE *
+FindLightEnumerationRootBridge (
+  IN EFI_HANDLE  Controller,
+  IN UINT8       StartBusNumber
+  )
+{
+  LIST_ENTRY     *CurrentLink;
+  PCI_IO_DEVICE  *RootBridgeDev;
+
+  CurrentLink = mPciDevicePool.ForwardLink;
+  while ((CurrentLink != NULL) && (CurrentLink != &mPciDevicePool)) {
+    RootBridgeDev = PCI_IO_DEVICE_FROM_LINK (CurrentLink);
+    if ((RootBridgeDev->Handle == Controller) &&
+        (RootBridgeDev->BusNumber == StartBusNumber))
+    {
+      return RootBridgeDev;
+    }
+
+    CurrentLink = CurrentLink->ForwardLink;
+  }
+
+  return NULL;
+}
+
 /**
-  This routine is used to enumerate entire pci bus system
-  in a given platform.
+  This routine uses platform-assigned resources to enumerate either an entire
+  PCI bus system or one requested child hierarchy.
 
   It is only called on the second start on the same Root Bridge.
 
-  @param  Controller     Parent bridge handler.
+  @param  Controller          Parent bridge handler.
+  @param  RemainingDevicePath Optional path selecting one child hierarchy.
 
   @retval EFI_SUCCESS    PCI enumeration finished successfully.
   @retval other          Some error occurred when enumerating the pci bus system.
@@ -2669,7 +2798,8 @@ CreatePciIoDevice (
 **/
 EFI_STATUS
 PciEnumeratorLight (
-  IN EFI_HANDLE  Controller
+  IN EFI_HANDLE                Controller,
+  IN EFI_DEVICE_PATH_PROTOCOL  *RemainingDevicePath OPTIONAL
   )
 {
   EFI_STATUS                         Status;
@@ -2683,10 +2813,8 @@ PciEnumeratorLight (
   MaxBus      = PCI_MAX_BUS;
   Descriptors = NULL;
 
-  //
-  // If this root bridge has been already enumerated, then return successfully
-  //
-  if (GetRootBridgeByHandle (Controller) != NULL) {
+  RootBridgeDev = GetRootBridgeByHandle (Controller);
+  if ((RootBridgeDev != NULL) && !RootBridgeDev->PartialEnumeration) {
     return EFI_SUCCESS;
   }
 
@@ -2712,6 +2840,32 @@ PciEnumeratorLight (
   }
 
   while (PciGetBusRange (&Descriptors, &MinBus, &MaxBus, NULL) == EFI_SUCCESS) {
+    RootBridgeDev = FindLightEnumerationRootBridge (Controller, (UINT8)MinBus);
+    if (RootBridgeDev != NULL) {
+      if ((RemainingDevicePath == NULL) && !RootBridgeDev->PartialEnumeration) {
+        Descriptors++;
+        continue;
+      }
+
+      Status = PciPciDeviceInfoCollectorInternal (
+                 RootBridgeDev,
+                 (UINT8)MinBus,
+                 RemainingDevicePath
+                 );
+      if (EFI_ERROR (Status)) {
+        return Status;
+      }
+
+      ProcessOptionRomLight (RootBridgeDev);
+      DetermineDeviceAttribute (RootBridgeDev);
+      if (RemainingDevicePath == NULL) {
+        RootBridgeDev->PartialEnumeration = FALSE;
+      }
+
+      Descriptors++;
+      continue;
+    }
+
     //
     // Create a device node for root bridge device with a NULL host bridge controller handle
     //
@@ -2726,10 +2880,12 @@ PciEnumeratorLight (
     // Record the root bridge-io protocol
     //
     RootBridgeDev->PciRootBridgeIo = PciRootBridgeIo;
+    RootBridgeDev->BusNumber       = (UINT8)MinBus;
 
-    Status = PciPciDeviceInfoCollector (
+    Status = PciPciDeviceInfoCollectorInternal (
                RootBridgeDev,
-               (UINT8)MinBus
+               (UINT8)MinBus,
+               RemainingDevicePath
                );
 
     if (!EFI_ERROR (Status)) {
@@ -2746,6 +2902,7 @@ PciEnumeratorLight (
       //
       // If successfully, insert the node into device pool
       //
+      RootBridgeDev->PartialEnumeration = (BOOLEAN)(RemainingDevicePath != NULL);
       InsertRootBridge (RootBridgeDev);
     } else {
       //

@@ -356,7 +356,7 @@ PciBusDriverBindingStart (
     //
     // If PCI bus has already done the full enumeration, never do it again
     //
-    Status = PciEnumeratorLight (Controller);
+    Status = PciEnumeratorLight (Controller, RemainingDevicePath);
   }
 
   if (EFI_ERROR (Status)) {
@@ -364,9 +364,13 @@ PciBusDriverBindingStart (
   }
 
   //
-  // Start all the devices under the entire host bridge.
+  // Start either the requested PCI child path or all devices under the
+  // entire host bridge.
   //
-  StartPciDevices (Controller);
+  Status = StartPciDevices (Controller, RemainingDevicePath);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
 
   if (gFullEnumeration) {
     gFullEnumeration = FALSE;

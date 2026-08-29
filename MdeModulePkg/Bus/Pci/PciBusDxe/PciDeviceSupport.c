@@ -660,6 +660,9 @@ StartPciDevicesOnBridge (
                    PciIoDevice,
                    NULL
                    );
+        if (EFI_ERROR (Status)) {
+          return Status;
+        }
       }
 
       if ((NumberOfChildren != NULL) && (ChildHandleBuffer != NULL) && PciIoDevice->Registered) {
@@ -754,7 +757,7 @@ StartPciDevicesOnBridge (
     }
   }
 
-  if (PciIoDevice == NULL) {
+  if ((PciIoDevice == NULL) || (RemainingDevicePath != NULL)) {
     return EFI_NOT_FOUND;
   } else {
     return EFI_SUCCESS;
@@ -762,23 +765,28 @@ StartPciDevicesOnBridge (
 }
 
 /**
-  Start to manage all the PCI devices it found previously under
-  the entire host bridge.
+  Start to manage PCI devices found previously under the host bridge.
 
   @param Controller          The root bridge handle.
+  @param RemainingDevicePath The remaining device path used to select a
+                             specific child, or NULL to start all children.
 
   @retval EFI_NOT_READY   Device is not allocated.
+  @retval EFI_NOT_FOUND   The requested child was not found.
   @retval EFI_SUCCESS     Success to start Pci device on host bridge.
+  @return                 Error returned while starting a requested child.
 
 **/
 EFI_STATUS
 StartPciDevices (
-  IN EFI_HANDLE  Controller
+  IN EFI_HANDLE                Controller,
+  IN EFI_DEVICE_PATH_PROTOCOL  *RemainingDevicePath OPTIONAL
   )
 {
   PCI_IO_DEVICE  *RootBridge;
   EFI_HANDLE     ThisHostBridge;
   LIST_ENTRY     *CurrentLink;
+  EFI_STATUS     Status;
 
   RootBridge = GetRootBridgeByHandle (Controller);
   if (RootBridge == NULL ) {
@@ -796,19 +804,22 @@ StartPciDevices (
     // Locate the right root bridge to start
     //
     if (RootBridge->PciRootBridgeIo->ParentHandle == ThisHostBridge) {
-      StartPciDevicesOnBridge (
-        RootBridge->Handle,
-        RootBridge,
-        NULL,
-        NULL,
-        NULL
-        );
+      Status = StartPciDevicesOnBridge (
+                 RootBridge->Handle,
+                 RootBridge,
+                 RemainingDevicePath,
+                 NULL,
+                 NULL
+                 );
+      if ((RemainingDevicePath != NULL) && (Status != EFI_NOT_FOUND)) {
+        return Status;
+      }
     }
 
     CurrentLink = CurrentLink->ForwardLink;
   }
 
-  return EFI_SUCCESS;
+  return (RemainingDevicePath == NULL) ? EFI_SUCCESS : EFI_NOT_FOUND;
 }
 
 /**
