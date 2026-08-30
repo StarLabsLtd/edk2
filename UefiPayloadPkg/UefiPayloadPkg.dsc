@@ -56,6 +56,7 @@
   DEFINE BOOT_KEY_AUTHENTICATION      = FALSE
   DEFINE BOOT_KEY_FACTORY_PROVISIONING = FALSE
   DEFINE BOOT_KEY_USB_FIDO             = FALSE
+  DEFINE BOOT_KEY_USB_FIDO_TEST        = FALSE
   DEFINE BOOT_KEY_TPM_NV_STORE         = FALSE
   DEFINE BOOT_KEY_INTEL_MTL_BOUNDARY    = FALSE
   DEFINE BOOT_KEY_DMA_ISOLATION          = FALSE
@@ -794,6 +795,7 @@
   gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyAttemptTimeoutSeconds|$(BOOT_KEY_ATTEMPT_TIMEOUT_SECONDS)
   gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyDmaIsolationRequired|$(BOOT_KEY_DMA_ISOLATION)
   gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyDmaArenaSize|$(BOOT_KEY_DMA_ARENA_SIZE)
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyUsbFidoTestEnabled|$(BOOT_KEY_USB_FIDO_TEST)
   gEfiMdePkgTokenSpaceGuid.PcdHardwareErrorRecordLevel|1
   gEfiMdeModulePkgTokenSpaceGuid.PcdMaxVariableSize|0x10000
   gEfiMdeModulePkgTokenSpaceGuid.PcdMaxHardwareErrorVariableSize|0x8000
@@ -1205,6 +1207,21 @@
 !if $(BOOT_KEY_AUTH_TEST) == TRUE && $(BOOT_KEY_AUTHENTICATION) != TRUE
   !error "BOOT_KEY_AUTH_TEST requires BOOT_KEY_AUTHENTICATION"
 !endif
+!if $(BOOT_KEY_USB_FIDO_TEST) == TRUE && $(TARGET) != DEBUG
+  !error "BOOT_KEY_USB_FIDO_TEST is permitted only in DEBUG builds"
+!endif
+!if $(BOOT_KEY_USB_FIDO_TEST) == TRUE && $(BOOT_KEY_USB_FIDO) != TRUE
+  !error "BOOT_KEY_USB_FIDO_TEST requires BOOT_KEY_USB_FIDO"
+!endif
+!if $(BOOT_KEY_USB_FIDO_TEST) == TRUE && ($(BOOT_KEY_AUTHENTICATION) == TRUE || $(BOOT_KEY_FACTORY_PROVISIONING) == TRUE)
+  !error "BOOT_KEY_USB_FIDO_TEST cannot be combined with a boot gate"
+!endif
+!if $(BOOT_KEY_USB_FIDO_TEST) == TRUE && $(BOOTLOADER) != "COREBOOT"
+  !error "BOOT_KEY_USB_FIDO_TEST requires the coreboot handoff"
+!endif
+!if $(BOOT_KEY_USB_FIDO_TEST) == TRUE && $(UNIVERSAL_PAYLOAD) != FALSE
+  !error "BOOT_KEY_USB_FIDO_TEST requires the legacy cbtables payload"
+!endif
 !if $(BOOT_KEY_AUTH_TEST) == TRUE && $(TARGET) != DEBUG
   !error "BOOT_KEY_AUTH_TEST is permitted only in DEBUG builds"
 !endif
@@ -1299,6 +1316,17 @@
 !if $(CBMEM_TIMESTAMPS) == TRUE
   UefiPayloadPkg/CbMemTimestampDxe/CbMemTimestampDxe.inf
 !endif
+
+[Components.X64]
+!if $(BOOT_KEY_USB_FIDO_TEST) == TRUE
+  UefiPayloadPkg/Test/BootKeyUsbFidoTestDxe/BootKeyUsbFidoTestDxe.inf {
+    <LibraryClasses>
+      BootKeyAuthenticatorLib|UefiPayloadPkg/Library/BootKeyAuthenticatorLibUsbFido/BootKeyAuthenticatorLibUsbFido.inf
+      OpensslLib|CryptoPkg/Library/OpensslLib/OpensslLibFull.inf
+  }
+!endif
+
+[Components.X64, Components.AARCH64]
   #
   # DXE Core
   #

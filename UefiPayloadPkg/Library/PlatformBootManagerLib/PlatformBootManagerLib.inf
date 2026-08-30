@@ -105,3 +105,4 @@
   gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyDmaIsolationRequired
   gUefiPayloadPkgTokenSpaceGuid.PcdBootKeySmmExpected
   gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyModeEnabled
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyUsbFidoTestEnabled

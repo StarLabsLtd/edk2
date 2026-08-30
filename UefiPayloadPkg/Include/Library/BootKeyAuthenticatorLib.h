@@ -98,9 +98,13 @@ BootKeyMakeCredential (
   Return a stable identity for the connected physical authenticator.
 
   Production USB implementations derive this value from the device's immutable
-  manufacturer-assigned serial number and USB vendor. Product IDs are transport
-  configuration, not physical identity. Authenticators without a serial number
-  cannot be factory provisioned.
+  manufacturer-assigned serial number and USB vendor. The serial is read over
+  the selected FIDO channel rather than trusted from an optional USB string
+  descriptor. Product IDs are transport configuration, not physical identity.
+  Authenticators without a serial number cannot be factory provisioned. This
+  identity detects accidental reuse in a controlled factory environment; FIDO
+  does not cryptographically bind a standard serial response to attestation,
+  so it is not proof against a hostile USB proxy.
 **/
 EFI_STATUS
 EFIAPI

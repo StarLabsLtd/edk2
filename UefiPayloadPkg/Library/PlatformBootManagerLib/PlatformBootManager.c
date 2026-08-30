@@ -59,6 +59,10 @@ STATIC USB_MASS_STORAGE_DEVICE_PATH  mUsbMassStorageDevicePath = {
   }
 };
 
+STATIC EFI_GUID  mBootKeyUsbFidoTestFileGuid = {
+  0xf5058d15, 0x679e, 0x4d3d, { 0x94, 0x6f, 0x1c, 0x5f, 0x9d, 0x11, 0x47, 0x30 }
+};
+
 STATIC
 EFI_STATUS
 PlatformAuthorizePostGateDma (
@@ -1381,13 +1385,15 @@ PlatformFindLoadOption (
 }
 
 /**
-  Get the FV device path for the shell file.
+  Get the FV device path containing a specified file.
+
+  @param FileGuid  GUID of the file to locate.
 
   @return   A pointer to device path structure.
 **/
 EFI_DEVICE_PATH_PROTOCOL *
-BdsGetShellFvDevicePath (
-  VOID
+BdsGetFvDevicePath (
+  IN EFI_GUID  *FileGuid
   )
 {
   UINTN                          FvHandleCount;
@@ -1401,14 +1407,18 @@ BdsGetShellFvDevicePath (
   EFI_FV_FILETYPE                FoundType;
   EFI_FV_FILE_ATTRIBUTES         FileAttributes;
 
-  Status = EFI_SUCCESS;
-  gBS->LocateHandleBuffer (
-         ByProtocol,
-         &gEfiFirmwareVolume2ProtocolGuid,
-         NULL,
-         &FvHandleCount,
-         &FvHandleBuffer
-         );
+  FvHandleCount  = 0;
+  FvHandleBuffer = NULL;
+  Status         = gBS->LocateHandleBuffer (
+                          ByProtocol,
+                          &gEfiFirmwareVolume2ProtocolGuid,
+                          NULL,
+                          &FvHandleCount,
+                          &FvHandleBuffer
+                          );
+  if (EFI_ERROR (Status)) {
+    return NULL;
+  }
 
   for (Index = 0; Index < FvHandleCount; Index++) {
     Size = 0;
@@ -1419,7 +1429,7 @@ BdsGetShellFvDevicePath (
            );
     Status = Fv->ReadFile (
                    Fv,
-                   &gUefiShellFileGuid,
+                   FileGuid,
                    NULL,
                    &Size,
                    &FoundType,
@@ -1428,14 +1438,14 @@ BdsGetShellFvDevicePath (
                    );
     if (!EFI_ERROR (Status)) {
       //
-      // Found the shell file
+      // Found the file
       //
       break;
     }
   }
 
   if (EFI_ERROR (Status)) {
-    if (FvHandleCount) {
+    if (FvHandleBuffer != NULL) {
       FreePool (FvHandleBuffer);
     }
 
@@ -1444,7 +1454,7 @@ BdsGetShellFvDevicePath (
 
   DevicePath = DevicePathFromHandle (FvHandleBuffer[Index]);
 
-  if (FvHandleCount) {
+  if (FvHandleBuffer != NULL) {
     FreePool (FvHandleBuffer);
   }
 
@@ -1475,7 +1485,7 @@ PlatformRegisterFvBootOption (
 
   EfiInitializeFwVolDevicepathNode (&FileNode, FileGuid);
   DevicePath = AppendDevicePathNode (
-                 BdsGetShellFvDevicePath (),
+                 BdsGetFvDevicePath (FileGuid),
                  (EFI_DEVICE_PATH_PROTOCOL *)&FileNode
                  );
 
@@ -1502,6 +1512,54 @@ PlatformRegisterFvBootOption (
     EfiBootManagerFreeLoadOption (&NewOption);
     EfiBootManagerFreeLoadOptions (BootOptions, BootOptionCount);
   }
+}
+
+STATIC
+EFI_STATUS
+PlatformBootFvApplication (
+  IN EFI_GUID  *FileGuid,
+  IN CHAR16    *Description
+  )
+{
+  EFI_BOOT_MANAGER_LOAD_OPTION       BootOption;
+  MEDIA_FW_VOL_FILEPATH_DEVICE_PATH  FileNode;
+  EFI_DEVICE_PATH_PROTOCOL           *DevicePath;
+  EFI_DEVICE_PATH_PROTOCOL           *FvDevicePath;
+  EFI_STATUS                         Status;
+
+  FvDevicePath = BdsGetFvDevicePath (FileGuid);
+  if (FvDevicePath == NULL) {
+    return EFI_NOT_FOUND;
+  }
+
+  EfiInitializeFwVolDevicepathNode (&FileNode, FileGuid);
+  DevicePath = AppendDevicePathNode (
+                 FvDevicePath,
+                 (EFI_DEVICE_PATH_PROTOCOL *)&FileNode
+                 );
+  if (DevicePath == NULL) {
+    return EFI_OUT_OF_RESOURCES;
+  }
+
+  Status = EfiBootManagerInitializeLoadOption (
+             &BootOption,
+             LoadOptionNumberUnassigned,
+             LoadOptionTypeBoot,
+             LOAD_OPTION_ACTIVE,
+             Description,
+             DevicePath,
+             NULL,
+             0
+             );
+  FreePool (DevicePath);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  EfiBootManagerBoot (&BootOption);
+  Status = BootOption.Status;
+  EfiBootManagerFreeLoadOption (&BootOption);
+  return Status;
 }
 
 STATIC
@@ -1927,6 +1985,15 @@ PlatformBootManagerAfterConsole (
         "Skipping global device discovery; connecting the selected boot path on demand\n"
         ));
     }
+  }
+
+  if (FixedPcdGetBool (PcdBootKeyUsbFidoTestEnabled)) {
+    Status = PlatformBootFvApplication (
+               &mBootKeyUsbFidoTestFileGuid,
+               L"USB FIDO boot-key transport test"
+               );
+    DEBUG ((DEBUG_INFO, "USB FIDO boot-key test returned %r\n", Status));
+    return;
   }
 
   //

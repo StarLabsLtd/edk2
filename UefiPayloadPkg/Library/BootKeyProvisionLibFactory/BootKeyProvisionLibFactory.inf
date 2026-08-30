@@ -15,7 +15,6 @@
 
 [Sources]
   BootKeyProvisionLibFactory.c
-  YubicoFidoAttestationIssuers.h
 
 [Packages]
   CryptoPkg/CryptoPkg.dec

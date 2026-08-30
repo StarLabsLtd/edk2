@@ -21,7 +21,7 @@
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/UefiRuntimeServicesTableLib.h>
 
-#include "YubicoFidoAttestationIssuers.h"
+#include <BootKey/YubicoFidoAttestationIssuers.h>
 
 #define BOOT_KEY_RP_ID                  "starlabs.systems"
 #define BOOT_KEY_PROVISION_WAIT_US      250000
@@ -372,6 +372,12 @@ BootKeyProvisionFactorySet (
       return EFI_SECURITY_VIOLATION;
     }
 
+    //
+    // Reject a repeated token in the controlled factory workflow.  Yubico's
+    // standard serial response is stable but is not cryptographically bound to
+    // FIDO attestation, so the provisioning station's USB path remains inside
+    // the factory trust boundary.
+    //
     for (Index = 0; Index < CredentialCount; Index++) {
       if (((Pending[Index].CredentialIdSize == CredentialIdSize) &&
            (CompareMem (

@@ -49,8 +49,10 @@
 #define FIDO_BROADCAST_CHANNEL                0xffffffffU
 #define FIDO_HID_INIT                         0x86
 #define FIDO_HID_MSG                          0x83
+#define FIDO_HID_YUBICO_GET_DEVICE_INFO       0xc2
 #define FIDO_HID_KEEPALIVE                    0xbb
 #define FIDO_HID_ERROR                        0xbf
+#define FIDO_YUBICO_DEVICE_INFO_SERIAL_TAG    0x02
 #define FIDO_U2F_REGISTER                     0x01
 #define FIDO_U2F_AUTHENTICATE                 0x02
 #define FIDO_U2F_AUTH_ENFORCE_USER            0x03
@@ -79,6 +81,7 @@ typedef struct {
   UINT8                  InterfaceNumber;
   UINT8                  DeviceIdentity[BOOT_KEY_DEVICE_IDENTITY_SIZE];
   UINT8                  DevicePathDigest[SHA256_DIGEST_SIZE];
+  BOOLEAN                DeviceIdentityValid;
   UINT32                 Channel;
   BOOLEAN                TransactionPending;
   UINT8                  PendingCommand;
@@ -448,9 +451,43 @@ FidoReportDescriptorMatches (
   )
 {
   UINT8                   Descriptor[FIDO_REPORT_DESCRIPTOR_MAX_SIZE];
+  EFI_USB_HID_DESCRIPTOR  HidDescriptor;
   EFI_USB_DEVICE_REQUEST  Request;
+  UINT16                  ReportDescriptorSize;
   EFI_STATUS              Status;
   UINTN                   Index;
+
+  ZeroMem (&HidDescriptor, sizeof (HidDescriptor));
+  ZeroMem (&Request, sizeof (Request));
+  Request.RequestType = USB_HID_GET_DESCRIPTOR_REQ_TYPE;
+  Request.Request     = USB_REQ_GET_DESCRIPTOR;
+  Request.Value       = (UINT16)(USB_DESC_TYPE_HID << 8);
+  Request.Index       = InterfaceNumber;
+  Request.Length      = sizeof (HidDescriptor);
+  Status              = FidoUsbControlTransfer (
+                          UsbIo,
+                          &Request,
+                          &HidDescriptor,
+                          sizeof (HidDescriptor),
+                          Deadline
+                          );
+  if (EFI_ERROR (Status) ||
+      (HidDescriptor.Length < sizeof (HidDescriptor)) ||
+      (HidDescriptor.DescriptorType != USB_DESC_TYPE_HID) ||
+      (HidDescriptor.NumDescriptors != 1) ||
+      (HidDescriptor.HidClassDesc[0].DescriptorType != USB_DESC_TYPE_REPORT))
+  {
+    return FALSE;
+  }
+
+  ReportDescriptorSize = ReadUnaligned16 (
+                           (CONST UINT16 *)&HidDescriptor.HidClassDesc[0].DescriptorLength
+                           );
+  if ((ReportDescriptorSize < 5) ||
+      (ReportDescriptorSize > sizeof (Descriptor)))
+  {
+    return FALSE;
+  }
 
   ZeroMem (Descriptor, sizeof (Descriptor));
   ZeroMem (&Request, sizeof (Request));
@@ -458,12 +495,12 @@ FidoReportDescriptorMatches (
   Request.Request     = USB_REQ_GET_DESCRIPTOR;
   Request.Value       = (UINT16)(USB_DESC_TYPE_REPORT << 8);
   Request.Index       = InterfaceNumber;
-  Request.Length      = sizeof (Descriptor);
+  Request.Length      = ReportDescriptorSize;
   Status              = FidoUsbControlTransfer (
                           UsbIo,
                           &Request,
                           Descriptor,
-                          sizeof (Descriptor),
+                          ReportDescriptorSize,
                           Deadline
                           );
   if (EFI_ERROR (Status)) {
@@ -475,7 +512,7 @@ FidoReportDescriptorMatches (
   // CTAPHID usage. Rejecting a generic HID interface keeps discovery scoped to
   // the one pre-OS device class the boot policy permits.
   //
-  for (Index = 0; Index + 4 < sizeof (Descriptor); Index++) {
+  for (Index = 0; Index + 4 < ReportDescriptorSize; Index++) {
     if ((Descriptor[Index] == 0x06) &&
         (Descriptor[Index + 1] == (UINT8)FIDO_USAGE_PAGE) &&
         (Descriptor[Index + 2] == (UINT8)(FIDO_USAGE_PAGE >> 8)) &&
@@ -505,11 +542,13 @@ FidoInterfaceMatches (
   EFI_STATUS                    Status;
   UINT8                         Index;
 
+  ZeroMem (&Device, sizeof (Device));
   Status = UsbIo->UsbGetDeviceDescriptor (UsbIo, &Device);
   if (EFI_ERROR (Status) || (Device.IdVendor != FIDO_YUBICO_VENDOR_ID)) {
     return FALSE;
   }
 
+  ZeroMem (&Interface, sizeof (Interface));
   Status = UsbIo->UsbGetInterfaceDescriptor (UsbIo, &Interface);
   if (EFI_ERROR (Status) ||
       (Interface.InterfaceClass != FIDO_HID_CLASS) ||
@@ -528,6 +567,7 @@ FidoInterfaceMatches (
   *OutEndpoint = 0;
   *ReportSize  = 0;
   for (Index = 0; Index < Interface.NumEndpoints; Index++) {
+    ZeroMem (&Endpoint, sizeof (Endpoint));
     Status = UsbIo->UsbGetEndpointDescriptor (UsbIo, Index, &Endpoint);
     if (EFI_ERROR (Status) ||
         ((Endpoint.Attributes & USB_ENDPOINT_TYPE_MASK) != USB_ENDPOINT_INTERRUPT))
@@ -552,114 +592,36 @@ FidoInterfaceMatches (
 
 STATIC
 EFI_STATUS
-FidoReadDeviceIdentity (
+FidoReadDeviceBinding (
   IN  EFI_HANDLE           Handle,
   IN  EFI_USB_IO_PROTOCOL  *UsbIo,
   OUT UINT16               *VendorId,
   OUT UINT16               *ProductId,
   OUT UINT8                *InterfaceNumber,
-  OUT UINT8                Identity[BOOT_KEY_DEVICE_IDENTITY_SIZE],
-  OUT UINT8                DevicePathDigest[SHA256_DIGEST_SIZE],
-  IN OUT FIDO_DEADLINE     *Deadline
+  OUT UINT8                DevicePathDigest[SHA256_DIGEST_SIZE]
   )
 {
   EFI_USB_DEVICE_DESCRIPTOR     Device;
   EFI_USB_INTERFACE_DESCRIPTOR  Interface;
-  EFI_USB_DEVICE_REQUEST        Request;
   EFI_DEVICE_PATH_PROTOCOL      *DevicePath;
-  UINT8                         IdentityInput[2 + 128 * sizeof (CHAR16)];
-  UINT8                         LanguageDescriptor[256];
-  UINT8                         SerialDescriptor[256];
   UINTN                         DevicePathSize;
-  UINTN                         Index;
-  UINTN                         SerialSize;
-  UINT16                        Language;
   EFI_STATUS                    Status;
 
   if ((Handle == NULL) || (UsbIo == NULL) || (VendorId == NULL) ||
       (ProductId == NULL) || (InterfaceNumber == NULL) ||
-      (Identity == NULL) || (DevicePathDigest == NULL))
+      (DevicePathDigest == NULL))
   {
     return EFI_INVALID_PARAMETER;
   }
 
   Status = UsbIo->UsbGetDeviceDescriptor (UsbIo, &Device);
-  if (EFI_ERROR (Status) ||
-      (Device.IdVendor != FIDO_YUBICO_VENDOR_ID) ||
-      (Device.StrSerialNumber == 0))
-  {
+  if (EFI_ERROR (Status) || (Device.IdVendor != FIDO_YUBICO_VENDOR_ID)) {
     return EFI_UNSUPPORTED;
   }
 
   Status = UsbIo->UsbGetInterfaceDescriptor (UsbIo, &Interface);
   if (EFI_ERROR (Status)) {
     return Status;
-  }
-
-  ZeroMem (&Request, sizeof (Request));
-  ZeroMem (LanguageDescriptor, sizeof (LanguageDescriptor));
-  Request.RequestType = USB_DEV_GET_DESCRIPTOR_REQ_TYPE;
-  Request.Request     = USB_REQ_GET_DESCRIPTOR;
-  Request.Value       = (UINT16)(USB_DESC_TYPE_STRING << 8);
-  Request.Length      = sizeof (LanguageDescriptor) - 1;
-  Status              = FidoUsbControlTransfer (
-                          UsbIo,
-                          &Request,
-                          LanguageDescriptor,
-                          sizeof (LanguageDescriptor) - 1,
-                          Deadline
-                          );
-  if (EFI_ERROR (Status) ||
-      (LanguageDescriptor[0] < 4) ||
-      ((LanguageDescriptor[0] & 1) != 0) ||
-      (LanguageDescriptor[1] != USB_DESC_TYPE_STRING))
-  {
-    return EFI_UNSUPPORTED;
-  }
-
-  Language = ReadUnaligned16 ((CONST UINT16 *)&LanguageDescriptor[2]);
-  if (Language == 0) {
-    return EFI_UNSUPPORTED;
-  }
-
-  ZeroMem (&Request, sizeof (Request));
-  ZeroMem (SerialDescriptor, sizeof (SerialDescriptor));
-  Request.RequestType = USB_DEV_GET_DESCRIPTOR_REQ_TYPE;
-  Request.Request     = USB_REQ_GET_DESCRIPTOR;
-  Request.Value       = (UINT16)((USB_DESC_TYPE_STRING << 8) |
-                                 Device.StrSerialNumber);
-  Request.Index       = Language;
-  Request.Length      = sizeof (SerialDescriptor) - 1;
-  Status              = FidoUsbControlTransfer (
-                          UsbIo,
-                          &Request,
-                          SerialDescriptor,
-                          sizeof (SerialDescriptor) - 1,
-                          Deadline
-                          );
-  if (EFI_ERROR (Status) ||
-      (SerialDescriptor[0] <= 2) ||
-      ((SerialDescriptor[0] & 1) != 0) ||
-      (SerialDescriptor[1] != USB_DESC_TYPE_STRING))
-  {
-    return EFI_UNSUPPORTED;
-  }
-
-  SerialSize = SerialDescriptor[0] - 2;
-  if ((SerialSize == 0) || (SerialSize > sizeof (IdentityInput) - 2)) {
-    return EFI_UNSUPPORTED;
-  }
-
-  for (Index = 0; Index < SerialSize; Index += sizeof (CHAR16)) {
-    if (ReadUnaligned16 ((CONST UINT16 *)&SerialDescriptor[2 + Index]) == 0) {
-      return EFI_UNSUPPORTED;
-    }
-  }
-
-  WriteUnaligned16 ((UINT16 *)&IdentityInput[0], Device.IdVendor);
-  CopyMem (&IdentityInput[2], &SerialDescriptor[2], SerialSize);
-  if (!Sha256HashAll (IdentityInput, 2 + SerialSize, Identity)) {
-    return EFI_DEVICE_ERROR;
   }
 
   DevicePath = NULL;
@@ -710,7 +672,6 @@ FidoFindInterface (
   UINT16               VendorId;
   UINT16               ProductId;
   UINT8                InterfaceNumber;
-  UINT8                DeviceIdentity[BOOT_KEY_DEVICE_IDENTITY_SIZE];
   UINT8                DevicePathDigest[SHA256_DIGEST_SIZE];
 
   Handles     = NULL;
@@ -740,8 +701,7 @@ FidoFindInterface (
   StartIndex = mFidoScanOffset % HandleCount;
   ScanCount  = MIN (HandleCount, FIDO_INTERFACE_SCAN_LIMIT);
   Status     = EFI_NOT_FOUND;
-  for (ScanOffset = 0; ScanOffset < ScanCount; ScanOffset++)
-  {
+  for (ScanOffset = 0; ScanOffset < ScanCount; ScanOffset++) {
     Index = (StartIndex + ScanOffset) % HandleCount;
     UsbIo = NULL;
     if (EFI_ERROR (
@@ -762,15 +722,13 @@ FidoFindInterface (
       continue;
     }
 
-    Status = FidoReadDeviceIdentity (
+    Status = FidoReadDeviceBinding (
                Handles[Index],
                UsbIo,
                &VendorId,
                &ProductId,
                &InterfaceNumber,
-               DeviceIdentity,
-               DevicePathDigest,
-               Deadline
+               DevicePathDigest
                );
     if (EFI_ERROR (Status)) {
       continue;
@@ -785,16 +743,11 @@ FidoFindInterface (
     mFido.ProductId       = ProductId;
     mFido.InterfaceNumber = InterfaceNumber;
     CopyMem (
-      mFido.DeviceIdentity,
-      DeviceIdentity,
-      sizeof (mFido.DeviceIdentity)
-      );
-    CopyMem (
       mFido.DevicePathDigest,
       DevicePathDigest,
       sizeof (mFido.DevicePathDigest)
       );
-    Status = EFI_SUCCESS;
+    Status          = EFI_SUCCESS;
     mFidoScanOffset = (Index + 1) % HandleCount;
     break;
   }
@@ -821,7 +774,6 @@ FidoCurrentDeviceStatus (
   UINT16                     VendorId;
   UINT16                     ProductId;
   UINT8                      InterfaceNumber;
-  UINT8                      DeviceIdentity[BOOT_KEY_DEVICE_IDENTITY_SIZE];
   UINT8                      DevicePathDigest[SHA256_DIGEST_SIZE];
   UINT16                     DeviceStatus;
   EFI_STATUS                 Status;
@@ -871,15 +823,13 @@ FidoCurrentDeviceStatus (
     return EFI_NOT_FOUND;
   }
 
-  Status = FidoReadDeviceIdentity (
+  Status = FidoReadDeviceBinding (
              mFido.Handle,
              UsbIo,
              &VendorId,
              &ProductId,
              &InterfaceNumber,
-             DeviceIdentity,
-             DevicePathDigest,
-             Deadline
+             DevicePathDigest
              );
   if (EFI_ERROR (Status)) {
     return EFI_NOT_READY;
@@ -888,11 +838,6 @@ FidoCurrentDeviceStatus (
   return ((VendorId == mFido.VendorId) &&
           (ProductId == mFido.ProductId) &&
           (InterfaceNumber == mFido.InterfaceNumber) &&
-          (CompareMem (
-             DeviceIdentity,
-             mFido.DeviceIdentity,
-             sizeof (DeviceIdentity)
-             ) == 0) &&
           (CompareMem (
              DevicePathDigest,
              mFido.DevicePathDigest,
@@ -1105,15 +1050,12 @@ FidoTransaction (
              Deadline
              );
   if ((Status == EFI_NOT_READY) || (Status == EFI_TIMEOUT)) {
-    if (Status == EFI_TIMEOUT) {
-      //
-      // A transport timeout cannot distinguish a slow authenticator from a
-      // disconnect and reinsertion.  Discard the channel so the next attempt
-      // performs CTAPHID_INIT instead of receiving on stale device state.
-      //
-      ZeroMem (&mFido, sizeof (mFido));
-    }
-
+    //
+    // A user-presence transaction may legitimately outlive one bounded USB
+    // poll.  Preserve its channel and request binding across callbacks.  The
+    // next public operation validates the USB handle and device path before
+    // receiving again; a confirmed removal still discards the complete state.
+    //
     return EFI_NOT_READY;
   }
 
@@ -1130,6 +1072,90 @@ FidoTransaction (
     sizeof (mFido.PendingRequestDigest)
     );
   return Status;
+}
+
+STATIC
+EFI_STATUS
+FidoReadYubicoDeviceIdentity (
+  OUT UINT8             Identity[BOOT_KEY_DEVICE_IDENTITY_SIZE],
+  IN OUT FIDO_DEADLINE  *Deadline
+  )
+{
+  UINT8       EmptyRequest;
+  UINT8       Response[256];
+  UINT8       IdentityInput[sizeof (mFido.VendorId) + sizeof (UINT32)];
+  UINTN       Offset;
+  UINTN       ResponseSize;
+  UINTN       TotalSize;
+  UINTN       ValueSize;
+  BOOLEAN     SerialFound;
+  EFI_STATUS  Status;
+
+  EmptyRequest = 0;
+  ResponseSize = sizeof (Response);
+  Status       = FidoTransaction (
+                   FIDO_HID_YUBICO_GET_DEVICE_INFO,
+                   &EmptyRequest,
+                   0,
+                   Response,
+                   &ResponseSize,
+                   Deadline
+                   );
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  if (ResponseSize < 1) {
+    return EFI_PROTOCOL_ERROR;
+  }
+
+  TotalSize = (UINTN)Response[0] + 1;
+  if (TotalSize != ResponseSize) {
+    return EFI_PROTOCOL_ERROR;
+  }
+
+  SerialFound = FALSE;
+  Offset      = 1;
+  while (Offset < TotalSize) {
+    if (TotalSize - Offset < 2) {
+      return EFI_PROTOCOL_ERROR;
+    }
+
+    ValueSize = Response[Offset + 1];
+    if (ValueSize > TotalSize - Offset - 2) {
+      return EFI_PROTOCOL_ERROR;
+    }
+
+    if (Response[Offset] == FIDO_YUBICO_DEVICE_INFO_SERIAL_TAG) {
+      if (SerialFound || (ValueSize != sizeof (UINT32)) ||
+          (FidoReadBe32 (&Response[Offset + 2]) == 0))
+      {
+        return EFI_SECURITY_VIOLATION;
+      }
+
+      WriteUnaligned16 ((UINT16 *)IdentityInput, mFido.VendorId);
+      CopyMem (
+        &IdentityInput[sizeof (mFido.VendorId)],
+        &Response[Offset + 2],
+        sizeof (UINT32)
+        );
+      SerialFound = TRUE;
+    }
+
+    Offset += 2 + ValueSize;
+  }
+
+  if (!SerialFound ||
+      !Sha256HashAll (
+         IdentityInput,
+         sizeof (IdentityInput),
+         Identity
+         ))
+  {
+    return EFI_UNSUPPORTED;
+  }
+
+  return EFI_SUCCESS;
 }
 
 STATIC
@@ -1276,14 +1302,22 @@ FidoParseDerSignature (
 
     EncodedIntegerSize = IntegerSize;
     SourceOffset       = Offset + HeaderSize;
-    if ((IntegerSize == FIDO_DER_INTEGER_MAX_SIZE) &&
-        (Der[SourceOffset] == 0))
-    {
+    if (IntegerSize == FIDO_DER_INTEGER_MAX_SIZE) {
+      // A 256-bit positive integer whose high bit is set requires exactly one
+      // leading zero in DER.  Validate that padding before removing it.
+      if ((Der[SourceOffset] != 0) ||
+          ((Der[SourceOffset + 1] & 0x80) == 0))
+      {
+        return EFI_PROTOCOL_ERROR;
+      }
+
       SourceOffset++;
       IntegerSize--;
-    }
-
-    if ((IntegerSize > 32) || ((Der[SourceOffset] & 0x80) != 0)) {
+    } else if (((Der[SourceOffset] & 0x80) != 0) ||
+               ((IntegerSize > 1) && (Der[SourceOffset] == 0) &&
+                ((Der[SourceOffset + 1] & 0x80) == 0)))
+    {
+      // Reject negative and non-minimally encoded DER integers.
       return EFI_PROTOCOL_ERROR;
     }
 
@@ -1412,14 +1446,33 @@ FidoPrepare (
   if (mFido.Channel != 0) {
     Status = FidoCurrentDeviceStatus (Deadline);
     if (!EFI_ERROR (Status)) {
-      return EFI_SUCCESS;
-    }
+      if (mFido.DeviceIdentityValid) {
+        return EFI_SUCCESS;
+      }
 
-    // Any uncertain transport failure invalidates the channel, but only a
-    // proven removal permits rediscovery in this callback.
-    ZeroMem (&mFido, sizeof (mFido));
-    if (Status != EFI_NOT_FOUND) {
-      return EFI_NOT_READY;
+      Status = FidoReadYubicoDeviceIdentity (
+                 mFido.DeviceIdentity,
+                 Deadline
+                 );
+      if (!EFI_ERROR (Status)) {
+        mFido.DeviceIdentityValid = TRUE;
+        return EFI_SUCCESS;
+      }
+
+      if (Status == EFI_NOT_READY) {
+        return Status;
+      }
+
+      // A complete but invalid identity response is terminal for this
+      // interface. Drop it and continue discovery from the next handle.
+      ZeroMem (&mFido, sizeof (mFido));
+    } else {
+      // Any uncertain transport failure invalidates the channel, but only a
+      // proven removal permits rediscovery in this callback.
+      ZeroMem (&mFido, sizeof (mFido));
+      if (Status != EFI_NOT_FOUND) {
+        return EFI_NOT_READY;
+      }
     }
   }
 
@@ -1437,9 +1490,21 @@ FidoPrepare (
   Status = FidoInitializeChannel (Deadline);
   if (EFI_ERROR (Status)) {
     ZeroMem (&mFido, sizeof (mFido));
+    return Status;
   }
 
-  return Status;
+  Status = FidoReadYubicoDeviceIdentity (mFido.DeviceIdentity, Deadline);
+  if (!EFI_ERROR (Status)) {
+    mFido.DeviceIdentityValid = TRUE;
+    return EFI_SUCCESS;
+  }
+
+  if (Status != EFI_NOT_READY) {
+    // Do not select this interface again on the next bounded discovery pass.
+    ZeroMem (&mFido, sizeof (mFido));
+  }
+
+  return EFI_NOT_READY;
 }
 
 EFI_STATUS
@@ -1530,7 +1595,6 @@ BootKeyGetAssertion (
              (Control == FIDO_U2F_AUTH_ENFORCE_USER) ? Assertion : NULL,
              &Deadline
              );
-
   if ((Control == FIDO_U2F_AUTH_CHECK_ONLY) &&
       (Status == EFI_NOT_READY) && !mFido.TransactionPending)
   {
@@ -1726,15 +1790,33 @@ BootKeyGetAuthenticatorIdentity (
   )
 {
   FIDO_DEADLINE  Deadline;
+  UINT8          CurrentIdentity[BOOT_KEY_DEVICE_IDENTITY_SIZE];
+  EFI_STATUS     Status;
 
   FidoStartDeadline (&Deadline);
   if ((Identity == NULL) ||
+      !mFido.DeviceIdentityValid ||
       EFI_ERROR (FidoCurrentDeviceStatus (&Deadline)))
   {
     return EFI_NOT_READY;
   }
 
-  CopyMem (Identity, mFido.DeviceIdentity, BOOT_KEY_DEVICE_IDENTITY_SIZE);
+  Status = FidoReadYubicoDeviceIdentity (CurrentIdentity, &Deadline);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  if (CompareMem (
+        CurrentIdentity,
+        mFido.DeviceIdentity,
+        sizeof (CurrentIdentity)
+        ) != 0)
+  {
+    ZeroMem (&mFido, sizeof (mFido));
+    return EFI_SECURITY_VIOLATION;
+  }
+
+  CopyMem (Identity, CurrentIdentity, BOOT_KEY_DEVICE_IDENTITY_SIZE);
   return EFI_SUCCESS;
 }
 

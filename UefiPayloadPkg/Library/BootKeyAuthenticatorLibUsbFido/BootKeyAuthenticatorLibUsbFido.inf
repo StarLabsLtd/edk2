@@ -11,7 +11,7 @@
   FILE_GUID                      = 3F0732C9-99C3-47A0-9C8C-5C3A23B84C3E
   MODULE_TYPE                    = BASE
   VERSION_STRING                 = 1.0
-  LIBRARY_CLASS                  = BootKeyAuthenticatorLib|DXE_DRIVER
+  LIBRARY_CLASS                  = BootKeyAuthenticatorLib|DXE_DRIVER UEFI_APPLICATION
 
 [Sources]
   BootKeyAuthenticatorLibUsbFido.c

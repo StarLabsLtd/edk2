@@ -182,6 +182,10 @@ gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyDmaIsolationRequired|FALSE|BOOLEAN|0x000
 ## Exact size of coreboot's PMR-excluded DMA bounce arena.
 gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyDmaArenaSize|0x00400000|UINT32|0x00000044
 
+## Launches the DEBUG-only real USB FIDO test application from the firmware
+## volume after platform device connection.
+gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyUsbFidoTestEnabled|FALSE|BOOLEAN|0x00000045
+
 ## If PcdPayloadFbHiDpiWideAspectCapSupport is enabled and the physical
 ## framebuffer is wider than the configured aspect ratio, the alternate setup GOP
 ## mode crops to a centered viewport.
