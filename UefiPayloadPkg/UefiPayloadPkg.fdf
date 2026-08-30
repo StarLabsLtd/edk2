@@ -207,7 +207,9 @@ INF UefiPayloadPkg/CbMemTimestampDxe/CbMemTimestampDxe.inf
 !endif
 
 INF MdeModulePkg/Core/RuntimeDxe/RuntimeDxe.inf
+!if $(BOOT_KEY_AUTHENTICATION) == FALSE && $(BOOT_KEY_FACTORY_PROVISIONING) == FALSE
 INF MdeModulePkg/Universal/CapsuleRuntimeDxe/CapsuleRuntimeDxe.inf
+!endif
 INF MdeModulePkg/Universal/MonotonicCounterRuntimeDxe/MonotonicCounterRuntimeDxe.inf
 INF MdeModulePkg/Universal/WatchdogTimerDxe/WatchdogTimer.inf
 
