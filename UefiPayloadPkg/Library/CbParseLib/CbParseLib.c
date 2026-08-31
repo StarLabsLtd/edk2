@@ -23,6 +23,7 @@
 #include <IndustryStandard/Acpi.h>
 #include <Coreboot.h>
 #include <Guid/CfrSetupMenuGuid.h>
+#include <UniversalPayload/PciRootBridges.h>
 
 /**
   Map a coreboot memory type to the E820-style encoding used by UefiPayloadEntry.
@@ -801,6 +802,83 @@ ParseGfxDeviceInfo (
 }
 
 /**
+  Build the PCI root bridge HOB from coreboot's referenced CBMEM entry.
+
+  @retval RETURN_SUCCESS           The HOB was created.
+  @retval RETURN_NOT_FOUND         The coreboot handoff is absent.
+  @retval RETURN_COMPROMISED_DATA  The handoff is malformed or inconsistent.
+  @retval RETURN_OUT_OF_RESOURCES  The HOB could not be allocated.
+
+**/
+STATIC
+RETURN_STATUS
+EFIAPI
+ParsePciRootBridgeInfo (
+  VOID
+  )
+{
+  RETURN_STATUS                       Status;
+  struct cb_cbmem_ref                 *CbMemRef;
+  VOID                                *CbMemTable;
+  UINT32                              CbMemTableSize;
+  UINTN                               ExpectedSize;
+  UNIVERSAL_PAYLOAD_PCI_ROOT_BRIDGES  *RootBridges;
+
+  CbMemRef = FindCbTag (CB_TAG_ROOT_BRIDGE_INFO);
+  if (CbMemRef == NULL) {
+    return RETURN_NOT_FOUND;
+  }
+
+  if (CbMemRef->size != sizeof (*CbMemRef)) {
+    return RETURN_COMPROMISED_DATA;
+  }
+
+  Status = ParseCbMemTable (
+             CBMEM_ID_RB_INFO,
+             &CbMemTable,
+             &CbMemTableSize
+             );
+  if (RETURN_ERROR (Status)) {
+    return Status;
+  }
+
+  if ((CbMemTable == NULL) ||
+      (CbMemRef->cbmem_addr != (UINT64)(UINTN)CbMemTable) ||
+      (CbMemTableSize < sizeof (*RootBridges)))
+  {
+    return RETURN_COMPROMISED_DATA;
+  }
+
+  RootBridges = CbMemTable;
+  ExpectedSize = sizeof (*RootBridges) +
+                 (RootBridges->Count * sizeof (RootBridges->RootBridge[0]));
+  if ((RootBridges->Header.Revision !=
+       UNIVERSAL_PAYLOAD_PCI_ROOT_BRIDGES_REVISION) ||
+      (RootBridges->Count == 0) ||
+      (RootBridges->Header.Length != ExpectedSize) ||
+      (ExpectedSize > CbMemTableSize))
+  {
+    return RETURN_COMPROMISED_DATA;
+  }
+
+  if (BuildGuidDataHob (
+        &gUniversalPayloadPciRootBridgeInfoGuid,
+        RootBridges,
+        ExpectedSize
+        ) == NULL)
+  {
+    return RETURN_OUT_OF_RESOURCES;
+  }
+
+  DEBUG ((
+    DEBUG_INFO,
+    "Created PCI root bridge info HOB from coreboot (%u bridge(s))\n",
+    RootBridges->Count
+    ));
+  return RETURN_SUCCESS;
+}
+
+/**
   Parse and handle the misc info provided by bootloader
 
   @retval RETURN_SUCCESS               The misc information was parsed successfully.
@@ -817,6 +895,7 @@ ParseMiscInfo (
   VOID
   )
 {
+  RETURN_STATUS                          Status;
   struct cb_header                      *CbHeader;
   struct cb_cfr                         *CbCfrSetupMenu;
   UINTN                                 TableStart;
@@ -828,6 +907,11 @@ ParseMiscInfo (
   CFR_OPTION_FORM                       *CbCfrOuterFormOffset;
   CFR_OPTION_FORM                       *CfrSetupMenuForm;
   CFR_VARBINARY                         *CfrFormName;
+
+  Status = ParsePciRootBridgeInfo ();
+  if (RETURN_ERROR (Status) && (Status != RETURN_NOT_FOUND)) {
+    return Status;
+  }
 
   //
   // CFR has several CB tags, though these are nested structures,

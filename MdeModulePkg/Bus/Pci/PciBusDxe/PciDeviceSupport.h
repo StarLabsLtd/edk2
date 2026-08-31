@@ -163,10 +163,11 @@ StartPciDevicesOnBridge (
   );
 
 /**
-  Start to manage all the PCI devices it found previously under
-  the entire host bridge.
+  Start to manage PCI devices found previously under the host bridge.
 
   @param Controller          The root bridge handle.
+  @param RemainingDevicePath The remaining device path used to select a
+                             specific child, or NULL to start all children.
 
   @retval EFI_NOT_READY   Device is not allocated.
   @retval EFI_SUCCESS     Success to start Pci device on host bridge.
@@ -174,7 +175,8 @@ StartPciDevicesOnBridge (
 **/
 EFI_STATUS
 StartPciDevices (
-  IN EFI_HANDLE  Controller
+  IN EFI_HANDLE                Controller,
+  IN EFI_DEVICE_PATH_PROTOCOL  *RemainingDevicePath OPTIONAL
   );
 
 /**

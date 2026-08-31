@@ -1,0 +1,35 @@
+## @file
+#  Real USB FIDO transport test for DEBUG QEMU builds.
+#
+#  Copyright (c) 2026, Star Labs Systems. All rights reserved.<BR>
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION                    = 0x00010017
+  BASE_NAME                      = BootKeyUsbFidoTestApp
+  FILE_GUID                      = F5058D15-679E-4D3D-946F-1C5F9D114730
+  MODULE_TYPE                    = UEFI_APPLICATION
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = BootKeyUsbFidoTestEntryPoint
+
+[Sources]
+  BootKeyUsbFidoTestDxe.c
+
+[Packages]
+  CryptoPkg/CryptoPkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  MdePkg/MdePkg.dec
+  UefiPayloadPkg/UefiPayloadPkg.dec
+
+[LibraryClasses]
+  BaseCryptLib
+  BaseLib
+  BaseMemoryLib
+  BootKeyAuthenticatorLib
+  DebugLib
+  MemoryAllocationLib
+  RngLib
+  UefiBootServicesTableLib
+  UefiApplicationEntryPoint
+  UefiLib

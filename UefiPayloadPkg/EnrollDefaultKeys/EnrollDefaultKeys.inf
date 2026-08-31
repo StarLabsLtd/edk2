@@ -49,6 +49,8 @@
 
 [LibraryClasses]
   BaseMemoryLib
+  BootKeyAuthLib
+  BootKeyProvisionLib
   DebugLib
   DxeServicesLib
   MemoryAllocationLib

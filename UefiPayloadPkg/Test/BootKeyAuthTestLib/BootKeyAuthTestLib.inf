@@ -1,0 +1,33 @@
+## @file
+#  QEMU-only boot-key authenticator library.
+#
+#  Copyright (c) 2026, Star Labs Systems. All rights reserved.<BR>
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION    = 0x00010017
+  BASE_NAME      = BootKeyAuthTestLib
+  FILE_GUID      = 5BB7E175-957C-47C0-A71E-8159108FAAC4
+  MODULE_TYPE    = BASE
+  VERSION_STRING = 1.0
+  LIBRARY_CLASS  = BootKeyAuthenticatorLib|DXE_DRIVER
+
+[Sources]
+  BootKeyAuthTestLib.c
+
+[Packages]
+  CryptoPkg/CryptoPkg.dec
+  MdePkg/MdePkg.dec
+  UefiPayloadPkg/UefiPayloadPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseCryptLib
+  BaseMemoryLib
+  DebugLib
+  PcdLib
+
+[FixedPcd]
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyAuthTestEnabled
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyAuthTestScenario

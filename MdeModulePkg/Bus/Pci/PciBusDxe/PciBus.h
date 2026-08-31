@@ -207,6 +207,12 @@ struct _PCI_IO_DEVICE {
   BOOLEAN                                      Allocated;
 
   //
+  // TRUE if light enumeration collected only a requested remaining device
+  // path and must expand the topology on a later unrestricted start.
+  //
+  BOOLEAN                                      PartialEnumeration;
+
+  //
   // The attribute this PCI device currently set
   //
   UINT64                                       Attributes;
@@ -301,6 +307,7 @@ extern EFI_DRIVER_BINDING_PROTOCOL                   gPciBusDriverBinding;
 extern EFI_COMPONENT_NAME_PROTOCOL                   gPciBusComponentName;
 extern EFI_COMPONENT_NAME2_PROTOCOL                  gPciBusComponentName2;
 extern BOOLEAN                                       gFullEnumeration;
+extern LIST_ENTRY                                    mPciDevicePool;
 extern UINTN                                         gPciHostBridgeNumber;
 extern EFI_HANDLE                                    gPciHostBrigeHandles[PCI_MAX_HOST_BRIDGE_NUM];
 extern UINT64                                        gAllOne;

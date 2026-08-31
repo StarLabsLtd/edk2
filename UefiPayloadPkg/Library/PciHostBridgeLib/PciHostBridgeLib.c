@@ -19,9 +19,75 @@
 #include <Library/MemoryAllocationLib.h>
 #include <Library/PciHostBridgeLib.h>
 #include <Library/PciLib.h>
+#include <Library/PcdLib.h>
 #include <Library/HobLib.h>
 
 #include "PciHostBridge.h"
+
+#define BOOT_KEY_PCI_ROOT_BRIDGE_SUPPORTS  0x7001f
+
+STATIC
+BOOLEAN
+BootKeyAssignedApertureValid (
+  IN UNIVERSAL_PAYLOAD_PCI_ROOT_BRIDGE_APERTURE  *Aperture,
+  IN UINT64                                      Minimum,
+  IN UINT64                                      Maximum
+  )
+{
+  return (Aperture->Translation == 0) &&
+         (Aperture->Base <= Aperture->Limit) &&
+         (Aperture->Base >= Minimum) &&
+         (Aperture->Limit <= Maximum);
+}
+
+STATIC
+BOOLEAN
+BootKeyUnusedApertureValid (
+  IN UNIVERSAL_PAYLOAD_PCI_ROOT_BRIDGE_APERTURE  *Aperture
+  )
+{
+  return (Aperture->Translation == 0) &&
+         (Aperture->Base > Aperture->Limit);
+}
+
+STATIC
+BOOLEAN
+BootKeyRootBridgeInfoValid (
+  IN UNIVERSAL_PAYLOAD_PCI_ROOT_BRIDGES  *RootBridges
+  )
+{
+  UNIVERSAL_PAYLOAD_PCI_ROOT_BRIDGE  *RootBridge;
+
+  if (!RootBridges->ResourceAssigned || (RootBridges->Count != 1)) {
+    return FALSE;
+  }
+
+  RootBridge = &RootBridges->RootBridge[0];
+  return (RootBridge->Segment == 0) &&
+         (RootBridge->Supports == BOOT_KEY_PCI_ROOT_BRIDGE_SUPPORTS) &&
+         (RootBridge->Attributes == BOOT_KEY_PCI_ROOT_BRIDGE_SUPPORTS) &&
+         !RootBridge->DmaAbove4G &&
+         !RootBridge->NoExtendedConfigSpace &&
+         (RootBridge->AllocationAttributes == 0) &&
+         (RootBridge->Bus.Base == 0) &&
+         (RootBridge->Bus.Limit == PCI_MAX_BUS) &&
+         (RootBridge->Bus.Translation == 0) &&
+         BootKeyAssignedApertureValid (&RootBridge->Io, 0, MAX_UINT16) &&
+         BootKeyAssignedApertureValid (
+           &RootBridge->Mem,
+           0,
+           SIZE_4GB - 1
+           ) &&
+         BootKeyAssignedApertureValid (
+           &RootBridge->MemAbove4G,
+           SIZE_4GB,
+           MAX_UINT64
+           ) &&
+         BootKeyUnusedApertureValid (&RootBridge->PMem) &&
+         BootKeyUnusedApertureValid (&RootBridge->PMemAbove4G) &&
+         (RootBridge->HID == EISA_PNP_ID (0x0A03)) &&
+         (RootBridge->UID == 0);
+}
 
 STATIC
 CONST
@@ -209,10 +275,23 @@ PciHostBridgeGetRootBridges (
         //
         PciRootBridgeInfo = (UNIVERSAL_PAYLOAD_PCI_ROOT_BRIDGES *)GET_GUID_HOB_DATA (GuidHob);
         if (PciRootBridgeInfo->Count <= (GET_GUID_HOB_DATA_SIZE (GuidHob) - sizeof (UNIVERSAL_PAYLOAD_PCI_ROOT_BRIDGES)) / sizeof (UNIVERSAL_PAYLOAD_PCI_ROOT_BRIDGE)) {
-          return RetrieveRootBridgeInfoFromHob (PciRootBridgeInfo, Count);
+          if (!FixedPcdGetBool (PcdBootKeyModeEnabled) ||
+              BootKeyRootBridgeInfoValid (PciRootBridgeInfo))
+          {
+            return RetrieveRootBridgeInfoFromHob (PciRootBridgeInfo, Count);
+          }
         }
       }
     }
+  }
+
+  if (FixedPcdGetBool (PcdBootKeyModeEnabled)) {
+    DEBUG ((
+      DEBUG_ERROR,
+      "Boot-key mode requires assigned PCI root bridge information; refusing PCI scan\n"
+      ));
+    *Count = 0;
+    return NULL;
   }
 
   return ScanForRootBridges (Count);

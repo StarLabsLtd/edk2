@@ -53,6 +53,21 @@
   DEFINE PAYLOAD_FB_HIDPI_WIDE_ASPECT_CAP_HEIGHT  = 9
   DEFINE CONNECT_ALL_DEVICES          = TRUE
   DEFINE OPAL_PASSWORD_ENABLE         = FALSE
+  DEFINE SECURE_BOOT_DEFAULT_ENABLE   = FALSE
+  DEFINE BOOT_KEY_AUTHENTICATION      = FALSE
+  DEFINE BOOT_KEY_FACTORY_PROVISIONING = FALSE
+  DEFINE BOOT_KEY_USB_FIDO             = FALSE
+  DEFINE BOOT_KEY_USB_FIDO_TEST        = FALSE
+  DEFINE BOOT_KEY_TPM_NV_STORE         = FALSE
+  DEFINE BOOT_KEY_INTEL_CLIENT_BOUNDARY = FALSE
+  DEFINE BOOT_KEY_DMA_ISOLATION          = FALSE
+  DEFINE BOOT_KEY_DMA_ARENA_SIZE         = 0x00400000
+  # Test-only provider containing a private fixture key. Never enable this for
+  # a production image.
+  DEFINE BOOT_KEY_AUTH_TEST            = FALSE
+  DEFINE BOOT_KEY_AUTH_NULL_TEST       = FALSE
+  DEFINE BOOT_KEY_AUTH_TEST_SCENARIO   = 0
+  DEFINE BOOT_KEY_ATTEMPT_TIMEOUT_SECONDS = 60
   DEFINE MEMORY_TYPE_EFI_ACPI_RECLAIM_MEMORY = 0x19
   DEFINE MEMORY_TYPE_INFORMATION_BIN_BASE = 0
   DEFINE MEMORY_TYPE_INFORMATION_BIN_SIZE = 0
@@ -376,6 +391,16 @@
   PlatformHookLib|UefiPayloadPkg/Library/PlatformHookLib/PlatformHookLib.inf
 !endif
   PlatformBootManagerLib|UefiPayloadPkg/Library/PlatformBootManagerLib/PlatformBootManagerLib.inf
+!if $(BOOT_KEY_AUTHENTICATION) == TRUE
+  BootKeyAuthLib|UefiPayloadPkg/Library/BootKeyAuthLib/BootKeyAuthLib.inf
+!else
+  BootKeyAuthLib|UefiPayloadPkg/Library/BootKeyAuthLibNull/BootKeyAuthLibNull.inf
+!endif
+  BootKeyAuthenticatorLib|UefiPayloadPkg/Library/BootKeyAuthenticatorLibNull/BootKeyAuthenticatorLibNull.inf
+  BootKeyCredentialStoreLib|UefiPayloadPkg/Library/BootKeyCredentialStoreLibNull/BootKeyCredentialStoreLibNull.inf
+  BootKeyIntelClientPlatformLib|UefiPayloadPkg/Library/BootKeyIntelClientPlatformLib/BootKeyIntelClientPlatformLib.inf
+  BootKeyPlatformSecurityLib|UefiPayloadPkg/Library/BootKeyPlatformSecurityLibNull/BootKeyPlatformSecurityLibNull.inf
+  BootKeyProvisionLib|UefiPayloadPkg/Library/BootKeyProvisionLibNull/BootKeyProvisionLibNull.inf
   PlatformPasswordLib|UefiPayloadPkg/UserAuthPkg/Library/PlatformPasswordLibNull/PlatformPasswordLibNull.inf
   IoApicLib|PcAtChipsetPkg/Library/BaseIoApicLib/BaseIoApicLib.inf
 
@@ -753,6 +778,26 @@
   gUefiCpuPkgTokenSpaceGuid.PcdCpuSmmEnableBspElection|FALSE
 
 [PcdsFixedAtBuild]
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyAuthTestEnabled|$(BOOT_KEY_AUTH_TEST)
+!if $(BOOT_KEY_AUTH_TEST) == TRUE || $(BOOT_KEY_AUTH_NULL_TEST) == TRUE
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyPlatformBoundaryTestEnabled|TRUE
+!else
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyPlatformBoundaryTestEnabled|FALSE
+!endif
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootKeySmmExpected|$(SMM_SUPPORT)
+!if $(BOOT_KEY_AUTHENTICATION) == TRUE || $(BOOT_KEY_FACTORY_PROVISIONING) == TRUE
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyModeEnabled|TRUE
+!else
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyModeEnabled|FALSE
+!endif
+!if $(BOOT_KEY_AUTHENTICATION) == TRUE || $(BOOT_KEY_FACTORY_PROVISIONING) == TRUE
+  gEfiMdePkgTokenSpaceGuid.PcdEnforceSecureRngAlgorithms|TRUE
+!endif
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyAuthTestScenario|$(BOOT_KEY_AUTH_TEST_SCENARIO)
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyAttemptTimeoutSeconds|$(BOOT_KEY_ATTEMPT_TIMEOUT_SECONDS)
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyDmaIsolationRequired|$(BOOT_KEY_DMA_ISOLATION)
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyDmaArenaSize|$(BOOT_KEY_DMA_ARENA_SIZE)
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyUsbFidoTestEnabled|$(BOOT_KEY_USB_FIDO_TEST)
   gEfiMdePkgTokenSpaceGuid.PcdHardwareErrorRecordLevel|1
   gEfiMdeModulePkgTokenSpaceGuid.PcdMaxVariableSize|0x10000
   gEfiMdeModulePkgTokenSpaceGuid.PcdMaxHardwareErrorVariableSize|0x8000
@@ -1017,7 +1062,11 @@
   gEfiMdePkgTokenSpaceGuid.PcdPciExpressBaseAddress|0
   gEfiMdePkgTokenSpaceGuid.PcdPciExpressBaseSize|0
   gEfiMdeModulePkgTokenSpaceGuid.PcdGhcbBase|0
+!if $(BOOT_KEY_AUTH_TEST) == TRUE
+  gEfiMdeModulePkgTokenSpaceGuid.PcdTestKeyUsed|TRUE
+!else
   gEfiMdeModulePkgTokenSpaceGuid.PcdTestKeyUsed|FALSE
+!endif
   gUefiCpuPkgTokenSpaceGuid.PcdSevEsIsEnabled|0
   gEfiMdeModulePkgTokenSpaceGuid.PcdPciDisableBusEnumeration|TRUE
 
@@ -1139,9 +1188,153 @@
 !endif
 
 [Components.X64, Components.AARCH64]
+!if $(SECURE_BOOT_DEFAULT_ENABLE) == TRUE && $(SECURE_BOOT_ENABLE) != TRUE
+  !error "SECURE_BOOT_DEFAULT_ENABLE requires SECURE_BOOT_ENABLE"
+!endif
+!if $(SECURE_BOOT_DEFAULT_ENABLE) == TRUE && $(BOOT_KEY_AUTHENTICATION) != TRUE && $(BOOT_KEY_FACTORY_PROVISIONING) != TRUE
+  !error "SECURE_BOOT_DEFAULT_ENABLE requires a fail-closed boot-key gate"
+!endif
+!if $(BOOT_KEY_AUTHENTICATION) == TRUE && $(SECURE_BOOT_ENABLE) != TRUE
+  !error "BOOT_KEY_AUTHENTICATION requires SECURE_BOOT_ENABLE"
+!endif
+!if $(BOOT_KEY_AUTHENTICATION) == TRUE && $(TPM2_ENABLE) != TRUE
+  !error "BOOT_KEY_AUTHENTICATION requires TPM2_ENABLE"
+!endif
+!if $(BOOT_KEY_AUTHENTICATION) == TRUE && $(CAPSULE_SUPPORT) == TRUE
+  !error "BOOT_KEY_AUTHENTICATION requires CAPSULE_SUPPORT=FALSE"
+!endif
+!if $(BOOT_KEY_AUTHENTICATION) == TRUE && $(DISABLE_RESET_SYSTEM) == TRUE
+  !error "BOOT_KEY_AUTHENTICATION requires DISABLE_RESET_SYSTEM=FALSE"
+!endif
+!if $(BOOT_KEY_AUTHENTICATION) == TRUE && $(SECURITY_STUB_ENABLE) != TRUE
+  !error "BOOT_KEY_AUTHENTICATION requires SECURITY_STUB_ENABLE"
+!endif
+!if $(BOOT_KEY_AUTHENTICATION) == TRUE && $(CRYPTO_PROTOCOL_SUPPORT) == TRUE
+  !error "BOOT_KEY_AUTHENTICATION requires direct BaseCryptLib services"
+!endif
+!if $(BOOT_KEY_AUTH_TEST) == TRUE && $(BOOT_KEY_AUTHENTICATION) != TRUE
+  !error "BOOT_KEY_AUTH_TEST requires BOOT_KEY_AUTHENTICATION"
+!endif
+!if $(BOOT_KEY_USB_FIDO_TEST) == TRUE && $(TARGET) != DEBUG
+  !error "BOOT_KEY_USB_FIDO_TEST is permitted only in DEBUG builds"
+!endif
+!if $(BOOT_KEY_USB_FIDO_TEST) == TRUE && $(BOOT_KEY_USB_FIDO) != TRUE
+  !error "BOOT_KEY_USB_FIDO_TEST requires BOOT_KEY_USB_FIDO"
+!endif
+!if $(BOOT_KEY_USB_FIDO_TEST) == TRUE && ($(BOOT_KEY_AUTHENTICATION) == TRUE || $(BOOT_KEY_FACTORY_PROVISIONING) == TRUE)
+  !error "BOOT_KEY_USB_FIDO_TEST cannot be combined with a boot gate"
+!endif
+!if $(BOOT_KEY_USB_FIDO_TEST) == TRUE && $(BOOTLOADER) != "COREBOOT"
+  !error "BOOT_KEY_USB_FIDO_TEST requires the coreboot handoff"
+!endif
+!if $(BOOT_KEY_USB_FIDO_TEST) == TRUE && $(UNIVERSAL_PAYLOAD) != FALSE
+  !error "BOOT_KEY_USB_FIDO_TEST requires the legacy cbtables payload"
+!endif
+!if $(BOOT_KEY_AUTH_TEST) == TRUE && $(TARGET) != DEBUG
+  !error "BOOT_KEY_AUTH_TEST is permitted only in DEBUG builds"
+!endif
+!if $(BOOT_KEY_AUTH_TEST) == TRUE && $(VARIABLE_SUPPORT) != "SMMSTORE"
+  !error "BOOT_KEY_AUTH_TEST requires persistent SMMSTORE variables"
+!endif
+!if $(BOOT_KEY_AUTH_NULL_TEST) == TRUE && $(BOOT_KEY_AUTHENTICATION) != TRUE
+  !error "BOOT_KEY_AUTH_NULL_TEST requires BOOT_KEY_AUTHENTICATION"
+!endif
+!if $(BOOT_KEY_AUTH_NULL_TEST) == TRUE && $(TARGET) != DEBUG
+  !error "BOOT_KEY_AUTH_NULL_TEST is permitted only in DEBUG builds"
+!endif
+!if $(BOOT_KEY_AUTH_TEST) == TRUE && $(BOOT_KEY_AUTH_NULL_TEST) == TRUE
+  !error "BOOT_KEY_AUTH_TEST and BOOT_KEY_AUTH_NULL_TEST are mutually exclusive"
+!endif
+!if $(BOOT_KEY_AUTHENTICATION) == TRUE && $(BOOT_KEY_AUTH_TEST) != TRUE && $(BOOT_KEY_AUTH_NULL_TEST) != TRUE
+!if $(BOOTLOADER) != "COREBOOT"
+  !error "Production boot-key authentication requires BOOTLOADER=COREBOOT"
+!endif
+!if $(VARIABLE_SUPPORT) != "EMU"
+  !error "Production boot-key authentication requires non-persistent EMU variables"
+!endif
+!if $(SMM_SUPPORT) == TRUE
+  !error "Production boot-key authentication uses coreboot SMM, not EDK2 SMM_SUPPORT"
+!endif
+!endif
+!if $(BOOT_KEY_FACTORY_PROVISIONING) == TRUE && $(BOOT_KEY_AUTHENTICATION) == TRUE
+  !error "BOOT_KEY_FACTORY_PROVISIONING and BOOT_KEY_AUTHENTICATION are mutually exclusive"
+!endif
+!if $(BOOT_KEY_DMA_ISOLATION) == TRUE
+!if $(BOOT_KEY_AUTHENTICATION) != TRUE
+!if $(BOOT_KEY_FACTORY_PROVISIONING) != TRUE
+  !error "BOOT_KEY_DMA_ISOLATION requires a boot-key gate"
+!endif
+!endif
+!endif
+!if $(BOOT_KEY_FACTORY_PROVISIONING) == TRUE && $(SECURE_BOOT_ENABLE) != TRUE
+  !error "BOOT_KEY_FACTORY_PROVISIONING requires SECURE_BOOT_ENABLE"
+!endif
+!if $(BOOT_KEY_FACTORY_PROVISIONING) == TRUE && $(TPM2_ENABLE) != TRUE
+  !error "BOOT_KEY_FACTORY_PROVISIONING requires TPM2_ENABLE"
+!endif
+!if $(BOOT_KEY_FACTORY_PROVISIONING) == TRUE && $(BOOTLOADER) != "COREBOOT"
+  !error "BOOT_KEY_FACTORY_PROVISIONING requires BOOTLOADER=COREBOOT"
+!endif
+!if $(BOOT_KEY_FACTORY_PROVISIONING) == TRUE && $(VARIABLE_SUPPORT) != "EMU"
+  !error "BOOT_KEY_FACTORY_PROVISIONING requires non-persistent EMU variables"
+!endif
+!if $(BOOT_KEY_FACTORY_PROVISIONING) == TRUE && $(SMM_SUPPORT) == TRUE
+  !error "BOOT_KEY_FACTORY_PROVISIONING uses coreboot SMM, not EDK2 SMM_SUPPORT"
+!endif
+!if $(BOOT_KEY_FACTORY_PROVISIONING) == TRUE && $(CAPSULE_SUPPORT) == TRUE
+  !error "BOOT_KEY_FACTORY_PROVISIONING requires CAPSULE_SUPPORT=FALSE"
+!endif
+!if $(BOOT_KEY_FACTORY_PROVISIONING) == TRUE && $(DISABLE_RESET_SYSTEM) == TRUE
+  !error "BOOT_KEY_FACTORY_PROVISIONING requires DISABLE_RESET_SYSTEM=FALSE"
+!endif
+!if $(BOOT_KEY_FACTORY_PROVISIONING) == TRUE && $(SECURITY_STUB_ENABLE) != TRUE
+  !error "BOOT_KEY_FACTORY_PROVISIONING requires SECURITY_STUB_ENABLE"
+!endif
+!if $(BOOT_KEY_FACTORY_PROVISIONING) == TRUE && $(CRYPTO_PROTOCOL_SUPPORT) == TRUE
+  !error "BOOT_KEY_FACTORY_PROVISIONING requires direct BaseCryptLib services"
+!endif
+!if $(BOOT_KEY_FACTORY_PROVISIONING) == TRUE
+!if $(BOOT_KEY_DMA_ISOLATION) != TRUE
+  !error "Factory boot-key provisioning requires pre-gate DMA isolation"
+!endif
+!if $(BOOT_KEY_USB_FIDO) != TRUE
+  !error "Factory boot-key provisioning requires BOOT_KEY_USB_FIDO"
+!endif
+!if $(BOOT_KEY_TPM_NV_STORE) != TRUE
+  !error "Factory boot-key provisioning requires BOOT_KEY_TPM_NV_STORE"
+!endif
+!if $(BOOT_KEY_INTEL_CLIENT_BOUNDARY) != TRUE
+  !error "Factory boot-key provisioning requires a hardware-boundary provider"
+!endif
+!endif
+!if $(BOOT_KEY_AUTHENTICATION) == TRUE && $(BOOT_KEY_AUTH_TEST) != TRUE && $(BOOT_KEY_AUTH_NULL_TEST) != TRUE
+!if $(BOOT_KEY_DMA_ISOLATION) != TRUE
+  !error "Production boot-key authentication requires pre-gate DMA isolation"
+!endif
+!if $(BOOT_KEY_USB_FIDO) != TRUE
+  !error "Production boot-key authentication requires BOOT_KEY_USB_FIDO"
+!endif
+!if $(BOOT_KEY_TPM_NV_STORE) != TRUE
+  !error "Production boot-key authentication requires BOOT_KEY_TPM_NV_STORE"
+!endif
+!if $(BOOT_KEY_INTEL_CLIENT_BOUNDARY) != TRUE
+  !error "Production boot-key authentication requires a hardware-boundary provider"
+!endif
+!endif
 !if $(CBMEM_TIMESTAMPS) == TRUE
   UefiPayloadPkg/CbMemTimestampDxe/CbMemTimestampDxe.inf
 !endif
+
+[Components.X64]
+!if $(BOOT_KEY_USB_FIDO_TEST) == TRUE
+  UefiPayloadPkg/Test/BootKeyUsbFidoTestDxe/BootKeyUsbFidoTestDxe.inf {
+    <LibraryClasses>
+      BootKeyAuthenticatorLib|UefiPayloadPkg/Library/BootKeyAuthenticatorLibUsbFido/BootKeyAuthenticatorLibUsbFido.inf
+      OpensslLib|CryptoPkg/Library/OpensslLib/OpensslLibFull.inf
+  }
+!endif
+
+[Components.X64, Components.AARCH64]
   #
   # DXE Core
   #
@@ -1168,10 +1361,40 @@
 
 !if $(SECURE_BOOT_ENABLE) == TRUE
   SecurityPkg/VariableAuthenticated/SecureBootConfigDxe/SecureBootConfigDxe.inf
-  UefiPayloadPkg/EnrollDefaultKeys/EnrollDefaultKeys.inf
+  UefiPayloadPkg/EnrollDefaultKeys/EnrollDefaultKeys.inf {
+    <LibraryClasses>
+!if $(BOOT_KEY_FACTORY_PROVISIONING) == TRUE
+      BootKeyProvisionLib|UefiPayloadPkg/Library/BootKeyProvisionLibFactory/BootKeyProvisionLibFactory.inf
+!endif
+  }
 !endif
 
-  MdeModulePkg/Universal/BdsDxe/BdsDxe.inf
+  MdeModulePkg/Universal/BdsDxe/BdsDxe.inf {
+    <LibraryClasses>
+!if $(BOOT_KEY_AUTHENTICATION) == TRUE || $(BOOT_KEY_FACTORY_PROVISIONING) == TRUE
+      OpensslLib|CryptoPkg/Library/OpensslLib/OpensslLibFull.inf
+      RngLib|MdePkg/Library/DxeRngLib/DxeRngLib.inf
+!if $(BOOT_KEY_AUTH_TEST) == TRUE
+      BootKeyAuthenticatorLib|UefiPayloadPkg/Test/BootKeyAuthTestLib/BootKeyAuthTestLib.inf
+      BootKeyCredentialStoreLib|UefiPayloadPkg/Test/BootKeyCredentialStoreTestLib/BootKeyCredentialStoreTestLib.inf
+!elseif $(BOOT_KEY_USB_FIDO) == TRUE
+      BootKeyAuthenticatorLib|UefiPayloadPkg/Library/BootKeyAuthenticatorLibUsbFido/BootKeyAuthenticatorLibUsbFido.inf
+!endif
+!if $(BOOT_KEY_TPM_NV_STORE) == TRUE
+      BootKeyCredentialStoreLib|UefiPayloadPkg/Library/BootKeyCredentialStoreLibTpmNv/BootKeyCredentialStoreLibTpmNv.inf
+!endif
+!if $(BOOT_KEY_AUTH_TEST) == TRUE || $(BOOT_KEY_AUTH_NULL_TEST) == TRUE
+      BootKeyPlatformSecurityLib|UefiPayloadPkg/Test/BootKeyPlatformSecurityTestLib/BootKeyPlatformSecurityTestLib.inf
+!else
+!if $(BOOT_KEY_INTEL_CLIENT_BOUNDARY) == TRUE
+      BootKeyPlatformSecurityLib|UefiPayloadPkg/Library/BootKeyPlatformSecurityLibIntelClient/BootKeyPlatformSecurityLibIntelClient.inf
+!endif
+!endif
+!if $(BOOT_KEY_FACTORY_PROVISIONING) == TRUE
+      BootKeyProvisionLib|UefiPayloadPkg/Library/BootKeyProvisionLibFactory/BootKeyProvisionLibFactory.inf
+!endif
+!endif
+  }
 !if $(BOOTSPLASH_IMAGE)
   MdeModulePkg/Logo/LogoDxe.inf
 !endif
@@ -1216,7 +1439,9 @@
   MdeModulePkg/Universal/Metronome/Metronome.inf
   MdeModulePkg/Universal/WatchdogTimerDxe/WatchdogTimer.inf
   MdeModulePkg/Core/RuntimeDxe/RuntimeDxe.inf
+!if $(BOOT_KEY_AUTHENTICATION) == FALSE && $(BOOT_KEY_FACTORY_PROVISIONING) == FALSE
   MdeModulePkg/Universal/CapsuleRuntimeDxe/CapsuleRuntimeDxe.inf
+!endif
   MdeModulePkg/Universal/MonotonicCounterRuntimeDxe/MonotonicCounterRuntimeDxe.inf
 !if $(DISABLE_RESET_SYSTEM) == FALSE
   MdeModulePkg/Universal/ResetSystemRuntimeDxe/ResetSystemRuntimeDxe.inf
@@ -1274,6 +1499,9 @@
     <LibraryClasses>
       PciHostBridgeLib|UefiPayloadPkg/Library/PciHostBridgeLib/PciHostBridgeLib.inf
   }
+!if $(BOOT_KEY_DMA_ISOLATION) == TRUE
+  UefiPayloadPkg/BootKeyDmaIsolationDxe/BootKeyDmaIsolationDxe.inf
+!endif
 
   #
   # SCSI/ATA/IDE/DISK Support
@@ -1439,6 +1667,12 @@
 !endif
 
 [Components.X64]
+!if $(BOOT_KEY_AUTHENTICATION) == TRUE || $(BOOT_KEY_FACTORY_PROVISIONING) == TRUE
+  SecurityPkg/RandomNumberGenerator/RngDxe/RngDxe.inf {
+    <LibraryClasses>
+      RngLib|MdePkg/Library/BaseRngLib/BaseRngLib.inf
+  }
+!endif
 !if $(OPAL_PASSWORD_ENABLE) == TRUE
   SecurityPkg/Tcg/Opal/OpalPassword/OpalPasswordDxe.inf
 !endif

@@ -239,6 +239,7 @@ struct cb_vdat {
 
 #define CB_TAG_CBMEM_ENTRY    0x0031
 #define CB_TAG_TSC_INFO       0x0032
+#define CB_TAG_DMA            0x0022
 
 #define CBMEM_ID_CONSOLE      0x434F4E53
 #define CBMEM_ID_TIMESTAMP    0x54494D45
@@ -326,6 +327,7 @@ struct cb_range {
 } __attribute__ ((packed));
 
 #define CB_TAG_CFR_ROOT  0x0047
+#define CB_TAG_ROOT_BRIDGE_INFO  0x0048
 struct cb_cfr {
   UINT32 tag;
   UINT32 size;
@@ -333,6 +335,8 @@ struct cb_cfr {
   UINT32 checksum;  /* Of the following data only; excludes these 4 fields */
   /* CFR_FORM forms[] */
 };
+
+#define CBMEM_ID_RB_INFO  0x50524249
 
 /* Helpful macros */
 

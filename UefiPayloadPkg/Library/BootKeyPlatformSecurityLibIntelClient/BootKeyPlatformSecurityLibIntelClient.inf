@@ -1,0 +1,39 @@
+## @file
+#  Intel client boot-key hardware-boundary verifier.
+#
+#  Copyright (c) 2026, Star Labs Systems. All rights reserved.<BR>
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION    = 0x00010017
+  BASE_NAME      = BootKeyPlatformSecurityLibIntelClient
+  FILE_GUID      = BCBAABF9-8A6B-488D-B937-4A984FB33024
+  MODULE_TYPE    = BASE
+  VERSION_STRING = 1.0
+  LIBRARY_CLASS  = BootKeyPlatformSecurityLib|DXE_DRIVER
+
+[Sources]
+  BootKeyPlatformSecurityLibIntelClient.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  UefiPayloadPkg/UefiPayloadPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  BootKeyIntelClientPlatformLib
+  DebugLib
+  IoLib
+  MemoryAllocationLib
+  PcdLib
+  PciSegmentLib
+  UefiBootServicesTableLib
+
+[Protocols]
+  gBootKeyDmaIsolationProtocolGuid
+  gEfiMpServiceProtocolGuid
+
+[FixedPcd]
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyDmaIsolationRequired

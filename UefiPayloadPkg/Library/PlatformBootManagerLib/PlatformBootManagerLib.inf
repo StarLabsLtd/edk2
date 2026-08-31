@@ -37,7 +37,12 @@
 
 [LibraryClasses]
   BaseLib
+  BootKeyAuthLib
+  BootKeyCredentialStoreLib
+  BootKeyPlatformSecurityLib
+  BootKeyProvisionLib
   BmpSupportLib
+  FrameBufferBltLib
   UefiBootServicesTableLib
   UefiRuntimeServicesTableLib
   UefiLib
@@ -50,6 +55,7 @@
   HiiLib
   PrintLib
   Tcg2PhysicalPresenceLib
+  TimerLib
   PlatformHookLib
   CapsuleLib
   HobLib
@@ -60,9 +66,13 @@
   gEfiEndOfDxeEventGroupGuid
   gEfiEventReadyToBootGuid
   gEfiGlobalVariableGuid
+  gEfiCustomModeEnableGuid
+  gEfiGraphicsInfoHobGuid
+  gEfiSecureBootEnableDisableGuid
   gUefiShellFileGuid
 
 [Protocols]
+  gBootKeyDmaIsolationProtocolGuid  ## CONSUMES
   gEsrtManagementProtocolGuid      ## CONSUMES
   gEfiGenericMemTestProtocolGuid  ## CONSUMES
   gEfiGraphicsOutputProtocolGuid  ## CONSUMES
@@ -88,3 +98,11 @@
 
 [FeaturePcd]
   gUefiPayloadPkgTokenSpaceGuid.PcdConnectAllDevices
+
+[FixedPcd]
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyAuthTestEnabled
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyAuthTestScenario
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyDmaIsolationRequired
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootKeySmmExpected
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyModeEnabled
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyUsbFidoTestEnabled

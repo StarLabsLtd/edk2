@@ -1,0 +1,28 @@
+## @file
+#  DEBUG-only boot-key platform security boundary test instance.
+#
+#  Copyright (c) 2026, Star Labs Systems. All rights reserved.<BR>
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION    = 0x00010017
+  BASE_NAME      = BootKeyPlatformSecurityTestLib
+  FILE_GUID      = DE3DC4E2-BE36-4F79-87F8-EC0250CA1F50
+  MODULE_TYPE    = BASE
+  VERSION_STRING = 1.0
+  LIBRARY_CLASS  = BootKeyPlatformSecurityLib|DXE_DRIVER
+
+[Sources]
+  BootKeyPlatformSecurityTestLib.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  UefiPayloadPkg/UefiPayloadPkg.dec
+
+[LibraryClasses]
+  DebugLib
+  PcdLib
+
+[FixedPcd]
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootKeyPlatformBoundaryTestEnabled

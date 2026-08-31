@@ -383,7 +383,8 @@ CreatePciIoDevice (
 
   It is only called on the second start on the same Root Bridge.
 
-  @param  Controller     Parent bridge handler.
+  @param  Controller          Parent bridge handler.
+  @param  RemainingDevicePath Optional path selecting one child hierarchy.
 
   @retval EFI_SUCCESS    PCI enumeration finished successfully.
   @retval other          Some error occurred when enumerating the pci bus system.
@@ -391,7 +392,8 @@ CreatePciIoDevice (
 **/
 EFI_STATUS
 PciEnumeratorLight (
-  IN EFI_HANDLE  Controller
+  IN EFI_HANDLE                Controller,
+  IN EFI_DEVICE_PATH_PROTOCOL  *RemainingDevicePath OPTIONAL
   );
 
 /**

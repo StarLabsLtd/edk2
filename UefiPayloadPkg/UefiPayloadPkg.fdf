@@ -207,7 +207,9 @@ INF UefiPayloadPkg/CbMemTimestampDxe/CbMemTimestampDxe.inf
 !endif
 
 INF MdeModulePkg/Core/RuntimeDxe/RuntimeDxe.inf
+!if $(BOOT_KEY_AUTHENTICATION) == FALSE && $(BOOT_KEY_FACTORY_PROVISIONING) == FALSE
 INF MdeModulePkg/Universal/CapsuleRuntimeDxe/CapsuleRuntimeDxe.inf
+!endif
 INF MdeModulePkg/Universal/MonotonicCounterRuntimeDxe/MonotonicCounterRuntimeDxe.inf
 INF MdeModulePkg/Universal/WatchdogTimerDxe/WatchdogTimer.inf
 
@@ -333,6 +335,9 @@ FILE FREEFORM = be6e1243-682c-4186-8151-448d48afe341 {
 #
 # PCI Support
 #
+!if $(BOOT_KEY_DMA_ISOLATION) == TRUE
+INF UefiPayloadPkg/BootKeyDmaIsolationDxe/BootKeyDmaIsolationDxe.inf
+!endif
 INF MdeModulePkg/Bus/Pci/PciBusDxe/PciBusDxe.inf
 INF MdeModulePkg/Bus/Pci/PciHostBridgeDxe/PciHostBridgeDxe.inf
 
@@ -417,9 +422,22 @@ INF MdeModulePkg/Bus/Pci/UhciDxe/UhciDxe.inf
 INF MdeModulePkg/Bus/Pci/EhciDxe/EhciDxe.inf
 INF MdeModulePkg/Bus/Pci/XhciDxe/XhciDxe.inf
 INF MdeModulePkg/Bus/Usb/UsbBusDxe/UsbBusDxe.inf
+## Boot-key images intentionally permit only the minimal FIDO transport in
+## firmware. USB keyboard, mouse and storage support remains an OS concern
+## after ExitBootServices; firmware USB boot is not part of this security mode.
+!if $(BOOT_KEY_AUTHENTICATION) != TRUE && $(BOOT_KEY_FACTORY_PROVISIONING) != TRUE && $(BOOT_KEY_USB_FIDO_TEST) != TRUE
 INF MdeModulePkg/Bus/Usb/UsbKbDxe/UsbKbDxe.inf
 INF MdeModulePkg/Bus/Usb/UsbMassStorageDxe/UsbMassStorageDxe.inf
 INF MdeModulePkg/Bus/Usb/UsbMouseDxe/UsbMouseDxe.inf
+!endif
+
+!if $(BOOT_KEY_AUTHENTICATION) == TRUE || $(BOOT_KEY_FACTORY_PROVISIONING) == TRUE
+INF SecurityPkg/RandomNumberGenerator/RngDxe/RngDxe.inf
+!endif
+
+!if $(BOOT_KEY_USB_FIDO_TEST) == TRUE
+INF UefiPayloadPkg/Test/BootKeyUsbFidoTestDxe/BootKeyUsbFidoTestDxe.inf
+!endif
 
 #
 # ACPI Support
