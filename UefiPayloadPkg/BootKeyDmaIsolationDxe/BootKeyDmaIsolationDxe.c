@@ -18,6 +18,7 @@
 #include <IndustryStandard/PciExpress21.h>
 #include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
+#include <Library/BootKeyIntelClientPlatformLib.h>
 #include <Library/CbMemLib.h>
 #include <Library/DebugLib.h>
 #include <Library/IoLib.h>
@@ -30,7 +31,6 @@
 #include <Protocol/IoMmu.h>
 #include <Protocol/PciIo.h>
 
-#define MTL_VTVC0_BASE_ADDRESS        0xfc801000U
 #define VTD_VERSION_REGISTER          0x00
 #define VTD_CAPABILITY_REGISTER       0x08
 #define VTD_EXT_CAPABILITY_REGISTER   0x10
@@ -69,9 +69,6 @@
 #define VTD_PMR_ENABLE                 BIT31
 #define VTD_PMR_STATUS                 BIT0
 #define VTD_FAULT_ERROR_MASK           (BIT0 | BIT1 | BIT2 | BIT3 | BIT4 | BIT5 | BIT6)
-#define MTL_VTD_LOW_PMR_GRANULARITY    SIZE_1MB
-#define MTL_VTD_HIGH_PMR_GRANULARITY   SIZE_1MB
-
 #define VTD_ROOT_ENTRY_COUNT         256
 #define VTD_CONTEXT_ENTRY_COUNT      256
 #define VTD_ENTRY_SIZE               16
@@ -109,10 +106,10 @@
 #define BOOT_KEY_DMA_ALLOCATION_SIGNATURE \
   SIGNATURE_64 ('B', 'K', 'D', 'A', 'L', 'L', '0', '1')
 
-#define MTL_XHCI_SEGMENT   0
-#define MTL_XHCI_BUS       0
-#define MTL_XHCI_DEVICE    0x14
-#define MTL_XHCI_FUNCTION  0
+#define INTEL_CLIENT_XHCI_SEGMENT   0
+#define INTEL_CLIENT_XHCI_BUS       0
+#define INTEL_CLIENT_XHCI_DEVICE    0x14
+#define INTEL_CLIENT_XHCI_FUNCTION  0
 
 typedef struct {
   UINT64                   Signature;
@@ -141,6 +138,9 @@ STATIC UINT64                mDmaArenaBitmap[BOOT_KEY_DMA_BITMAP_WORDS];
 STATIC LIST_ENTRY            mDmaMaps;
 STATIC LIST_ENTRY            mDmaAllocations;
 STATIC BOOLEAN               mPostGateDevicesAuthorized;
+STATIC UINTN                 mVtdBaseAddress;
+STATIC UINT32                mLowPmrLimitGranularity;
+STATIC UINT64                mHighPmrLimitGranularity;
 STATIC UINT64                *mVtdRootTable;
 STATIC UINT8                 *mVtdContextTables;
 STATIC UINT64                *mVtdSlpt;
@@ -415,14 +415,14 @@ BootKeyDmaSetGlobalCommand (
   UINT32  GlobalStatus;
 
   GlobalStatus = MmioRead32 (
-                   MTL_VTVC0_BASE_ADDRESS + VTD_GLOBAL_STATUS_REGISTER
+                   mVtdBaseAddress + VTD_GLOBAL_STATUS_REGISTER
                    );
   MmioWrite32 (
-    MTL_VTVC0_BASE_ADDRESS + VTD_GLOBAL_COMMAND_REGISTER,
+    mVtdBaseAddress + VTD_GLOBAL_COMMAND_REGISTER,
     (GlobalStatus & VTD_GLOBAL_COMMAND_STATE_MASK) | Command
     );
   return BootKeyDmaWaitMmio32 (
-           MTL_VTVC0_BASE_ADDRESS + VTD_GLOBAL_STATUS_REGISTER,
+           mVtdBaseAddress + VTD_GLOBAL_STATUS_REGISTER,
            Status,
            Expected
            );
@@ -542,7 +542,7 @@ BootKeyDmaVerifyMemoryMap (
     }
 
     if (End > SIZE_4GB) {
-      if (((MmioRead32 (MTL_VTVC0_BASE_ADDRESS + VTD_CAPABILITY_REGISTER) &
+      if (((MmioRead32 (mVtdBaseAddress + VTD_CAPABILITY_REGISTER) &
             VTD_CAPABILITY_HIGH_PMR) == 0) ||
           (MAX (Descriptor->PhysicalStart, SIZE_4GB) < HighBase) ||
           (End - 1 > HighLimit))
@@ -584,42 +584,42 @@ BootKeyDmaVerifyPmr (
     return EFI_SECURITY_VIOLATION;
   }
 
-  Version = MmioRead32 (MTL_VTVC0_BASE_ADDRESS + VTD_VERSION_REGISTER);
+  Version = MmioRead32 (mVtdBaseAddress + VTD_VERSION_REGISTER);
   if ((Version == 0) || (Version == MAX_UINT32) ||
-      ((MmioRead32 (MTL_VTVC0_BASE_ADDRESS + VTD_CAPABILITY_REGISTER) &
+      ((MmioRead32 (mVtdBaseAddress + VTD_CAPABILITY_REGISTER) &
         VTD_CAPABILITY_LOW_PMR) == 0))
   {
     return EFI_SECURITY_VIOLATION;
   }
 
   PmrEnable = MmioRead32 (
-                MTL_VTVC0_BASE_ADDRESS + VTD_PROTECTED_MEMORY_ENABLE
+                mVtdBaseAddress + VTD_PROTECTED_MEMORY_ENABLE
                 );
-  LowBase  = MmioRead32 (MTL_VTVC0_BASE_ADDRESS + VTD_LOW_MEMORY_BASE);
-  LowLimit = MmioRead32 (MTL_VTVC0_BASE_ADDRESS + VTD_LOW_MEMORY_LIMIT);
+  LowBase  = MmioRead32 (mVtdBaseAddress + VTD_LOW_MEMORY_BASE);
+  LowLimit = MmioRead32 (mVtdBaseAddress + VTD_LOW_MEMORY_LIMIT);
   if (((PmrEnable & (VTD_PMR_ENABLE | VTD_PMR_STATUS)) !=
        (VTD_PMR_ENABLE | VTD_PMR_STATUS)) ||
       (LowBase != 0) ||
-      ((UINT64)LowLimit + MTL_VTD_LOW_PMR_GRANULARITY != mDmaArenaBase) ||
-      ((MmioRead32 (MTL_VTVC0_BASE_ADDRESS + VTD_FAULT_STATUS_REGISTER) &
+      ((UINT64)LowLimit + mLowPmrLimitGranularity != mDmaArenaBase) ||
+      ((MmioRead32 (mVtdBaseAddress + VTD_FAULT_STATUS_REGISTER) &
         VTD_FAULT_ERROR_MASK) != 0))
   {
     return EFI_SECURITY_VIOLATION;
   }
 
-  HighBase  = MmioRead64 (MTL_VTVC0_BASE_ADDRESS + VTD_HIGH_MEMORY_BASE);
-  HighLimit = MmioRead64 (MTL_VTVC0_BASE_ADDRESS + VTD_HIGH_MEMORY_LIMIT);
+  HighBase  = MmioRead64 (mVtdBaseAddress + VTD_HIGH_MEMORY_BASE);
+  HighLimit = MmioRead64 (mVtdBaseAddress + VTD_HIGH_MEMORY_LIMIT);
   if ((HighBase != SIZE_4GB) ||
       (HighLimit < HighBase) ||
-      ((HighLimit & (MTL_VTD_HIGH_PMR_GRANULARITY - 1)) != 0))
+      ((HighLimit & (mHighPmrLimitGranularity - 1)) != 0))
   {
     return EFI_SECURITY_VIOLATION;
   }
 
   return BootKeyDmaVerifyMemoryMap (
-           LowLimit | (MTL_VTD_LOW_PMR_GRANULARITY - 1),
+           LowLimit | (mLowPmrLimitGranularity - 1),
            HighBase,
-           HighLimit | (MTL_VTD_HIGH_PMR_GRANULARITY - 1)
+           HighLimit | (mHighPmrLimitGranularity - 1)
            );
 }
 
@@ -652,7 +652,7 @@ BootKeyDmaInvalidateVtdCaches (
   EFI_STATUS  Status;
 
   Capability = MmioRead64 (
-                 MTL_VTVC0_BASE_ADDRESS + VTD_CAPABILITY_REGISTER
+                 mVtdBaseAddress + VTD_CAPABILITY_REGISTER
                  );
   if ((Capability & VTD_CAPABILITY_RWBF) != 0) {
     Status = BootKeyDmaSetGlobalCommand (
@@ -666,7 +666,7 @@ BootKeyDmaInvalidateVtdCaches (
   }
 
   Command = MmioRead64 (
-              MTL_VTVC0_BASE_ADDRESS + VTD_CONTEXT_COMMAND_REGISTER
+              mVtdBaseAddress + VTD_CONTEXT_COMMAND_REGISTER
               );
   if ((Command & VTD_CONTEXT_COMMAND_INVALID) != 0) {
     return EFI_DEVICE_ERROR;
@@ -675,11 +675,11 @@ BootKeyDmaInvalidateVtdCaches (
   Command &= ~(VTD_CONTEXT_COMMAND_INVALID | VTD_CONTEXT_COMMAND_MASK);
   Command |= VTD_CONTEXT_COMMAND_INVALID | VTD_CONTEXT_COMMAND_GLOBAL;
   MmioWrite64 (
-    MTL_VTVC0_BASE_ADDRESS + VTD_CONTEXT_COMMAND_REGISTER,
+    mVtdBaseAddress + VTD_CONTEXT_COMMAND_REGISTER,
     Command
     );
   Status = BootKeyDmaWaitMmio64 (
-             MTL_VTVC0_BASE_ADDRESS + VTD_CONTEXT_COMMAND_REGISTER,
+             mVtdBaseAddress + VTD_CONTEXT_COMMAND_REGISTER,
              VTD_CONTEXT_COMMAND_INVALID,
              0
              );
@@ -688,13 +688,13 @@ BootKeyDmaInvalidateVtdCaches (
   }
 
   ExtendedCapability = MmioRead64 (
-                         MTL_VTVC0_BASE_ADDRESS +
+                         mVtdBaseAddress +
                          VTD_EXT_CAPABILITY_REGISTER
                          );
-  IotlbAddress = MTL_VTVC0_BASE_ADDRESS +
+  IotlbAddress = mVtdBaseAddress +
                  (((ExtendedCapability >> 8) & 0x3ff) * 16) + 8;
-  if ((IotlbAddress < MTL_VTVC0_BASE_ADDRESS + PCI_EXT_CAPABILITY_MIN_OFFSET) ||
-      (IotlbAddress > MTL_VTVC0_BASE_ADDRESS + PCI_EXT_CAPABILITY_MAX_OFFSET))
+  if ((IotlbAddress < mVtdBaseAddress + PCI_EXT_CAPABILITY_MIN_OFFSET) ||
+      (IotlbAddress > mVtdBaseAddress + PCI_EXT_CAPABILITY_MAX_OFFSET))
   {
     return EFI_SECURITY_VIOLATION;
   }
@@ -759,7 +759,7 @@ BootKeyDmaAuthorizeRequester (
   ContextEntry[0] = ExpectedLow;
   AsmWbinvd ();
 
-  if ((MmioRead32 (MTL_VTVC0_BASE_ADDRESS + VTD_GLOBAL_STATUS_REGISTER) &
+  if ((MmioRead32 (mVtdBaseAddress + VTD_GLOBAL_STATUS_REGISTER) &
        VTD_GLOBAL_STATUS_TES) == 0)
   {
     return EFI_SUCCESS;
@@ -891,9 +891,9 @@ BootKeyDmaBuildVtdTables (
   }
 
   ContextEntry = BootKeyDmaContextEntry (
-                   MTL_XHCI_BUS,
-                   MTL_XHCI_DEVICE,
-                   MTL_XHCI_FUNCTION
+                   INTEL_CLIENT_XHCI_BUS,
+                   INTEL_CLIENT_XHCI_DEVICE,
+                   INTEL_CLIENT_XHCI_FUNCTION
                    );
   ContextEntry[1] = VTD_CONTEXT_ADDRESS_WIDTH_4 |
                     LShiftU64 (VTD_CONTEXT_DOMAIN_ID, 8);
@@ -915,10 +915,10 @@ BootKeyDmaEnableTranslation (
   EFI_STATUS  Status;
 
   Capability = MmioRead64 (
-                 MTL_VTVC0_BASE_ADDRESS + VTD_CAPABILITY_REGISTER
+                 mVtdBaseAddress + VTD_CAPABILITY_REGISTER
                  );
   GlobalStatus = MmioRead32 (
-                   MTL_VTVC0_BASE_ADDRESS + VTD_GLOBAL_STATUS_REGISTER
+                   mVtdBaseAddress + VTD_GLOBAL_STATUS_REGISTER
                    );
   if (((Capability & VTD_CAPABILITY_SAGAW_4_LEVEL) == 0) ||
       ((GlobalStatus & (VTD_GLOBAL_STATUS_TES | VTD_GLOBAL_STATUS_QIES)) != 0))
@@ -927,7 +927,7 @@ BootKeyDmaEnableTranslation (
   }
 
   MmioWrite64 (
-    MTL_VTVC0_BASE_ADDRESS + VTD_ROOT_TABLE_REGISTER,
+    mVtdBaseAddress + VTD_ROOT_TABLE_REGISTER,
     (UINT64)(UINTN)mVtdRootTable
     );
   Status = BootKeyDmaSetGlobalCommand (
@@ -954,11 +954,11 @@ BootKeyDmaEnableTranslation (
   }
 
   MmioWrite32 (
-    MTL_VTVC0_BASE_ADDRESS + VTD_PROTECTED_MEMORY_ENABLE,
+    mVtdBaseAddress + VTD_PROTECTED_MEMORY_ENABLE,
     0
     );
   Status = BootKeyDmaWaitMmio32 (
-             MTL_VTVC0_BASE_ADDRESS + VTD_PROTECTED_MEMORY_ENABLE,
+             mVtdBaseAddress + VTD_PROTECTED_MEMORY_ENABLE,
              VTD_PMR_STATUS,
              0
              );
@@ -967,7 +967,7 @@ BootKeyDmaEnableTranslation (
   }
 
   PmrEnable = MmioRead32 (
-                MTL_VTVC0_BASE_ADDRESS + VTD_PROTECTED_MEMORY_ENABLE
+                mVtdBaseAddress + VTD_PROTECTED_MEMORY_ENABLE
                 );
   return ((PmrEnable & (VTD_PMR_ENABLE | VTD_PMR_STATUS)) == 0) ?
          EFI_SUCCESS : EFI_SECURITY_VIOLATION;
@@ -1113,9 +1113,9 @@ BootKeyDmaVerifyVtdTables (
       }
 
       if (!mPostGateDevicesAuthorized &&
-          ((Bus != MTL_XHCI_BUS) ||
-           (ContextIndex != ((MTL_XHCI_DEVICE << 3) |
-                             MTL_XHCI_FUNCTION))))
+          ((Bus != INTEL_CLIENT_XHCI_BUS) ||
+           (ContextIndex != ((INTEL_CLIENT_XHCI_DEVICE << 3) |
+                             INTEL_CLIENT_XHCI_FUNCTION))))
       {
         return EFI_SECURITY_VIOLATION;
       }
@@ -1133,7 +1133,7 @@ BootKeyDmaVerifyVtdTables (
   }
 
   RootTableAddress = MmioRead64 (
-                       MTL_VTVC0_BASE_ADDRESS + VTD_ROOT_TABLE_REGISTER
+                       mVtdBaseAddress + VTD_ROOT_TABLE_REGISTER
                        );
   if (((RootTableAddress & VTD_PAGE_ADDRESS_MASK) !=
        ((UINT64)(UINTN)mVtdRootTable & VTD_PAGE_ADDRESS_MASK)) ||
@@ -1156,15 +1156,15 @@ BootKeyDmaVerifyTranslation (
   EFI_STATUS  Status;
 
   GlobalStatus = MmioRead32 (
-                   MTL_VTVC0_BASE_ADDRESS + VTD_GLOBAL_STATUS_REGISTER
+                   mVtdBaseAddress + VTD_GLOBAL_STATUS_REGISTER
                    );
   PmrEnable = MmioRead32 (
-                MTL_VTVC0_BASE_ADDRESS + VTD_PROTECTED_MEMORY_ENABLE
+                mVtdBaseAddress + VTD_PROTECTED_MEMORY_ENABLE
                 );
   if (((GlobalStatus & VTD_GLOBAL_STATUS_TES) == 0) ||
       ((GlobalStatus & VTD_GLOBAL_STATUS_QIES) != 0) ||
       ((PmrEnable & (VTD_PMR_ENABLE | VTD_PMR_STATUS)) != 0) ||
-      ((MmioRead32 (MTL_VTVC0_BASE_ADDRESS + VTD_FAULT_STATUS_REGISTER) &
+      ((MmioRead32 (mVtdBaseAddress + VTD_FAULT_STATUS_REGISTER) &
         VTD_FAULT_ERROR_MASK) != 0))
   {
     return EFI_SECURITY_VIOLATION;
@@ -1599,8 +1599,8 @@ BootKeyDmaValidateDevice (
   }
 
   if (!mPostGateDevicesAuthorized &&
-      ((*Segment != MTL_XHCI_SEGMENT) || (*Bus != MTL_XHCI_BUS) ||
-       (*Device != MTL_XHCI_DEVICE) || (*Function != MTL_XHCI_FUNCTION)))
+      ((*Segment != INTEL_CLIENT_XHCI_SEGMENT) || (*Bus != INTEL_CLIENT_XHCI_BUS) ||
+       (*Device != INTEL_CLIENT_XHCI_DEVICE) || (*Function != INTEL_CLIENT_XHCI_FUNCTION)))
   {
     return EFI_SECURITY_VIOLATION;
   }
@@ -1777,19 +1777,29 @@ BootKeyDmaIsolationEntryPoint (
   IN EFI_SYSTEM_TABLE  *SystemTable
   )
 {
-  EFI_PHYSICAL_ADDRESS  DmaRangeBase;
-  UINT32                DmaRangeSize;
-  EFI_HANDLE            Handle;
-  EFI_STATUS            Status;
-  RETURN_STATUS         ReturnStatus;
+  CONST BOOT_KEY_INTEL_CLIENT_PLATFORM  *Platform;
+  EFI_PHYSICAL_ADDRESS                  DmaRangeBase;
+  UINT32                                DmaRangeSize;
+  EFI_HANDLE                            Handle;
+  EFI_STATUS                            Status;
+  RETURN_STATUS                         ReturnStatus;
 
   if (!FixedPcdGetBool (PcdBootKeyDmaIsolationRequired)) {
     return EFI_UNSUPPORTED;
   }
 
+  Status = BootKeyGetIntelClientPlatform (&Platform);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  mVtdBaseAddress          = Platform->IncludeAllVtdBaseAddress;
+  mLowPmrLimitGranularity  = Platform->LowPmrLimitGranularity;
+  mHighPmrLimitGranularity = Platform->HighPmrLimitGranularity;
+
   //
   // Require measured coreboot to quiesce all requesters while PMR is still
-  // active. Translation then admits only Meteor Lake xHCI to the arena until
+  // active. Translation then admits only Intel client xHCI to the arena until
   // boot-key authentication succeeds.
   //
   Status = BootKeyDmaVerifyBusMastersDisabled ();

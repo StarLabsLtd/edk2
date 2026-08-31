@@ -24,6 +24,7 @@
 [LibraryClasses]
   BaseLib
   BaseMemoryLib
+  BootKeyIntelClientPlatformLib
   CbMemLib
   DebugLib
   IoLib
