@@ -69,21 +69,21 @@
 #define VTD_PMR_ENABLE                 BIT31
 #define VTD_PMR_STATUS                 BIT0
 #define VTD_FAULT_ERROR_MASK           (BIT0 | BIT1 | BIT2 | BIT3 | BIT4 | BIT5 | BIT6)
-#define VTD_ROOT_ENTRY_COUNT         256
-#define VTD_CONTEXT_ENTRY_COUNT      256
-#define VTD_ENTRY_SIZE               16
-#define VTD_ROOT_TABLE_PAGES         1
-#define VTD_CONTEXT_TABLE_PAGES      VTD_ROOT_ENTRY_COUNT
-#define VTD_SLPT_PD_PAGES            2
-#define VTD_SLPT_FIXED_PAGES         (2 + VTD_SLPT_PD_PAGES)
-#define VTD_SLPT_MAX_PT_PAGES        9
-#define VTD_SLPT_PAGES               (VTD_SLPT_FIXED_PAGES + VTD_SLPT_MAX_PT_PAGES)
-#define VTD_PAGE_ADDRESS_MASK        0x000ffffffffff000ULL
-#define VTD_PAGE_READ                BIT0
-#define VTD_PAGE_WRITE               BIT1
-#define VTD_CONTEXT_PRESENT          BIT0
-#define VTD_CONTEXT_ADDRESS_WIDTH_4  2
-#define VTD_CONTEXT_DOMAIN_ID        1
+#define VTD_ROOT_ENTRY_COUNT           256
+#define VTD_CONTEXT_ENTRY_COUNT        256
+#define VTD_ENTRY_SIZE                 16
+#define VTD_ROOT_TABLE_PAGES           1
+#define VTD_CONTEXT_TABLE_PAGES        VTD_ROOT_ENTRY_COUNT
+#define VTD_SLPT_PD_PAGES              2
+#define VTD_SLPT_FIXED_PAGES           (2 + VTD_SLPT_PD_PAGES)
+#define VTD_SLPT_MAX_PT_PAGES          9
+#define VTD_SLPT_PAGES                 (VTD_SLPT_FIXED_PAGES + VTD_SLPT_MAX_PT_PAGES)
+#define VTD_PAGE_ADDRESS_MASK          0x000ffffffffff000ULL
+#define VTD_PAGE_READ                  BIT0
+#define VTD_PAGE_WRITE                 BIT1
+#define VTD_CONTEXT_PRESENT            BIT0
+#define VTD_CONTEXT_ADDRESS_WIDTH_4    2
+#define VTD_CONTEXT_DOMAIN_ID          1
 
 #define PCI_CAPABILITY_MIN_OFFSET      0x40
 #define PCI_CAPABILITY_MAX_OFFSET      0xfc
@@ -101,40 +101,39 @@
 #define BOOT_KEY_DMA_BITMAP_WORDS     (BOOT_KEY_DMA_MAX_ARENA_PAGES / 64)
 
 #define BOOT_KEY_DMA_MAP_SIGNATURE  SIGNATURE_64 ('B', 'K', 'D', 'M', 'A', 'P', '0', '1')
-#define BOOT_KEY_DMA_ALLOCATION_SIGNATURE \
-  SIGNATURE_64 ('B', 'K', 'D', 'A', 'L', 'L', '0', '1')
 
 #define INTEL_CLIENT_XHCI_SEGMENT   0
 #define INTEL_CLIENT_XHCI_BUS       0
 #define INTEL_CLIENT_XHCI_DEVICE    0x14
 #define INTEL_CLIENT_XHCI_FUNCTION  0
 
-typedef struct {
-  UINT64                   Signature;
-  LIST_ENTRY               Link;
-  EDKII_IOMMU_OPERATION    Operation;
-  VOID                     *HostAddress;
-  UINTN                    NumberOfBytes;
-  EFI_PHYSICAL_ADDRESS     DeviceAddress;
-  UINTN                    ArenaPage;
-  UINTN                    ArenaPages;
-  BOOLEAN                  Direct;
-} BOOT_KEY_DMA_MAP;
+typedef enum {
+  BootKeyDmaAccessNone,
+  BootKeyDmaAccessActive,
+  BootKeyDmaAccessRevocationRequired
+} BOOT_KEY_DMA_ACCESS_STATE;
 
 typedef struct {
-  UINT64        Signature;
-  LIST_ENTRY    Link;
-  VOID          *HostAddress;
-  UINTN         ArenaPage;
-  UINTN         Pages;
-} BOOT_KEY_DMA_ALLOCATION;
+  UINT64                       Signature;
+  LIST_ENTRY                   Link;
+  EDKII_IOMMU_OPERATION        Operation;
+  VOID                         *HostAddress;
+  UINTN                        NumberOfBytes;
+  EFI_PHYSICAL_ADDRESS         DeviceAddress;
+  UINTN                        ArenaPage;
+  UINTN                        ArenaPages;
+  EFI_HANDLE                   DeviceHandle;
+  UINT16                       RequesterId;
+  BOOLEAN                      Direct;
+  BOOT_KEY_DMA_ACCESS_STATE    AccessState;
+} BOOT_KEY_DMA_MAP;
 
 STATIC EFI_PHYSICAL_ADDRESS  mDmaArenaBase;
 STATIC UINTN                 mDmaArenaSize;
 STATIC UINTN                 mDmaArenaPages;
 STATIC UINT64                mDmaArenaBitmap[BOOT_KEY_DMA_BITMAP_WORDS];
+STATIC UINT64                mDmaCommonBufferBitmap[BOOT_KEY_DMA_BITMAP_WORDS];
 STATIC LIST_ENTRY            mDmaMaps;
-STATIC LIST_ENTRY            mDmaAllocations;
 STATIC BOOLEAN               mPostGateDevicesAuthorized;
 STATIC UINTN                 mVtdBaseAddress;
 STATIC UINT32                mLowPmrLimitGranularity;
@@ -709,10 +708,11 @@ BootKeyDmaInvalidateVtdCaches (
 STATIC
 EFI_STATUS
 BootKeyDmaAuthorizeRequester (
-  IN UINTN  Segment,
-  IN UINTN  Bus,
-  IN UINTN  Device,
-  IN UINTN  Function
+  IN UINTN    Segment,
+  IN UINTN    Bus,
+  IN UINTN    Device,
+  IN UINTN    Function,
+  IN BOOLEAN  AlreadyActive
   )
 {
   UINT64      *ContextEntry;
@@ -727,15 +727,25 @@ BootKeyDmaAuthorizeRequester (
     return EFI_SECURITY_VIOLATION;
   }
 
+  if ((MmioRead32 (mVtdBaseAddress + VTD_GLOBAL_STATUS_REGISTER) &
+       VTD_GLOBAL_STATUS_TES) == 0)
+  {
+    return EFI_SECURITY_VIOLATION;
+  }
+
   ContextEntry = BootKeyDmaContextEntry (Bus, Device, Function);
   ExpectedLow  = ((UINT64)(UINTN)mVtdSlpt & VTD_PAGE_ADDRESS_MASK) |
                  VTD_CONTEXT_PRESENT;
   ExpectedHigh = VTD_CONTEXT_ADDRESS_WIDTH_4 |
                  LShiftU64 (VTD_CONTEXT_DOMAIN_ID, 8);
-  if ((ContextEntry[0] != 0) || (ContextEntry[1] != 0)) {
+  if (AlreadyActive) {
     return ((ContextEntry[0] == ExpectedLow) &&
             (ContextEntry[1] == ExpectedHigh)) ?
            EFI_SUCCESS : EFI_SECURITY_VIOLATION;
+  }
+
+  if ((ContextEntry[0] != 0) || (ContextEntry[1] != 0)) {
+    return EFI_SECURITY_VIOLATION;
   }
 
   ContextEntry[1] = ExpectedHigh;
@@ -743,14 +753,85 @@ BootKeyDmaAuthorizeRequester (
   ContextEntry[0] = ExpectedLow;
   AsmWbinvd ();
 
+  Status = BootKeyDmaInvalidateVtdCaches ();
+  if (!EFI_ERROR (Status)) {
+    return EFI_SUCCESS;
+  }
+
+  ContextEntry[0] = 0;
+  MemoryFence ();
+  ContextEntry[1] = 0;
+  AsmWbinvd ();
+  BootKeyDmaInvalidateVtdCaches ();
+  return EFI_DEVICE_ERROR;
+}
+
+STATIC
+EFI_STATUS
+BootKeyDmaRevokeRequester (
+  IN UINTN  Bus,
+  IN UINTN  Device,
+  IN UINTN  Function
+  )
+{
+  UINT64      *ContextEntry;
+  UINT64      ExpectedHigh;
+  UINT64      ExpectedLow;
+  EFI_STATUS  Status;
+
   if ((MmioRead32 (mVtdBaseAddress + VTD_GLOBAL_STATUS_REGISTER) &
        VTD_GLOBAL_STATUS_TES) == 0)
   {
-    return EFI_SUCCESS;
+    return EFI_SECURITY_VIOLATION;
+  }
+
+  ContextEntry = BootKeyDmaContextEntry (Bus, Device, Function);
+  ExpectedLow  = ((UINT64)(UINTN)mVtdSlpt & VTD_PAGE_ADDRESS_MASK) |
+                 VTD_CONTEXT_PRESENT;
+  ExpectedHigh = VTD_CONTEXT_ADDRESS_WIDTH_4 |
+                 LShiftU64 (VTD_CONTEXT_DOMAIN_ID, 8);
+  if ((ContextEntry[0] != ExpectedLow) ||
+      (ContextEntry[1] != ExpectedHigh))
+  {
+    if ((ContextEntry[0] != 0) || (ContextEntry[1] != 0)) {
+      return EFI_SECURITY_VIOLATION;
+    }
+  } else {
+    ContextEntry[0] = 0;
+    MemoryFence ();
+    ContextEntry[1] = 0;
+    AsmWbinvd ();
   }
 
   Status = BootKeyDmaInvalidateVtdCaches ();
   return EFI_ERROR (Status) ? EFI_DEVICE_ERROR : EFI_SUCCESS;
+}
+
+STATIC
+BOOLEAN
+BootKeyDmaRequesterHasAccessState (
+  IN UINT16            RequesterId,
+  IN BOOT_KEY_DMA_MAP  *IgnoreMap
+  )
+{
+  BOOT_KEY_DMA_MAP  *Map;
+  LIST_ENTRY        *Link;
+
+  for (Link = GetFirstNode (&mDmaMaps);
+       !IsNull (&mDmaMaps, Link);
+       Link = GetNextNode (&mDmaMaps, Link))
+  {
+    Map = BASE_CR (Link, BOOT_KEY_DMA_MAP, Link);
+    if ((Map != IgnoreMap) &&
+        (Map->Signature == BOOT_KEY_DMA_MAP_SIGNATURE) &&
+        (Map->AccessState != BootKeyDmaAccessNone) &&
+        (Map->RequesterId == RequesterId))
+    {
+      return TRUE;
+    }
+  }
+
+  return FALSE;
 }
 
 STATIC
@@ -762,7 +843,6 @@ BootKeyDmaBuildVtdTables (
   EFI_PHYSICAL_ADDRESS  ContextBase;
   EFI_PHYSICAL_ADDRESS  RootBase;
   EFI_PHYSICAL_ADDRESS  SlptBase;
-  UINT64                *ContextEntry;
   UINT64                *PageDirectory;
   UINT64                *PageDirectoryPointer;
   UINT64                *PageTable;
@@ -874,15 +954,6 @@ BootKeyDmaBuildVtdTables (
                                 VTD_PAGE_READ | VTD_PAGE_WRITE;
   }
 
-  ContextEntry = BootKeyDmaContextEntry (
-                   INTEL_CLIENT_XHCI_BUS,
-                   INTEL_CLIENT_XHCI_DEVICE,
-                   INTEL_CLIENT_XHCI_FUNCTION
-                   );
-  ContextEntry[1] = VTD_CONTEXT_ADDRESS_WIDTH_4 |
-                    LShiftU64 (VTD_CONTEXT_DOMAIN_ID, 8);
-  ContextEntry[0] = (SlptBase & VTD_PAGE_ADDRESS_MASK) |
-                    VTD_CONTEXT_PRESENT;
   AsmWbinvd ();
   return EFI_SUCCESS;
 }
@@ -1186,6 +1257,30 @@ BootKeyDmaSetPageAllocated (
 }
 
 STATIC
+BOOLEAN
+BootKeyDmaCommonBufferPage (
+  IN UINTN  Page
+  )
+{
+  return (mDmaCommonBufferBitmap[Page / 64] &
+          LShiftU64 (1, Page % 64)) != 0;
+}
+
+STATIC
+VOID
+BootKeyDmaSetCommonBufferPage (
+  IN UINTN    Page,
+  IN BOOLEAN  Allocated
+  )
+{
+  if (Allocated) {
+    mDmaCommonBufferBitmap[Page / 64] |= LShiftU64 (1, Page % 64);
+  } else {
+    mDmaCommonBufferBitmap[Page / 64] &= ~LShiftU64 (1, Page % 64);
+  }
+}
+
+STATIC
 EFI_STATUS
 BootKeyDmaAllocateArenaPages (
   IN  UINTN                 Pages,
@@ -1269,38 +1364,34 @@ BootKeyDmaCommonBufferAllocated (
   IN UINTN  NumberOfBytes
   )
 {
-  BOOT_KEY_DMA_ALLOCATION  *Allocation;
-  LIST_ENTRY               *Link;
-  UINTN                    Start;
-  UINTN                    End;
-  EFI_TPL                  OldTpl;
-  BOOLEAN                  Found;
+  UINTN    EndPage;
+  UINTN    Index;
+  UINTN    Offset;
+  UINTN    Start;
+  UINTN    StartPage;
+  EFI_TPL  OldTpl;
 
   Start = (UINTN)HostAddress;
-  if ((NumberOfBytes == 0) || (Start > MAX_UINTN - NumberOfBytes)) {
+  if ((NumberOfBytes == 0) || (Start < mDmaArenaBase) ||
+      (Start > MAX_UINTN - NumberOfBytes) ||
+      (Start + NumberOfBytes > mDmaArenaBase + mDmaArenaSize))
+  {
     return FALSE;
   }
 
-  End    = Start + NumberOfBytes;
-  Found  = FALSE;
-  OldTpl = gBS->RaiseTPL (TPL_NOTIFY);
-  for (Link = GetFirstNode (&mDmaAllocations);
-       !IsNull (&mDmaAllocations, Link);
-       Link = GetNextNode (&mDmaAllocations, Link))
-  {
-    Allocation = BASE_CR (Link, BOOT_KEY_DMA_ALLOCATION, Link);
-    if ((Allocation->Signature == BOOT_KEY_DMA_ALLOCATION_SIGNATURE) &&
-        (Start >= (UINTN)Allocation->HostAddress) &&
-        (End <= (UINTN)Allocation->HostAddress +
-         EFI_PAGES_TO_SIZE (Allocation->Pages)))
-    {
-      Found = TRUE;
-      break;
+  Offset    = Start - (UINTN)mDmaArenaBase;
+  StartPage = Offset >> EFI_PAGE_SHIFT;
+  EndPage   = (Offset + NumberOfBytes - 1) >> EFI_PAGE_SHIFT;
+  OldTpl    = gBS->RaiseTPL (TPL_NOTIFY);
+  for (Index = StartPage; Index <= EndPage; Index++) {
+    if (!BootKeyDmaCommonBufferPage (Index)) {
+      gBS->RestoreTPL (OldTpl);
+      return FALSE;
     }
   }
 
   gBS->RestoreTPL (OldTpl);
-  return Found;
+  return TRUE;
 }
 
 STATIC
@@ -1421,6 +1512,11 @@ BootKeyDmaUnmap (
     return EFI_INVALID_PARAMETER;
   }
 
+  if (Map->AccessState != BootKeyDmaAccessNone) {
+    gBS->RestoreTPL (OldTpl);
+    return EFI_ACCESS_DENIED;
+  }
+
   RemoveEntryList (&Map->Link);
   gBS->RestoreTPL (OldTpl);
 
@@ -1464,10 +1560,11 @@ BootKeyDmaAllocateBuffer (
   IN     UINT64                Attributes
   )
 {
-  BOOT_KEY_DMA_ALLOCATION  *Allocation;
-  EFI_PHYSICAL_ADDRESS     Address;
-  EFI_TPL                  OldTpl;
-  EFI_STATUS               Status;
+  EFI_PHYSICAL_ADDRESS  Address;
+  UINTN                 ArenaPage;
+  UINTN                 Index;
+  EFI_TPL               OldTpl;
+  EFI_STATUS            Status;
 
   if ((Attributes & EDKII_IOMMU_ATTRIBUTE_INVALID_FOR_ALLOCATE_BUFFER) != 0) {
     return EFI_UNSUPPORTED;
@@ -1480,29 +1577,23 @@ BootKeyDmaAllocateBuffer (
     return EFI_INVALID_PARAMETER;
   }
 
-  Allocation = AllocateZeroPool (sizeof (*Allocation));
-  if (Allocation == NULL) {
-    return EFI_OUT_OF_RESOURCES;
-  }
-
   Status = BootKeyDmaAllocateArenaPages (
              Pages,
-             &Allocation->ArenaPage,
+             &ArenaPage,
              &Address
              );
   if (EFI_ERROR (Status)) {
-    FreePool (Allocation);
     return Status;
   }
 
-  Allocation->Signature   = BOOT_KEY_DMA_ALLOCATION_SIGNATURE;
-  Allocation->HostAddress = (VOID *)(UINTN)Address;
-  Allocation->Pages       = Pages;
-  ZeroMem (Allocation->HostAddress, EFI_PAGES_TO_SIZE (Pages));
+  ZeroMem ((VOID *)(UINTN)Address, EFI_PAGES_TO_SIZE (Pages));
   OldTpl = gBS->RaiseTPL (TPL_NOTIFY);
-  InsertTailList (&mDmaAllocations, &Allocation->Link);
+  for (Index = 0; Index < Pages; Index++) {
+    BootKeyDmaSetCommonBufferPage (ArenaPage + Index, TRUE);
+  }
+
   gBS->RestoreTPL (OldTpl);
-  *HostAddress = Allocation->HostAddress;
+  *HostAddress = (VOID *)(UINTN)Address;
   return EFI_SUCCESS;
 }
 
@@ -1515,42 +1606,66 @@ BootKeyDmaFreeBuffer (
   IN VOID                  *HostAddress
   )
 {
-  BOOT_KEY_DMA_ALLOCATION  *Allocation;
-  LIST_ENTRY               *Link;
-  EFI_TPL                  OldTpl;
-  EFI_STATUS               Status;
+  BOOT_KEY_DMA_MAP  *Map;
+  UINTN             ArenaPage;
+  UINTN             Bytes;
+  UINTN             Index;
+  LIST_ENTRY        *Link;
+  EFI_TPL           OldTpl;
+  EFI_STATUS        Status;
 
-  if ((HostAddress == NULL) || (Pages == 0)) {
+  if ((HostAddress == NULL) || (Pages == 0) ||
+      (((UINTN)HostAddress & EFI_PAGE_MASK) != 0) ||
+      (Pages > (MAX_UINTN >> EFI_PAGE_SHIFT)))
+  {
     return EFI_INVALID_PARAMETER;
   }
 
-  Allocation = NULL;
-  OldTpl     = gBS->RaiseTPL (TPL_NOTIFY);
-  for (Link = GetFirstNode (&mDmaAllocations);
-       !IsNull (&mDmaAllocations, Link);
-       Link = GetNextNode (&mDmaAllocations, Link))
+  Bytes = EFI_PAGES_TO_SIZE (Pages);
+  if (((UINTN)HostAddress < mDmaArenaBase) ||
+      ((UINTN)HostAddress > MAX_UINTN - Bytes) ||
+      ((UINTN)HostAddress + Bytes > mDmaArenaBase + mDmaArenaSize))
   {
-    Allocation = BASE_CR (Link, BOOT_KEY_DMA_ALLOCATION, Link);
-    if ((Allocation->Signature == BOOT_KEY_DMA_ALLOCATION_SIGNATURE) &&
-        (Allocation->HostAddress == HostAddress) &&
-        (Allocation->Pages == Pages))
-    {
-      RemoveEntryList (&Allocation->Link);
-      break;
-    }
+    return EFI_INVALID_PARAMETER;
+  }
 
-    Allocation = NULL;
+  ArenaPage = ((UINTN)HostAddress - (UINTN)mDmaArenaBase) >>
+              EFI_PAGE_SHIFT;
+  OldTpl = gBS->RaiseTPL (TPL_NOTIFY);
+  for (Index = 0; Index < Pages; Index++) {
+    if (!BootKeyDmaPageAllocated (ArenaPage + Index) ||
+        !BootKeyDmaCommonBufferPage (ArenaPage + Index))
+    {
+      gBS->RestoreTPL (OldTpl);
+      return EFI_INVALID_PARAMETER;
+    }
+  }
+
+  for (Link = GetFirstNode (&mDmaMaps);
+       !IsNull (&mDmaMaps, Link);
+       Link = GetNextNode (&mDmaMaps, Link))
+  {
+    Map = BASE_CR (Link, BOOT_KEY_DMA_MAP, Link);
+    if ((Map->Signature == BOOT_KEY_DMA_MAP_SIGNATURE) && Map->Direct &&
+        BootKeyDmaRangesOverlap (
+          (UINTN)HostAddress,
+          Bytes,
+          (UINTN)Map->HostAddress,
+          Map->NumberOfBytes
+          ))
+    {
+      gBS->RestoreTPL (OldTpl);
+      return EFI_ACCESS_DENIED;
+    }
+  }
+
+  for (Index = 0; Index < Pages; Index++) {
+    BootKeyDmaSetCommonBufferPage (ArenaPage + Index, FALSE);
   }
 
   gBS->RestoreTPL (OldTpl);
-  if (Allocation == NULL) {
-    return EFI_INVALID_PARAMETER;
-  }
-
-  ZeroMem (HostAddress, EFI_PAGES_TO_SIZE (Pages));
-  Status                = BootKeyDmaFreeArenaPages (Allocation->ArenaPage, Pages);
-  Allocation->Signature = 0;
-  FreePool (Allocation);
+  ZeroMem (HostAddress, Bytes);
+  Status = BootKeyDmaFreeArenaPages (ArenaPage, Pages);
   return EFI_ERROR (Status) ? EFI_DEVICE_ERROR : EFI_SUCCESS;
 }
 
@@ -1602,11 +1717,13 @@ BootKeyDmaSetAttribute (
   IN UINT64                IoMmuAccess
   )
 {
+  BOOLEAN           AlreadyActive;
   BOOT_KEY_DMA_MAP  *Map;
   UINTN             Bus;
   UINTN             Device;
   UINTN             Function;
   EFI_TPL           OldTpl;
+  UINT16            RequesterId;
   UINTN             Segment;
   EFI_STATUS        Status;
   UINT64            RequiredAccess;
@@ -1643,15 +1760,43 @@ BootKeyDmaSetAttribute (
       return EFI_UNSUPPORTED;
   }
 
-  gBS->RestoreTPL (OldTpl);
   if (IoMmuAccess == 0) {
-    return EFI_SUCCESS;
+    if (Map->AccessState == BootKeyDmaAccessNone) {
+      gBS->RestoreTPL (OldTpl);
+      return EFI_SUCCESS;
+    }
+
+    if (Map->DeviceHandle != DeviceHandle) {
+      gBS->RestoreTPL (OldTpl);
+      return EFI_INVALID_PARAMETER;
+    }
+
+    if (BootKeyDmaRequesterHasAccessState (Map->RequesterId, Map)) {
+      Map->AccessState = BootKeyDmaAccessNone;
+      gBS->RestoreTPL (OldTpl);
+      return EFI_SUCCESS;
+    }
+
+    Bus      = Map->RequesterId >> 8;
+    Device   = (Map->RequesterId >> 3) & PCI_MAX_DEVICE;
+    Function = Map->RequesterId & PCI_MAX_FUNC;
+    Status   = BootKeyDmaRevokeRequester (Bus, Device, Function);
+    if (!EFI_ERROR (Status)) {
+      Map->AccessState = BootKeyDmaAccessNone;
+    } else {
+      Map->AccessState = BootKeyDmaAccessRevocationRequired;
+    }
+
+    gBS->RestoreTPL (OldTpl);
+    return Status;
   }
 
   if (IoMmuAccess != RequiredAccess) {
+    gBS->RestoreTPL (OldTpl);
     return EFI_INVALID_PARAMETER;
   }
 
+  gBS->RestoreTPL (OldTpl);
   Status = BootKeyDmaValidateDevice (
              DeviceHandle,
              &Segment,
@@ -1663,13 +1808,55 @@ BootKeyDmaSetAttribute (
     return Status;
   }
 
-  OldTpl = gBS->RaiseTPL (TPL_NOTIFY);
-  Status = BootKeyDmaAuthorizeRequester (
-             Segment,
-             Bus,
-             Device,
-             Function
-             );
+  if ((Segment != 0) || (Bus > PCI_MAX_BUS) ||
+      (Device > PCI_MAX_DEVICE) || (Function > PCI_MAX_FUNC))
+  {
+    return EFI_SECURITY_VIOLATION;
+  }
+
+  RequesterId = (UINT16)((Bus << 8) | (Device << 3) | Function);
+  OldTpl      = gBS->RaiseTPL (TPL_NOTIFY);
+  if (!BootKeyDmaMapTracked (Map)) {
+    gBS->RestoreTPL (OldTpl);
+    return EFI_INVALID_PARAMETER;
+  }
+
+  if (Map->AccessState == BootKeyDmaAccessRevocationRequired) {
+    gBS->RestoreTPL (OldTpl);
+    return EFI_ACCESS_DENIED;
+  }
+
+  if (Map->AccessState == BootKeyDmaAccessActive) {
+    Status = ((Map->DeviceHandle == DeviceHandle) &&
+              (Map->RequesterId == RequesterId)) ?
+             EFI_SUCCESS : EFI_INVALID_PARAMETER;
+    gBS->RestoreTPL (OldTpl);
+    return Status;
+  }
+
+  AlreadyActive = BootKeyDmaRequesterHasAccessState (RequesterId, Map);
+  Status        = BootKeyDmaAuthorizeRequester (
+                    Segment,
+                    Bus,
+                    Device,
+                    Function,
+                    AlreadyActive
+                    );
+  if (!EFI_ERROR (Status)) {
+    Map->DeviceHandle = DeviceHandle;
+    Map->RequesterId  = RequesterId;
+    Map->AccessState  = BootKeyDmaAccessActive;
+  } else if (Status == EFI_DEVICE_ERROR) {
+    //
+    // Cache invalidation failed after publishing the context.  Keep the map
+    // quarantined until an explicit revoke succeeds, even though the memory
+    // entry has been rolled back.
+    //
+    Map->DeviceHandle = DeviceHandle;
+    Map->RequesterId  = RequesterId;
+    Map->AccessState  = BootKeyDmaAccessRevocationRequired;
+  }
+
   gBS->RestoreTPL (OldTpl);
   return Status;
 }
@@ -1806,8 +1993,8 @@ BootKeyDmaIsolationEntryPoint (
   mDmaArenaSize  = DmaRangeSize;
   mDmaArenaPages = EFI_SIZE_TO_PAGES (DmaRangeSize);
   InitializeListHead (&mDmaMaps);
-  InitializeListHead (&mDmaAllocations);
   ZeroMem (mDmaArenaBitmap, sizeof (mDmaArenaBitmap));
+  ZeroMem (mDmaCommonBufferBitmap, sizeof (mDmaCommonBufferBitmap));
 
   Status = BootKeyDmaVerifyPmr ();
   if (EFI_ERROR (Status)) {
