@@ -67,8 +67,8 @@
 #define FIDO_RECEIVE_REPORT_LIMIT             2
 #define FIDO_INTERFACE_SCAN_LIMIT             4
 #define FIDO_DEVICE_PATH_MAX_SIZE             1024
-#define FIDO_MTL_XHCI_PCI_DEVICE              0x14
-#define FIDO_MTL_XHCI_PCI_FUNCTION            0
+#define FIDO_INTEL_CLIENT_XHCI_PCI_DEVICE    0x14
+#define FIDO_INTEL_CLIENT_XHCI_PCI_FUNCTION  0
 
 typedef struct {
   EFI_HANDLE             Handle;
@@ -227,8 +227,8 @@ STATIC FIDO_PCI_CONTROLLER_DEVICE_PATH  mFidoControllerDevicePath = {
       HW_PCI_DP,
       { sizeof (PCI_DEVICE_PATH), 0 }
     },
-    FIDO_MTL_XHCI_PCI_FUNCTION,
-    FIDO_MTL_XHCI_PCI_DEVICE
+    FIDO_INTEL_CLIENT_XHCI_PCI_FUNCTION,
+    FIDO_INTEL_CLIENT_XHCI_PCI_DEVICE
   },
   {
     END_DEVICE_PATH_TYPE,
@@ -239,7 +239,7 @@ STATIC FIDO_PCI_CONTROLLER_DEVICE_PATH  mFidoControllerDevicePath = {
 
 STATIC
 EFI_STATUS
-FidoConnectMtlXhciController (
+FidoConnectIntelClientXhciController (
   IN OUT FIDO_DEADLINE  *Deadline
   )
 {
@@ -301,11 +301,11 @@ FidoConnectUsbClassPath (
 
   //
   // The gate runs before PlatformConsoleInit(), so PciBusDxe has not created
-  // child PciIo handles on a fresh BDS path. Connect only Meteor Lake's fixed
-  // 00:14.0 xHCI path; do not enumerate unrelated PCI devices before the
+  // child PciIo handles on a fresh BDS path. Connect only the fixed 00:14.0
+  // Intel client xHCI path; do not enumerate unrelated PCI devices before the
   // authentication boundary.
   //
-  Status = FidoConnectMtlXhciController (Deadline);
+  Status = FidoConnectIntelClientXhciController (Deadline);
   if (EFI_ERROR (Status)) {
     return Status;
   }
