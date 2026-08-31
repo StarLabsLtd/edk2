@@ -95,8 +95,6 @@
 #define PCI_ACS_CAPABILITY_OFFSET      4
 #define PCI_ACS_CONTROL_OFFSET         6
 #define PCI_ACS_SOURCE_VALIDATION      BIT0
-#define MTL_ITBT_DEVICE                0x07
-#define MTL_ITBT_FUNCTION_COUNT        4
 
 #define BOOT_KEY_DMA_MAX_ARENA_SIZE   SIZE_16MB
 #define BOOT_KEY_DMA_MAX_ARENA_PAGES  EFI_SIZE_TO_PAGES (BOOT_KEY_DMA_MAX_ARENA_SIZE)
@@ -237,7 +235,6 @@ BootKeyDmaConfigureAcsSourceValidation (
   IN BOOLEAN  Enable
   )
 {
-  BOOLEAN     ItbtRootPort[MTL_ITBT_FUNCTION_COUNT];
   UINT16      AcsCapability;
   UINT16      AcsControl;
   UINT16      PcieCapability;
@@ -251,7 +248,6 @@ BootKeyDmaConfigureAcsSourceValidation (
   UINT8       SubordinateBus;
   EFI_STATUS  Status;
 
-  ZeroMem (ItbtRootPort, sizeof (ItbtRootPort));
   for (Device = 0; Device <= PCI_MAX_DEVICE; Device++) {
     for (Function = 0; Function <= PCI_MAX_FUNC; Function++) {
       PciAddress = PCI_SEGMENT_LIB_ADDRESS (0, 0, Device, Function, 0);
@@ -331,18 +327,6 @@ BootKeyDmaConfigureAcsSourceValidation (
       if ((AcsControl & PCI_ACS_SOURCE_VALIDATION) == 0) {
         return EFI_SECURITY_VIOLATION;
       }
-
-      if ((Device == MTL_ITBT_DEVICE) &&
-          (Function < MTL_ITBT_FUNCTION_COUNT))
-      {
-        ItbtRootPort[Function] = TRUE;
-      }
-    }
-  }
-
-  for (Function = 0; Function < MTL_ITBT_FUNCTION_COUNT; Function++) {
-    if (!ItbtRootPort[Function]) {
-      return EFI_SECURITY_VIOLATION;
     }
   }
 
