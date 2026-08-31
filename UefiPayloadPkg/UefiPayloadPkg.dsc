@@ -59,7 +59,7 @@
   DEFINE BOOT_KEY_USB_FIDO             = FALSE
   DEFINE BOOT_KEY_USB_FIDO_TEST        = FALSE
   DEFINE BOOT_KEY_TPM_NV_STORE         = FALSE
-  DEFINE BOOT_KEY_INTEL_MTL_BOUNDARY    = FALSE
+  DEFINE BOOT_KEY_INTEL_CLIENT_BOUNDARY = FALSE
   DEFINE BOOT_KEY_DMA_ISOLATION          = FALSE
   DEFINE BOOT_KEY_DMA_ARENA_SIZE         = 0x00400000
   # Test-only provider containing a private fixture key. Never enable this for
@@ -1302,7 +1302,7 @@
 !if $(BOOT_KEY_TPM_NV_STORE) != TRUE
   !error "Factory boot-key provisioning requires BOOT_KEY_TPM_NV_STORE"
 !endif
-!if $(BOOT_KEY_INTEL_MTL_BOUNDARY) != TRUE
+!if $(BOOT_KEY_INTEL_CLIENT_BOUNDARY) != TRUE
   !error "Factory boot-key provisioning requires a hardware-boundary provider"
 !endif
 !endif
@@ -1316,7 +1316,7 @@
 !if $(BOOT_KEY_TPM_NV_STORE) != TRUE
   !error "Production boot-key authentication requires BOOT_KEY_TPM_NV_STORE"
 !endif
-!if $(BOOT_KEY_INTEL_MTL_BOUNDARY) != TRUE
+!if $(BOOT_KEY_INTEL_CLIENT_BOUNDARY) != TRUE
   !error "Production boot-key authentication requires a hardware-boundary provider"
 !endif
 !endif
@@ -1385,8 +1385,8 @@
 !if $(BOOT_KEY_AUTH_TEST) == TRUE || $(BOOT_KEY_AUTH_NULL_TEST) == TRUE
       BootKeyPlatformSecurityLib|UefiPayloadPkg/Test/BootKeyPlatformSecurityTestLib/BootKeyPlatformSecurityTestLib.inf
 !else
-!if $(BOOT_KEY_INTEL_MTL_BOUNDARY) == TRUE
-      BootKeyPlatformSecurityLib|UefiPayloadPkg/Library/BootKeyPlatformSecurityLibIntelMtl/BootKeyPlatformSecurityLibIntelMtl.inf
+!if $(BOOT_KEY_INTEL_CLIENT_BOUNDARY) == TRUE
+      BootKeyPlatformSecurityLib|UefiPayloadPkg/Library/BootKeyPlatformSecurityLibIntelClient/BootKeyPlatformSecurityLibIntelClient.inf
 !endif
 !endif
 !if $(BOOT_KEY_FACTORY_PROVISIONING) == TRUE
