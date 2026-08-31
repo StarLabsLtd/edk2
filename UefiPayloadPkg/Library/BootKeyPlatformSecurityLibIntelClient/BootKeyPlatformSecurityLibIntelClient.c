@@ -10,6 +10,7 @@
 
 #include <IndustryStandard/Pci.h>
 #include <IndustryStandard/TpmPtp.h>
+#include <Register/Intel/Cpuid.h>
 #include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
 #include <Library/BootKeyPlatformSecurityLib.h>
@@ -26,6 +27,10 @@
 #define INTEL_SPI_DEVICE(Register)   PCI_SEGMENT_LIB_ADDRESS (0, 0, 31, 5, (Register))
 
 #define INTEL_SPI_VENDOR_ID               0x8086
+#define INTEL_CPUID_FAMILY_MODEL_MASK      0xfffffff0U
+#define INTEL_CPUID_ALDER_LAKE_N           0x000b06e0U
+#define INTEL_CPUID_RAPTOR_LAKE_U          0x000b06a0U
+#define INTEL_CPUID_METEOR_LAKE            0x000a06a0U
 #define INFINEON_TPM_VENDOR_ID             0x15d1
 #define SLB9670_DEVICE_ID                  0x001b
 #define SLB9672_DEVICE_ID                  0x001d
@@ -60,6 +65,40 @@ typedef struct {
   UINT64     Size;
   BOOLEAN    Valid;
 } INTEL_SMRR_CHECK;
+
+STATIC
+EFI_STATUS
+IntelClientVerifyProcessorBoundary (
+  VOID
+  )
+{
+  UINT32  Ebx;
+  UINT32  Ecx;
+  UINT32  Edx;
+  UINT32  ProcessorFamilyModel;
+  UINT32  ProcessorSignature;
+
+  AsmCpuid (CPUID_SIGNATURE, NULL, &Ebx, &Ecx, &Edx);
+  AsmCpuid (CPUID_VERSION_INFO, &ProcessorSignature, NULL, NULL, NULL);
+  ProcessorFamilyModel = ProcessorSignature & INTEL_CPUID_FAMILY_MODEL_MASK;
+
+  if ((Ebx != CPUID_SIGNATURE_GENUINE_INTEL_EBX) ||
+      (Edx != CPUID_SIGNATURE_GENUINE_INTEL_EDX) ||
+      (Ecx != CPUID_SIGNATURE_GENUINE_INTEL_ECX) ||
+      ((ProcessorFamilyModel != INTEL_CPUID_ALDER_LAKE_N) &&
+       (ProcessorFamilyModel != INTEL_CPUID_RAPTOR_LAKE_U) &&
+       (ProcessorFamilyModel != INTEL_CPUID_METEOR_LAKE)))
+  {
+    DEBUG ((
+      DEBUG_ERROR,
+      "Boot-key Intel client requires ADL-N, RPL-U or MTL: CPUID=0x%08x\n",
+      ProcessorSignature
+      ));
+    return EFI_SECURITY_VIOLATION;
+  }
+
+  return EFI_SUCCESS;
+}
 
 STATIC
 VOID
@@ -331,6 +370,11 @@ BootKeyVerifyPlatformSecurityBoundary (
   )
 {
   EFI_STATUS  Status;
+
+  Status = IntelClientVerifyProcessorBoundary ();
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
 
   Status = IntelClientVerifyDmaBoundary ();
   if (EFI_ERROR (Status)) {
