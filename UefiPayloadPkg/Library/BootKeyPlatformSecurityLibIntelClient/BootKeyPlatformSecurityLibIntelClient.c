@@ -26,7 +26,8 @@
 #define INTEL_SPI_DEVICE(Register)   PCI_SEGMENT_LIB_ADDRESS (0, 0, 31, 5, (Register))
 
 #define INTEL_SPI_VENDOR_ID               0x8086
-#define SLB9672_VENDOR_ID                  0x15d1
+#define INFINEON_TPM_VENDOR_ID             0x15d1
+#define SLB9670_DEVICE_ID                  0x001b
 #define SLB9672_DEVICE_ID                  0x001d
 #define TPM_BASE_ADDRESS                   0xfed40000U
 #define INTEL_SA_SMRAMC                   0x88
@@ -239,8 +240,9 @@ IntelClientVerifyTpmBoundary (
   StatusEx = MmioRead8 (
                TPM_BASE_ADDRESS + OFFSET_OF (PTP_FIFO_REGISTERS, StatusEx)
                );
-  if ((VendorId != SLB9672_VENDOR_ID) ||
-      (DeviceId != SLB9672_DEVICE_ID) ||
+  if ((VendorId != INFINEON_TPM_VENDOR_ID) ||
+      ((DeviceId != SLB9670_DEVICE_ID) &&
+       (DeviceId != SLB9672_DEVICE_ID)) ||
       (InterfaceId.Bits.InterfaceType !=
        PTP_INTERFACE_IDENTIFIER_INTERFACE_TYPE_FIFO) ||
       (InterfaceId.Bits.InterfaceVersion !=
@@ -256,7 +258,7 @@ IntelClientVerifyTpmBoundary (
   {
     DEBUG ((
       DEBUG_ERROR,
-      "Boot-key Intel client requires Infineon SLB9672 FIFO: VID=0x%04x DID=0x%04x IF=0x%08x CAP=0x%08x STS_EX=0x%02x\n",
+      "Boot-key Intel client requires an Infineon SLB9670/SLB9672 FIFO TPM: VID=0x%04x DID=0x%04x IF=0x%08x CAP=0x%08x STS_EX=0x%02x\n",
       VendorId,
       DeviceId,
       InterfaceId.Uint32,
