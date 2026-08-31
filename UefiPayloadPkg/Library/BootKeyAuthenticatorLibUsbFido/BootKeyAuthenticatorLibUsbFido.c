@@ -29,18 +29,18 @@
 #include <Protocol/PciRootBridgeIo.h>
 #include <Protocol/UsbIo.h>
 
-#define FIDO_HID_CLASS                        3
-#define FIDO_HID_SUBCLASS                     0
-#define FIDO_HID_PROTOCOL                     0
-#define FIDO_USAGE_PAGE                       0xf1d0
-#define FIDO_USAGE_CTAPHID                    0x01
-#define FIDO_YUBICO_VENDOR_ID                 0x1050
-#define FIDO_REPORT_SIZE                      64
-#define FIDO_REPORT_DESCRIPTOR_MAX_SIZE       256
-#define FIDO_INIT_DATA_SIZE                   57
-#define FIDO_CONT_DATA_SIZE                   59
-#define FIDO_MAX_MESSAGE_SIZE                 1024
-#define FIDO_USB_CONTROL_TIMEOUT_MS           40
+#define FIDO_HID_CLASS                   3
+#define FIDO_HID_SUBCLASS                0
+#define FIDO_HID_PROTOCOL                0
+#define FIDO_USAGE_PAGE                  0xf1d0
+#define FIDO_USAGE_CTAPHID               0x01
+#define FIDO_YUBICO_VENDOR_ID            0x1050
+#define FIDO_REPORT_SIZE                 64
+#define FIDO_REPORT_DESCRIPTOR_MAX_SIZE  256
+#define FIDO_INIT_DATA_SIZE              57
+#define FIDO_CONT_DATA_SIZE              59
+#define FIDO_MAX_MESSAGE_SIZE            1024
+#define FIDO_USB_CONTROL_TIMEOUT_MS      40
 // CTAPHID permits up to 100 ms between keepalive messages.  The per-report
 // timeout remains beyond that bound, while one shared deadline bounds the
 // complete transaction.
@@ -67,8 +67,8 @@
 #define FIDO_RECEIVE_REPORT_LIMIT             2
 #define FIDO_INTERFACE_SCAN_LIMIT             4
 #define FIDO_DEVICE_PATH_MAX_SIZE             1024
-#define FIDO_INTEL_CLIENT_XHCI_PCI_DEVICE    0x14
-#define FIDO_INTEL_CLIENT_XHCI_PCI_FUNCTION  0
+#define FIDO_INTEL_CLIENT_XHCI_PCI_DEVICE     0x14
+#define FIDO_INTEL_CLIENT_XHCI_PCI_FUNCTION   0
 
 typedef struct {
   EFI_HANDLE             Handle;
@@ -93,10 +93,10 @@ typedef struct {
 } FIDO_USB_CONTEXT;
 
 typedef struct {
-  UINT64  CounterStart;
-  UINT64  CounterEnd;
-  UINT64  LastCounter;
-  UINT64  ElapsedNs;
+  UINT64    CounterStart;
+  UINT64    CounterEnd;
+  UINT64    LastCounter;
+  UINT64    ElapsedNs;
 } FIDO_DEADLINE;
 
 #pragma pack (1)
@@ -114,6 +114,8 @@ typedef struct {
 STATIC FIDO_USB_CONTEXT  mFido;
 STATIC UINTN             mFidoScanOffset;
 STATIC UINTN             mFidoControllerOffset;
+STATIC UINTN             mFidoRootBridgeOffset;
+STATIC BOOLEAN           mFidoPciControllerConnected;
 
 STATIC
 VOID
@@ -166,11 +168,11 @@ FidoRemainingTimeoutMs (
 STATIC
 EFI_STATUS
 FidoUsbControlTransfer (
-  IN     EFI_USB_IO_PROTOCOL    *UsbIo,
-  IN     EFI_USB_DEVICE_REQUEST *Request,
-  IN OUT VOID                   *Data,
-  IN     UINTN                  DataSize,
-  IN OUT FIDO_DEADLINE          *Deadline
+  IN     EFI_USB_IO_PROTOCOL     *UsbIo,
+  IN     EFI_USB_DEVICE_REQUEST  *Request,
+  IN OUT VOID                    *Data,
+  IN     UINTN                   DataSize,
+  IN OUT FIDO_DEADLINE           *Deadline
   )
 {
   EFI_STATUS  Status;
@@ -225,7 +227,7 @@ STATIC FIDO_PCI_CONTROLLER_DEVICE_PATH  mFidoControllerDevicePath = {
     {
       HARDWARE_DEVICE_PATH,
       HW_PCI_DP,
-      { sizeof (PCI_DEVICE_PATH), 0 }
+      { sizeof (PCI_DEVICE_PATH),          0 }
     },
     FIDO_INTEL_CLIENT_XHCI_PCI_FUNCTION,
     FIDO_INTEL_CLIENT_XHCI_PCI_DEVICE
@@ -246,8 +248,11 @@ FidoConnectIntelClientXhciController (
   EFI_HANDLE  *Handles;
   UINTN       HandleCount;
   UINTN       Index;
-  EFI_STATUS  Result;
   EFI_STATUS  Status;
+
+  if (mFidoPciControllerConnected) {
+    return EFI_SUCCESS;
+  }
 
   Handles = NULL;
   Status  = gBS->LocateHandleBuffer (
@@ -261,27 +266,34 @@ FidoConnectIntelClientXhciController (
     return Status;
   }
 
-  Result = EFI_NOT_FOUND;
-  for (Index = 0; Index < HandleCount; Index++) {
-    if (FidoRemainingTimeoutMs (Deadline) == 0) {
-      Result = EFI_TIMEOUT;
-      break;
+  if (HandleCount == 0) {
+    mFidoRootBridgeOffset = 0;
+    if (Handles != NULL) {
+      FreePool (Handles);
     }
 
-    Status = gBS->ConnectController (
-                    Handles[Index],
-                    NULL,
-                    (EFI_DEVICE_PATH_PROTOCOL *)&mFidoControllerDevicePath,
-                    FALSE
-                    );
-    if (!EFI_ERROR (Status)) {
-      Result = EFI_SUCCESS;
-      break;
-    }
+    return EFI_NOT_FOUND;
+  }
+
+  Index                 = mFidoRootBridgeOffset % HandleCount;
+  mFidoRootBridgeOffset = (Index + 1) % HandleCount;
+  if (FidoRemainingTimeoutMs (Deadline) == 0) {
+    FreePool (Handles);
+    return EFI_TIMEOUT;
+  }
+
+  Status = gBS->ConnectController (
+                  Handles[Index],
+                  NULL,
+                  (EFI_DEVICE_PATH_PROTOCOL *)&mFidoControllerDevicePath,
+                  FALSE
+                  );
+  if (!EFI_ERROR (Status)) {
+    mFidoPciControllerConnected = TRUE;
   }
 
   FreePool (Handles);
-  return Result;
+  return EFI_ERROR (Status) ? EFI_NOT_FOUND : EFI_SUCCESS;
 }
 
 STATIC
@@ -312,12 +324,12 @@ FidoConnectUsbClassPath (
 
   Handles = NULL;
   Status  = gBS->LocateHandleBuffer (
-                     ByProtocol,
-                     &gEfiPciIoProtocolGuid,
-                     NULL,
-                     &HandleCount,
-                     &Handles
-                     );
+                   ByProtocol,
+                   &gEfiPciIoProtocolGuid,
+                   NULL,
+                   &HandleCount,
+                   &Handles
+                   );
   if (EFI_ERROR (Status)) {
     return EFI_NOT_FOUND;
   }
@@ -766,17 +778,17 @@ FidoCurrentDeviceStatus (
   IN OUT FIDO_DEADLINE  *Deadline
   )
 {
-  EFI_USB_DEVICE_REQUEST     Request;
-  EFI_USB_IO_PROTOCOL        *UsbIo;
-  UINT8                      InEndpoint;
-  UINT8                      OutEndpoint;
-  UINT16                     ReportSize;
-  UINT16                     VendorId;
-  UINT16                     ProductId;
-  UINT8                      InterfaceNumber;
-  UINT8                      DevicePathDigest[SHA256_DIGEST_SIZE];
-  UINT16                     DeviceStatus;
-  EFI_STATUS                 Status;
+  EFI_USB_DEVICE_REQUEST  Request;
+  EFI_USB_IO_PROTOCOL     *UsbIo;
+  UINT8                   InEndpoint;
+  UINT8                   OutEndpoint;
+  UINT16                  ReportSize;
+  UINT16                  VendorId;
+  UINT16                  ProductId;
+  UINT8                   InterfaceNumber;
+  UINT8                   DevicePathDigest[SHA256_DIGEST_SIZE];
+  UINT16                  DeviceStatus;
+  EFI_STATUS              Status;
 
   UsbIo = NULL;
   if ((mFido.Handle == NULL) ||
@@ -797,13 +809,13 @@ FidoCurrentDeviceStatus (
   Request.RequestType = USB_DEV_GET_STATUS_REQ_TYPE_D;
   Request.Request     = USB_REQ_GET_STATUS;
   Request.Length      = sizeof (DeviceStatus);
-  Status = FidoUsbControlTransfer (
-             UsbIo,
-             &Request,
-             &DeviceStatus,
-             sizeof (DeviceStatus),
-             Deadline
-             );
+  Status              = FidoUsbControlTransfer (
+                          UsbIo,
+                          &Request,
+                          &DeviceStatus,
+                          sizeof (DeviceStatus),
+                          Deadline
+                          );
   if (EFI_ERROR (Status) ||
       !FidoInterfaceMatches (
          UsbIo,
@@ -986,9 +998,9 @@ FidoTransaction (
   IN OUT FIDO_DEADLINE  *Deadline
   )
 {
-  UINT8          BoundRequestDigest[1 + SHA256_DIGEST_SIZE];
-  UINT8          RequestDigest[SHA256_DIGEST_SIZE];
-  EFI_STATUS     Status;
+  UINT8       BoundRequestDigest[1 + SHA256_DIGEST_SIZE];
+  UINT8       RequestDigest[SHA256_DIGEST_SIZE];
+  EFI_STATUS  Status;
 
   if ((Request == NULL) ||
       !Sha256HashAll (Request, RequestSize, RequestDigest))
@@ -1164,11 +1176,11 @@ FidoInitializeChannel (
   IN OUT FIDO_DEADLINE  *Deadline
   )
 {
-  UINT8          Nonce[8];
-  UINT8          Response[32];
-  UINTN          ResponseSize;
-  UINT64         RandomNonce;
-  EFI_STATUS     Status;
+  UINT8       Nonce[8];
+  UINT8       Response[32];
+  UINTN       ResponseSize;
+  UINT64      RandomNonce;
+  EFI_STATUS  Status;
 
   if (!GetRandomNumber64 (&RandomNonce)) {
     return EFI_DEVICE_ERROR;
