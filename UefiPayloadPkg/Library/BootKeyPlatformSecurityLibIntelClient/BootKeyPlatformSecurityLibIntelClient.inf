@@ -23,6 +23,7 @@
 [LibraryClasses]
   BaseLib
   BaseMemoryLib
+  BootKeyIntelClientPlatformLib
   DebugLib
   IoLib
   MemoryAllocationLib

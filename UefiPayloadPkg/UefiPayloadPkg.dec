@@ -23,6 +23,7 @@
   BootKeyAuthLib|Include/Library/BootKeyAuthLib.h
   BootKeyAuthenticatorLib|Include/Library/BootKeyAuthenticatorLib.h
   BootKeyCredentialStoreLib|Include/Library/BootKeyCredentialStoreLib.h
+  BootKeyIntelClientPlatformLib|Include/Library/BootKeyIntelClientPlatformLib.h
   BootKeyPlatformSecurityLib|Include/Library/BootKeyPlatformSecurityLib.h
   BootKeyProvisionLib|Include/Library/BootKeyProvisionLib.h
 
