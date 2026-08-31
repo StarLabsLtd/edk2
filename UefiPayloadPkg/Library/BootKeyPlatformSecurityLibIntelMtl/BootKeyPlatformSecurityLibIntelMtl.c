@@ -24,13 +24,11 @@
 
 #define MTL_ROOT_BRIDGE(Register)  PCI_SEGMENT_LIB_ADDRESS (0, 0, 0, 0, (Register))
 #define MTL_SPI_DEVICE(Register)   PCI_SEGMENT_LIB_ADDRESS (0, 0, 31, 5, (Register))
-#define MTL_CSE_DEVICE(Register)   PCI_SEGMENT_LIB_ADDRESS (0, 0, 22, 0, (Register))
 
 #define MTL_INTEL_VENDOR_ID            0x8086
-#define MTL_INTEL_PTT_DEVICE_ID         0xa13a
-#define MTL_CSE_HFSTS4                  0x64
-#define MTL_CSE_HFSTS4_PTT_ENABLED      BIT19
-#define MTL_PTT_BASE_ADDRESS            0xfed40000U
+#define MTL_TPM_VENDOR_ID               0x15d1
+#define MTL_TPM_DEVICE_ID               0x001d
+#define MTL_TPM_BASE_ADDRESS            0xfed40000U
 #define MTL_SA_SMRAMC                  0x88
 #define MTL_SA_SMRAMC_D_OPEN           BIT6
 #define MTL_SA_SMRAMC_D_LCK            BIT4
@@ -214,50 +212,56 @@ MtlVerifyDmaBoundary (
 
 STATIC
 EFI_STATUS
-MtlVerifyPttBoundary (
+MtlVerifyTpmBoundary (
   VOID
   )
 {
-  PTP_CRB_INTERFACE_IDENTIFIER  InterfaceId;
-  UINT16                        DeviceId;
-  UINT32                        Hfsts4;
-  UINT16                        VendorId;
+  PTP_FIFO_INTERFACE_CAPABILITY  InterfaceCapability;
+  PTP_FIFO_INTERFACE_IDENTIFIER  InterfaceId;
+  UINT16                         DeviceId;
+  UINT8                          StatusEx;
+  UINT16                         VendorId;
 
   VendorId = MmioRead16 (
-               MTL_PTT_BASE_ADDRESS + OFFSET_OF (PTP_CRB_REGISTERS, Vid)
+               MTL_TPM_BASE_ADDRESS + OFFSET_OF (PTP_FIFO_REGISTERS, Vid)
                );
   DeviceId = MmioRead16 (
-               MTL_PTT_BASE_ADDRESS + OFFSET_OF (PTP_CRB_REGISTERS, Did)
+               MTL_TPM_BASE_ADDRESS + OFFSET_OF (PTP_FIFO_REGISTERS, Did)
                );
   InterfaceId.Uint32 = MmioRead32 (
-                         MTL_PTT_BASE_ADDRESS +
-                         OFFSET_OF (PTP_CRB_REGISTERS, InterfaceId)
+                         MTL_TPM_BASE_ADDRESS +
+                         OFFSET_OF (PTP_FIFO_REGISTERS, InterfaceId)
                          );
-  Hfsts4 = PciSegmentRead32 (MTL_CSE_DEVICE (MTL_CSE_HFSTS4));
-
-  if ((PciSegmentRead16 (MTL_CSE_DEVICE (PCI_VENDOR_ID_OFFSET)) !=
-       MTL_INTEL_VENDOR_ID) ||
-      ((Hfsts4 & MTL_CSE_HFSTS4_PTT_ENABLED) == 0) ||
-      (VendorId != MTL_INTEL_VENDOR_ID) ||
-      (DeviceId != MTL_INTEL_PTT_DEVICE_ID) ||
+  InterfaceCapability.Uint32 = MmioRead32 (
+                                 MTL_TPM_BASE_ADDRESS +
+                                 OFFSET_OF (PTP_FIFO_REGISTERS, InterfaceCapability)
+                                 );
+  StatusEx = MmioRead8 (
+               MTL_TPM_BASE_ADDRESS + OFFSET_OF (PTP_FIFO_REGISTERS, StatusEx)
+               );
+  if ((VendorId != MTL_TPM_VENDOR_ID) ||
+      (DeviceId != MTL_TPM_DEVICE_ID) ||
       (InterfaceId.Bits.InterfaceType !=
-       PTP_INTERFACE_IDENTIFIER_INTERFACE_TYPE_CRB) ||
-      ((InterfaceId.Bits.InterfaceVersion !=
-        PTP_INTERFACE_IDENTIFIER_INTERFACE_VERSION_CRB) &&
-       (InterfaceId.Bits.InterfaceVersion !=
-        PTP_INTERFACE_IDENTIFIER_INTERFACE_VERSION_CRB_V2)) ||
-      (InterfaceId.Bits.CapCRB == 0) ||
+       PTP_INTERFACE_IDENTIFIER_INTERFACE_TYPE_FIFO) ||
+      (InterfaceId.Bits.InterfaceVersion !=
+       PTP_INTERFACE_IDENTIFIER_INTERFACE_VERSION_FIFO) ||
+      (InterfaceId.Bits.CapFIFO == 0) ||
+      (InterfaceId.Bits.CapCRB != 0) ||
       (InterfaceId.Bits.InterfaceSelector !=
-       PTP_INTERFACE_IDENTIFIER_INTERFACE_SELECTOR_CRB) ||
-      (InterfaceId.Bits.IntfSelLock == 0))
+       PTP_INTERFACE_IDENTIFIER_INTERFACE_SELECTOR_FIFO) ||
+      (InterfaceCapability.Bits.InterfaceVersion !=
+       INTERFACE_CAPABILITY_INTERFACE_VERSION_PTP) ||
+      ((StatusEx & PTP_FIFO_STS_EX_TPM_FAMILY) !=
+       PTP_FIFO_STS_EX_TPM_FAMILY_TPM20))
   {
     DEBUG ((
       DEBUG_ERROR,
-      "Boot-key MTL requires Intel PTT CRB: HFSTS4=0x%08x VID=0x%04x DID=0x%04x IF=0x%08x\n",
-      Hfsts4,
+      "Boot-key MTL requires Infineon SLB9672 FIFO: VID=0x%04x DID=0x%04x IF=0x%08x CAP=0x%08x STS_EX=0x%02x\n",
       VendorId,
       DeviceId,
-      InterfaceId.Uint32
+      InterfaceId.Uint32,
+      InterfaceCapability.Uint32,
+      StatusEx
       ));
     return EFI_SECURITY_VIOLATION;
   }
@@ -331,7 +335,7 @@ BootKeyVerifyPlatformSecurityBoundary (
     return Status;
   }
 
-  Status = MtlVerifyPttBoundary ();
+  Status = MtlVerifyTpmBoundary ();
   if (EFI_ERROR (Status)) {
     return Status;
   }
