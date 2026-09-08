@@ -52,10 +52,12 @@
   gEfiAuthenticatedVariableGuid
   gNvVariableInfoGuid
   gVariableFlashInfoHobGuid
+  gEdkiiWorkingBlockSignatureGuid
 
   [Protocols]
   gEfiDevicePathProtocolGuid                    # PROTOCOL ALWAYS_PRODUCED
   gEfiSmmFirmwareVolumeBlockProtocolGuid        # PROTOCOL ALWAYS_PRODUCED
+  gEfiSmmFaultTolerantWriteProtocolGuid         ## NOTIFY
 
 [Pcd]
   gEfiMdeModulePkgTokenSpaceGuid.PcdFlashNvStorageVariableBase
