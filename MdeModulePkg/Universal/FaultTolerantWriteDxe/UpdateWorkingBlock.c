@@ -287,7 +287,7 @@ WorkSpaceRefresh (
   }
 
   if (!IsValidWorkSpace (FtwDevice->FtwWorkSpaceHeader)) {
-    return EFI_ABORTED;
+    return EFI_VOLUME_CORRUPTED;
   }
 
   //
@@ -298,15 +298,14 @@ WorkSpaceRefresh (
              FtwDevice->FtwWorkSpaceSize,
              &FtwDevice->FtwLastWriteHeader
              );
-  RemainingSpaceSize = FtwDevice->FtwWorkSpaceSize - ((UINTN)FtwDevice->FtwLastWriteHeader - (UINTN)FtwDevice->FtwWorkSpace);
-  DEBUG ((DEBUG_INFO, "Ftw: Remaining work space size - %x\n", RemainingSpaceSize));
+  if (EFI_ERROR (Status) && (Status != EFI_BUFFER_TOO_SMALL)) {
+    return Status;
+  }
+
   //
-  // If FtwGetLastWriteHeader() returns error, or the remaining space size is even not enough to contain
-  // one EFI_FAULT_TOLERANT_WRITE_HEADER + one EFI_FAULT_TOLERANT_WRITE_RECORD(It will cause that the header
-  // pointed by FtwDevice->FtwLastWriteHeader or record pointed by FtwDevice->FtwLastWriteRecord may contain invalid data),
-  // it needs to reclaim work space.
+  // Reclaim a full queue, but leave a malformed journal intact.
   //
-  if (EFI_ERROR (Status) || (RemainingSpaceSize < sizeof (EFI_FAULT_TOLERANT_WRITE_HEADER) + sizeof (EFI_FAULT_TOLERANT_WRITE_RECORD))) {
+  if (Status == EFI_BUFFER_TOO_SMALL) {
     //
     // reclaim work space in working block.
     //
@@ -344,12 +343,14 @@ WorkSpaceRefresh (
   //
   // Refresh the FtwLastWriteRecord
   //
-  Status = FtwGetLastWriteRecord (
-             FtwDevice->FtwLastWriteHeader,
-             &FtwDevice->FtwLastWriteRecord
-             );
+  RemainingSpaceSize = FtwDevice->FtwWorkSpaceSize - ((UINTN)FtwDevice->FtwLastWriteHeader - (UINTN)FtwDevice->FtwWorkSpace);
+  Status             = FtwGetLastWriteRecord (
+                         FtwDevice->FtwLastWriteHeader,
+                         RemainingSpaceSize,
+                         &FtwDevice->FtwLastWriteRecord
+                         );
   if (EFI_ERROR (Status)) {
-    return EFI_ABORTED;
+    return Status;
   }
 
   return EFI_SUCCESS;
@@ -444,6 +445,11 @@ FtwReclaimWorkSpace (
                FtwDevice->FtwWorkSpaceSize,
                &FtwDevice->FtwLastWriteHeader
                );
+    if (EFI_ERROR (Status) && (Status != EFI_BUFFER_TOO_SMALL)) {
+      FreePool (TempBuffer);
+      return Status;
+    }
+
     Header = FtwDevice->FtwLastWriteHeader;
     if (!EFI_ERROR (Status) && (Header != NULL) && (Header->Complete != FTW_VALID_STATE) && (Header->HeaderAllocated == FTW_VALID_STATE)) {
       CopyMem (
@@ -460,16 +466,25 @@ FtwReclaimWorkSpace (
     FtwDevice->FtwWorkSpaceSize
     );
 
-  FtwGetLastWriteHeader (
-    FtwDevice->FtwWorkSpaceHeader,
-    FtwDevice->FtwWorkSpaceSize,
-    &FtwDevice->FtwLastWriteHeader
-    );
+  Status = FtwGetLastWriteHeader (
+             FtwDevice->FtwWorkSpaceHeader,
+             FtwDevice->FtwWorkSpaceSize,
+             &FtwDevice->FtwLastWriteHeader
+             );
+  if (EFI_ERROR (Status)) {
+    FreePool (TempBuffer);
+    return Status;
+  }
 
-  FtwGetLastWriteRecord (
-    FtwDevice->FtwLastWriteHeader,
-    &FtwDevice->FtwLastWriteRecord
-    );
+  Status = FtwGetLastWriteRecord (
+             FtwDevice->FtwLastWriteHeader,
+             FtwDevice->FtwWorkSpaceSize - ((UINTN)FtwDevice->FtwLastWriteHeader - (UINTN)FtwDevice->FtwWorkSpace),
+             &FtwDevice->FtwLastWriteRecord
+             );
+  if (EFI_ERROR (Status)) {
+    FreePool (TempBuffer);
+    return Status;
+  }
 
   //
   // Set the WorkingBlockValid and WorkingBlockInvalid as INVALID

@@ -1,0 +1,32 @@
+## @file
+# Host checks for FTW journal traversal.
+# Copyright (c) 2026, Star Labs Systems. All rights reserved.<BR>
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION    = 0x00010017
+  BASE_NAME      = FtwJournalUnitTest
+  FILE_GUID      = c577a17c-747f-4f5c-9342-46528da4b674
+  VERSION_STRING = 1.0
+  MODULE_TYPE    = HOST_APPLICATION
+
+[Sources]
+  FtwMisc.c
+  FtwJournalUnitTest.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  UnitTestFrameworkPkg/UnitTestFrameworkPkg.dec
+
+[LibraryClasses]
+  BaseMemoryLib
+  DebugLib
+  UnitTestLib
+
+[Guids]
+  gEdkiiWorkingBlockSignatureGuid
+
+[FeaturePcd]
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFullFtwServiceEnable

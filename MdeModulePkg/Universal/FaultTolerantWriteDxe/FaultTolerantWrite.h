@@ -465,8 +465,10 @@ FtwUpdateFvState (
   @param FtwWorkSpaceSize   Size of the work space
   @param FtwWriteHeader     Pointer to retrieve the last write header
 
-  @retval  EFI_SUCCESS      Get the last write record successfully
-  @retval  EFI_ABORTED      The FTW work space is damaged
+  @retval EFI_SUCCESS           Found a bounded write header.
+  @retval EFI_BUFFER_TOO_SMALL  The queue is full or allocation was interrupted.
+  @retval EFI_VOLUME_CORRUPTED  The FTW journal is malformed.
+  @retval EFI_INVALID_PARAMETER A required pointer or workspace size is invalid.
 
 **/
 EFI_STATUS
@@ -482,16 +484,19 @@ FtwGetLastWriteHeader (
   may be a EMPTY record entry for next write.
 
 
-  @param FtwWriteHeader  Pointer to the write record header
-  @param FtwWriteRecord  Pointer to retrieve the last write record
+  @param FtwWriteHeader      Pointer to the write record header.
+  @param FtwWriteHeaderSize  Available bytes from this header to the workspace end.
+  @param FtwWriteRecord      Pointer to retrieve the last write record.
 
-  @retval EFI_SUCCESS        Get the last write record successfully
-  @retval EFI_ABORTED        The FTW work space is damaged
+  @retval EFI_SUCCESS           Found a bounded write record.
+  @retval EFI_VOLUME_CORRUPTED  The FTW journal is malformed.
+  @retval EFI_INVALID_PARAMETER The output pointer is NULL.
 
 **/
 EFI_STATUS
 FtwGetLastWriteRecord (
   IN EFI_FAULT_TOLERANT_WRITE_HEADER   *FtwWriteHeader,
+  IN UINTN                             FtwWriteHeaderSize,
   OUT EFI_FAULT_TOLERANT_WRITE_RECORD  **FtwWriteRecord
   );
 
