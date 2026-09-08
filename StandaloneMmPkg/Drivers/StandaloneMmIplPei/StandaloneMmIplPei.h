@@ -161,7 +161,7 @@ CreateMmHobHandoffInfoTable (
   Should only be used in the absence of CpuMpPei.
 
 **/
-VOID
+EFI_STATUS
 MmIplBuildMpInformationHob (
   IN UINT8      *HobBuffer,
   IN OUT UINTN  *HobBufferSize
