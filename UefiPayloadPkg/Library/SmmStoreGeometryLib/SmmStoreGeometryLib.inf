@@ -1,0 +1,26 @@
+## @file
+# Shared on-flash variable-store geometry.
+#
+# Copyright (c) 2026, Star Labs Systems. All rights reserved.<BR>
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION    = 0x00010005
+  BASE_NAME      = SmmStoreGeometryLib
+  FILE_GUID      = B22BB579-4899-4B1C-A253-C7A2366A4325
+  MODULE_TYPE    = BASE
+  VERSION_STRING = 1.0
+  LIBRARY_CLASS  = SmmStoreGeometryLib
+
+[Sources]
+  SmmStoreGeometryLib.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  UefiPayloadPkg/UefiPayloadPkg.dec
+
+[LibraryClasses]
+  BaseMemoryLib
+  SafeIntLib
