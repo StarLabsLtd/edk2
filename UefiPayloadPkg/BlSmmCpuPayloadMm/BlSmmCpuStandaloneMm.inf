@@ -88,6 +88,8 @@
   gUefiCpuPkgTokenSpaceGuid.PcdCpuSmmStackGuard          ## CONSUMES
 
 [Pcd]
+  gEfiMdeModulePkgTokenSpaceGuid.PcdSerialUseMmio
+  gEfiMdeModulePkgTokenSpaceGuid.PcdSerialRegisterBase
   gUefiCpuPkgTokenSpaceGuid.PcdCpuSmmStackSize                        ## CONSUMES
   gEfiMdeModulePkgTokenSpaceGuid.PcdNullPointerDetectionPropertyMask  ## CONSUMES
   gEfiMdeModulePkgTokenSpaceGuid.PcdHeapGuardPropertyMask             ## CONSUMES
