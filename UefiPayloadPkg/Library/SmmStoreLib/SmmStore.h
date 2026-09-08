@@ -12,12 +12,15 @@
 #define SMMSTORE_RET_SUCCESS      0
 #define SMMSTORE_RET_FAILURE      1
 #define SMMSTORE_RET_UNSUPPORTED  2
+#define SMMSTORE_RET_BUSY         3
 
 /* Version 2 only */
 #define SMMSTORE_CMD_INIT       4
 #define SMMSTORE_CMD_RAW_READ   5
 #define SMMSTORE_CMD_RAW_WRITE  6
 #define SMMSTORE_CMD_RAW_CLEAR  7
+#define SMMSTORE_CMD_VARIABLE_BEGIN  8
+#define SMMSTORE_CMD_VARIABLE_END    9
 
 /* Used by capsule updates as a standalone command or modifier to v2 commands */
 #define SMMSTORE_CMD_USE_FULL_FLASH  0x80
