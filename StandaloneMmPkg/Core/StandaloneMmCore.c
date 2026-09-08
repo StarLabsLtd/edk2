@@ -715,7 +715,9 @@ MmConfigurationMmNotify (
   // Register the MM Entry Point provided by the MM Core with the MM COnfiguration protocol
   //
   Status = MmConfiguration->RegisterMmEntry (MmConfiguration, (EFI_MM_ENTRY_POINT)MmEntryPoint);
-  ASSERT_EFI_ERROR (Status);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
 
   //
   // Set flag to indicate that the MM Entry Point has been registered which
