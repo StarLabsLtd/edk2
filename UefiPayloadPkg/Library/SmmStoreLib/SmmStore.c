@@ -101,6 +101,8 @@ CallSmm (
       return EFI_SUCCESS;
     } else if (Result == SMMSTORE_RET_UNSUPPORTED) {
       return EFI_UNSUPPORTED;
+    } else if (Result == SMMSTORE_RET_BUSY) {
+      return EFI_NOT_READY;
     }
 
     SawResponse = TRUE;
@@ -108,6 +110,41 @@ CallSmm (
   }
 
   return SawResponse ? EFI_DEVICE_ERROR : EFI_NO_RESPONSE;
+}
+
+EFI_STATUS
+EFIAPI
+SmmStoreLibVariableBegin (
+  OUT UINT64  *Generation
+  )
+{
+  EFI_STATUS  Status;
+
+  if ((mSmmStoreInfo == NULL) || (Generation == NULL) ||
+      (mSmmStoreInfo->ComBufferSize < sizeof (*Generation)))
+  {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  Status = CallSmm (mSmmStoreInfo->ApmCmd, SMMSTORE_CMD_VARIABLE_BEGIN, (UINTN)mArgComBufPhys);
+  if (!EFI_ERROR (Status)) {
+    CopyMem (Generation, (VOID *)(UINTN)mSmmStoreInfo->ComBuffer, sizeof (*Generation));
+  }
+
+  return Status;
+}
+
+EFI_STATUS
+EFIAPI
+SmmStoreLibVariableEnd (
+  VOID
+  )
+{
+  if (mSmmStoreInfo == NULL) {
+    return EFI_NOT_READY;
+  }
+
+  return CallSmm (mSmmStoreInfo->ApmCmd, SMMSTORE_CMD_VARIABLE_END, (UINTN)mArgComBufPhys);
 }
 
 /**
