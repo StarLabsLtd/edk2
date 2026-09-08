@@ -13,6 +13,20 @@
 #include <Uefi/UefiBaseType.h>
 #include <Guid/SmmStoreInfoGuid.h>
 
+/** Acquire cooperative exclusion and return the external-write generation. */
+EFI_STATUS
+EFIAPI
+SmmStoreLibVariableBegin (
+  OUT UINT64  *Generation
+  );
+
+/** Release a successful SmmStoreLibVariableBegin operation. */
+EFI_STATUS
+EFIAPI
+SmmStoreLibVariableEnd (
+  VOID
+  );
+
 #define SMMSTORE_COMBUF_SIZE  16
 
 /**
