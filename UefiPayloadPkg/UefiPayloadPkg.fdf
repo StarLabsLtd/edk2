@@ -529,6 +529,7 @@ INF UefiCpuPkg/CpuIo2Smm/CpuIo2StandaloneMm.inf
   INF UefiPayloadPkg/FvbRuntimeDxe/FvbStandaloneMm.inf
   INF MdeModulePkg/Universal/FaultTolerantWriteDxe/FaultTolerantWriteStandaloneMm.inf
   INF MdeModulePkg/Universal/Variable/RuntimeDxe/VariableStandaloneMm.inf
+  INF UefiPayloadPkg/StarlabsCfrMm/StarlabsCfrMm.inf
 !endif
 
 !endif
