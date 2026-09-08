@@ -592,6 +592,9 @@
   gEdkiiPeiMigrateTempRamPpiGuid            = { 0xc79dc53b, 0xafcd, 0x4a6a, { 0xad, 0x94, 0xa7, 0x6a, 0x3f, 0xa9, 0xe9, 0xc2 } }
 
 [Protocols]
+  ## Include/Protocol/VariableStoreSync.h
+  gEdkiiVariableStoreSyncProtocolGuid = { 0xd2851463, 0x7631, 0x4512, { 0xbc, 0x30, 0x3e, 0x38, 0x99, 0x27, 0x6f, 0xbf } }
+
   ## Load File protocol provides capability to load and unload EFI image into memory and execute it.
   #  Include/Protocol/LoadPe32Image.h
   #  This protocol is deprecated. Native EDKII module should NOT use this protocol to load/unload image.
