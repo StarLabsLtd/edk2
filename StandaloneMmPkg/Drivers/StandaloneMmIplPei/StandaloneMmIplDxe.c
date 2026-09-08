@@ -331,6 +331,11 @@ SignalEndOfPei (
   return Status;
 }
 
+typedef struct {
+  EFI_MP_SERVICES_PROTOCOL    *MpServices;
+  UINT8                      *CoreTypes;
+} PROCESSOR_CORE_TYPE_CONTEXT;
+
 /**
   Get CPU core type.
 
@@ -342,25 +347,19 @@ GetProcessorCoreType (
   IN OUT VOID  *Buffer
   )
 {
-  EFI_MP_SERVICES_PROTOCOL                 *MpServices;
-  EFI_STATUS                               Status;
-  UINT8                                    *CoreTypes;
+  PROCESSOR_CORE_TYPE_CONTEXT             *Context;
+  EFI_STATUS                             Status;
   CPUID_NATIVE_MODEL_ID_AND_CORE_TYPE_EAX  NativeModelIdAndCoreTypeEax;
-  UINTN                                    ProcessorIndex;
+  UINTN                                  ProcessorIndex;
 
-  Status = gBS->LocateProtocol (&gEfiMpServiceProtocolGuid, NULL, (VOID **)&MpServices);
+  Context = (PROCESSOR_CORE_TYPE_CONTEXT *)Buffer;
+  Status  = Context->MpServices->WhoAmI (Context->MpServices, &ProcessorIndex);
   if (EFI_ERROR (Status)) {
     return;
   }
 
-  Status = MpServices->WhoAmI (MpServices, &ProcessorIndex);
-  if (EFI_ERROR (Status)) {
-    return;
-  }
-
-  CoreTypes = (UINT8 *)Buffer;
   AsmCpuidEx (CPUID_HYBRID_INFORMATION, CPUID_HYBRID_INFORMATION_MAIN_LEAF, &NativeModelIdAndCoreTypeEax.Uint32, NULL, NULL, NULL);
-  CoreTypes[ProcessorIndex] = (UINT8)NativeModelIdAndCoreTypeEax.Bits.CoreType;
+  Context->CoreTypes[ProcessorIndex] = (UINT8)NativeModelIdAndCoreTypeEax.Bits.CoreType;
 }
 
 /**
@@ -374,22 +373,23 @@ MmIplBuildMpInformationHob (
   IN OUT UINTN  *HobBufferSize
   )
 {
-  EFI_MP_SERVICES_PROTOCOL  *MpServices;
-  EFI_STATUS                Status;
-  UINTN                     NumberOfCpus;
-  UINTN                     NumberOfEnabledProcessors;
-  UINTN                     MaxProcessorsPerHob;
-  UINTN                     NumberOfProcessorsInHob;
-  UINTN                     ProcessorIndex;
-  UINTN                     UsedSize;
-  UINT16                    HobLength;
-  EFI_HOB_GUID_TYPE         *GuidHob;
-  MP_INFORMATION2_HOB_DATA  *MpInformation2HobData;
-  MP_INFORMATION2_ENTRY     *MpInformation2Entry;
-  UINTN                     Index;
-  UINT8                     *CoreTypes;
-  UINT32                    CpuidMaxInput;
-  UINTN                     CoreTypePages;
+  EFI_MP_SERVICES_PROTOCOL     *MpServices;
+  EFI_STATUS                  Status;
+  UINTN                       NumberOfCpus;
+  UINTN                       NumberOfEnabledProcessors;
+  UINTN                       MaxProcessorsPerHob;
+  UINTN                       NumberOfProcessorsInHob;
+  UINTN                       ProcessorIndex;
+  UINTN                       UsedSize;
+  UINT16                      HobLength;
+  EFI_HOB_GUID_TYPE            *GuidHob;
+  MP_INFORMATION2_HOB_DATA      *MpInformation2HobData;
+  MP_INFORMATION2_ENTRY        *MpInformation2Entry;
+  UINTN                       Index;
+  UINT8                       *CoreTypes;
+  UINT32                      CpuidMaxInput;
+  UINTN                       CoreTypePages;
+  PROCESSOR_CORE_TYPE_CONTEXT  CoreTypeContext;
 
   ProcessorIndex = 0;
   CoreTypes      = NULL;
@@ -420,14 +420,17 @@ MmIplBuildMpInformationHob (
     }
 
     ZeroMem (CoreTypes, NumberOfCpus);
-    GetProcessorCoreType ((VOID *)CoreTypes);
+    // AP callbacks cannot use boot services to locate protocols.
+    CoreTypeContext.MpServices = MpServices;
+    CoreTypeContext.CoreTypes  = CoreTypes;
+    GetProcessorCoreType (&CoreTypeContext);
     Status = MpServices->StartupAllAPs (
                            MpServices,
                            GetProcessorCoreType,
                            FALSE,
                            NULL,
                            0,
-                           (VOID *)CoreTypes,
+                           &CoreTypeContext,
                            NULL
                            );
     if (EFI_ERROR (Status) && (Status != EFI_NOT_STARTED)) {
