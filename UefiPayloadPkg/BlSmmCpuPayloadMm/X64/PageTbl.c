@@ -183,6 +183,32 @@ SmmInitPageTable (
     return 0;
   }
 
+  // Direct MM debug output needs its UART under the resident CR3 too.
+  // Do not advertise this device page as an MM communication buffer.
+  if (DebugPrintEnabled () && PcdGetBool (PcdSerialUseMmio)) {
+    Status = SmmClearMemoryAttributesEx (
+               PageTable,
+               mPagingMode,
+               PcdGet64 (PcdSerialRegisterBase) & ~(UINT64)EFI_PAGE_MASK,
+               EFI_PAGE_SIZE,
+               EFI_MEMORY_RP | EFI_MEMORY_RO
+               );
+    if (EFI_ERROR (Status)) {
+      return 0;
+    }
+
+    Status = SmmSetMemoryAttributesEx (
+               PageTable,
+               mPagingMode,
+               PcdGet64 (PcdSerialRegisterBase) & ~(UINT64)EFI_PAGE_MASK,
+               EFI_PAGE_SIZE,
+               EFI_MEMORY_XP
+               );
+    if (EFI_ERROR (Status)) {
+      return 0;
+    }
+  }
+
   if (HEAP_GUARD_NONSTOP_MODE ||
       NULL_DETECTION_NONSTOP_MODE)
   {
