@@ -44,7 +44,9 @@ Communicate (
   EFI_STATUS                     Status;
 
   Status = gBS->LocateProtocol (&gEfiMmCommunicationProtocolGuid, NULL, (VOID **)&MmCommunication);
-  ASSERT_EFI_ERROR (Status);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
 
   return MmCommunication->Communicate (MmCommunication, CommBuffer, CommSize);
 }
@@ -143,6 +145,13 @@ LocateMmCoreFv (
                    &AuthenticationStatus
                    );
     if (!EFI_ERROR (Status)) {
+      if ((AuthenticationStatus & EFI_AUTH_STATUS_TEST_FAILED) != 0) {
+        FreePool (*MmCoreImageAddress);
+        *MmCoreImageAddress = NULL;
+        FreePool (HandleBuffer);
+        return EFI_SECURITY_VIOLATION;
+      }
+
       goto Found;
     }
   }
@@ -151,7 +160,8 @@ LocateMmCoreFv (
   // The required FFS section file is not found.
   //
   if (IndexFv == HandleCount) {
-    Status = EFI_NOT_FOUND;
+    FreePool (HandleBuffer);
+    return EFI_NOT_FOUND;
   }
 
 Found:
@@ -179,13 +189,17 @@ Found:
                   &gEfiFirmwareVolumeBlock2ProtocolGuid,
                   (VOID **)&Fvb
                   );
-  ASSERT_EFI_ERROR (Status);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
 
   Status = Fvb->GetPhysicalAddress (
                   Fvb,
                   MmFvBase
                   );
-  ASSERT_EFI_ERROR (Status);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
 
   FwVolHeader = (EFI_FIRMWARE_VOLUME_HEADER *)(UINTN)*MmFvBase;
   *MmFvSize   = FwVolHeader->FvLength;
@@ -264,7 +278,7 @@ MmAccessClose (
     // Lock the MMRAM (Note: Locking MMRAM may not be supported on all platforms)
     //
     Status = MmAccess->Lock (MmAccess);
-    if (EFI_ERROR (Status)) {
+    if (EFI_ERROR (Status) && (Status != EFI_UNSUPPORTED)) {
       //
       // Print error message that the MMRAM failed to lock...
       //
@@ -335,10 +349,14 @@ GetProcessorCoreType (
   UINTN                                    ProcessorIndex;
 
   Status = gBS->LocateProtocol (&gEfiMpServiceProtocolGuid, NULL, (VOID **)&MpServices);
-  ASSERT_EFI_ERROR (Status);
+  if (EFI_ERROR (Status)) {
+    return;
+  }
 
   Status = MpServices->WhoAmI (MpServices, &ProcessorIndex);
-  ASSERT_EFI_ERROR (Status);
+  if (EFI_ERROR (Status)) {
+    return;
+  }
 
   CoreTypes = (UINT8 *)Buffer;
   AsmCpuidEx (CPUID_HYBRID_INFORMATION, CPUID_HYBRID_INFORMATION_MAIN_LEAF, &NativeModelIdAndCoreTypeEax.Uint32, NULL, NULL, NULL);
@@ -350,7 +368,7 @@ GetProcessorCoreType (
   Should only be used in the absence of CpuMpPei.
 
 **/
-VOID
+EFI_STATUS
 MmIplBuildMpInformationHob (
   IN UINT8      *HobBuffer,
   IN OUT UINTN  *HobBufferSize
@@ -377,14 +395,18 @@ MmIplBuildMpInformationHob (
   CoreTypes      = NULL;
 
   Status = gBS->LocateProtocol (&gEfiMpServiceProtocolGuid, NULL, (VOID **)&MpServices);
-  ASSERT_EFI_ERROR (Status);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
 
   Status = MpServices->GetNumberOfProcessors (
                          MpServices,
                          &NumberOfCpus,
                          &NumberOfEnabledProcessors
                          );
-  ASSERT_EFI_ERROR (Status);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
 
   //
   // Get Processors CoreType
@@ -393,8 +415,11 @@ MmIplBuildMpInformationHob (
   if (CpuidMaxInput >= CPUID_HYBRID_INFORMATION) {
     CoreTypePages = EFI_SIZE_TO_PAGES (sizeof (UINT8) * NumberOfCpus);
     CoreTypes     = AllocatePages (CoreTypePages);
-    ASSERT (CoreTypes != NULL);
+    if (CoreTypes == NULL) {
+      return EFI_OUT_OF_RESOURCES;
+    }
 
+    ZeroMem (CoreTypes, NumberOfCpus);
     GetProcessorCoreType ((VOID *)CoreTypes);
     Status = MpServices->StartupAllAPs (
                            MpServices,
@@ -405,7 +430,10 @@ MmIplBuildMpInformationHob (
                            (VOID *)CoreTypes,
                            NULL
                            );
-    ASSERT_EFI_ERROR (Status);
+    if (EFI_ERROR (Status) && (Status != EFI_NOT_STARTED)) {
+      FreePages (CoreTypes, CoreTypePages);
+      return Status;
+    }
   }
 
   MaxProcessorsPerHob     = ((MAX_UINT16 & ~7) - sizeof (EFI_HOB_GUID_TYPE) - sizeof (MP_INFORMATION2_HOB_DATA)) / sizeof (MP_INFORMATION2_ENTRY);
@@ -449,7 +477,13 @@ MmIplBuildMpInformationHob (
                                           (Index + ProcessorIndex) | CPU_V2_EXTENDED_TOPOLOGY,
                                           &MpInformation2Entry->ProcessorInfo
                                           );
-      ASSERT_EFI_ERROR (Status);
+      if (EFI_ERROR (Status)) {
+        if (CoreTypes != NULL) {
+          FreePages (CoreTypes, CoreTypePages);
+        }
+
+        return Status;
+      }
 
       MpInformation2Entry->CoreType = (CoreTypes != NULL) ? CoreTypes[Index + ProcessorIndex] : 0;
 
@@ -490,6 +524,7 @@ End:
   }
 
   *HobBufferSize = UsedSize;
+  return EFI_SUCCESS;
 }
 
 /**
@@ -528,20 +563,26 @@ StandaloneMmIplDxeEntry (
   // Locate and execute Mm Core to dispatch MM drivers.
   //
   Status = ExecuteMmCoreFromMmram (MmCommBuffer);
-  ASSERT_EFI_ERROR (Status);
 
-  FreePool (MmCoreBufferAddress);
+  if (MmCoreBufferAddress != NULL) {
+    FreePool (MmCoreBufferAddress);
+    MmCoreBufferAddress = NULL;
+  }
+
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
 
   //
   // Dispatch StandaloneMm drivers in MM
   //
   Status = MmIplDispatchMmDrivers ();
-  ASSERT_EFI_ERROR (Status);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
 
   //
   // Call MmEndOfPeiHandler in MM core
   //
-  SignalEndOfPei ();
-
-  return EFI_SUCCESS;
+  return SignalEndOfPei ();
 }

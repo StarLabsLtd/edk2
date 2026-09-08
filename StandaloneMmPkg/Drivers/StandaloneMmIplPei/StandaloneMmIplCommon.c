@@ -51,6 +51,7 @@ CreateMmHobList (
   //
   // Get platform HOBs
   //
+  PlatformHobList = NULL;
   PlatformHobSize = 0;
   Status          = CreateMmPlatformHob (NULL, &PlatformHobSize);
   if (Status == RETURN_BUFFER_TOO_SMALL) {
@@ -74,13 +75,17 @@ CreateMmHobList (
     Status     = CreateMmPlatformHob (PlatformHobList, &PlatformHobSize);
     if (BufferSize != PlatformHobSize) {
       DEBUG ((DEBUG_ERROR, "%a: CreateMmPlatformHob returned unexpected size (%d != %d)\n", __func__, BufferSize, PlatformHobSize));
-      FreePages (PlatformHobList, EFI_SIZE_TO_PAGES (PlatformHobSize));
+      FreePages (PlatformHobList, EFI_SIZE_TO_PAGES (BufferSize));
       return NULL;
     }
   }
 
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "%a: CreateMmPlatformHob failed (%r)\n", __func__, Status));
+    if (PlatformHobList != NULL) {
+      FreePages (PlatformHobList, EFI_SIZE_TO_PAGES (PlatformHobSize));
+    }
+
     return NULL;
   }
 
@@ -111,8 +116,13 @@ CreateMmHobList (
                         Block
                         );
 
-  ASSERT (Status == RETURN_BUFFER_TOO_SMALL);
-  ASSERT (FoundationHobSize != 0);
+  if ((Status != RETURN_BUFFER_TOO_SMALL) || (FoundationHobSize == 0)) {
+    if (PlatformHobList != NULL) {
+      FreePages (PlatformHobList, EFI_SIZE_TO_PAGES (PlatformHobSize));
+    }
+
+    return NULL;
+  }
 
   PhitHobSize = sizeof (EFI_HOB_HANDOFF_INFO_TABLE);
   //
@@ -162,6 +172,11 @@ CreateMmHobList (
   //
   // Create MM HOB list end.
   //
+  if (EFI_ERROR (Status)) {
+    FreePages (HobList, EFI_SIZE_TO_PAGES (*HobSize));
+    return NULL;
+  }
+
   MmIplCreateHob (HobEnd, EFI_HOB_TYPE_END_OF_HOB_LIST, sizeof (EFI_HOB_GENERIC_HEADER));
 
   return HobList;
@@ -328,11 +343,15 @@ ExecuteMmCoreFromMmram (
 
   MmFvBase = 0;
   MmFvSize = 0;
+  Block    = NULL;
+  ZeroMem (&ImageContext, sizeof (ImageContext));
   //
   // Search all Firmware Volumes for a PE/COFF image in a file of type MM_CORE_STANDALONE.
   //
   Status = LocateMmCoreFv (&MmFvBase, &MmFvSize, &MmCoreFileName, &ImageContext.Handle);
-  ASSERT_EFI_ERROR (Status);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
 
   //
   // Open all MMRAM ranges if MmAccess is available.
@@ -378,7 +397,10 @@ ExecuteMmCoreFromMmram (
   //
   // Call platform hook now that image info is known
   //
-  PlatformHookBeforeMmLoad (&ImageContext);
+  Status = PlatformHookBeforeMmLoad (&ImageContext);
+  if (EFI_ERROR (Status) && (Status != EFI_UNSUPPORTED)) {
+    goto Done;
+  }
 
   //
   // Print debug message showing MM Core load address.
@@ -418,6 +440,10 @@ ExecuteMmCoreFromMmram (
                     ImageContext.EntryPoint,
                     Block
                     );
+      if (MmHobList == NULL) {
+        Status = EFI_OUT_OF_RESOURCES;
+        goto Done;
+      }
 
       //
       // Print debug message showing Standalone MM Core entry point address.
@@ -431,14 +457,19 @@ ExecuteMmCoreFromMmram (
       if (Status2 == EFI_UNSUPPORTED) {
         Entry = (MM_FOUNDATION_ENTRY_POINT)(UINTN)ImageContext.EntryPoint;
         Entry (MmHobList);
+      } else if (EFI_ERROR (Status2)) {
+        Status = Status2;
       }
 
       FreePages (MmHobList, EFI_SIZE_TO_PAGES (MmHobSize));
-      FreePool (Block);
     }
   }
 
 Done:
+  if (Block != NULL) {
+    FreePool (Block);
+  }
+
   AccessStatus = MmAccessClose ();
   if (!EFI_ERROR (Status)) {
     Status = AccessStatus;
