@@ -39,7 +39,7 @@ IsValidVariableHeader (
 
 /**
 
-  This code checks if variable content is valid or not.
+  Check that a variable header describes a record contained within the store.
 
   @param[in] Variable           Pointer to the Variable Header.
   @param[in] VariableStoreEnd   Pointer to the Variable Store End.
@@ -51,7 +51,7 @@ IsValidVariableHeader (
 
 **/
 BOOLEAN
-IsValidVariableContent (
+IsValidVariableSize (
   IN  VARIABLE_HEADER  *Variable,
   IN  VARIABLE_HEADER  *VariableStoreEnd,
   IN  BOOLEAN          AuthFormat
@@ -62,7 +62,6 @@ IsValidVariableContent (
   UINTN   NamePadSize;
   UINTN   NameSize;
   UINTN   RemainingSize;
-  CHAR16  *VariableName;
 
   if (!IsValidVariableHeader (Variable, VariableStoreEnd) ||
       ((UINTN)VariableStoreEnd <= (UINTN)Variable))
@@ -104,12 +103,25 @@ IsValidVariableContent (
     return FALSE;
   }
 
-  VariableName = GetVariableNamePtr (Variable, AuthFormat);
-  if (VariableName[(NameSize / sizeof (CHAR16)) - 1] != CHAR_NULL) {
+  return TRUE;
+}
+
+/** Check record bounds and the terminating character of its variable name. */
+BOOLEAN
+IsValidVariableContent (
+  IN VARIABLE_HEADER  *Variable,
+  IN VARIABLE_HEADER  *VariableStoreEnd,
+  IN BOOLEAN          AuthFormat
+  )
+{
+  CHAR16  *VariableName;
+
+  if (!IsValidVariableSize (Variable, VariableStoreEnd, AuthFormat)) {
     return FALSE;
   }
 
-  return TRUE;
+  VariableName = GetVariableNamePtr (Variable, AuthFormat);
+  return VariableName[(NameSizeOfVariable (Variable, AuthFormat) / sizeof (CHAR16)) - 1] == CHAR_NULL;
 }
 
 /**
