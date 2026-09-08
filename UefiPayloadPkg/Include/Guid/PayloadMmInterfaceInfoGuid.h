@@ -29,6 +29,9 @@ typedef struct {
   UINT64 HandlerSize;
   UINT64 PayloadBase;
   UINT64 PayloadSize;
+  UINT64 CfrMailbox;
+  UINT32 CfrMailboxSize;
+  UINT32 CfrSupportedOptions;
 } PAYLOAD_MM_INTERFACE_INFO;
 
 //

@@ -1,0 +1,40 @@
+## @file
+# Fixed-ID ACPI preferences backed by the resident MM variable service.
+# Copyright (c) 2026, Star Labs Systems. All rights reserved.<BR>
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION = 0x0001001B
+  BASE_NAME = StarlabsCfrMm
+  FILE_GUID = afb13813-24cb-451d-9104-ec9fda0f774c
+  MODULE_TYPE = MM_STANDALONE
+  VERSION_STRING = 1.0
+  PI_SPECIFICATION_VERSION = 0x00010032
+  ENTRY_POINT = StarlabsCfrMmInitialize
+
+[Sources]
+  StarlabsCfrMm.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  UefiPayloadPkg/UefiPayloadPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  HobLib
+  IoLib
+  MmServicesTableLib
+  StandaloneMmDriverEntryPoint
+
+[Guids]
+  gPayloadMmInterfaceInfoGuid
+  gSmmVariableWriteGuid
+
+[Protocols]
+  gEfiSmmVariableProtocolGuid
+
+[Depex]
+  gEfiSmmVariableProtocolGuid AND gSmmVariableWriteGuid
