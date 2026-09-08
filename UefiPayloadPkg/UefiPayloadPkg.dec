@@ -20,6 +20,7 @@
 [LibraryClasses]
   PayloadEntryHelperLib|Include/Library/PayloadEntryHelperLib.h
   CbMemLib|Include/Library/CbMemLib.h
+  SmmStoreGeometryLib|Include/Library/SmmStoreGeometryLib.h
 
 [Guids]
   # SMMSTORE for coreboot and EDK-2

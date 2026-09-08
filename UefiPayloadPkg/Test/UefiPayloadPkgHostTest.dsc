@@ -17,5 +17,10 @@
 
 !include UnitTestFrameworkPkg/UnitTestFrameworkPkgHost.dsc.inc
 
+[LibraryClasses]
+  SafeIntLib|MdePkg/Library/BaseSafeIntLib/BaseSafeIntLib.inf
+  SmmStoreGeometryLib|UefiPayloadPkg/Library/SmmStoreGeometryLib/SmmStoreGeometryLib.inf
+
 [Components]
   UefiPayloadPkg/Library/FmpDeviceSmmLib/FmpDeviceSmmLibUnitTestHost.inf
+  UefiPayloadPkg/Library/SmmStoreGeometryLib/SmmStoreGeometryLibUnitTestHost.inf
