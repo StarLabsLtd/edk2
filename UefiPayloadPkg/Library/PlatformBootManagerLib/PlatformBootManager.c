@@ -10,6 +10,10 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include "PlatformBootManager.h"
 #include "PlatformConsole.h"
 #include <Guid/EventGroup.h>
+#include <Guid/PayloadMmInterfaceInfoGuid.h>
+#include <IndustryStandard/StarlabsCfr.h>
+#include <Protocol/VariableWrite.h>
+#include <Library/PayloadMmHelperLib.h>
 #include <Guid/GlobalVariable.h>
 #include <IndustryStandard/Pci.h>
 #include <IndustryStandard/Usb.h>
@@ -748,6 +752,47 @@ PlatformBootManagerGetWaitTimeout (
   return Timeout;
 }
 
+STATIC
+EFI_STATUS
+CheckCfrMm (
+  VOID
+  )
+{
+  EFI_HOB_GUID_TYPE                 *Hob;
+  PAYLOAD_MM_INTERFACE_INFO         *Info;
+  volatile STARLABS_CFR_MAILBOX      *Mailbox;
+
+  Hob = GetFirstGuidHob (&gPayloadMmInterfaceInfoGuid);
+  if ((Hob == NULL) || (GET_GUID_HOB_DATA_SIZE (Hob) != sizeof (*Info))) {
+    return EFI_NOT_FOUND;
+  }
+
+  Info = GET_GUID_HOB_DATA (Hob);
+  if (Info->CfrSupportedOptions == 0) {
+    return EFI_SUCCESS;
+  }
+
+  if ((Info->CfrMailbox == 0) || (Info->CfrMailboxSize != sizeof (*Mailbox))) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  Mailbox = (VOID *)(UINTN)Info->CfrMailbox;
+  Mailbox->Command  = STARLABS_CFR_CAPS;
+  Mailbox->Id       = 0;
+  Mailbox->Value    = 0;
+  Mailbox->Version  = STARLABS_CFR_VERSION;
+  Mailbox->Reserved = 0;
+  Mailbox->Status   = STARLABS_CFR_PENDING;
+  MemoryFence ();
+  TriggerSmi (STARLABS_CFR_APM_COMMAND, 0, 3);
+  MemoryFence ();
+  if ((Mailbox->Status != STARLABS_CFR_SUCCESS) || (Mailbox->Value != Info->CfrSupportedOptions)) {
+    return EFI_NOT_READY;
+  }
+
+  return EFI_SUCCESS;
+}
+
 /**
   Signal EndOfDxe event and install SMM Ready to lock protocol.
 
@@ -1126,6 +1171,39 @@ PlatformBootManagerBeforeConsole (
   EFI_BOOT_MANAGER_LOAD_OPTION  BootOption;
   EDKII_PLATFORM_LOGO_PROTOCOL  *PlatformLogo;
   BOOLEAN                       ConsoleInitialized;
+  VOID                          *VariableWrite;
+  UINT64                        MaximumStorage;
+  UINT64                        RemainingStorage;
+  UINT64                        MaximumVariable;
+
+  if (FeaturePcdGet (PcdPayloadMmSupport)) {
+    // Close even an unused loader. Never expose an unclaimed loader to the OS.
+    if (TriggerSmi (PAYLOAD_MM_APM_COMMAND | (PAYLOAD_MM_CMD_CLOSE_LOADER << 8), 0, 3) != PAYLOAD_MM_RET_SUCCESS) {
+      DEBUG ((DEBUG_ERROR, "Payload MM registration failed; refusing OS boot\n"));
+      CpuDeadLoop ();
+    }
+
+    Status = gBS->LocateProtocol (&gEfiVariableWriteArchProtocolGuid, NULL, &VariableWrite);
+    if (!EFI_ERROR (Status)) {
+      Status = gRT->QueryVariableInfo (
+                      EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS,
+                      &MaximumStorage,
+                      &RemainingStorage,
+                      &MaximumVariable
+                      );
+    }
+
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_ERROR, "Payload MM variable service unavailable: %r; refusing OS boot\n", Status));
+      CpuDeadLoop ();
+    }
+
+    Status = CheckCfrMm ();
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_ERROR, "Payload MM ACPI preferences unavailable: %r; refusing OS boot\n", Status));
+      CpuDeadLoop ();
+    }
+  }
 
   //
   // Register ENTER as CONTINUE key
@@ -1268,6 +1346,7 @@ PlatformBootManagerAfterConsole (
     // a case when this doesn't happen which is possible on error.
     //
     gRT->ResetSystem (EfiResetCold, EFI_SUCCESS, 0, NULL);
+    CpuDeadLoop ();
   }
 
   SyncEsrtFmpInfo ();

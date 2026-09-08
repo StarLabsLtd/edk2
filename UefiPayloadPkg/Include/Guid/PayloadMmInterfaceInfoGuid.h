@@ -23,6 +23,12 @@ typedef struct {
   UINT8  Revision;
   UINT8  BootloaderSmmIs64Bit;
   UINT8  ApmCmd;
+  UINT8  Reserved[5];
+  // Downstream boot-only mapping information. Not allocatable by the MM core.
+  UINT64 HandlerBase;
+  UINT64 HandlerSize;
+  UINT64 PayloadBase;
+  UINT64 PayloadSize;
 } PAYLOAD_MM_INTERFACE_INFO;
 
 //
@@ -36,6 +42,8 @@ typedef struct {
  * and the arguments that the loader wants passed to the payload MM core module.
  */
 #define PAYLOAD_MM_CMD_LOAD_AND_CALL_CORE  1
+#define PAYLOAD_MM_CMD_CLOSE_LOADER        2
+#define PAYLOAD_MM_APM_COMMAND             0xE8
 
 #define PLD_MM_CORE_LOAD_CONTEXT_REVISION  1
 
@@ -46,6 +54,7 @@ typedef struct {
   BOOLEAN  Intel5LevelPagingNeeded;
   BOOLEAN  XdSupported;
   BOOLEAN  MsrIa32MiscEnableSupported;
+  UINT8    LoadStatus;
 } PAYLOAD_MM_EDK2_PRIVATE_DATA;
 
 typedef struct {

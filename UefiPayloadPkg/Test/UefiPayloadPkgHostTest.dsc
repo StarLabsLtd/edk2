@@ -23,4 +23,19 @@
 
 [Components]
   UefiPayloadPkg/Library/FmpDeviceSmmLib/FmpDeviceSmmLibUnitTestHost.inf
+  UefiPayloadPkg/Library/MmPlatformHobProducerLib/MmPlatformHobProducerLibUnitTestHost.inf
+  UefiPayloadPkg/Library/PlatformSecureLib/PlatformSecureLibMmUnitTestHost.inf
+  UefiPayloadPkg/StarlabsCfrMm/StarlabsCfrMmUnitTestHost.inf {
+    <BuildOptions>
+      GCC:*_*_*_DLINK_FLAGS = -Wl,--gc-sections
+  }
+  UefiPayloadPkg/FvbRuntimeDxe/FvbRecoveryUnitTestHost.inf {
+    <BuildOptions>
+      GCC:*_*_*_DLINK_FLAGS = -Wl,--gc-sections
+  }
+  MdeModulePkg/Universal/FaultTolerantWriteDxe/FtwJournalUnitTestHost.inf {
+    <BuildOptions>
+      GCC:*_*_*_DLINK_FLAGS = -Wl,--gc-sections
+  }
+  UefiPayloadPkg/Library/FlashDeviceLib/FlashDeviceLibMmUnitTestHost.inf
   UefiPayloadPkg/Library/SmmStoreGeometryLib/SmmStoreGeometryLibUnitTestHost.inf

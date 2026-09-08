@@ -53,8 +53,7 @@ SpiConstructor (
   // Find SPI flash hob
   //
   GuidHob = GetFirstGuidHob (&gSpiFlashInfoGuid);
-  if (GuidHob == NULL) {
-    ASSERT (FALSE);
+  if ((GuidHob == NULL) || (GET_GUID_HOB_DATA_SIZE (GuidHob) != sizeof (*SpiFlashInfo))) {
     return EFI_NOT_FOUND;
   }
 
@@ -65,12 +64,12 @@ SpiConstructor (
   //
   SpiInstance = GetSpiInstance ();
   if (SpiInstance == NULL) {
-    return EFI_NOT_FOUND;
+    return EFI_OUT_OF_RESOURCES;
   }
 
   DEBUG ((DEBUG_INFO, "SpiInstance = %08X\n", SpiInstance));
 
-  SpiInstance->Signature = SC_SPI_PRIVATE_DATA_SIGNATURE;
+  SpiInstance->Signature = 0;
   SpiInstance->Handle    = NULL;
 
   //
@@ -79,9 +78,13 @@ SpiConstructor (
   if ((SpiFlashInfo->SpiAddress.AddressSpaceId !=  EFI_ACPI_3_0_PCI_CONFIGURATION_SPACE) ||
       (SpiFlashInfo->SpiAddress.RegisterBitWidth !=  32) ||
       (SpiFlashInfo->SpiAddress.RegisterBitOffset !=  0) ||
-      (SpiFlashInfo->SpiAddress.AccessSize !=  EFI_ACPI_3_0_DWORD))
+      (SpiFlashInfo->SpiAddress.AccessSize !=  EFI_ACPI_3_0_DWORD) ||
+      (SpiFlashInfo->SpiAddress.Address == 0) ||
+      (SpiFlashInfo->SpiAddress.Address > MAX_UINT32 - EFI_PAGE_MASK) ||
+      ((SpiFlashInfo->SpiAddress.Address & EFI_PAGE_MASK) != 0))
   {
     DEBUG ((DEBUG_ERROR, "SPI FLASH HOB is not expected. need check the hob or enhance SPI flash driver.\n"));
+    return EFI_UNSUPPORTED;
   }
 
   SpiInstance->PchSpiBase = (UINT32)(UINTN)SpiFlashInfo->SpiAddress.Address;
@@ -91,13 +94,15 @@ SpiConstructor (
   ScSpiBar0 = AcquireSpiBar0 (SpiInstance->PchSpiBase);
   DEBUG ((DEBUG_INFO, "ScSpiBar0 at 0x%08X\n", ScSpiBar0));
 
-  if (ScSpiBar0 == 0) {
-    ASSERT (FALSE);
+  if ((ScSpiBar0 == 0) || ((ScSpiBar0 & EFI_PAGE_MASK) != 0) ||
+      (MmioRead32 (SpiInstance->PchSpiBase + R_SPI_BASE) == MAX_UINT32))
+  {
+    return EFI_DEVICE_ERROR;
   }
 
   if ((MmioRead32 (ScSpiBar0 + R_SPI_HSFS) & B_SPI_HSFS_FDV) == 0) {
     DEBUG ((DEBUG_ERROR, "SPI Flash descriptor invalid, cannot use Hardware Sequencing registers!\n"));
-    ASSERT (FALSE);
+    return EFI_DEVICE_ERROR;
   }
 
   MmioOr32 (SpiInstance->PchSpiBase + PCI_COMMAND_OFFSET, EFI_PCI_COMMAND_MEMORY_SPACE);
@@ -147,6 +152,7 @@ SpiConstructor (
   //
   SpiInstance->StrapBaseAddress &= B_SPI_FDBAR_FPSBA;
 
+  SpiInstance->Signature = SC_SPI_PRIVATE_DATA_SIGNATURE;
   return EFI_SUCCESS;
 }
 
@@ -436,10 +442,27 @@ SendSpiCmd (
   UINT8         BiosCtlSave;
   SPI_INSTANCE  *SpiInstance;
   UINT32        Data32;
+  UINT32        RegionSize;
 
   SpiInstance = GetSpiInstance ();
-  if (SpiInstance == NULL) {
+  if ((SpiInstance == NULL) || (SpiInstance->Signature != SC_SPI_PRIVATE_DATA_SIGNATURE)) {
     return EFI_DEVICE_ERROR;
+  }
+
+  // Validate the complete transfer before temporarily enabling flash writes.
+  if ((FlashCycleType == FlashCycleRead) || (FlashCycleType == FlashCycleWrite) ||
+      (FlashCycleType == FlashCycleErase))
+  {
+    Status = SpiGetRegionAddress (FlashRegionType, NULL, &RegionSize);
+    if (EFI_ERROR (Status)) {
+      return Status;
+    }
+
+    if ((ByteCount == 0) || (Address >= RegionSize) || (ByteCount > RegionSize - Address) ||
+        ((FlashCycleType != FlashCycleErase) && (Buffer == NULL)))
+    {
+      return EFI_INVALID_PARAMETER;
+    }
   }
 
   Status                        = EFI_SUCCESS;
@@ -826,6 +849,7 @@ SpiGetRegionAddress (
   UINT32        ScSpiBar0;
   UINT32        ReadValue;
   UINT32        Base;
+  UINT32        Limit;
   SPI_INSTANCE  *SpiInstance;
 
   if (FlashRegionType >= FlashRegionMax) {
@@ -833,7 +857,7 @@ SpiGetRegionAddress (
   }
 
   SpiInstance = GetSpiInstance ();
-  if (SpiInstance == NULL) {
+  if ((SpiInstance == NULL) || (SpiInstance->Signature != SC_SPI_PRIVATE_DATA_SIGNATURE)) {
     return EFI_DEVICE_ERROR;
   }
 
@@ -861,13 +885,16 @@ SpiGetRegionAddress (
   }
 
   Base = (ReadValue & B_SPI_FREG1_BASE_MASK) << N_SPI_FREG1_BASE;
+  Limit = (((ReadValue & B_SPI_FREGX_LIMIT_MASK) >> N_SPI_FREGX_LIMIT) + 1) << N_SPI_FREGX_LIMIT_REPR;
+  if (Base >= Limit) {
+    return EFI_DEVICE_ERROR;
+  }
   if (BaseAddress != NULL) {
     *BaseAddress = Base;
   }
 
   if (RegionSize != NULL) {
-    *RegionSize =  ((((ReadValue & B_SPI_FREGX_LIMIT_MASK) >> N_SPI_FREGX_LIMIT) + 1) <<
-                    N_SPI_FREGX_LIMIT_REPR) - Base;
+    *RegionSize = Limit - Base;
   }
 
   return EFI_SUCCESS;

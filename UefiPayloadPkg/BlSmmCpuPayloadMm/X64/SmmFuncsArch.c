@@ -8,6 +8,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 
 #include <PiSmm.h>
 #include <Library/BaseLib.h>
+#include <Library/HobLib.h>
 
 #include "BlSmmCpuPayloadMm.h"
 
@@ -36,28 +37,33 @@ InitializeIdtIst (
   Initialize Gdt for all processors.
 
 **/
-VOID
+EFI_STATUS
 InitGdt (
   IN  UINTN  Cr3
   )
 {
-  //
-  // Bootloader handlers follow payload MM in memory. Map them.
-  //
-  SmmClearMemoryAttributesEx (
-    Cr3,
-    mPagingMode,
-    mSmrrBase + mSmrrSize,
-    mSmrrSize,
-    EFI_MEMORY_RP
-    );
+  EFI_HOB_GUID_TYPE          *Hob;
+  PAYLOAD_MM_INTERFACE_INFO  *Info;
+  EFI_STATUS                 Status;
 
-  // And immediately protect them.
-  SmmSetMemoryAttributesEx (
-    Cr3,
-    mPagingMode,
-    mSmrrBase + mSmrrSize,
-    mSmrrSize,
-    EFI_MEMORY_RO | EFI_MEMORY_XP
-    );
+  Hob = GetFirstGuidHob (&gPayloadMmInterfaceInfoGuid);
+  if ((Hob == NULL) || (GET_GUID_HOB_DATA_SIZE (Hob) != sizeof (*Info))) {
+    return EFI_NOT_FOUND;
+  }
+
+  Info = GET_GUID_HOB_DATA (Hob);
+  if ((Info->HandlerBase == 0) || (Info->HandlerBase >= mSmrrBase) ||
+      (Info->HandlerSize != mSmrrBase - Info->HandlerBase) ||
+      (((Info->HandlerBase | Info->HandlerSize) & EFI_PAGE_MASK) != 0))
+  {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  // Runtime mode switching reads coreboot's GDT in the actual handler region.
+  Status = SmmClearMemoryAttributesEx (Cr3, mPagingMode, Info->HandlerBase, Info->HandlerSize, EFI_MEMORY_RP);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  return SmmSetMemoryAttributesEx (Cr3, mPagingMode, Info->HandlerBase, Info->HandlerSize, EFI_MEMORY_RO | EFI_MEMORY_XP);
 }

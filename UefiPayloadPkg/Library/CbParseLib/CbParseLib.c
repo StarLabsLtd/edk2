@@ -20,6 +20,7 @@
 #include <Library/CfrHelpersLib.h>
 #include <Library/PrintLib.h>
 #include <Library/SmmStoreParseLib.h>
+#include "PayloadMmParser.h"
 #include <IndustryStandard/Acpi.h>
 #include <Coreboot.h>
 #include <Guid/CfrSetupMenuGuid.h>
@@ -828,6 +829,14 @@ ParseMiscInfo (
   CFR_OPTION_FORM                       *CbCfrOuterFormOffset;
   CFR_OPTION_FORM                       *CfrSetupMenuForm;
   CFR_VARBINARY                         *CfrFormName;
+  RETURN_STATUS                         Status;
+
+  if (FeaturePcdGet (PcdPayloadMmSupport)) {
+    Status = ParsePayloadMmFeatureInfo ();
+    if (RETURN_ERROR (Status)) {
+      return Status;
+    }
+  }
 
   //
   // CFR has several CB tags, though these are nested structures,

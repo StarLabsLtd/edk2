@@ -114,7 +114,7 @@ InstallFvbProtocol (
     TempPtr               = AllocateRuntimeCopyPool (sizeof (FV_MEMMAP_DEVICE_PATH), &mFvMemmapDevicePathTemplate);
     FvbDevice->DevicePath = (EFI_DEVICE_PATH_PROTOCOL *)TempPtr;
     if (FvbDevice->DevicePath == NULL) {
-      ASSERT (FALSE);
+      FreePool (FvbDevice);
       return EFI_OUT_OF_RESOURCES;
     }
 
@@ -125,7 +125,7 @@ InstallFvbProtocol (
     TempPtr               = AllocateRuntimeCopyPool (sizeof (FV_PIWG_DEVICE_PATH), &mFvPIWGDevicePathTemplate);
     FvbDevice->DevicePath = (EFI_DEVICE_PATH_PROTOCOL *)TempPtr;
     if (FvbDevice->DevicePath == NULL) {
-      ASSERT (FALSE);
+      FreePool (FvbDevice);
       return EFI_OUT_OF_RESOURCES;
     }
 
@@ -136,24 +136,42 @@ InstallFvbProtocol (
   }
 
   //
-  // Install the SMM Firmware Volume Block Protocol and Device Path Protocol
+  // Publish the callable FVB interface only after its device path is ready.
   //
   FvbHandle = NULL;
   Status    = gSmst->SmmInstallProtocolInterface (
                        &FvbHandle,
-                       &gEfiSmmFirmwareVolumeBlockProtocolGuid,
+                       &gEfiDevicePathProtocolGuid,
                        EFI_NATIVE_INTERFACE,
-                       &FvbDevice->FwVolBlockInstance
+                       FvbDevice->DevicePath
                        );
-  ASSERT_EFI_ERROR (Status);
+  if (EFI_ERROR (Status)) {
+    FreePool (FvbDevice->DevicePath);
+    FreePool (FvbDevice);
+    return Status;
+  }
 
   Status = gSmst->SmmInstallProtocolInterface (
                     &FvbHandle,
-                    &gEfiDevicePathProtocolGuid,
+                    &gEfiSmmFirmwareVolumeBlockProtocolGuid,
                     EFI_NATIVE_INTERFACE,
-                    FvbDevice->DevicePath
+                    &FvbDevice->FwVolBlockInstance
                     );
-  ASSERT_EFI_ERROR (Status);
+  if (EFI_ERROR (Status)) {
+    if (!EFI_ERROR (
+           gSmst->SmmUninstallProtocolInterface (
+                    FvbHandle,
+                    &gEfiDevicePathProtocolGuid,
+                    FvbDevice->DevicePath
+                    )
+           ))
+    {
+      FreePool (FvbDevice->DevicePath);
+    }
+
+    FreePool (FvbDevice);
+    return Status;
+  }
 
   //
   // Notify the Fvb wrapper driver SMM fvb is ready
@@ -166,7 +184,13 @@ InstallFvbProtocol (
                      &FvbDevice->FwVolBlockInstance
                      );
 
-  return Status;
+  // FVB consumers may now retain callbacks into this image. Keep it resident
+  // even if the separate DXE wrapper notification fails.
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "Fvb: DXE wrapper notification failed: %r\n", Status));
+  }
+
+  return EFI_SUCCESS;
 }
 
 /**
@@ -189,7 +213,5 @@ FvbSmmInitialize (
   IN EFI_SYSTEM_TABLE  *SystemTable
   )
 {
-  FvbInitialize ();
-
-  return EFI_SUCCESS;
+  return FvbInitialize (NULL);
 }

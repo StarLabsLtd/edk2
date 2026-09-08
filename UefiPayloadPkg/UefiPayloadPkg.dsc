@@ -36,6 +36,17 @@
   DEFINE SIO_BUS_ENABLE               = FALSE
   DEFINE SECURITY_STUB_ENABLE         = TRUE
   DEFINE SMM_SUPPORT                  = FALSE
+  DEFINE PAYLOAD_MM_SUPPORT           = FALSE
+
+!if $(PAYLOAD_MM_SUPPORT) == TRUE
+!if $(SMM_SUPPORT) == TRUE
+  !error "SMM_SUPPORT and PAYLOAD_MM_SUPPORT cannot both be TRUE"
+!endif
+!if $(BUILD_ARCH) != X64
+  !error "PAYLOAD_MM_SUPPORT is supported only for X64"
+!endif
+!endif
+
   DEFINE PLATFORM_BOOT_TIMEOUT        = 3
   DEFINE BOOT_MANAGER_ESCAPE          = FALSE
   DEFINE ATA_ENABLE                   = TRUE
@@ -101,6 +112,10 @@
   #
   DEFINE   BOOTLOADER                 = SBL
 
+!if $(PAYLOAD_MM_SUPPORT) == TRUE && $(BOOTLOADER) != "COREBOOT"
+  !error "PAYLOAD_MM_SUPPORT requires BOOTLOADER=COREBOOT"
+!endif
+
   #
   # CPU options
   #
@@ -159,6 +174,10 @@
   # NONE:     UEFI payload with no variable modules
   #
   DEFINE VARIABLE_SUPPORT      = EMU
+
+!if $(PAYLOAD_MM_SUPPORT) == TRUE && $(VARIABLE_SUPPORT) != "SPI"
+  !error "PAYLOAD_MM_SUPPORT requires VARIABLE_SUPPORT=SPI"
+!endif
 
   DEFINE DISABLE_RESET_SYSTEM  = FALSE
   DEFINE NETWORK_DRIVER_ENABLE = FALSE
@@ -222,7 +241,7 @@
   GCC:*_GCC_*_CC_FLAGS         = -mcmodel=tiny
   GCC:*_CLANGDWARF_*_CC_FLAGS  = -mcmodel=tiny
 
-[BuildOptions.common.EDKII.DXE_RUNTIME_DRIVER]
+[BuildOptions.common.EDKII.DXE_RUNTIME_DRIVER, BuildOptions.common.EDKII.MM_CORE_STANDALONE, BuildOptions.common.EDKII.MM_STANDALONE]
   GCC:*_*_*_DLINK_FLAGS      = -z common-page-size=0x1000
   XCODE:*_*_*_DLINK_FLAGS    = -seg1addr 0x1000 -segalign 0x1000
   XCODE:*_*_*_MTOC_FLAGS     = -align 0x1000
@@ -733,12 +752,55 @@
   BaseCryptLib|CryptoPkg/Library/BaseCryptLib/SmmCryptLib.inf
 !endif
 
+[LibraryClasses.X64.MM_CORE_STANDALONE]
+  SerialPortLib|UefiPayloadPkg/Library/BaseSerialPortLibHob/BaseSerialPortLibHob.inf
+  PlatformHookLib|MdeModulePkg/Library/BasePlatformHookLibNull/BasePlatformHookLibNull.inf
+  DebugLib|MdePkg/Library/BaseDebugLibNull/BaseDebugLibNull.inf
+  ExtractGuidedSectionLib|StandaloneMmPkg/Library/StandaloneMmExtractGuidedSectionLib/StandaloneMmExtractGuidedSectionLib.inf
+  FvLib|MdePkg/Library/FvLib/FvLib.inf
+  HobLib|StandaloneMmPkg/Library/StandaloneMmCoreHobLib/StandaloneMmCoreHobLib.inf
+  MemLib|StandaloneMmPkg/Library/StandaloneMmMemLib/StandaloneMmMemLib.inf
+  MemoryAllocationLib|StandaloneMmPkg/Library/StandaloneMmCoreMemoryAllocationLib/StandaloneMmCoreMemoryAllocationLib.inf
+  MmServicesTableLib|MdePkg/Library/StandaloneMmServicesTableLib/StandaloneMmServicesTableLib.inf
+  PcdLib|MdePkg/Library/BasePcdLibNull/BasePcdLibNull.inf
+  ReportStatusCodeLib|MdeModulePkg/Library/SmmReportStatusCodeLib/StandaloneMmReportStatusCodeLib.inf
+  PerformanceLib|MdeModulePkg/Library/SmmCorePerformanceLib/StandaloneMmCorePerformanceLib.inf
+
+  CpuExceptionHandlerLib|UefiCpuPkg/Library/CpuExceptionHandlerLib/SmmCpuExceptionHandlerLib.inf
+
+  DevicePathLib|MdePkg/Library/UefiDevicePathLib/UefiDevicePathLibBase.inf
+
+[LibraryClasses.X64.MM_STANDALONE]
+  SerialPortLib|UefiPayloadPkg/Library/BaseSerialPortLibHob/BaseSerialPortLibHob.inf
+  PlatformHookLib|MdeModulePkg/Library/BasePlatformHookLibNull/BasePlatformHookLibNull.inf
+  DebugLib|MdePkg/Library/BaseDebugLibNull/BaseDebugLibNull.inf
+  FvLib|MdePkg/Library/FvLib/FvLib.inf
+  HobLib|StandaloneMmPkg/Library/StandaloneMmHobLib/StandaloneMmHobLib.inf
+  MemLib|StandaloneMmPkg/Library/StandaloneMmMemLib/StandaloneMmMemLib.inf
+  MemoryAllocationLib|StandaloneMmPkg/Library/StandaloneMmMemoryAllocationLib/StandaloneMmMemoryAllocationLib.inf
+  MmServicesTableLib|MdePkg/Library/StandaloneMmServicesTableLib/StandaloneMmServicesTableLib.inf
+  PcdLib|MdePkg/Library/BasePcdLibNull/BasePcdLibNull.inf
+  ReportStatusCodeLib|MdeModulePkg/Library/SmmReportStatusCodeLib/StandaloneMmReportStatusCodeLib.inf
+  PerformanceLib|MdeModulePkg/Library/SmmPerformanceLib/StandaloneMmPerformanceLib.inf
+
+  StandaloneMmDriverEntryPoint|MdePkg/Library/StandaloneMmDriverEntryPoint/StandaloneMmDriverEntryPoint.inf
+  SmmCpuPlatformHookLib|UefiCpuPkg/Library/SmmCpuPlatformHookLibNull/SmmCpuPlatformHookLibNull.inf
+  CpuExceptionHandlerLib|UefiCpuPkg/Library/CpuExceptionHandlerLib/SmmCpuExceptionHandlerLib.inf
+
+  DevicePathLib|MdePkg/Library/UefiDevicePathLib/UefiDevicePathLibBase.inf
+!if $(VARIABLE_SUPPORT) == "SPI"
+  SpiFlashLib|UefiPayloadPkg/Library/SpiFlashLib/SpiFlashLib.inf
+  FlashDeviceLib|UefiPayloadPkg/Library/FlashDeviceLib/FlashDeviceLibMm.inf
+  BaseCryptLib|CryptoPkg/Library/BaseCryptLib/SmmCryptLib.inf
+!endif
+
 ################################################################################
 #
 # Pcd Section - list of all EDK II PCD Entries defined by this Platform.
 #
 ################################################################################
 [PcdsFeatureFlag]
+  gUefiPayloadPkgTokenSpaceGuid.PcdPayloadMmSupport|$(PAYLOAD_MM_SUPPORT)
   gEfiMdeModulePkgTokenSpaceGuid.PcdConOutGopSupport|TRUE
   gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiWideAspectCapSupport|$(PAYLOAD_FB_HIDPI_WIDE_ASPECT_CAP_SUPPORT)
   gUefiPayloadPkgTokenSpaceGuid.PcdConnectAllDevices|$(CONNECT_ALL_DEVICES)
@@ -767,7 +829,13 @@
 
   gEfiMdeModulePkgTokenSpaceGuid.PcdVpdBaseAddress|0x0
   gEfiMdeModulePkgTokenSpaceGuid.PcdStatusCodeUseMemory|FALSE
+!if ($(TARGET) == DEBUG || $(USE_CBMEM_FOR_CONSOLE) == TRUE)
+  gEfiMdeModulePkgTokenSpaceGuid.PcdStatusCodeUseSerial|TRUE
+!else
+  gEfiMdeModulePkgTokenSpaceGuid.PcdStatusCodeUseSerial|FALSE
+!endif
   gEfiMdeModulePkgTokenSpaceGuid.PcdUse1GPageTable|TRUE
+  gEfiMdeModulePkgTokenSpaceGuid.PcdMmCommBufferPages|24
   gUefiPayloadPkgTokenSpaceGuid.PcdHandOffFdtEnable|$(HAND_OFF_FDT_ENABLE)
 
   gEfiMdeModulePkgTokenSpaceGuid.PcdBootManagerMenuFile|{ 0x21, 0xaa, 0x2c, 0x46, 0x14, 0x76, 0x03, 0x45, 0x83, 0x6e, 0x8a, 0xb6, 0xf4, 0x66, 0x23, 0x31 }
@@ -979,11 +1047,6 @@
   gUefiCpuPkgTokenSpaceGuid.PcdCpuApLoopMode|1
   gUefiCpuPkgTokenSpaceGuid.PcdCpuMicrocodePatchAddress|0x0
   gUefiCpuPkgTokenSpaceGuid.PcdCpuMicrocodePatchRegionSize|0x0
-!if ($(TARGET) == DEBUG || $(USE_CBMEM_FOR_CONSOLE) == TRUE)
-  gEfiMdeModulePkgTokenSpaceGuid.PcdStatusCodeUseSerial|TRUE
-!else
-  gEfiMdeModulePkgTokenSpaceGuid.PcdStatusCodeUseSerial|FALSE
-!endif
   gEfiMdeModulePkgTokenSpaceGuid.PcdResetOnMemoryTypeInformationChange|FALSE
   gEfiMdeModulePkgTokenSpaceGuid.PcdEmuVariableNvStoreReserved|0
   gEfiMdeModulePkgTokenSpaceGuid.PcdFlashNvStorageVariableBase|0
@@ -1357,20 +1420,54 @@
 !if $(PERFORMANCE_MEASUREMENT_ENABLE)
   MdeModulePkg/Universal/Acpi/FirmwarePerformanceDataTableDxe/FirmwarePerformanceDxe.inf
 !endif
+
   #
   # SMM Support
   #
 !if $(SMM_SUPPORT) == TRUE
   UefiPayloadPkg/SmmAccessDxe/SmmAccessDxe.inf
   UefiPayloadPkg/SmmControlRuntimeDxe/SmmControlRuntimeDxe.inf
-  UefiPayloadPkg/BlSupportSmm/BlSupportSmm.inf
   MdeModulePkg/Core/PiSmmCore/PiSmmIpl.inf
   MdeModulePkg/Core/PiSmmCore/PiSmmCore.inf
-  UefiPayloadPkg/PchSmiDispatchSmm/PchSmiDispatchSmm.inf
+  MdeModulePkg/Universal/ReportStatusCodeRouter/Smm/ReportStatusCodeRouterSmm.inf
+  MdeModulePkg/Universal/StatusCodeHandler/Smm/StatusCodeHandlerSmm.inf
   UefiCpuPkg/PiSmmCpuDxeSmm/PiSmmCpuDxeSmm.inf
+  UefiPayloadPkg/PchSmiDispatchSmm/PchSmiDispatchSmm.inf
+  UefiPayloadPkg/BlSupportSmm/BlSupportSmm.inf
   UefiCpuPkg/CpuIo2Smm/CpuIo2Smm.inf
-!if $(PERFORMANCE_MEASUREMENT_ENABLE)
+!if $(PERFORMANCE_MEASUREMENT_ENABLE) == TRUE
   MdeModulePkg/Universal/Acpi/FirmwarePerformanceDataTableSmm/FirmwarePerformanceSmm.inf
+!endif
+!endif
+
+  #
+  # Payload MM support
+  #
+!if $(PAYLOAD_MM_SUPPORT) == TRUE
+  UefiPayloadPkg/StarlabsCfrMm/StarlabsCfrMm.inf
+  UefiPayloadPkg/SmmAccessDxe/SmmAccessDxe.inf
+  UefiPayloadPkg/SmmControlRuntimeDxe/SmmControlRuntimeDxe.inf
+  StandaloneMmPkg/Drivers/MmCommunicationDxe/MmCommunicationDxe.inf
+  StandaloneMmPkg/Drivers/MmCommunicationNotifyDxe/MmCommunicationNotifyDxe.inf
+  StandaloneMmPkg/Drivers/StandaloneMmIplPei/StandaloneMmIplDxe.inf {
+    <LibraryClasses>
+      MmPlatformHobProducerLib|UefiPayloadPkg/Library/MmPlatformHobProducerLib/MmPlatformHobProducerLib.inf
+      MmIplPlatformHookLib|UefiPayloadPkg/Library/MmIplPlatformHookLibPayloadMm/PayloadMmInitLib.inf
+!if $(VARIABLE_SUPPORT) == "SPI"
+      NULL|StandaloneMmPkg/Library/VariableMmDependency/VariableMmDependency.inf
+!endif
+  }
+  StandaloneMmPkg/Core/StandaloneMmCore.inf {
+    <LibraryClasses>
+      StandaloneMmCoreEntryPoint|UefiPayloadPkg/Library/MmCorePayloadMmEntryPoint/StandaloneMmCoreEntryPoint.inf
+  }
+  MdeModulePkg/Universal/ReportStatusCodeRouter/Smm/ReportStatusCodeRouterStandaloneMm.inf
+  MdeModulePkg/Universal/StatusCodeHandler/Smm/StatusCodeHandlerStandaloneMm.inf
+  UefiPayloadPkg/BlSmmCpuPayloadMm/BlSmmCpuStandaloneMm.inf
+  #UefiPayloadPkg/PchSmiDispatchSmm/PchSmiDispatchSmm.inf
+  UefiCpuPkg/CpuIo2Smm/CpuIo2StandaloneMm.inf
+!if $(PERFORMANCE_MEASUREMENT_ENABLE) == TRUE
+  MdeModulePkg/Universal/Acpi/FirmwarePerformanceDataTableSmm/FirmwarePerformanceStandaloneMm.inf
 !endif
 !endif
 
@@ -1385,6 +1482,9 @@
       NULL|EmbeddedPkg/Library/NvVarStoreFormattedLib/NvVarStoreFormattedLib.inf
   }
 !elseif $(VARIABLE_SUPPORT) == "SPI"
+!if $(SMM_SUPPORT) == TRUE
+  UefiPayloadPkg/FvbRuntimeDxe/FvbSmm.inf
+  MdeModulePkg/Universal/FaultTolerantWriteDxe/FaultTolerantWriteSmm.inf
   MdeModulePkg/Universal/Variable/RuntimeDxe/VariableSmm.inf {
     <LibraryClasses>
       NULL|MdeModulePkg/Library/VarCheckUefiLib/VarCheckUefiLib.inf
@@ -1392,9 +1492,17 @@
       NULL|MdeModulePkg/Library/VarCheckPcdLib/VarCheckPcdLib.inf
       NULL|MdeModulePkg/Library/VarCheckPolicyLib/VarCheckPolicyLib.inf
   }
-
-  UefiPayloadPkg/FvbRuntimeDxe/FvbSmm.inf
-  MdeModulePkg/Universal/FaultTolerantWriteDxe/FaultTolerantWriteSmm.inf
+!endif
+!if $(PAYLOAD_MM_SUPPORT) == TRUE
+  UefiPayloadPkg/FvbRuntimeDxe/FvbStandaloneMm.inf
+  MdeModulePkg/Universal/FaultTolerantWriteDxe/FaultTolerantWriteStandaloneMm.inf
+  MdeModulePkg/Universal/Variable/RuntimeDxe/VariableStandaloneMm.inf {
+    <LibraryClasses>
+      PlatformSecureLib|UefiPayloadPkg/Library/PlatformSecureLib/PlatformSecureLibMm.inf
+      NULL|MdeModulePkg/Library/VarCheckUefiLib/VarCheckUefiLib.inf
+      NULL|MdeModulePkg/Library/VarCheckPolicyLib/VarCheckPolicyLibStandaloneMm.inf
+  }
+!endif
   MdeModulePkg/Universal/Variable/RuntimeDxe/VariableSmmRuntimeDxe.inf
 !endif
 

@@ -21,6 +21,9 @@
 [Sources]
   PayloadMmHelpers.c
 
+[Sources.X64]
+  X64/TriggerSmi.nasm
+
 [Packages]
   MdePkg/MdePkg.dec
   UefiPayloadPkg/UefiPayloadPkg.dec

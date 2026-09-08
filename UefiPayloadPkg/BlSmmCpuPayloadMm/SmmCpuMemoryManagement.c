@@ -24,7 +24,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #define NEXT_MEMORY_DESCRIPTOR(MemoryDescriptor, Size) \
   ((EFI_MEMORY_DESCRIPTOR *)((UINT8 *)(MemoryDescriptor) + (Size)))
 
-PAGING_MODE  mPagingMode         = PagingModeMax;
+PAGING_MODE  mPagingMode = PagingModeMax;
 
 //
 // Global variable to keep track current available memory used as page table.
@@ -494,7 +494,10 @@ ConvertMemoryPageAttributes (
 
   if (Status == RETURN_BUFFER_TOO_SMALL) {
     PageTableBuffer = AllocatePageTableMemory (EFI_SIZE_TO_PAGES (PageTableBufferSize));
-    ASSERT (PageTableBuffer != NULL);
+    if (PageTableBuffer == NULL) {
+      return RETURN_OUT_OF_RESOURCES;
+    }
+
     Status = PageTableMap (&PageTableBase, PagingMode, PageTableBuffer, &PageTableBufferSize, BaseAddress, Length, &PagingAttribute, &PagingAttrMask, IsModified);
   }
 
@@ -506,10 +509,11 @@ ConvertMemoryPageAttributes (
     DEBUG ((DEBUG_ERROR, "SMM ConvertMemoryPageAttributes: Only change EFI_MEMORY_XP/EFI_MEMORY_RO for non-present range in [0x%lx, 0x%lx] is not permitted\n", BaseAddress, BaseAddress + Length));
   }
 
-  ASSERT_RETURN_ERROR (Status);
-  ASSERT (PageTableBufferSize == 0);
+  if (RETURN_ERROR (Status)) {
+    return Status;
+  }
 
-  return RETURN_SUCCESS;
+  return PageTableBufferSize == 0 ? RETURN_SUCCESS : RETURN_DEVICE_ERROR;
 }
 
 /**
@@ -1062,7 +1066,7 @@ EdkiiSmmClearMemoryAttributes (
   @param[in]       MapMask             The MapMask used for attribute. The corresponding field in Attribute is ignored if that in MapMask is 0.
 
 **/
-VOID
+RETURN_STATUS
 GenPageTable (
   IN OUT UINTN               *PageTable,
   IN     PAGING_MODE         PagingMode,
@@ -1091,7 +1095,10 @@ GenPageTable (
              );
   if (Status == RETURN_BUFFER_TOO_SMALL) {
     PageTableBuffer = AllocatePageTableMemory (EFI_SIZE_TO_PAGES (PageTableBufferSize));
-    ASSERT (PageTableBuffer != NULL);
+    if (PageTableBuffer == NULL) {
+      return RETURN_OUT_OF_RESOURCES;
+    }
+
     Status = PageTableMap (
                PageTable,
                PagingMode,
@@ -1105,8 +1112,7 @@ GenPageTable (
                );
   }
 
-  ASSERT (Status == RETURN_SUCCESS);
-  ASSERT (PageTableBufferSize == 0);
+  return Status;
 }
 
 /**
@@ -1142,7 +1148,9 @@ GenSmmPageTable (
   // 1. Create NonMmram MemoryRegion
   //
   CreateNonMmramMemMap (PhysicalAddressBits, &MemoryRegion, &MemoryRegionCount);
-  ASSERT (MemoryRegion != NULL && MemoryRegionCount != 0);
+  if ((MemoryRegion == NULL) || (MemoryRegionCount == 0)) {
+    return 0;
+  }
 
   //
   // 2. Gen NonMmram MemoryRegion PageTable
@@ -1174,7 +1182,11 @@ GenSmmPageTable (
       }
     }
 
-    GenPageTable (&PageTable, PagingMode, MemoryRegion[Index].Base, (UINTN)MemoryRegion[Index].Length, MapAttribute, MapMask);
+    Status = GenPageTable (&PageTable, PagingMode, MemoryRegion[Index].Base, (UINTN)MemoryRegion[Index].Length, MapAttribute, MapMask);
+    if (RETURN_ERROR (Status)) {
+      FreePool (MemoryRegion);
+      return 0;
+    }
   }
 
   //
@@ -1201,7 +1213,10 @@ GenSmmPageTable (
     MapAttribute.Bits.Accessed       = 1;
     MapAttribute.Bits.Dirty          = 1;
 
-    GenPageTable (&PageTable, PagingMode, mSmmCpuSmramRanges[Index].CpuStart, mSmmCpuSmramRanges[Index].PhysicalSize, MapAttribute, MapMask);
+    Status = GenPageTable (&PageTable, PagingMode, mSmmCpuSmramRanges[Index].CpuStart, mSmmCpuSmramRanges[Index].PhysicalSize, MapAttribute, MapMask);
+    if (RETURN_ERROR (Status)) {
+      return 0;
+    }
   }
 
   if (FeaturePcdGet (PcdCpuSmmStackGuard)) {
@@ -1211,7 +1226,9 @@ GenSmmPageTable (
     for (Index = 0; Index < 1 /* gPayloadMmCpuPrivateData->SmmCoreEntryContext.NumberOfCpus */; Index++) {
       GuardPage = mSmmStackArrayBase + EFI_PAGE_SIZE + Index * mSmmStackSize;
       Status    = ConvertMemoryPageAttributes (PageTable, PagingMode, GuardPage, SIZE_4KB, EFI_MEMORY_RP, TRUE, NULL);
-      ASSERT (Status == RETURN_SUCCESS);
+      if (RETURN_ERROR (Status)) {
+        return 0;
+      }
     }
   }
 
@@ -1220,7 +1237,9 @@ GenSmmPageTable (
     // Mark [0, 4k] as non-present
     //
     Status = ConvertMemoryPageAttributes (PageTable, PagingMode, 0, SIZE_4KB, EFI_MEMORY_RP, TRUE, NULL);
-    ASSERT (Status == RETURN_SUCCESS);
+    if (RETURN_ERROR (Status)) {
+      return 0;
+    }
   }
 
   return (UINTN)PageTable;
@@ -1374,8 +1393,7 @@ IfReadOnlyPageTableNeeded (
   //      BIT2: SMM page guard enabled
   //      BIT3: SMM pool guard enabled
   //
-  if (((PcdGet8 (PcdHeapGuardPropertyMask) & (BIT3 | BIT2)) != 0))
-  {
+  if (((PcdGet8 (PcdHeapGuardPropertyMask) & (BIT3 | BIT2)) != 0)) {
     return FALSE;
   }
 

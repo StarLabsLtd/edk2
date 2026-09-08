@@ -4,7 +4,7 @@
 ;
 ; Module Name:
 ;
-;   TriggerSmi.nasm
+;   TriggerSmi.nasm - boot-only Payload MM command transport
 ;
 ;-------------------------------------------------------------------------------
 

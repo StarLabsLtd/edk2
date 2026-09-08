@@ -60,7 +60,10 @@ InternalAllocatePages (
   //
   // Check available memory for the allocation
   //
-  if (HobTable->EfiFreeMemoryTop - ((Pages * EFI_PAGE_SIZE) + sizeof (EFI_HOB_MEMORY_ALLOCATION)) < HobTable->EfiFreeMemoryBottom) {
+  if ((HobTable->EfiFreeMemoryTop < HobTable->EfiFreeMemoryBottom) ||
+      (HobTable->EfiFreeMemoryTop - HobTable->EfiFreeMemoryBottom < sizeof (EFI_HOB_MEMORY_ALLOCATION)) ||
+      (Pages > (HobTable->EfiFreeMemoryTop - HobTable->EfiFreeMemoryBottom - sizeof (EFI_HOB_MEMORY_ALLOCATION)) / EFI_PAGE_SIZE))
+  {
     return NULL;
   }
 
@@ -111,6 +114,21 @@ AllocateReservedPages (
   )
 {
   return InternalAllocatePages (Pages, EfiReservedMemoryType);
+}
+
+/**
+  Allocate runtime data pages, preserving their type in the memory handoff.
+
+  @param[in] Pages  Number of pages to allocate.
+  @return A page-aligned buffer, or NULL when no allocation is possible.
+**/
+VOID *
+EFIAPI
+AllocateRuntimePages (
+  IN UINTN  Pages
+  )
+{
+  return InternalAllocatePages (Pages, EfiRuntimeServicesData);
 }
 
 /**

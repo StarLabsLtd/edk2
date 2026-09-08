@@ -20,9 +20,6 @@
   PayloadMmInit.c
   PayloadMmCmdInterface.c
 
-[Sources.X64]
-  X64/TriggerSmi.nasm
-
 [Packages]
   MdePkg/MdePkg.dec
   MdeModulePkg/MdeModulePkg.dec
@@ -32,6 +29,7 @@
 
 [LibraryClasses]
   BaseLib
+  BaseMemoryLib
   DebugLib
   HobLib
   MemoryAllocationLib

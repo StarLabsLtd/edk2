@@ -58,8 +58,8 @@ PAYLOAD_MM_CPU_PRIVATE_DATA  mPayloadMmCpuPrivateData = {
     { 0    }
   },                                            // SmmReservedSmramRegion
   {
-    mPayloadMmCpuPrivateData.SmmReservedSmramRegion,  // SmmConfiguration.SmramReservedRegions
-    RegisterPayloadMmEntry                      // SmmConfiguration.RegisterSmmEntry
+    mPayloadMmCpuPrivateData.SmmReservedSmramRegion, // SmmConfiguration.SmramReservedRegions
+    RegisterPayloadMmEntry                           // SmmConfiguration.RegisterSmmEntry
   },
   NULL,                                         // Pointer to ProcessorInfo array
   NULL,                                         // pointer to Ap Wrapper Func array
@@ -74,7 +74,7 @@ UINT32  mSmrrBase, mSmrrSize;
 //
 PAYLOAD_MM_CPU_PRIVATE_DATA  *gPayloadMmCpuPrivateData = &mPayloadMmCpuPrivateData;
 
-X86_ASSEMBLY_PATCH_LABEL gPatchEdk2PayloadMmPrivateData;
+X86_ASSEMBLY_PATCH_LABEL  gPatchEdk2PayloadMmPrivateData;
 
 ///
 /// Handle for the SMM CPU Protocol
@@ -93,8 +93,8 @@ EDKII_SMM_MEMORY_ATTRIBUTE_PROTOCOL  mSmmMemoryAttribute = {
 //
 // SMM stack information
 //
-UINTN   mSmmStackArrayBase;
-UINTN   mSmmStackSize;
+UINTN  mSmmStackArrayBase;
+UINTN  mSmmStackSize;
 
 UINTN  mMaxNumberOfCpus = 0;
 UINTN  mNumberOfCpus    = 0;
@@ -121,7 +121,7 @@ UINT8  mPhysicalAddressBits;
   Initialize IDT to setup exception handlers for SMM.
 
 **/
-VOID
+EFI_STATUS
 InitializeSmmIdt (
   VOID
   )
@@ -140,7 +140,10 @@ InitializeSmmIdt (
   // Allocate page aligned IDT, because it might be set as read only.
   //
   gSmiHandlerIdtr.Base = (UINTN)AllocateCodePages (EFI_SIZE_TO_PAGES (gSmiHandlerIdtr.Limit + 1));
-  ASSERT (gSmiHandlerIdtr.Base != 0);
+  if (gSmiHandlerIdtr.Base == 0) {
+    return EFI_OUT_OF_RESOURCES;
+  }
+
   ZeroMem ((VOID *)gSmiHandlerIdtr.Base, gSmiHandlerIdtr.Limit + 1);
 
   //
@@ -161,7 +164,6 @@ InitializeSmmIdt (
   // will be updated and saved in gSmiHandlerIdtr
   //
   Status = InitializeCpuExceptionHandlers (NULL);
-  ASSERT_EFI_ERROR (Status);
 
   //
   // Restore DXE IDT table and CPU interrupt
@@ -169,7 +171,9 @@ InitializeSmmIdt (
   if (!mIsStandaloneMm) {
     AsmWriteIdtr ((IA32_DESCRIPTOR *)&DxeIdtr);
   }
+
   SetInterruptState (InterruptState);
+  return Status;
 }
 
 /**
@@ -356,9 +360,14 @@ BlSmmCpuPayloadMmEntry (
   VOID
   )
 {
-  EFI_STATUS                  Status;
+  EFI_STATUS  Status;
 
   PERF_FUNCTION_BEGIN ();
+
+  // The initial backend does not support recovery through the debug trap handler.
+  if (HEAP_GUARD_NONSTOP_MODE || NULL_DETECTION_NONSTOP_MODE) {
+    return EFI_UNSUPPORTED;
+  }
 
   //
   // Initialize address fixup
@@ -381,20 +390,31 @@ BlSmmCpuPayloadMmEntry (
   //
   // Find out SMRR Base and SMRR Size
   //
-  FindSmramInfo (&mSmrrBase, &mSmrrSize);
+  Status = FindSmramInfo (&mSmrrBase, &mSmrrSize);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
 
   //
-  // Retrieve NumberOfProcessors, MaxNumberOfCpus and EFI_PROCESSOR_INFORMATION for all CPU from MpInformation2 HOB.
+  // Coreboot serializes SMI handling. MM exposes one logical execution context,
+  // not physical CPU save states or AP startup services.
   //
-  gPayloadMmCpuPrivateData->ProcessorInfo = GetMpInformation (&mNumberOfCpus, &mMaxNumberOfCpus);
-  ASSERT (gPayloadMmCpuPrivateData->ProcessorInfo != NULL);
+  mNumberOfCpus    = 1;
+  mMaxNumberOfCpus = 1;
 
   gPayloadMmCpuPrivateData->SmmCoreEntryContext.NumberOfCpus = mMaxNumberOfCpus;
 
   CheckFeatureSupported (&gPayloadMmCpuPrivateData->PayloadMmPrivateData);
 
   gPayloadMmCpuPrivateData->SmmCoreEntryContext.CpuSaveStateSize = AllocateZeroPool (sizeof (UINTN) * gPayloadMmCpuPrivateData->SmmCoreEntryContext.NumberOfCpus);
-  ASSERT (gPayloadMmCpuPrivateData->SmmCoreEntryContext.CpuSaveStateSize != NULL);
+  if (gPayloadMmCpuPrivateData->SmmCoreEntryContext.CpuSaveStateSize == NULL) {
+    return EFI_OUT_OF_RESOURCES;
+  }
+
+  gPayloadMmCpuPrivateData->SmmCoreEntryContext.CpuSaveState = AllocateZeroPool (sizeof (VOID *));
+  if (gPayloadMmCpuPrivateData->SmmCoreEntryContext.CpuSaveState == NULL) {
+    return EFI_OUT_OF_RESOURCES;
+  }
 
   //
   // Allocate SMI stacks for all processors.
@@ -416,11 +436,17 @@ BlSmmCpuPayloadMmEntry (
     mSmmStackSize += EFI_PAGES_TO_SIZE (2);
   }
 
-  gPayloadMmCpuPrivateData->PayloadMmPrivateData.StackPointers = AllocatePool (1 /* mMaxNumberOfCpus */ * sizeof (UINT32));
-  ASSERT (gPayloadMmCpuPrivateData->PayloadMmPrivateData.StackPointers != NULL);
+  gPayloadMmCpuPrivateData->PayloadMmPrivateData.StackPointers = AllocatePool (sizeof (UINT32));
+  if (gPayloadMmCpuPrivateData->PayloadMmPrivateData.StackPointers == NULL) {
+    return EFI_OUT_OF_RESOURCES;
+  }
 
-  mSmmStackArrayBase = (UINTN)AllocatePages (1 /* mMaxNumberOfCpus */ * EFI_SIZE_TO_PAGES (mSmmStackSize));
-  ASSERT (mSmmStackArrayBase != 0);
+  mSmmStackArrayBase = (UINTN)AllocatePages (EFI_SIZE_TO_PAGES (mSmmStackSize));
+  if ((mSmmStackArrayBase == 0) || (mSmmStackArrayBase > MAX_UINT32) ||
+      (mSmmStackSize > MAX_UINT32 - mSmmStackArrayBase))
+  {
+    return EFI_OUT_OF_RESOURCES;
+  }
 
   DEBUG ((DEBUG_INFO, "mSmmStackArrayBase       - 0x%x\n", mSmmStackArrayBase));
   DEBUG ((DEBUG_INFO, "mSmmStackSize            - 0x%x\n", mSmmStackSize));
@@ -429,12 +455,17 @@ BlSmmCpuPayloadMmEntry (
   //
   // Initialize IDT
   //
-  InitializeSmmIdt ();
+  Status = InitializeSmmIdt ();
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
 
   //
   // Initialize payload MM calling
   //
-  InitializeMpServiceData (mSmmStackArrayBase, mSmmStackSize);
+  if (InitializeMpServiceData (mSmmStackArrayBase, mSmmStackSize) == 0) {
+    return EFI_OUT_OF_RESOURCES;
+  }
 
   PatchInstructionX86 (gPatchEdk2PayloadMmPrivateData, (UINT32)(UINTN)&gPayloadMmCpuPrivateData->PayloadMmPrivateData, 4);
 
@@ -459,12 +490,9 @@ BlSmmCpuPayloadMmEntry (
                     EFI_NATIVE_INTERFACE,
                     &mSmmMemoryAttribute
                     );
-  ASSERT_EFI_ERROR (Status);
-
-  //
-  // Initialize global buffer for MM MP.
-  //
-  InitializeDataForMmMp ();
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
 
   //
   // TODO: MP support, requires convoluted mode switching.
@@ -516,7 +544,7 @@ CpuSmramRangeCompare (
   @param          SmrrSize          SMRR size
 
 **/
-VOID
+EFI_STATUS
 FindSmramInfo (
   OUT UINT32  *SmrrBase,
   OUT UINT32  *SmrrSize
@@ -529,15 +557,33 @@ FindSmramInfo (
   UINT64                          MaxSize;
   BOOLEAN                         Found;
   EFI_SMRAM_DESCRIPTOR            SmramDescriptor;
+  UINTN                           HobSize;
 
-  ASSERT (SmrrBase != NULL && SmrrSize != NULL);
+  if ((SmrrBase == NULL) || (SmrrSize == NULL)) {
+    return EFI_INVALID_PARAMETER;
+  }
 
   //
   // Get SMRAM information
   //
   GuidHob = GetFirstGuidHob (&gEfiSmmSmramMemoryGuid);
-  ASSERT (GuidHob != NULL);
-  DescriptorBlock        = (EFI_SMRAM_HOB_DESCRIPTOR_BLOCK *)GET_GUID_HOB_DATA (GuidHob);
+  if (GuidHob == NULL) {
+    return EFI_NOT_FOUND;
+  }
+
+  HobSize = GET_GUID_HOB_DATA_SIZE (GuidHob);
+  if (HobSize < OFFSET_OF (EFI_SMRAM_HOB_DESCRIPTOR_BLOCK, Descriptor)) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  DescriptorBlock = (EFI_SMRAM_HOB_DESCRIPTOR_BLOCK *)GET_GUID_HOB_DATA (GuidHob);
+  if ((DescriptorBlock->NumberOfSmmReservedRegions == 0) ||
+      (DescriptorBlock->NumberOfSmmReservedRegions >
+       (HobSize - OFFSET_OF (EFI_SMRAM_HOB_DESCRIPTOR_BLOCK, Descriptor)) / sizeof (SmramDescriptor)))
+  {
+    return EFI_INVALID_PARAMETER;
+  }
+
   mSmmCpuSmramRangeCount = DescriptorBlock->NumberOfSmmReservedRegions;
   mSmmCpuSmramRanges     = DescriptorBlock->Descriptor;
 
@@ -545,6 +591,20 @@ FindSmramInfo (
   // Sort the mSmmCpuSmramRanges
   //
   QuickSort (mSmmCpuSmramRanges, mSmmCpuSmramRangeCount, sizeof (EFI_SMRAM_DESCRIPTOR), (BASE_SORT_COMPARE)CpuSmramRangeCompare, &SmramDescriptor);
+
+  for (Index = 0; Index < mSmmCpuSmramRangeCount; Index++) {
+    CurrentSmramRange = &mSmmCpuSmramRanges[Index];
+    if ((CurrentSmramRange->CpuStart != CurrentSmramRange->PhysicalStart) ||
+        (CurrentSmramRange->CpuStart > MAX_UINT32) ||
+        (CurrentSmramRange->PhysicalSize == 0) ||
+        (CurrentSmramRange->PhysicalSize - 1 > MAX_UINT32 - CurrentSmramRange->CpuStart) ||
+        (((CurrentSmramRange->CpuStart | CurrentSmramRange->PhysicalSize) & EFI_PAGE_MASK) != 0) ||
+        ((Index != 0) && (CurrentSmramRange->CpuStart <
+                          mSmmCpuSmramRanges[Index - 1].CpuStart + mSmmCpuSmramRanges[Index - 1].PhysicalSize)))
+    {
+      return EFI_INVALID_PARAMETER;
+    }
+  }
 
   //
   // Find the largest SMRAM range between 1MB and 4GB that is at least 256K - 4K in size
@@ -568,7 +628,13 @@ FindSmramInfo (
     }
   }
 
-  ASSERT (CurrentSmramRange != NULL);
+  if (CurrentSmramRange == NULL) {
+    return EFI_NOT_FOUND;
+  }
+
+  if (CurrentSmramRange->PhysicalSize > MAX_UINT32) {
+    return EFI_INVALID_PARAMETER;
+  }
 
   *SmrrBase = (UINT32)CurrentSmramRange->CpuStart;
   *SmrrSize = (UINT32)CurrentSmramRange->PhysicalSize;
@@ -579,10 +645,18 @@ FindSmramInfo (
       if ((mSmmCpuSmramRanges[Index].CpuStart < *SmrrBase) &&
           (*SmrrBase == (mSmmCpuSmramRanges[Index].CpuStart + mSmmCpuSmramRanges[Index].PhysicalSize)))
       {
+        if (mSmmCpuSmramRanges[Index].PhysicalSize > MAX_UINT32 - *SmrrSize) {
+          return EFI_INVALID_PARAMETER;
+        }
+
         *SmrrBase = (UINT32)mSmmCpuSmramRanges[Index].CpuStart;
         *SmrrSize = (UINT32)(*SmrrSize + mSmmCpuSmramRanges[Index].PhysicalSize);
         Found     = TRUE;
-      } else if (((*SmrrBase + *SmrrSize) == mSmmCpuSmramRanges[Index].CpuStart) && (mSmmCpuSmramRanges[Index].PhysicalSize > 0)) {
+      } else if ((((UINT64)*SmrrBase + *SmrrSize) == mSmmCpuSmramRanges[Index].CpuStart) && (mSmmCpuSmramRanges[Index].PhysicalSize > 0)) {
+        if (mSmmCpuSmramRanges[Index].PhysicalSize > MAX_UINT32 - *SmrrSize) {
+          return EFI_INVALID_PARAMETER;
+        }
+
         *SmrrSize = (UINT32)(*SmrrSize + mSmmCpuSmramRanges[Index].PhysicalSize);
         Found     = TRUE;
       }
@@ -590,6 +664,7 @@ FindSmramInfo (
   } while (Found);
 
   DEBUG ((DEBUG_INFO, "%a: SMRR Base = 0x%x, SMRR Size = 0x%x\n", __func__, *SmrrBase, *SmrrSize));
+  return EFI_SUCCESS;
 }
 
 /**

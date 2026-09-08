@@ -1,0 +1,31 @@
+## @file
+# Bounded MM variable-store flash access.
+# Copyright (c) 2026, Star Labs Systems. All rights reserved.<BR>
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001B
+  BASE_NAME                      = FlashDeviceLibMm
+  FILE_GUID                      = F056D075-5535-4C6F-92B7-79A4B60229BA
+  MODULE_TYPE                    = MM_STANDALONE
+  VERSION_STRING                 = 1.0
+  PI_SPECIFICATION_VERSION       = 0x00010032
+  LIBRARY_CLASS                  = FlashDeviceLib|MM_STANDALONE
+
+[Sources]
+  FlashDeviceLibMm.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  UefiPayloadPkg/UefiPayloadPkg.dec
+
+[LibraryClasses]
+  BaseMemoryLib
+  HobLib
+  SmmStoreGeometryLib
+  SpiFlashLib
+
+[Guids]
+  gVariableFlashInfoHobGuid
