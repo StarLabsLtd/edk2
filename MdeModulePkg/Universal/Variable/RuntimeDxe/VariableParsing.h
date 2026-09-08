@@ -12,6 +12,14 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Guid/ImageAuthentication.h>
 #include "Variable.h"
 
+/** Check record bounds without requiring a completed name/data write. */
+BOOLEAN
+IsValidVariableSize (
+  IN VARIABLE_HEADER  *Variable,
+  IN VARIABLE_HEADER  *VariableStoreEnd,
+  IN BOOLEAN          AuthFormat
+  );
+
 /**
 
   This code checks if variable header is valid or not.
