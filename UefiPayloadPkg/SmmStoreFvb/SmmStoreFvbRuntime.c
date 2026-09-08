@@ -15,6 +15,7 @@
 #include <Library/PcdLib.h>
 #include <Library/SmmStoreLib.h>
 #include <Protocol/VariableStoreSync.h>
+#include <Library/SmmStoreGeometryLib.h>
 
 #include "SmmStoreFvbRuntime.h"
 
