@@ -11,6 +11,53 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include "PciPlatformDxe.h"
 #include <Bus/Pci/PciBusDxe/PciBus.h>
 #include <Bus/Pci/PciBusDxe/PciOptionRomSupport.h>
+#include <Library/AmdPlatformGOPPolicy.h>
+#include <Library/DxeServicesLib.h>
+
+STATIC
+EFI_STATUS
+GetAmdVbios (
+  OUT VOID   **RomImage,
+  OUT UINTN  *RomSize
+  )
+{
+  EFI_STATUS            Status;
+  VOID                  *Section;
+  UINTN                 SectionSize;
+  EFI_PHYSICAL_ADDRESS  RomAddress;
+
+  Status = GetSectionFromAnyFv (
+             &gAmdPhoenixVbiosRomSectionGuid,
+             EFI_SECTION_RAW,
+             0,
+             &Section,
+             &SectionSize
+             );
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  if (SectionSize == 0) {
+    FreePool (Section);
+    return EFI_VOLUME_CORRUPTED;
+  }
+
+  // Keep the bundled VBIOS in the page-backed code allocation used by GOP.
+  Status = gBS->AllocatePages (
+                  AllocateAnyPages,
+                  EfiBootServicesCode,
+                  EFI_SIZE_TO_PAGES (SectionSize),
+                  &RomAddress
+                  );
+  if (!EFI_ERROR (Status)) {
+    *RomImage = (VOID *)(UINTN)RomAddress;
+    *RomSize  = SectionSize;
+    CopyMem (*RomImage, Section, SectionSize);
+  }
+
+  FreePool (Section);
+  return Status;
+}
 
 EFI_STATUS
 EFIAPI
@@ -127,6 +174,21 @@ PciGetPciRom (
   }
 
   PciIoDevice = PCI_IO_DEVICE_FROM_PCI_IO_THIS (PciIo);
+
+  if (FeaturePcdGet (PcdUseAmdExternalGop) &&
+      (PciIoDevice->Pci.Hdr.VendorId == ATI_VGA_VID) &&
+      (PciIoDevice->Pci.Hdr.DeviceId == AMD_PHOENIX_GOP_DEVICE_ID) &&
+      (IS_PCI_DISPLAY (&PciIoDevice->Pci) || IS_PCI_OLD_VGA (&PciIoDevice->Pci)))
+  {
+    Status = GetAmdVbios (RomImage, RomSize);
+    if (Status != EFI_NOT_FOUND) {
+      return Status;
+    }
+  }
+
+  if (!FeaturePcdGet (PcdLoadOptionRoms)) {
+    return EFI_NOT_FOUND;
+  }
 
   //
   // Get the location of the PCI device
@@ -421,6 +483,9 @@ PciGetPlatformPolicy (
   }
 
   *PciPolicy = 0;
+  if (FeaturePcdGet (PcdUseAmdExternalGop)) {
+    *PciPolicy = EFI_RESERVE_ISA_IO_NO_ALIAS | EFI_RESERVE_VGA_IO_NO_ALIAS;
+  }
 
   return EFI_SUCCESS;
 }
