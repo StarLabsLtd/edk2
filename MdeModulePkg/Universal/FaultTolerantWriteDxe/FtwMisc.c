@@ -792,8 +792,10 @@ FtwUpdateFvState (
   @param FtwWorkSpaceSize   Size of the work space
   @param FtwWriteHeader     Pointer to retrieve the last write header
 
-  @retval  EFI_SUCCESS      Get the last write record successfully
-  @retval  EFI_ABORTED      The FTW work space is damaged
+  @retval EFI_SUCCESS           Found a bounded write header.
+  @retval EFI_BUFFER_TOO_SMALL  The queue is full or allocation was interrupted.
+  @retval EFI_VOLUME_CORRUPTED  The FTW journal is malformed.
+  @retval EFI_INVALID_PARAMETER A required pointer or workspace size is invalid.
 
 **/
 EFI_STATUS
@@ -804,37 +806,61 @@ FtwGetLastWriteHeader (
   )
 {
   UINTN                            Offset;
+  UINTN                            Remaining;
+  UINTN                            RecordSize;
   EFI_FAULT_TOLERANT_WRITE_HEADER  *FtwHeader;
+  EFI_FAULT_TOLERANT_WRITE_HEADER  Header;
+
+  if (FtwWriteHeader == NULL) {
+    return EFI_INVALID_PARAMETER;
+  }
 
   *FtwWriteHeader = NULL;
-  FtwHeader       = (EFI_FAULT_TOLERANT_WRITE_HEADER *)(FtwWorkSpaceHeader + 1);
-  Offset          = sizeof (EFI_FAULT_TOLERANT_WORKING_BLOCK_HEADER);
+  if ((FtwWorkSpaceHeader == NULL) || (FtwWorkSpaceSize < sizeof (*FtwWorkSpaceHeader))) {
+    return EFI_INVALID_PARAMETER;
+  }
 
   if (!CompareGuid (&FtwWorkSpaceHeader->Signature, &gEdkiiWorkingBlockSignatureGuid)) {
-    *FtwWriteHeader = FtwHeader;
-    return EFI_ABORTED;
+    return EFI_VOLUME_CORRUPTED;
   }
 
-  while (FtwHeader->Complete == FTW_VALID_STATE) {
-    Offset += FTW_WRITE_TOTAL_SIZE (FtwHeader->NumberOfWrites, FtwHeader->PrivateDataSize);
-    //
-    // If Offset exceed the FTW work space boudary, return error.
-    //
+  Offset = sizeof (*FtwWorkSpaceHeader);
+  while (FtwWorkSpaceSize - Offset >= sizeof (Header)) {
+    FtwHeader = (VOID *)((UINT8 *)FtwWorkSpaceHeader + Offset);
+    CopyMem (&Header, FtwHeader, sizeof (Header));
+    *FtwWriteHeader = FtwHeader;
+    Remaining       = FtwWorkSpaceSize - Offset - sizeof (Header);
 
-    if ((Offset + sizeof (EFI_FAULT_TOLERANT_WRITE_HEADER)) >= FtwWorkSpaceSize) {
-      *FtwWriteHeader = FtwHeader;
-      return EFI_ABORTED;
+    if (IsErasedFlashBuffer ((UINT8 *)&Header, sizeof (Header))) {
+      return Remaining >= sizeof (EFI_FAULT_TOLERANT_WRITE_RECORD) ? EFI_SUCCESS : EFI_BUFFER_TOO_SMALL;
     }
 
-    FtwHeader = (EFI_FAULT_TOLERANT_WRITE_HEADER *)((UINT8 *)FtwWorkSpaceHeader + Offset);
+    if ((Header.HeaderAllocated != FTW_VALID_STATE) ||
+        (Header.NumberOfWrites == 0) ||
+        (Remaining < sizeof (EFI_FAULT_TOLERANT_WRITE_RECORD)) ||
+        (Header.PrivateDataSize > Remaining - sizeof (EFI_FAULT_TOLERANT_WRITE_RECORD)))
+    {
+      return EFI_VOLUME_CORRUPTED;
+    }
+
+    RecordSize = sizeof (EFI_FAULT_TOLERANT_WRITE_RECORD) + (UINTN)Header.PrivateDataSize;
+    if (Header.NumberOfWrites > Remaining / RecordSize) {
+      return EFI_VOLUME_CORRUPTED;
+    }
+
+    // Reclaim only a bounded header whose write allocation was not committed.
+    if ((Header.WritesAllocated != FTW_VALID_STATE) && (Header.Complete != FTW_VALID_STATE)) {
+      return EFI_BUFFER_TOO_SMALL;
+    }
+
+    if (Header.Complete != FTW_VALID_STATE) {
+      return EFI_SUCCESS;
+    }
+
+    Offset += sizeof (Header) + (UINTN)Header.NumberOfWrites * RecordSize;
   }
 
-  //
-  // Last write header is found
-  //
-  *FtwWriteHeader = FtwHeader;
-
-  return EFI_SUCCESS;
+  return EFI_BUFFER_TOO_SMALL;
 }
 
 /**
@@ -843,29 +869,64 @@ FtwGetLastWriteHeader (
   may be a EMPTY record entry for next write.
 
 
-  @param FtwWriteHeader  Pointer to the write record header
-  @param FtwWriteRecord  Pointer to retrieve the last write record
+  @param FtwWriteHeader      Pointer to the write record header.
+  @param FtwWriteHeaderSize  Available bytes from this header to the workspace end.
+  @param FtwWriteRecord      Pointer to retrieve the last write record.
 
-  @retval EFI_SUCCESS        Get the last write record successfully
-  @retval EFI_ABORTED        The FTW work space is damaged
+  @retval EFI_SUCCESS           Found a bounded write record.
+  @retval EFI_VOLUME_CORRUPTED  The FTW journal is malformed.
+  @retval EFI_INVALID_PARAMETER The output pointer is NULL.
 
 **/
 EFI_STATUS
 FtwGetLastWriteRecord (
   IN EFI_FAULT_TOLERANT_WRITE_HEADER   *FtwWriteHeader,
+  IN UINTN                             FtwWriteHeaderSize,
   OUT EFI_FAULT_TOLERANT_WRITE_RECORD  **FtwWriteRecord
   )
 {
-  UINT64                           Index;
+  UINTN                            Index;
+  UINTN                            RecordSize;
+  UINTN                            Remaining;
+  EFI_FAULT_TOLERANT_WRITE_HEADER  Header;
   EFI_FAULT_TOLERANT_WRITE_RECORD  *FtwRecord;
 
+  if (FtwWriteRecord == NULL) {
+    return EFI_INVALID_PARAMETER;
+  }
+
   *FtwWriteRecord = NULL;
-  FtwRecord       = (EFI_FAULT_TOLERANT_WRITE_RECORD *)(FtwWriteHeader + 1);
+  if ((FtwWriteHeader == NULL) ||
+      (FtwWriteHeaderSize < sizeof (Header) + sizeof (*FtwRecord)))
+  {
+    return EFI_VOLUME_CORRUPTED;
+  }
+
+  CopyMem (&Header, FtwWriteHeader, sizeof (Header));
+  FtwRecord = (EFI_FAULT_TOLERANT_WRITE_RECORD *)(FtwWriteHeader + 1);
+
+  if (IsErasedFlashBuffer ((UINT8 *)&Header, sizeof (Header))) {
+    *FtwWriteRecord = FtwRecord;
+    return EFI_SUCCESS;
+  }
+
+  Remaining = FtwWriteHeaderSize - sizeof (Header);
+  if ((Header.NumberOfWrites == 0) ||
+      (Header.PrivateDataSize > Remaining - sizeof (*FtwRecord)))
+  {
+    return EFI_VOLUME_CORRUPTED;
+  }
+
+  RecordSize = sizeof (*FtwRecord) + (UINTN)Header.PrivateDataSize;
+  if (Header.NumberOfWrites > Remaining / RecordSize) {
+    return EFI_VOLUME_CORRUPTED;
+  }
 
   //
   // Try to find the last write record "that has not completed"
   //
-  for (Index = 0; Index < FtwWriteHeader->NumberOfWrites; Index += 1) {
+  for (Index = 0; Index < (UINTN)Header.NumberOfWrites; Index += 1) {
+    *FtwWriteRecord = FtwRecord;
     if (FtwRecord->DestinationComplete != FTW_VALID_STATE) {
       //
       // The last write record is found
@@ -874,11 +935,7 @@ FtwGetLastWriteRecord (
       return EFI_SUCCESS;
     }
 
-    FtwRecord++;
-
-    if (FtwWriteHeader->PrivateDataSize != 0) {
-      FtwRecord = (EFI_FAULT_TOLERANT_WRITE_RECORD *)((UINTN)FtwRecord + (UINTN)FtwWriteHeader->PrivateDataSize);
-    }
+    FtwRecord = (VOID *)((UINT8 *)FtwRecord + RecordSize);
   }
 
   //
@@ -887,12 +944,7 @@ FtwGetLastWriteRecord (
   //  but the Header->Complete Flag has not been set.
   //  also return the last record.
   //
-  if (Index == FtwWriteHeader->NumberOfWrites) {
-    *FtwWriteRecord = (EFI_FAULT_TOLERANT_WRITE_RECORD *)((UINTN)FtwRecord - FTW_RECORD_SIZE (FtwWriteHeader->PrivateDataSize));
-    return EFI_SUCCESS;
-  }
-
-  return EFI_ABORTED;
+  return EFI_SUCCESS;
 }
 
 /**
@@ -1302,6 +1354,9 @@ InitFtwProtocol (
   Status = WorkSpaceRefresh (FtwDevice);
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "Ftw: Init.. WorkSpaceRefresh failed: Status = %r\n", Status));
+    if ((Status != EFI_VOLUME_CORRUPTED) || IsValidWorkSpace (FtwDevice->FtwWorkSpaceHeader)) {
+      return Status;
+    }
   }
 
   //
@@ -1327,6 +1382,15 @@ InitFtwProtocol (
     // If spare block is valid, then replace working block content.
     //
     if (IsValidWorkSpace (FtwDevice->FtwWorkSpaceHeader)) {
+      Status = FtwGetLastWriteHeader (
+                 FtwDevice->FtwWorkSpaceHeader,
+                 FtwDevice->FtwWorkSpaceSize,
+                 &FtwDevice->FtwLastWriteHeader
+                 );
+      if (EFI_ERROR (Status) && (Status != EFI_BUFFER_TOO_SMALL)) {
+        return Status;
+      }
+
       Status = FlushSpareBlockToWorkingBlock (FtwDevice);
       DEBUG ((
         DEBUG_INFO,

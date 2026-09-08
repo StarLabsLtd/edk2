@@ -77,10 +77,22 @@ FtwAllocate (
 {
   EFI_STATUS                       Status;
   UINTN                            Offset;
+  UINTN                            AllocationSize;
   EFI_FTW_DEVICE                   *FtwDevice;
   EFI_FAULT_TOLERANT_WRITE_HEADER  *FtwHeader;
 
   FtwDevice = FTW_CONTEXT_FROM_THIS (This);
+
+  if ((CallerId == NULL) || (NumberOfWrites == 0)) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  if (RETURN_ERROR (SafeUintnAdd (sizeof (EFI_FAULT_TOLERANT_WRITE_RECORD), PrivateDataSize, &AllocationSize)) ||
+      RETURN_ERROR (SafeUintnMult (NumberOfWrites, AllocationSize, &AllocationSize)) ||
+      RETURN_ERROR (SafeUintnAdd (sizeof (EFI_FAULT_TOLERANT_WRITE_HEADER), AllocationSize, &AllocationSize)))
+  {
+    return EFI_BUFFER_TOO_SMALL;
+  }
 
   Status = WorkSpaceRefresh (FtwDevice);
   if (EFI_ERROR (Status)) {
@@ -90,7 +102,7 @@ FtwAllocate (
   //
   // Check if there is enough space for the coming allocation
   //
-  if (FTW_WRITE_TOTAL_SIZE (NumberOfWrites, PrivateDataSize) > FtwDevice->FtwWorkSpaceHeader->WriteQueueSize) {
+  if (AllocationSize > FtwDevice->FtwWorkSpaceHeader->WriteQueueSize) {
     DEBUG ((DEBUG_ERROR, "Ftw: Allocate() request exceed Workspace, Caller: %g\n", CallerId));
     return EFI_BUFFER_TOO_SMALL;
   }
@@ -112,13 +124,14 @@ FtwAllocate (
   // If workspace is not enough, then reclaim workspace
   //
   Offset = (UINT8 *)FtwHeader - (UINT8 *)FtwDevice->FtwWorkSpace;
-  if (Offset + FTW_WRITE_TOTAL_SIZE (NumberOfWrites, PrivateDataSize) > FtwDevice->FtwWorkSpaceSize) {
+  if (AllocationSize > FtwDevice->FtwWorkSpaceSize - Offset) {
     Status = FtwReclaimWorkSpace (FtwDevice, TRUE);
     if (EFI_ERROR (Status)) {
       return EFI_ABORTED;
     }
 
     FtwHeader = FtwDevice->FtwLastWriteHeader;
+    Offset    = (UINT8 *)FtwHeader - FtwDevice->FtwWorkSpace;
   }
 
   //
