@@ -11,8 +11,10 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 **/
 
 #include "Variable.h"
+#include "VariableParsing.h"
 
 #include <Protocol/VariablePolicy.h>
+#include <Protocol/VariableStoreSync.h>
 #include <Library/VariablePolicyLib.h>
 
 EFI_STATUS
@@ -44,6 +46,233 @@ EDKII_VAR_CHECK_PROTOCOL        mVarCheck = {
 };
 
 STATIC EFI_FIRMWARE_VOLUME_BLOCK_PROTOCOL  mFvbProtocolShadow;
+
+STATIC EDKII_VARIABLE_STORE_SYNC_PROTOCOL  *mVariableStoreSync;
+STATIC UINT64                              mVariableStoreGeneration;
+STATIC BOOLEAN                             mVariableStoreGenerationValid;
+STATIC BOOLEAN                             mVariableStoreSyncFailed;
+
+/** Refresh the cache and allocation state while external writers are excluded. */
+STATIC
+EFI_STATUS
+RefreshVariableStore (
+  VOID
+  )
+{
+  VARIABLE_STORE_HEADER  *Store;
+  VARIABLE_HEADER        *Variable;
+  VARIABLE_HEADER        *Next;
+  VARIABLE_HEADER        *End;
+  UINTN                  CommonSize;
+  UINTN                  HwErrSize;
+  UINTN                  UserSize;
+  UINTN                  Size;
+  UINT8                  *Tail;
+
+  Store = (VARIABLE_STORE_HEADER *)(UINTN)mVariableModuleGlobal->VariableGlobal.NonVolatileVariableBase;
+  if (CompareMem (Store, mNvVariableCache, sizeof (*Store)) != 0) {
+    return EFI_VOLUME_CORRUPTED;
+  }
+
+  CommonSize = 0;
+  HwErrSize  = 0;
+  UserSize   = 0;
+  End        = GetEndPointer (Store);
+  Variable   = GetStartPointer (Store);
+  while (Variable < End) {
+    if (((UINTN)End - (UINTN)Variable < sizeof (*Variable)) ||
+        (Variable->StartId == MAX_UINT16))
+    {
+      for (Tail = (UINT8 *)Variable; Tail < (UINT8 *)End; Tail++) {
+        if (*Tail != MAX_UINT8) {
+          return EFI_VOLUME_CORRUPTED;
+        }
+      }
+
+      break;
+    }
+
+    if (!IsValidVariableSize (Variable, End, mVariableModuleGlobal->VariableGlobal.AuthFormat)) {
+      return EFI_VOLUME_CORRUPTED;
+    }
+
+    if ((Variable->State != VAR_HEADER_VALID_ONLY) &&
+        !IsValidVariableContent (Variable, End, mVariableModuleGlobal->VariableGlobal.AuthFormat))
+    {
+      return EFI_VOLUME_CORRUPTED;
+    }
+
+    Next = GetNextVariablePtr (Variable, mVariableModuleGlobal->VariableGlobal.AuthFormat);
+    if ((Next <= Variable) || (Next > End)) {
+      return EFI_VOLUME_CORRUPTED;
+    }
+
+    Size = (UINTN)Next - (UINTN)Variable;
+    if ((Variable->Attributes & EFI_VARIABLE_HARDWARE_ERROR_RECORD) != 0) {
+      HwErrSize += Size;
+    } else {
+      CommonSize += Size;
+      // An unfinished record consumes space but its name is not yet readable.
+      if ((Variable->State == VAR_HEADER_VALID_ONLY) || IsUserVariable (Variable)) {
+        UserSize += Size;
+      }
+    }
+
+    Variable = Next;
+  }
+
+  // Publish only after the complete store has passed the bounded walk.
+  CopyMem (mNvVariableCache, Store, Store->Size);
+  mVariableModuleGlobal->NonVolatileLastVariableOffset = (UINTN)Variable - (UINTN)Store;
+  mVariableModuleGlobal->CommonVariableTotalSize       = CommonSize;
+  mVariableModuleGlobal->HwErrVariableTotalSize        = HwErrSize;
+  mVariableModuleGlobal->CommonUserVariableTotalSize   = UserSize;
+  return EFI_SUCCESS;
+}
+
+/** Begin a runtime operation without waiting on an interrupted caller. */
+STATIC
+EFI_STATUS
+BeginVariableOperation (
+  VOID
+  )
+{
+  EFI_STATUS  Status;
+  UINT64      Generation;
+
+  // The external ACPI writer is only active after the OS takes control.
+  if (!AtRuntime () || (mVariableStoreSync == NULL)) {
+    return EFI_SUCCESS;
+  }
+
+  if (mVariableStoreSyncFailed) {
+    return EFI_DEVICE_ERROR;
+  }
+
+  Status = mVariableStoreSync->Begin (&Generation);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  if (!mVariableStoreGenerationValid || (Generation != mVariableStoreGeneration)) {
+    Status = RefreshVariableStore ();
+    if (EFI_ERROR (Status)) {
+      if (EFI_ERROR (mVariableStoreSync->End ())) {
+        mVariableStoreSyncFailed = TRUE;
+      }
+
+      return Status;
+    }
+
+    mVariableStoreGeneration      = Generation;
+    mVariableStoreGenerationValid = TRUE;
+  }
+
+  return EFI_SUCCESS;
+}
+
+/** Release exclusion even when the variable operation failed. */
+STATIC
+EFI_STATUS
+EndVariableOperation (
+  IN EFI_STATUS  Status
+  )
+{
+  if (AtRuntime () && (mVariableStoreSync != NULL)) {
+    if (EFI_ERROR (mVariableStoreSync->End ())) {
+      mVariableStoreSyncFailed = TRUE;
+      return EFI_DEVICE_ERROR;
+    }
+  }
+
+  return Status;
+}
+
+STATIC
+EFI_STATUS
+EFIAPI
+SynchronizedGetVariable (
+  IN CHAR16      *VariableName,
+  IN EFI_GUID    *VendorGuid,
+  OUT UINT32     *Attributes OPTIONAL,
+  IN OUT UINTN   *DataSize,
+  OUT VOID       *Data OPTIONAL
+  )
+{
+  EFI_STATUS  Status;
+
+  Status = BeginVariableOperation ();
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  return EndVariableOperation (VariableServiceGetVariable (VariableName, VendorGuid, Attributes, DataSize, Data));
+}
+
+STATIC
+EFI_STATUS
+EFIAPI
+SynchronizedGetNextVariableName (
+  IN OUT UINTN     *VariableNameSize,
+  IN OUT CHAR16    *VariableName,
+  IN OUT EFI_GUID  *VendorGuid
+  )
+{
+  EFI_STATUS  Status;
+
+  Status = BeginVariableOperation ();
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  return EndVariableOperation (VariableServiceGetNextVariableName (VariableNameSize, VariableName, VendorGuid));
+}
+
+STATIC
+EFI_STATUS
+EFIAPI
+SynchronizedSetVariable (
+  IN CHAR16    *VariableName,
+  IN EFI_GUID  *VendorGuid,
+  IN UINT32    Attributes,
+  IN UINTN     DataSize,
+  IN VOID      *Data
+  )
+{
+  EFI_STATUS  Status;
+
+  Status = BeginVariableOperation ();
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  return EndVariableOperation (VariableServiceSetVariable (VariableName, VendorGuid, Attributes, DataSize, Data));
+}
+
+STATIC
+EFI_STATUS
+EFIAPI
+SynchronizedQueryVariableInfo (
+  IN UINT32   Attributes,
+  OUT UINT64  *MaximumVariableStorageSize,
+  OUT UINT64  *RemainingVariableStorageSize,
+  OUT UINT64  *MaximumVariableSize
+  )
+{
+  EFI_STATUS  Status;
+
+  Status = BeginVariableOperation ();
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  return EndVariableOperation (VariableServiceQueryVariableInfo (
+                                 Attributes,
+                                 MaximumVariableStorageSize,
+                                 RemainingVariableStorageSize,
+                                 MaximumVariableSize
+                                 ));
+}
 
 /**
   Some Secure Boot Policy Variable may update following other variable changes(SecureBoot follows PK change, etc).
@@ -269,6 +498,8 @@ VariableClassAddressChangeEvent (
 {
   UINTN  Index;
 
+  EfiConvertPointer (EFI_OPTIONAL_PTR, (VOID **)&mVariableStoreSync);
+
   if (mVariableModuleGlobal->FvbInstance != NULL) {
     //
     // This module did not produce the FVB protocol instance that provides the
@@ -458,6 +689,7 @@ FtwNotificationEvent (
   UINTN                               FtwMaxBlockSize;
   UINT32                              NvStorageVariableSize;
   UINT64                              NvStorageVariableSize64;
+  EFI_HANDLE                          FvbHandle;
 
   //
   // Ensure FTW protocol is installed.
@@ -489,12 +721,17 @@ FtwNotificationEvent (
   //
   // Find the proper FVB protocol for variable.
   //
-  Status = GetFvbInfoByAddress (NvStorageVariableBase, NULL, &FvbProtocol);
+  Status = GetFvbInfoByAddress (NvStorageVariableBase, &FvbHandle, &FvbProtocol);
   if (EFI_ERROR (Status)) {
     return;
   }
 
   mVariableModuleGlobal->FvbInstance = FvbProtocol;
+
+  Status = gBS->HandleProtocol (FvbHandle, &gEdkiiVariableStoreSyncProtocolGuid, (VOID **)&mVariableStoreSync);
+  if (EFI_ERROR (Status)) {
+    mVariableStoreSync = NULL;
+  }
 
   //
   // Store the boot time values of the function pointers so we can compare
@@ -657,10 +894,10 @@ VariableServiceInitialize (
 
   VarCheckProtocolInstalled = TRUE;
 
-  SystemTable->RuntimeServices->GetVariable         = VariableServiceGetVariable;
-  SystemTable->RuntimeServices->GetNextVariableName = VariableServiceGetNextVariableName;
-  SystemTable->RuntimeServices->SetVariable         = VariableServiceSetVariable;
-  SystemTable->RuntimeServices->QueryVariableInfo   = VariableServiceQueryVariableInfo;
+  SystemTable->RuntimeServices->GetVariable         = SynchronizedGetVariable;
+  SystemTable->RuntimeServices->GetNextVariableName = SynchronizedGetNextVariableName;
+  SystemTable->RuntimeServices->SetVariable         = SynchronizedSetVariable;
+  SystemTable->RuntimeServices->QueryVariableInfo   = SynchronizedQueryVariableInfo;
   RuntimeServicesUpdated                            = TRUE;
 
   if (!PcdGetBool (PcdEmuVariableNvModeEnable)) {
