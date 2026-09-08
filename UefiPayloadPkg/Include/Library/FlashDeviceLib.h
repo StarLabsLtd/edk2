@@ -8,6 +8,13 @@
 
 #pragma once
 
+/** Initialize the flash device and validate its platform metadata. **/
+EFI_STATUS
+EFIAPI
+LibFvbFlashDeviceInit (
+  VOID
+  );
+
 /**
   Read NumBytes bytes of data from the address specified by
   PAddress into Buffer.

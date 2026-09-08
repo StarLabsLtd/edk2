@@ -231,20 +231,8 @@ SmmStartupThisAp (
   IN OUT  VOID              *ProcArguments OPTIONAL
   )
 {
-  gPayloadMmCpuPrivateData->ApWrapperFunc[CpuIndex].Procedure         = Procedure;
-  gPayloadMmCpuPrivateData->ApWrapperFunc[CpuIndex].ProcedureArgument = ProcArguments;
-
-  //
-  // Use wrapper function to convert EFI_AP_PROCEDURE to EFI_AP_PROCEDURE2.
-  //
-  return InternalSmmStartupThisAp (
-           ProcedureWrapper,
-           CpuIndex,
-           &gPayloadMmCpuPrivateData->ApWrapperFunc[CpuIndex],
-           FeaturePcdGet (PcdCpuSmmBlockStartupThisAp) ? NULL : &mSmmStartupThisApToken,
-           0,
-           NULL
-           );
+  // The only exposed logical CPU is already executing this request.
+  return EFI_INVALID_PARAMETER;
 }
 
 /**
@@ -313,6 +301,9 @@ InitializeMpServiceData (
   UINTN                           Index;
 
   mPFLock = AllocatePool (sizeof (SPIN_LOCK));
+  if (mPFLock == NULL) {
+    return 0;
+  }
 
   //
   // Initialize physical address mask
@@ -339,7 +330,11 @@ InitializeMpServiceData (
   }
   gPayloadMmCpuPrivateData->PayloadMmPrivateData.PageTable = SmmInitPageTable ();
 
-  InitGdt (gPayloadMmCpuPrivateData->PayloadMmPrivateData.PageTable);
+  if ((gPayloadMmCpuPrivateData->PayloadMmPrivateData.PageTable == 0) ||
+      EFI_ERROR (InitGdt (gPayloadMmCpuPrivateData->PayloadMmPrivateData.PageTable)))
+  {
+    return 0;
+  }
 
   return gPayloadMmCpuPrivateData->PayloadMmPrivateData.PageTable;
 }
@@ -381,7 +376,9 @@ PayloadMmCpuRegisterEntryPoint (
   // Collect interface data.
   //
   GuidHob = GetFirstGuidHob (&gPayloadMmInterfaceInfoGuid);
-  ASSERT (GuidHob != NULL);
+  if ((GuidHob == NULL) || (GET_GUID_HOB_DATA_SIZE (GuidHob) != sizeof (*PayloadMmInterfaceInfo))) {
+    return 0;
+  }
 
   PayloadMmInterfaceInfo = GET_GUID_HOB_DATA (GuidHob);
 
@@ -415,11 +412,19 @@ RegisterPayloadMmEntry (
   EFI_PHYSICAL_ADDRESS  PayloadMmEntryPoint;
   EFI_STATUS            Status;
 
+  if (MmEntryPoint == NULL) {
+    return EFI_INVALID_PARAMETER;
+  }
+
   PayloadMmEntryPoint = PayloadMmCpuRegisterEntryPoint (MmEntryPoint);
-  ASSERT (PayloadMmEntryPoint != 0);
+  if (PayloadMmEntryPoint == 0) {
+    return EFI_NOT_FOUND;
+  }
 
   Status = SaveMmInfoForS3 (PayloadMmEntryPoint);
-  ASSERT_EFI_ERROR (Status);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
 
   //
   // Record SMM Foundation EntryPoint, later invoke it on SMI entry vector.

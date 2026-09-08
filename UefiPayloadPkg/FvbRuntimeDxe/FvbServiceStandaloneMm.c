@@ -7,6 +7,7 @@
 **/
 
 #include <PiMm.h>
+#include <Guid/VariableFlashInfo.h>
 #include <Library/FvLib.h>
 #include <Library/MmServicesTableLib.h>
 #include "FvbSmmCommon.h"
@@ -29,69 +30,13 @@ GetInitialVariableData (
   OUT UINTN  *VarSize
   )
 {
-#if 1 // TODO/ATTN: Reading from memory outside of MMRAM is not supported! Make a HOB out of this.
-  return EFI_NOT_FOUND;
-#else
-  EFI_HOB_FIRMWARE_VOLUME        *FvHob;
-  EFI_FIRMWARE_VOLUME_HEADER     *FwVolHeader;
-  EFI_FFS_FILE_HEADER            *FileHeader;
-  VOID                           *ImageData;
-  UINTN                          ImageSize;
-  EFI_STATUS                     Status;
-  EFI_FIRMWARE_VOLUME_HEADER     *FvHeader;
-  VARIABLE_STORE_HEADER          *VariableStore;
-  UINTN                          VarEndAddr;
-  AUTHENTICATED_VARIABLE_HEADER  *Variable;
-  UINTN                          VariableSize;
-
-  ImageData = NULL;
-
   if ((VarData == NULL) || (VarSize == NULL)) {
     return EFI_INVALID_PARAMETER;
   }
 
-  FvHob = GetHobList ();
-  while ((FvHob = GetNextHob (EFI_HOB_TYPE_FV, GET_NEXT_HOB (FvHob))) != NULL) {
-    FwVolHeader = (EFI_FIRMWARE_VOLUME_HEADER *)(UINTN)FvHob->BaseAddress;
-
-    FileHeader = NULL;
-    while (!EFI_ERROR (FfsFindNextFile (EFI_FV_FILETYPE_FREEFORM, FwVolHeader, &FileHeader))) {
-      if (!CompareGuid (PcdGetPtr (PcdNvsDataFile), &FileHeader->Name)) {
-        continue;
-      }
-
-      Status = FfsFindSectionData (EFI_SECTION_RAW, FileHeader, (VOID **)&ImageData, &ImageSize);
-      ASSERT_EFI_ERROR (Status);
-      break;
-    }
-
-    if (ImageData != NULL) {
-      break;
-    }
-  }
-
-  if (ImageData == NULL) {
-    return EFI_NOT_FOUND;
-  }
-
-  FvHeader      = (EFI_FIRMWARE_VOLUME_HEADER *)ImageData;
-  VariableStore = (VARIABLE_STORE_HEADER *)((UINT8 *)ImageData + FvHeader->HeaderLength);
-  VarEndAddr    = (UINTN)VariableStore + VariableStore->Size;
-  Variable      = (AUTHENTICATED_VARIABLE_HEADER *)HEADER_ALIGN (VariableStore + 1);
-  *VarData      = (VOID *)Variable;
-  while (((UINTN)Variable < VarEndAddr)) {
-    if (Variable->StartId != VARIABLE_DATA) {
-      break;
-    }
-
-    VariableSize = sizeof (AUTHENTICATED_VARIABLE_HEADER) + Variable->DataSize + Variable->NameSize;
-    Variable     = (AUTHENTICATED_VARIABLE_HEADER *)HEADER_ALIGN ((UINTN)Variable + VariableSize);
-  }
-
-  *VarSize = (UINTN)Variable - HEADER_ALIGN (VariableStore + 1);
-
-  return EFI_SUCCESS;
-#endif
+  *VarData = NULL;
+  *VarSize = 0;
+  return EFI_NOT_FOUND;
 }
 
 /**
@@ -141,7 +86,7 @@ InstallFvbProtocol (
     TempPtr               = AllocateRuntimeCopyPool (sizeof (FV_MEMMAP_DEVICE_PATH), &mFvMemmapDevicePathTemplate);
     FvbDevice->DevicePath = (EFI_DEVICE_PATH_PROTOCOL *)TempPtr;
     if (FvbDevice->DevicePath == NULL) {
-      ASSERT (FALSE);
+      FreePool (FvbDevice);
       return EFI_OUT_OF_RESOURCES;
     }
 
@@ -152,7 +97,7 @@ InstallFvbProtocol (
     TempPtr               = AllocateRuntimeCopyPool (sizeof (FV_PIWG_DEVICE_PATH), &mFvPIWGDevicePathTemplate);
     FvbDevice->DevicePath = (EFI_DEVICE_PATH_PROTOCOL *)TempPtr;
     if (FvbDevice->DevicePath == NULL) {
-      ASSERT (FALSE);
+      FreePool (FvbDevice);
       return EFI_OUT_OF_RESOURCES;
     }
 
@@ -163,24 +108,41 @@ InstallFvbProtocol (
   }
 
   //
-  // Install the SMM Firmware Volume Block Protocol and Device Path Protocol
+  // Publish FVB last so a failed installation cannot leave a callable instance.
   //
   FvbHandle = NULL;
   Status    = gMmst->MmInstallProtocolInterface (
                        &FvbHandle,
-                       &gEfiSmmFirmwareVolumeBlockProtocolGuid,
+                       &gEfiDevicePathProtocolGuid,
                        EFI_NATIVE_INTERFACE,
-                       &FvbDevice->FwVolBlockInstance
+                       FvbDevice->DevicePath
                        );
-  ASSERT_EFI_ERROR (Status);
+  if (EFI_ERROR (Status)) {
+    FreePool (FvbDevice->DevicePath);
+    FreePool (FvbDevice);
+    return Status;
+  }
 
   Status = gMmst->MmInstallProtocolInterface (
                     &FvbHandle,
-                    &gEfiDevicePathProtocolGuid,
+                    &gEfiSmmFirmwareVolumeBlockProtocolGuid,
                     EFI_NATIVE_INTERFACE,
-                    FvbDevice->DevicePath
+                    &FvbDevice->FwVolBlockInstance
                     );
-  ASSERT_EFI_ERROR (Status);
+  if (EFI_ERROR (Status)) {
+    // A failed uninstall leaves only the device path published, not FVB.
+    if (!EFI_ERROR (
+           gMmst->MmUninstallProtocolInterface (
+                    FvbHandle,
+                    &gEfiDevicePathProtocolGuid,
+                    FvbDevice->DevicePath
+                    )
+           ))
+    {
+      FreePool (FvbDevice->DevicePath);
+      FreePool (FvbDevice);
+    }
+  }
 
   return Status;
 }
@@ -205,7 +167,56 @@ FvbStandaloneMmInitialize (
   IN EFI_MM_SYSTEM_TABLE  *SystemTable
   )
 {
-  FvbInitialize ();
+  EFI_STATUS                  Status;
+  EFI_HOB_GUID_TYPE           *Hob;
+  VARIABLE_FLASH_INFO         *Info;
+  EFI_FIRMWARE_VOLUME_HEADER  *Header;
+  VARIABLE_STORE_HEADER       *Variable;
+  UINTN                       Size;
 
-  return EFI_SUCCESS;
+  union {
+    UINT64    Alignment;
+    UINT8     Bytes[sizeof (EFI_FIRMWARE_VOLUME_HEADER) + sizeof (EFI_FV_BLOCK_MAP_ENTRY) + sizeof (VARIABLE_STORE_HEADER)];
+  } Store;
+
+  Status = LibFvbFlashDeviceInit ();
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  // Initialization has validated the HOB and confined access to the existing store.
+  Hob    = GetFirstGuidHob (&gVariableFlashInfoHobGuid);
+  Info   = GET_GUID_HOB_DATA (Hob);
+  Size   = sizeof (Store.Bytes);
+  Status = LibFvbFlashDeviceRead ((UINTN)Info->NvVariableBaseAddress, &Size, Store.Bytes);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  Header = (VOID *)Store.Bytes;
+  if ((Size != sizeof (Store.Bytes)) ||
+      (Header->HeaderLength != sizeof (*Header) + sizeof (EFI_FV_BLOCK_MAP_ENTRY)) ||
+      (Header->ExtHeaderOffset != 0) ||
+      (Header->Signature != EFI_FVH_SIGNATURE) || (Header->Revision != EFI_FVH_REVISION) ||
+      !CompareGuid (&Header->FileSystemGuid, &gEfiSystemNvDataFvGuid) ||
+      (Header->FvLength != Info->NvVariableLength + Info->FtwWorkingLength + Info->FtwSpareLength) ||
+      (Header->BlockMap[0].Length != Info->FtwWorkingLength) ||
+      (Header->BlockMap[0].NumBlocks != Header->FvLength / Info->FtwWorkingLength) ||
+      (Header->BlockMap[1].Length != 0) || (Header->BlockMap[1].NumBlocks != 0) ||
+      (CalculateSum16 ((UINT16 *)Header, Header->HeaderLength) != 0))
+  {
+    // Migration must never format an unrecognized or damaged persistent store.
+    return EFI_VOLUME_CORRUPTED;
+  }
+
+  Variable = (VOID *)(Store.Bytes + Header->HeaderLength);
+  if (!CompareGuid (&Variable->Signature, &gEfiAuthenticatedVariableGuid) ||
+      (Info->NvVariableLength < Header->HeaderLength) ||
+      (Variable->Size != Info->NvVariableLength - Header->HeaderLength) ||
+      (Variable->Format != VARIABLE_STORE_FORMATTED) || (Variable->State != VARIABLE_STORE_HEALTHY))
+  {
+    return EFI_VOLUME_CORRUPTED;
+  }
+
+  return FvbInitialize (Header);
 }

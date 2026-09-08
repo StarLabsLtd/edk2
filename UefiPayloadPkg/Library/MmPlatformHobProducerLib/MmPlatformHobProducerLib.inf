@@ -31,13 +31,13 @@
   UefiPayloadPkg/UefiPayloadPkg.dec
 
 [LibraryClasses]
+  BaseMemoryLib
   HobLib
+  SafeIntLib
 
 [Guids]
   gPayloadMmInterfaceInfoGuid
   gS3CommunicationGuid
   gSpiFlashInfoGuid
-  gEfiFlashRegionMapInfoHobGuid
   gUefiAcpiBoardInfoGuid
-  gUniversalPayloadSerialPortInfoGuid
   gVariableFlashInfoHobGuid

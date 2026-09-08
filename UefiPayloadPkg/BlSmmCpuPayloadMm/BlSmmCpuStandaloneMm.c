@@ -128,7 +128,9 @@ BlSmmCpuStandaloneMmEntry (
   EFI_STATUS  Status;
 
   Status = BlSmmCpuPayloadMmEntry ();
-  ASSERT_EFI_ERROR (Status);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
 
   //
   // Install the SMM Configuration Protocol onto a new handle on the handle database.
