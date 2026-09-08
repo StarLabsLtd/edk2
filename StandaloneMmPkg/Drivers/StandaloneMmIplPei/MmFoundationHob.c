@@ -1072,7 +1072,11 @@ CreateMmFoundationHobList (
   //
   if (HobLength == 0) {
     HobLength = GetRemainingHobSize (*FoundationHobSize, UsedSize);
-    MmIplBuildMpInformationHob (FoundationHobList + UsedSize, &HobLength);
+    Status = MmIplBuildMpInformationHob (FoundationHobList + UsedSize, &HobLength);
+    if (RETURN_ERROR (Status)) {
+      return Status;
+    }
+
     UsedSize += HobLength;
   }
 
