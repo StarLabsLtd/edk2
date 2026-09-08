@@ -317,7 +317,8 @@ struct cb_pld_mm_smram_descriptor {
 struct cb_payload_mm_smram_region {
   UINT32                               tag;
   UINT32                               size;
-  struct cb_pld_mm_smram_descriptor    descriptor;  /* A variable-length array of descriptors */
+  struct cb_pld_mm_smram_descriptor    descriptor; /* The payload MM subregion */
+  struct cb_pld_mm_smram_descriptor    handler;    /* Downstream: coreboot handler */
 };
 
 #define CB_TAG_PAYLOAD_MM_SHARED_MEM  0x003d
@@ -344,6 +345,10 @@ struct cb_pld_mm_spi_controller_info {
   UINT16                            revision;    /* The version of this table. Currently "0" */
   UINT16                            flags;    /* A set of flags to describe this SPI controller, defined above */
   struct cb_pld_generic_register    spi_address;  /* The address of the PCIe SPI controller, if present */
+  /* Downstream revision 1 describes flash, not a RAM read cache. */
+  struct cbuint64                  store_base;
+  UINT32                           store_size;
+  UINT32                           block_size;
 };
 
 /*

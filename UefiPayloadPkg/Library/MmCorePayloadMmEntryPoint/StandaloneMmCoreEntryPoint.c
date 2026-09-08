@@ -9,10 +9,12 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 
 #include <StandaloneMm.h>
 #include <Guid/PayloadMmInterfaceInfoGuid.h>
+#include <Guid/SmmS3CommunicationInfoGuid.h>
 #include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
 #include <Library/CpuExceptionHandlerLib.h>
 #include <Library/DebugLib.h>
+#include <Library/HobLib.h>
 #include <Library/MmCorePayloadMmEntryPoint.h>
 
 //
@@ -85,7 +87,10 @@ PayloadMmEntryPointLibConstructor (
   // Allocate page aligned IDT, because it might be set as read only.
   //
   MmEntryPointIdtr.Base = (UINTN)AllocateCodePages (EFI_SIZE_TO_PAGES (MmEntryPointIdtr.Limit + 1));
-  ASSERT (MmEntryPointIdtr.Base != 0);
+  if (MmEntryPointIdtr.Base == 0) {
+    // Constructors have no error return path through the generated MM core entry.
+    CpuDeadLoop ();
+  }
   ZeroMem ((VOID *)MmEntryPointIdtr.Base, MmEntryPointIdtr.Limit + 1);
 
   //
@@ -103,7 +108,9 @@ PayloadMmEntryPointLibConstructor (
   // will be updated and saved in MmEntryPointIdtr
   //
   Status = InitializeCpuExceptionHandlers (NULL);
-  ASSERT_EFI_ERROR (Status);
+  if (EFI_ERROR (Status)) {
+    CpuDeadLoop ();
+  }
 
   //
   // Restore CPU interrupts
@@ -125,13 +132,19 @@ PayloadMmEntryPointLibConstructor (
   @param  HobStart  Pointer to the beginning of the HOB List passed in from the PEI Phase.
 
 **/
-VOID
+UINT8
 EFIAPI
 CEntryPoint (
   IN PAYLOAD_MM_CORE_CALL_CONTEXT  *PayloadMmCallContext
   )
 {
-  EFI_STATUS  Status;
+  EFI_HOB_GUID_TYPE       *Hob;
+  PLD_S3_COMMUNICATION    *Communication;
+  PAYLOAD_MM_SHARED_INFO  *Info;
+
+  if ((PayloadMmCallContext == NULL) || (PayloadMmCallContext->MmEntryPointArg1 == 0)) {
+    return PAYLOAD_MM_RET_FAILURE;
+  }
 
   //
   // Cache a pointer to the HobList
@@ -143,13 +156,27 @@ CEntryPoint (
   //
   ProcessModuleEntryPointList (gHobList);
 
-  //
-  // TODO: Set page table here?? AARCH64 has this step for some reason
-  //
+  // Keep the bootstrap IDT allocated: failed CPU dispatch may still be using it.
+  Hob = GetFirstGuidHob (&gS3CommunicationGuid);
+  if ((Hob == NULL) || (GET_GUID_HOB_DATA_SIZE (Hob) < sizeof (*Communication))) {
+    return PAYLOAD_MM_RET_FAILURE;
+  }
 
-  //
-  // Reclaim memory used by initialisation IDTR.
-  //
-  Status = mMmst->MmFreePages (MmEntryPointIdtr.Base, EFI_SIZE_TO_PAGES (MmEntryPointIdtr.Limit + 1));
-  ASSERT_EFI_ERROR (Status);
+  Communication = GET_GUID_HOB_DATA (Hob);
+  if ((Communication->CommBuffer.PhysicalStart == 0) ||
+      (Communication->CommBuffer.PhysicalSize < sizeof (*Info)))
+  {
+    return PAYLOAD_MM_RET_FAILURE;
+  }
+
+  Info = (VOID *)(UINTN)Communication->CommBuffer.PhysicalStart;
+  if ((Info->HeaderMagic != PLD_MM_STRUCT_MAGIC) ||
+      (Info->SharedInfoSize != sizeof (*Info)) ||
+      (Info->HeaderRevision != PLD_MM_SHARED_STRUCT_REVISION) ||
+      (Info->Reserved != 0) || (Info->MmEntryPointAddress == 0))
+  {
+    return PAYLOAD_MM_RET_FAILURE;
+  }
+
+  return PAYLOAD_MM_RET_SUCCESS;
 }

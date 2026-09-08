@@ -125,10 +125,16 @@ BuildMemoryMapFromResDescHobs (
     Hob.Raw = GetNextHob (EFI_HOB_TYPE_RESOURCE_DESCRIPTOR, Hob.Raw);
   }
 
-  *MemoryRegionCount = Count;
+  if ((Count == 0) || (Count > MAX_UINTN / sizeof (MM_CPU_MEMORY_REGION))) {
+    return;
+  }
 
   *MemoryRegion = (MM_CPU_MEMORY_REGION *)AllocateZeroPool (sizeof (MM_CPU_MEMORY_REGION) * Count);
-  ASSERT (*MemoryRegion != NULL);
+  if (*MemoryRegion == NULL) {
+    return;
+  }
+
+  *MemoryRegionCount = Count;
 
   Index   = 0;
   Hob.Raw = GetFirstHob (EFI_HOB_TYPE_RESOURCE_DESCRIPTOR);

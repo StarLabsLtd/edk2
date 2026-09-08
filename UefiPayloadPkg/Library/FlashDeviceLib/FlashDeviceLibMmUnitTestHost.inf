@@ -1,0 +1,30 @@
+## @file
+# Host-only checks with no flash hardware access.
+# Copyright (c) 2026, Star Labs Systems. All rights reserved.<BR>
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+[Defines]
+  INF_VERSION    = 0x00010017
+  BASE_NAME      = FlashDeviceLibMmUnitTest
+  FILE_GUID      = BB1106CE-1237-438B-B830-A4BDF03246A8
+  VERSION_STRING = 1.0
+  MODULE_TYPE    = HOST_APPLICATION
+
+[Sources]
+  FlashDeviceLibMm.c
+  FlashDeviceLibMmUnitTest.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  UefiPayloadPkg/UefiPayloadPkg.dec
+  UnitTestFrameworkPkg/UnitTestFrameworkPkg.dec
+
+[LibraryClasses]
+  BaseMemoryLib
+  DebugLib
+  SmmStoreGeometryLib
+  UnitTestLib
+
+[Guids]
+  gVariableFlashInfoHobGuid

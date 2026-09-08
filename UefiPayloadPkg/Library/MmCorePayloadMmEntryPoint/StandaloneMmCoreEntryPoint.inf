@@ -37,4 +37,8 @@
   BaseMemoryLib
   CpuExceptionHandlerLib
   DebugLib
+  HobLib
   StackCheckLib
+
+[Guids]
+  gS3CommunicationGuid

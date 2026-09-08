@@ -29,49 +29,79 @@ SaveMmInfoForS3 (
   EFI_HOB_GUID_TYPE               *GuidHob;
   PLD_S3_COMMUNICATION            *PldS3Communication;
   EFI_SMRAM_HOB_DESCRIPTOR_BLOCK  *SmramHob;
-  PAYLOAD_MM_SHARED_INFO          *PldSmmInfo;
+  PAYLOAD_MM_SHARED_INFO          Info;
+  EFI_SMRAM_DESCRIPTOR            *Region;
+  UINT64                          Offset;
+  UINTN                           HobSize;
+  BOOLEAN                         EntryPointInSmram;
   UINTN                           Index;
 
   GuidHob = GetFirstGuidHob (&gS3CommunicationGuid);
-  ASSERT (GuidHob != NULL);
+  if ((GuidHob == NULL) || (GET_GUID_HOB_DATA_SIZE (GuidHob) < sizeof (*PldS3Communication))) {
+    return EFI_NOT_FOUND;
+  }
 
   PldS3Communication = GET_GUID_HOB_DATA (GuidHob);
 
   GuidHob = GetFirstGuidHob (&gEfiSmmSmramMemoryGuid);
-  ASSERT (GuidHob != NULL);
+  if (GuidHob == NULL) {
+    return EFI_NOT_FOUND;
+  }
 
   SmramHob = GET_GUID_HOB_DATA (GuidHob);
+  HobSize  = GET_GUID_HOB_DATA_SIZE (GuidHob);
+  if ((HobSize < OFFSET_OF (EFI_SMRAM_HOB_DESCRIPTOR_BLOCK, Descriptor)) ||
+      (SmramHob->NumberOfSmmReservedRegions >
+       (HobSize - OFFSET_OF (EFI_SMRAM_HOB_DESCRIPTOR_BLOCK, Descriptor)) / sizeof (*Region)) ||
+      (PldS3Communication->CommBuffer.PhysicalStart == 0) ||
+      (PldS3Communication->CommBuffer.PhysicalStart > MAX_UINT32) ||
+      (PldS3Communication->CommBuffer.PhysicalSize < sizeof (Info)) ||
+      (PayloadMmEntryPoint == 0) || (PayloadMmEntryPoint > MAX_UINT32))
+  {
+    return EFI_INVALID_PARAMETER;
+  }
 
-  PldSmmInfo                  = (PAYLOAD_MM_SHARED_INFO *)PldS3Communication->CommBuffer.PhysicalStart;
-  PldSmmInfo->SharedInfoSize  = sizeof (PAYLOAD_MM_SHARED_INFO);
+  EntryPointInSmram = FALSE;
   for (Index = 0; Index < SmramHob->NumberOfSmmReservedRegions; Index++) {
-    if ((PldS3Communication->CommBuffer.PhysicalStart >= SmramHob->Descriptor[Index].PhysicalStart) &&
-        (PldS3Communication->CommBuffer.PhysicalStart <  SmramHob->Descriptor[Index].PhysicalStart + SmramHob->Descriptor[Index].PhysicalSize))
+    Region = &SmramHob->Descriptor[Index];
+    if (((Region->RegionState & EFI_ALLOCATED) == 0) &&
+        (PayloadMmEntryPoint >= Region->PhysicalStart) &&
+        (PayloadMmEntryPoint - Region->PhysicalStart < Region->PhysicalSize))
     {
+      EntryPointInSmram = TRUE;
+    }
+  }
+
+  if (!EntryPointInSmram) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  for (Index = 0; Index < SmramHob->NumberOfSmmReservedRegions; Index++) {
+    Region = &SmramHob->Descriptor[Index];
+    if (((Region->RegionState & EFI_ALLOCATED) == 0) ||
+        (Region->CpuStart != Region->PhysicalStart) ||
+        (PldS3Communication->CommBuffer.PhysicalStart < Region->PhysicalStart))
+    {
+      continue;
+    }
+
+    Offset = PldS3Communication->CommBuffer.PhysicalStart - Region->PhysicalStart;
+    if ((Offset <= Region->PhysicalSize) && (sizeof (Info) <= Region->PhysicalSize - Offset)) {
       break;
     }
   }
 
   if (Index == SmramHob->NumberOfSmmReservedRegions) {
-    return EFI_NOT_FOUND;
-  }
-
-  //
-  // Make sure the dedicated region for SMM info communication whose attribute is "allocated" (i.e., excluded from SMM memory service)
-  //
-  if ((SmramHob->Descriptor[Index].RegionState & EFI_ALLOCATED) == 0) {
-    DEBUG ((DEBUG_ERROR, "SMM communication region not set to EFI_ALLOCATED\n"));
-    return EFI_INVALID_PARAMETER;
-  }
-
-  if (((UINTN)PldSmmInfo + PldSmmInfo->SharedInfoSize) > (SmramHob->Descriptor[Index].PhysicalStart + SmramHob->Descriptor[Index].PhysicalSize)) {
-    DEBUG ((DEBUG_ERROR, "SMM communication buffer (0x%x) is too small (0x%x).\n", SmramHob->Descriptor[Index].PhysicalSize, PldSmmInfo->SharedInfoSize));
     return EFI_BUFFER_TOO_SMALL;
   }
 
-  PldSmmInfo->HeaderMagic          = PLD_MM_STRUCT_MAGIC;
-  PldSmmInfo->HeaderRevision       = PLD_MM_SHARED_STRUCT_REVISION;
-  PldSmmInfo->MmEntryPointAddress  = (UINT32)(UINTN)PayloadMmEntryPoint;
+  // Publish only a complete, validated registration record, including reserved bytes.
+  ZeroMem (&Info, sizeof (Info));
+  Info.HeaderMagic         = PLD_MM_STRUCT_MAGIC;
+  Info.SharedInfoSize      = sizeof (Info);
+  Info.HeaderRevision      = PLD_MM_SHARED_STRUCT_REVISION;
+  Info.MmEntryPointAddress = (UINT32)PayloadMmEntryPoint;
+  CopyMem ((VOID *)(UINTN)PldS3Communication->CommBuffer.PhysicalStart, &Info, sizeof (Info));
 
   return EFI_SUCCESS;
 }

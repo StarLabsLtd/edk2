@@ -211,7 +211,7 @@ InitializeIdtIst (
   Initialize Gdt for all processors.
 
 **/
-VOID
+EFI_STATUS
 InitGdt (
   IN  UINTN  Cr3
   );
@@ -389,7 +389,7 @@ SmmGetSystemConfigurationTable (
   @param          SmrrSize          SMRR size
 
 **/
-VOID
+EFI_STATUS
 FindSmramInfo (
   OUT UINT32  *SmrrBase,
   OUT UINT32  *SmrrSize

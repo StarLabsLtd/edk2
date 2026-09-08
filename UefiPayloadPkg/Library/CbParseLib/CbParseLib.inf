@@ -22,11 +22,13 @@
 
 [Sources]
   CbParseLib.c
+  PayloadMmParser.c
 
 [Packages]
   MdePkg/MdePkg.dec
   MdeModulePkg/MdeModulePkg.dec
   UefiPayloadPkg/UefiPayloadPkg.dec
+  UefiCpuPkg/UefiCpuPkg.dec
 
 [LibraryClasses]
   BaseLib
@@ -38,9 +40,25 @@
   PcdLib
   PrintLib
   HobLib
+  MemoryAllocationLib
+  SmmStoreGeometryLib
 
 [Guids]
   gEfiCfrSetupMenuFormGuid
+  gPayloadMmInterfaceInfoGuid
+  gPayloadMmSpiStoreInfoGuid
+  gS3CommunicationGuid
+  gSpiFlashInfoGuid
+  gVariableFlashInfoHobGuid
+  gEfiSmmSmramMemoryGuid
+  gMmCommBufferHobGuid
+  gMmUnblockRegionHobGuid
+
+[FeaturePcd]
+  gUefiPayloadPkgTokenSpaceGuid.PcdPayloadMmSupport
+
+[FixedPcd]
+  gEfiMdeModulePkgTokenSpaceGuid.PcdMmCommBufferPages
 
 [Pcd]
   gUefiPayloadPkgTokenSpaceGuid.PcdBootloaderParameter

@@ -51,12 +51,14 @@
   PrintLib
   Tcg2PhysicalPresenceLib
   PlatformHookLib
+  PayloadMmHelperLib
   CapsuleLib
   HobLib
   TcgPhysicalPresenceLib
   Tcg2PhysicalPresenceLib
 
 [Guids]
+  gPayloadMmInterfaceInfoGuid
   gEfiEndOfDxeEventGroupGuid
   gEfiEventReadyToBootGuid
   gEfiGlobalVariableGuid
@@ -74,6 +76,7 @@
   gEfiPciRootBridgeIoProtocolGuid
   gEfiPciIoProtocolGuid
   gEfiBatteryStatusProtocolGuid        ## CONSUMES
+  gEfiVariableWriteArchProtocolGuid
 
 [Pcd]
   gEfiMdePkgTokenSpaceGuid.PcdPlatformBootTimeOut
@@ -88,3 +91,4 @@
 
 [FeaturePcd]
   gUefiPayloadPkgTokenSpaceGuid.PcdConnectAllDevices
+  gUefiPayloadPkgTokenSpaceGuid.PcdPayloadMmSupport

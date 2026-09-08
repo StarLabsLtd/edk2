@@ -1,15 +1,15 @@
 /** @file
-  This library allows platforms to customise SMM/MM loading.
-  It shall be called in the payload MM IPL.
+  Load the resident MM core through the coreboot boot-only interface.
 
-  Copyright (c) 2025, 9elements GmbH. All rights reserved.<BR>
+  Copyright (c) 2025, 9elements GmbH.<BR>
+  Copyright (c) 2026, Star Labs Systems. All rights reserved.<BR>
   SPDX-License-Identifier: BSD-2-Clause-Patent
-
 **/
 
 #include <PiDxe.h>
 #include <Library/BaseLib.h>
-#include <Library/DebugLib.h>
+#include <Library/BaseMemoryLib.h>
+#include <Library/HobLib.h>
 #include <Library/MemoryAllocationLib.h>
 #include <Library/MmIplPlatformHookLib.h>
 #include <Library/PayloadMmHelperLib.h>
@@ -17,194 +17,170 @@
 #include <Library/PeCoffLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Protocol/MemoryAttribute.h>
-#include <Protocol/MmAccess.h>
 #include <Guid/PayloadMmInterfaceInfoGuid.h>
 #include "PayloadMmCmdInterface.h"
 
-/**
-  Allocate memory below 4G memory address.
+typedef struct {
+  EFI_PHYSICAL_ADDRESS    Base;
+  UINT64                  Size;
+  UINT64                  Attributes;
+  BOOLEAN                 Changed;
+} MM_BOOT_MAPPING;
 
-  This function allocates memory below 4G memory address.
+STATIC MM_BOOT_MAPPING  mMappings[2];
+STATIC VOID             *mImageBuffer;
+STATIC UINTN            mImagePages;
 
-  @param  MemoryType   Memory type of memory to allocate.
-  @param  Pages        The number of 4 KB pages to allocate.
-
-  @return Allocated address for output.
-
-**/
+STATIC
 VOID *
 AllocatePagesBelow4G (
-  IN EFI_MEMORY_TYPE  MemoryType,
-  IN UINTN            Pages
+  IN UINTN  Pages
   )
 {
   EFI_PHYSICAL_ADDRESS  Address;
   EFI_STATUS            Status;
 
-  Address = 0xFFFFFFFF;
+  Address = MAX_UINT32;
+  Status  = gBS->AllocatePages (AllocateMaxAddress, EfiReservedMemoryType, Pages, &Address);
+  if (EFI_ERROR (Status)) {
+    return NULL;
+  }
 
-  Status = gBS->AllocatePages (
-                  AllocateMaxAddress,
-                  MemoryType,
-                  Pages,
-                  &Address
-                  );
-  ASSERT_EFI_ERROR (Status);
-
+  ZeroMem ((VOID *)(UINTN)Address, EFI_PAGES_TO_SIZE (Pages));
   return (VOID *)(UINTN)Address;
 }
 
-/**
-  Performs platform specific tasks to alter how SMM/MM is loaded. This can be used to support MM.
-
-  This function performs platform specific tasks to alter how SMM/MM is loaded.
-
-  @retval EFI_SUCCESS       The platform hook completes successfully.
-  @retval Other values      The paltform hook cannot complete due to some error.
-
-**/
 EFI_STATUS
 EFIAPI
 PlatformHookBeforeMmLoad (
   IN PE_COFF_LOADER_IMAGE_CONTEXT  *ImageContext
   )
 {
-  UINTN  PageCount;
+  if ((ImageContext == NULL) || (mImageBuffer != NULL) ||
+      (ImageContext->ImageSize == 0) ||
+      (ImageContext->ImageSize > MAX_UINT32 - EFI_PAGE_MASK) ||
+      (ImageContext->SectionAlignment > EFI_PAGE_SIZE))
+  {
+    return EFI_INVALID_PARAMETER;
+  }
 
-  //
-  // Relocate it to match where it's going to,
-  // but load it to a temporary buffer we'll provide to the coreboot driver.
-  //
+  mImagePages  = EFI_SIZE_TO_PAGES (ImageContext->ImageSize);
+  mImageBuffer = AllocatePagesBelow4G (mImagePages);
+  if (mImageBuffer == NULL) {
+    return EFI_OUT_OF_RESOURCES;
+  }
+
   ImageContext->DestinationAddress = ImageContext->ImageAddress;
-
-  DEBUG ((DEBUG_INFO, "Payload MM loading MM Core at SMRAM address %x\n", (UINTN)ImageContext->DestinationAddress));
-
-  PageCount = EFI_SIZE_TO_PAGES (ImageContext->ImageSize + ImageContext->SectionAlignment);
-  ImageContext->ImageAddress = (PHYSICAL_ADDRESS)AllocatePagesBelow4G (EfiReservedMemoryType, PageCount);
-
+  ImageContext->ImageAddress       = (UINTN)mImageBuffer;
   return EFI_SUCCESS;
 }
 
-/**
-  Configure the mappings of MMRAM in the early page table.
-
-  This function maps/unmaps the relevant regions of MMRAM in the DXE page table.
-  It must be called to unmap MMRAM when done! MMRAM is locked, but this makes faults easier to debug.
-
-  @param  SetUnset     Whether to map/unmap the relevant memory.
-
-  @retval EFI_SUCCESS  The operation completed successfully.
-  @retval Others       An error was encounterd.
-
-**/
+STATIC
 EFI_STATUS
-PlatformMapMmEnvironment (
-  IN BOOLEAN  SetUnset
+RestoreMmMappings (
+  IN EFI_MEMORY_ATTRIBUTE_PROTOCOL  *MemoryAttributes
   )
 {
-  EFI_MM_ACCESS_PROTOCOL         *MmAccess;
-  EFI_STATUS                     Status;
-  EFI_MEMORY_ATTRIBUTE_PROTOCOL  *MemoryAttributeProtocol;
-  EFI_MMRAM_DESCRIPTOR           *MmramDescriptor;
-  UINTN                          MmramDescriptorTotalSize;
-  EFI_PHYSICAL_ADDRESS           PayloadMmramAddress;
-  UINTN                          MmramSize;
-  UINTN                          Index;
-  EFI_PHYSICAL_ADDRESS           BootloaderMmramAddress;
+  EFI_STATUS  Status;
+  EFI_STATUS  Result;
+  UINTN       Index;
 
-  Status = gBS->LocateProtocol (&gEfiMmAccessProtocolGuid, NULL, (VOID **)&MmAccess);
-  ASSERT_EFI_ERROR (Status);
-
-  Status = gBS->LocateProtocol (&gEfiMemoryAttributeProtocolGuid, NULL, (VOID **)&MemoryAttributeProtocol);
-  ASSERT_EFI_ERROR (Status);
-
-  //
-  // Retrieve MMRAM descriptors.
-  //
-  MmramDescriptor = NULL;
-  MmramDescriptorTotalSize = 0;
-  Status = MmAccess->GetCapabilities (MmAccess, &MmramDescriptorTotalSize, MmramDescriptor);
-  ASSERT (Status == EFI_BUFFER_TOO_SMALL);
-
-  MmramDescriptor = AllocatePool (MmramDescriptorTotalSize);
-  Status = MmAccess->GetCapabilities (MmAccess, &MmramDescriptorTotalSize, MmramDescriptor);
-  ASSERT_EFI_ERROR (Status);
-
-  //
-  // Discover MMRAM address and size.
-  //
-  PayloadMmramAddress = MAX_ADDRESS;
-  MmramSize = 0;
-  for (Index = 0; Index < MmramDescriptorTotalSize / sizeof (EFI_MMRAM_DESCRIPTOR); Index++) {
-    // Assume contiguous MMRAM, it's what we provide in coreboot.
-    if (MmramDescriptor[Index].PhysicalStart < PayloadMmramAddress) {
-      PayloadMmramAddress = MmramDescriptor[Index].PhysicalStart;
+  Result = EFI_SUCCESS;
+  for (Index = 0; Index < ARRAY_SIZE (mMappings); Index++) {
+    if (!mMappings[Index].Changed) {
+      continue;
     }
 
-    MmramSize += MmramDescriptor[Index].PhysicalSize;
+    Status = MemoryAttributes->ClearMemoryAttributes (
+                                 MemoryAttributes,
+                                 mMappings[Index].Base,
+                                 mMappings[Index].Size,
+                                 EFI_MEMORY_RP | EFI_MEMORY_RO | EFI_MEMORY_XP
+                                 );
+    if (!EFI_ERROR (Status) && (mMappings[Index].Attributes != 0)) {
+      Status = MemoryAttributes->SetMemoryAttributes (
+                                   MemoryAttributes,
+                                   mMappings[Index].Base,
+                                   mMappings[Index].Size,
+                                   mMappings[Index].Attributes
+                                   );
+    }
+
+    if (EFI_ERROR (Status)) {
+      Result = Status;
+    } else {
+      mMappings[Index].Changed = FALSE;
+    }
   }
 
-  FreePool (MmramDescriptor);
-
-  BootloaderMmramAddress = PayloadMmramAddress + MmramSize;
-  if (SetUnset) {
-    //
-    // Mark our MMRAM as RWX. It's blunt, but sufficient, and our CPU driver will do better.
-    //
-    DEBUG ((DEBUG_INFO, "Mapping our MMRAM as RWX (address 0x%x, length 0x%x)\n", PayloadMmramAddress, MmramSize));
-
-    Status = MemoryAttributeProtocol->ClearMemoryAttributes (
-                                        MemoryAttributeProtocol,
-                                        PayloadMmramAddress,
-                                        MmramSize,
-                                        EFI_MEMORY_RP | EFI_MEMORY_RO | EFI_MEMORY_XP
-                                        );
-    ASSERT_EFI_ERROR (Status);
-
-    //
-    // Mark bootloader's MMRAM as RO. This is necessary to use its GDT.
-    //
-    DEBUG ((DEBUG_INFO, "Mapping bootloader's MMRAM as RO (address 0x%x, length 0x%x)\n", BootloaderMmramAddress, MmramSize));
-
-    Status = MemoryAttributeProtocol->ClearMemoryAttributes (
-                                        MemoryAttributeProtocol,
-                                        BootloaderMmramAddress,
-                                        MmramSize,
-                                        EFI_MEMORY_RP
-                                        );
-    ASSERT_EFI_ERROR (Status);
-
-    Status = MemoryAttributeProtocol->SetMemoryAttributes (
-                                        MemoryAttributeProtocol,
-                                        BootloaderMmramAddress,
-                                        MmramSize,
-                                        EFI_MEMORY_RO | EFI_MEMORY_XP
-                                        );
-    ASSERT_EFI_ERROR (Status);
-  } else {
-    DEBUG ((DEBUG_INFO, "Unmapping all MMRAM (address 0x%x, length 0x%x)\n", PayloadMmramAddress, MmramSize * 2));
-
-    Status = MemoryAttributeProtocol->SetMemoryAttributes (
-                                        MemoryAttributeProtocol,
-                                        PayloadMmramAddress,
-                                        MmramSize * 2,
-                                        EFI_MEMORY_RP | EFI_MEMORY_RO | EFI_MEMORY_XP
-                                        );
-    ASSERT_EFI_ERROR (Status);
-  }
-
-  return EFI_SUCCESS;
+  return Result;
 }
 
-/**
-  Allows platforms to override how SMM/MM is called, rather than calling the entrypoint.
+STATIC
+EFI_STATUS
+MapMmEnvironment (
+  IN EFI_MEMORY_ATTRIBUTE_PROTOCOL  *MemoryAttributes
+  )
+{
+  EFI_HOB_GUID_TYPE          *Hob;
+  PAYLOAD_MM_INTERFACE_INFO  *Info;
+  EFI_STATUS                 Status;
+  UINTN                      Index;
 
-  This function allows platforms to override how SMM/MM is called.
+  Hob = GetFirstGuidHob (&gPayloadMmInterfaceInfoGuid);
+  if ((Hob == NULL) || (GET_GUID_HOB_DATA_SIZE (Hob) != sizeof (*Info))) {
+    return EFI_NOT_FOUND;
+  }
 
-  @retval EFI_SUCCESS       The platform hook completes successfully.
-  @retval Other values      The paltform hook cannot complete due to some error.
+  Info = GET_GUID_HOB_DATA (Hob);
+  if ((Info->HandlerBase == 0) || (Info->HandlerSize == 0) ||
+      (Info->PayloadSize == 0) || (Info->HandlerBase >= Info->PayloadBase) ||
+      (Info->HandlerSize != Info->PayloadBase - Info->HandlerBase) ||
+      (Info->PayloadBase > MAX_UINT32) ||
+      (Info->PayloadSize > MAX_UINT32 - Info->PayloadBase) ||
+      (((Info->HandlerBase | Info->HandlerSize | Info->PayloadBase | Info->PayloadSize) & EFI_PAGE_MASK) != 0))
+  {
+    return EFI_INVALID_PARAMETER;
+  }
 
-**/
+  mMappings[0].Base = Info->PayloadBase;
+  mMappings[0].Size = Info->PayloadSize;
+  mMappings[1].Base = Info->HandlerBase;
+  mMappings[1].Size = Info->HandlerSize;
+  for (Index = 0; Index < ARRAY_SIZE (mMappings); Index++) {
+    Status = MemoryAttributes->GetMemoryAttributes (
+                                 MemoryAttributes,
+                                 mMappings[Index].Base,
+                                 mMappings[Index].Size,
+                                 &mMappings[Index].Attributes
+                                 );
+    if (EFI_ERROR (Status)) {
+      return Status;
+    }
+  }
+
+  // The bootstrap executes the payload and reads coreboot's GDT under the DXE CR3.
+  for (Index = 0; Index < ARRAY_SIZE (mMappings); Index++) {
+    mMappings[Index].Changed = TRUE;
+    Status                   = MemoryAttributes->ClearMemoryAttributes (
+                                                   MemoryAttributes,
+                                                   mMappings[Index].Base,
+                                                   mMappings[Index].Size,
+                                                   EFI_MEMORY_RP | EFI_MEMORY_RO | EFI_MEMORY_XP
+                                                   );
+    if (EFI_ERROR (Status)) {
+      return Status;
+    }
+  }
+
+  return MemoryAttributes->SetMemoryAttributes (
+                             MemoryAttributes,
+                             mMappings[1].Base,
+                             mMappings[1].Size,
+                             EFI_MEMORY_RO | EFI_MEMORY_XP
+                             );
+}
+
 EFI_STATUS
 EFIAPI
 PlatformHookCallMmCore (
@@ -213,53 +189,92 @@ PlatformHookCallMmCore (
   IN OUT EFI_STATUS                    *PiSmmCoreStatus
   )
 {
-  UINTN                         PageCount;
-  PAYLOAD_MM_LOAD_CONTEXT       PayloadMmLoadContext;
-  PAYLOAD_MM_EDK2_PRIVATE_DATA  PrivateData;
-  UINTN                         StackSize;
-  EFI_STATUS                    Status;
+  PAYLOAD_MM_LOAD_CONTEXT        *Load;
+  PAYLOAD_MM_EDK2_PRIVATE_DATA   *Private;
+  EFI_MEMORY_ATTRIBUTE_PROTOCOL  *MemoryAttributes;
+  VOID                           *Control;
+  VOID                           *Stack;
+  UINTN                          StackPages;
+  EFI_STATUS                     Status;
+  EFI_STATUS                     RestoreStatus;
 
-  PageCount = EFI_SIZE_TO_PAGES (ImageContext->ImageSize + ImageContext->SectionAlignment);
+  if ((ImageContext == NULL) || (Context == NULL) || (PiSmmCoreStatus == NULL)) {
+    return EFI_INVALID_PARAMETER;
+  }
 
-  PayloadMmLoadContext.HeaderSize                = sizeof (PAYLOAD_MM_LOAD_CONTEXT);
-  PayloadMmLoadContext.HeaderRevision            = PLD_MM_CORE_LOAD_CONTEXT_REVISION;
-  PayloadMmLoadContext.MmCoreSourceAddress       = ImageContext->ImageAddress;
-  PayloadMmLoadContext.MmCoreDestinationAddress  = ImageContext->DestinationAddress;
-  PayloadMmLoadContext.MmCoreSize                = EFI_PAGES_TO_SIZE (PageCount);
-  PayloadMmLoadContext.MmEntryPointOffset        = ImageContext->EntryPoint - ImageContext->DestinationAddress;
-  PayloadMmLoadContext.MmEntryPointArg1          = (UINT64)(UINTN)Context;
-  PayloadMmLoadContext.ImplementationPrivateData = (UINT64)(UINTN)&PrivateData;
+  *PiSmmCoreStatus = EFI_DEVICE_ERROR;
+  Control          = NULL;
+  Stack            = NULL;
+  if ((mImageBuffer == NULL) || (ImageContext->ImageAddress != (UINTN)mImageBuffer) ||
+      (ImageContext->DestinationAddress > MAX_UINT32) ||
+      (EFI_PAGES_TO_SIZE (mImagePages) > MAX_UINT32 - ImageContext->DestinationAddress) ||
+      (ImageContext->EntryPoint < ImageContext->DestinationAddress) ||
+      (ImageContext->EntryPoint - ImageContext->DestinationAddress >= ImageContext->ImageSize) ||
+      (AsmReadCr3 () > MAX_UINT32) || (PcdGet32 (PcdCpuSmmStackSize) == 0))
+  {
+    Status = EFI_INVALID_PARAMETER;
+    goto Done;
+  }
 
-  //
-  // Prepare data required by the EDK2 implementation specifically;
-  // in other words, spec-extension data.
-  //
-  StackSize = PcdGet32 (PcdCpuSmmStackSize);
-  PrivateData.StackPointers = AllocatePool (sizeof (UINT32)); // Really, need per-CPU stack.
+  Status = gBS->LocateProtocol (&gEfiMemoryAttributeProtocolGuid, NULL, (VOID **)&MemoryAttributes);
+  if (EFI_ERROR (Status)) {
+    goto Done;
+  }
 
-  PrivateData.StackPointers[0]  = (UINT32)(UINTN)AllocatePagesBelow4G (EfiReservedMemoryType, EFI_SIZE_TO_PAGES (StackSize)) + StackSize;
-  PrivateData.PageTable         = (UINT32)AsmReadCr3 ();
+  // The coreboot command argument and bootstrap stack are 32-bit addresses.
+  Control    = AllocatePagesBelow4G (1);
+  StackPages = EFI_SIZE_TO_PAGES (PcdGet32 (PcdCpuSmmStackSize));
+  Stack      = AllocatePagesBelow4G (StackPages);
+  if ((Control == NULL) || (Stack == NULL)) {
+    Status = EFI_OUT_OF_RESOURCES;
+    goto Done;
+  }
 
-  CheckFeatureSupported (&PrivateData);
+  Load                      = Control;
+  Private                   = (VOID *)((UINT8 *)Control + ALIGN_VALUE (sizeof (*Load), sizeof (UINT64)));
+  Private->StackPointers    = (VOID *)((UINT8 *)Private + ALIGN_VALUE (sizeof (*Private), sizeof (UINT64)));
+  Private->StackPointers[0] = (UINT32)((UINTN)Stack + EFI_PAGES_TO_SIZE (StackPages) - sizeof (UINT64));
+  Private->PageTable        = (UINT32)AsmReadCr3 ();
+  CheckFeatureSupported (Private);
 
-  DEBUG ((DEBUG_INFO, "Payload MM calling MM Core through bootloader SMI\n"));
+  Load->HeaderSize                = sizeof (*Load);
+  Load->HeaderRevision            = PLD_MM_CORE_LOAD_CONTEXT_REVISION;
+  Load->MmCoreSourceAddress       = ImageContext->ImageAddress;
+  Load->MmCoreDestinationAddress  = (UINT32)ImageContext->DestinationAddress;
+  Load->MmCoreSize                = (UINT32)EFI_PAGES_TO_SIZE (mImagePages);
+  Load->MmEntryPointOffset        = (UINT32)(ImageContext->EntryPoint - ImageContext->DestinationAddress);
+  Load->MmEntryPointArg1          = (UINTN)Context;
+  Load->ImplementationPrivateData = (UINTN)Private;
 
-  Status = PlatformMapMmEnvironment (TRUE);
-  ASSERT_EFI_ERROR (Status);
+  Status = MapMmEnvironment (MemoryAttributes);
+  if (!EFI_ERROR (Status)) {
+    Status = PayloadMmCmdLoadAndCallCore (Load);
+  }
 
-  *PiSmmCoreStatus = PayloadMmCmdLoadAndCallCore (&PayloadMmLoadContext);
-  ASSERT_EFI_ERROR (*PiSmmCoreStatus);
+  RestoreStatus = RestoreMmMappings (MemoryAttributes);
+  if (EFI_ERROR (RestoreStatus)) {
+    Status = RestoreStatus;
+  }
 
-  Status = PlatformMapMmEnvironment (FALSE);
-  ASSERT_EFI_ERROR (Status);
+Done:
+  if (Stack != NULL) {
+    FreePages (Stack, StackPages);
+  }
 
-  //
-  // Reclaim the DXE memory we allocated for the MM core as part of the private data.
-  //
-  FreePages ((VOID *)(UINTN)(PrivateData.StackPointers[0] - StackSize), EFI_SIZE_TO_PAGES (StackSize));
-  FreePool (PrivateData.StackPointers);
+  if (Control != NULL) {
+    FreePages (Control, 1);
+  }
 
-  FreePages ((VOID *)ImageContext->ImageAddress, PageCount);
+  if (mImageBuffer != NULL) {
+    FreePages (mImageBuffer, mImagePages);
+    mImageBuffer = NULL;
+  }
 
-  return EFI_SUCCESS;
+  // EFI_UNSUPPORTED asks the generic IPL to call the entrypoint outside SMM.
+  if (Status == EFI_UNSUPPORTED) {
+    Status = EFI_DEVICE_ERROR;
+  }
+
+  *PiSmmCoreStatus = Status;
+  return Status;
 }

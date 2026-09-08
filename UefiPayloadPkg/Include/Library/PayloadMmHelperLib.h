@@ -13,6 +13,15 @@
 
 #include <Guid/PayloadMmInterfaceInfoGuid.h>
 
+// Boot-only command transport. Cmd contains the APMC command and subcommand.
+UINTN
+EFIAPI
+TriggerSmi (
+  IN UINTN  Cmd,
+  IN UINTN  Arg,
+  IN UINTN  Retry
+  );
+
 /**
   Fills control-flow fields used by payload MM assembly code.
 
