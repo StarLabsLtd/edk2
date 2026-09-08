@@ -134,4 +134,5 @@
   gEfiMdePkgTokenSpaceGuid.PcdUefiVariableDefaultLangDeprecate       ## CONSUMES  # Auto update PlatformLang/Lang
 
 [Depex]
-  TRUE
+  # Downstream persistent-store integration: finish recovery before reading NV.
+  gEfiSmmFaultTolerantWriteProtocolGuid

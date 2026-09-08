@@ -562,13 +562,17 @@ FvbNotificationEvent (
                     EFI_NATIVE_INTERFACE,
                     &mFtwDevice->FtwInstance
                     );
-  ASSERT_EFI_ERROR (Status);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
 
   ///
   /// Register SMM FTW SMI handler
   ///
   Status = gMmst->MmiHandlerRegister (SmmFaultTolerantWriteHandler, &gEfiSmmFaultTolerantWriteProtocolGuid, &SmmFtwHandle);
-  ASSERT_EFI_ERROR (Status);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
 
   //
   // Notify the Ftw wrapper driver SMM Ftw is ready
@@ -631,7 +635,9 @@ MmFaultTolerantWriteInitialize (
                     MmEndOfDxeCallback,
                     &MmEndOfDxeRegistration
                     );
-  ASSERT_EFI_ERROR (Status);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
 
   //
   // Register FvbNotificationEvent () notify function.
@@ -641,7 +647,9 @@ MmFaultTolerantWriteInitialize (
                     FvbNotificationEvent,
                     &mFvbRegistration
                     );
-  ASSERT_EFI_ERROR (Status);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
 
   FvbNotificationEvent (NULL, NULL, NULL);
 

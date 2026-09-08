@@ -70,4 +70,4 @@
   gEfiMdeModulePkgTokenSpaceGuid.PcdFullFtwServiceEnable    ## CONSUMES
 
 [Depex]
-  TRUE
+  gEfiSmmFirmwareVolumeBlockProtocolGuid
