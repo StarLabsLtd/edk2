@@ -306,6 +306,9 @@ struct cb_payload_mm_interface_info {
              determine if mode switching is required. */
   UINT8     apm_cmd;      /* The command byte to write to the APM I/O port */
   UINT8     pad;
+  struct cbuint64 cfr_mailbox;
+  UINT32    cfr_mailbox_size;
+  UINT32    cfr_supported_options;
 };
 
 #define CB_TAG_PAYLOAD_MM_SMRAM_REGION  0x003c

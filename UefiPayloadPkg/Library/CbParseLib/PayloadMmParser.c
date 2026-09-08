@@ -21,6 +21,7 @@
 #include <Guid/SpiFlashInfoGuid.h>
 #include <Coreboot.h>
 #include <IndustryStandard/Pci.h>
+#include <IndustryStandard/StarlabsCfr.h>
 #include "PayloadMmParser.h"
 
 VOID *
@@ -132,7 +133,7 @@ ParsePayloadMmFeatureInfo (
     return EFI_NOT_FOUND;
   }
 
-  if ((Interface->size != sizeof (*Interface)) || (Interface->revision != 0) ||
+  if ((Interface->size != sizeof (*Interface)) || (Interface->revision != 1) ||
       (Interface->pad != 0) || (Interface->bootloader_smm_is_64bit > 1) ||
       (Interface->apm_cmd != PAYLOAD_MM_APM_COMMAND) || (Smram->size != sizeof (*Smram)) ||
       (Shared->size != sizeof (*Shared)) || (Spi->size != sizeof (*Spi)) ||
@@ -186,6 +187,28 @@ ParsePayloadMmFeatureInfo (
   InterfaceInfo.HandlerSize          = HandlerSize;
   InterfaceInfo.PayloadBase          = SharedBase;
   InterfaceInfo.PayloadSize          = SmramSize + EFI_PAGE_SIZE;
+  InterfaceInfo.CfrMailbox           = cb_unpack64 (Interface->cfr_mailbox);
+  InterfaceInfo.CfrMailboxSize        = Interface->cfr_mailbox_size;
+  InterfaceInfo.CfrSupportedOptions   = Interface->cfr_supported_options;
+  if (InterfaceInfo.CfrSupportedOptions != 0) {
+    if ((InterfaceInfo.CfrMailbox == 0) ||
+        (InterfaceInfo.CfrMailboxSize != sizeof (STARLABS_CFR_MAILBOX)) ||
+        (InterfaceInfo.CfrMailbox > MAX_UINT32 - sizeof (STARLABS_CFR_MAILBOX)) ||
+        ((InterfaceInfo.CfrMailbox & 3) != 0) ||
+        (InterfaceInfo.CfrMailbox >= HandlerBase) ||
+        (sizeof (STARLABS_CFR_MAILBOX) > HandlerBase - InterfaceInfo.CfrMailbox) ||
+        ((InterfaceInfo.CfrMailbox & EFI_PAGE_MASK) > EFI_PAGE_SIZE - sizeof (STARLABS_CFR_MAILBOX)) ||
+        ((InterfaceInfo.CfrSupportedOptions & ~STARLABS_CFR_OPTION_MASK) != 0)) {
+      return EFI_INVALID_PARAMETER;
+    }
+
+    Status = UnblockMmRange (InterfaceInfo.CfrMailbox & ~(UINT64)EFI_PAGE_MASK, EFI_PAGE_SIZE);
+    if (EFI_ERROR (Status)) {
+      return Status;
+    }
+  } else if ((InterfaceInfo.CfrMailbox != 0) || (InterfaceInfo.CfrMailboxSize != 0)) {
+    return EFI_INVALID_PARAMETER;
+  }
   ZeroMem (&SharedInfo, sizeof (SharedInfo));
   SharedInfo.CommBuffer.PhysicalStart = SharedBase;
   SharedInfo.CommBuffer.CpuStart      = SharedBase;
