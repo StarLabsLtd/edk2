@@ -261,8 +261,6 @@ ASM_PFX(gPatchEdk2PayloadMmPrivateData):
     mov     edi, [ecx + 8]
 
     ; Enable features
-    mov     eax, cr2
-    push    eax
     mov     eax, cr3
     push    eax
 
@@ -341,6 +339,10 @@ BITS 64
 .@LongMode:
 ; coreboot controls silicon-specific features, such as CET.
 
+    ; RSM does not restore CR2. Preserve the full OS fault address.
+    mov     rax, cr2
+    push    rax
+
     ; FXSAVE data requires 16-bit alignment. Save the stack (FXSAVE workaround).
     mov     r12, rsp
     and     rsp, ~0xF
@@ -367,6 +369,8 @@ BITS 64
     mov     rsp, r12
 
 ; Switch into @CompatMode
+    pop     rax
+    mov     cr2, rax
     mov     rcx, dword PROTECTED_MODE_CS
     shl     rcx, 32
     lea     rdx, [.@CompatMode]
@@ -407,9 +411,6 @@ BITS 32
 
     pop     eax
     mov     cr3, eax
-
-    pop     eax
-    mov     cr2, eax
 
     ; System V ABI: Restore registers
     pop     edi
