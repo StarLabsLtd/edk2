@@ -99,6 +99,11 @@ DisableBiosWriteProtect (
     CpuSmmDisableBiosWriteProtect (TRUE);
   }
 
+  if ((MmioRead8 (PchSpiBase + R_SPI_BCR) & B_SPI_BCR_BIOSWE) == 0) {
+    DEBUG ((DEBUG_ERROR, "SPI BIOS write enable rejected: BCR=0x%04x\n", MmioRead16 (PchSpiBase + R_SPI_BCR)));
+    return EFI_ACCESS_DENIED;
+  }
+
   return EFI_SUCCESS;
 }
 

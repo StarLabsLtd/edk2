@@ -446,6 +446,7 @@ SendSpiCmd (
 
   SpiInstance = GetSpiInstance ();
   if ((SpiInstance == NULL) || (SpiInstance->Signature != SC_SPI_PRIVATE_DATA_SIGNATURE)) {
+    DEBUG ((DEBUG_ERROR, "SPI instance is not initialized\n"));
     return EFI_DEVICE_ERROR;
   }
 
@@ -475,12 +476,11 @@ SendSpiCmd (
   // If it's write cycle, disable Prefetching, Caching and disable BIOS Write Protect
   //
   if ((FlashCycleType == FlashCycleWrite) || (FlashCycleType == FlashCycleErase)) {
+    BiosCtlSave = SaveAndDisableSpiPrefetchCache (SpiBaseAddress);
     Status = DisableBiosWriteProtect (SpiBaseAddress, mSpiInstance->Flags & FLAGS_SPI_DISABLE_SMM_WRITE_PROTECT);
     if (EFI_ERROR (Status)) {
       goto SendSpiCmdEnd;
     }
-
-    BiosCtlSave = SaveAndDisableSpiPrefetchCache (SpiBaseAddress);
   }
 
   //
@@ -770,6 +770,18 @@ SendSpiCmd (
   } while (ByteCount > 0);
 
 SendSpiCmdEnd:
+  if (EFI_ERROR (Status)) {
+    DEBUG ((
+      DEBUG_ERROR,
+      "SPI command %u failed: %r BCR=0x%04x FRAP=0x%04x FADDR=0x%08x\n",
+      FlashCycleType,
+      Status,
+      MmioRead16 (SpiBaseAddress + R_SPI_BCR),
+      SpiInstance->RegionPermission,
+      MmioRead32 (ScSpiBar0 + R_SPI_FADDR)
+      ));
+  }
+
   ///
   /// Restore the settings for SPI Prefetching and Caching and enable BIOS Write Protect
   ///
@@ -813,6 +825,10 @@ WaitForSpiCycleComplete (
   for (WaitTicks = 0; WaitTicks < WaitCount; WaitTicks++) {
     Data32 = MmioRead32 (ScSpiBar0 + R_SPI_HSFS);
     if ((Data32 & B_SPI_HSFS_SCIP) == 0) {
+      if (((Data32 & B_SPI_HSFS_FCERR) != 0) && ErrorCheck) {
+        DEBUG ((DEBUG_ERROR, "SPI cycle failed: HSFS=0x%08x FADDR=0x%08x\n", Data32, MmioRead32 (ScSpiBar0 + R_SPI_FADDR)));
+      }
+
       MmioWrite32 (ScSpiBar0 + R_SPI_HSFS, B_SPI_HSFS_FCERR | B_SPI_HSFS_FDONE);
       if (((Data32 & B_SPI_HSFS_FCERR) != 0) && ErrorCheck) {
         return FALSE;
@@ -824,6 +840,7 @@ WaitForSpiCycleComplete (
     MicroSecondDelay (WAIT_PERIOD);
   }
 
+  DEBUG ((DEBUG_ERROR, "SPI cycle timed out: HSFS=0x%08x FADDR=0x%08x\n", Data32, MmioRead32 (ScSpiBar0 + R_SPI_FADDR)));
   return FALSE;
 }
 
