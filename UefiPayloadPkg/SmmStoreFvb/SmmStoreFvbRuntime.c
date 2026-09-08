@@ -14,10 +14,16 @@
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/PcdLib.h>
 #include <Library/SmmStoreLib.h>
+#include <Protocol/VariableStoreSync.h>
 
 #include "SmmStoreFvbRuntime.h"
 
 STATIC EFI_EVENT  mSmmStoreVirtualAddrChangeEvent;
+
+STATIC EDKII_VARIABLE_STORE_SYNC_PROTOCOL  mVariableStoreSync = {
+  SmmStoreLibVariableBegin,
+  SmmStoreLibVariableEnd
+};
 
 //
 // Global variable declarations
@@ -88,6 +94,7 @@ SmmStoreInitInstance (
 {
   EFI_STATUS             Status;
   FV_MEMMAP_DEVICE_PATH  *FvDevicePath;
+  UINT64                 Generation;
 
   ASSERT (Instance != NULL);
 
@@ -104,6 +111,26 @@ SmmStoreInitInstance (
     return Status;
   }
 
+  // Publish before FVB: its notification consumers must see both interfaces.
+  Status = SmmStoreLibVariableBegin (&Generation);
+  if (!EFI_ERROR (Status)) {
+    Status = SmmStoreLibVariableEnd ();
+    if (EFI_ERROR (Status)) {
+      return Status;
+    }
+
+    Status = gBS->InstallProtocolInterface (
+                    &Instance->Handle,
+                    &gEdkiiVariableStoreSyncProtocolGuid,
+                    EFI_NATIVE_INTERFACE,
+                    &mVariableStoreSync
+                    );
+  }
+
+  if (EFI_ERROR (Status) && (Status != EFI_UNSUPPORTED)) {
+    return Status;
+  }
+
   Status = gBS->InstallMultipleProtocolInterfaces (
                   &Instance->Handle,
                   &gEfiDevicePathProtocolGuid,
@@ -113,6 +140,11 @@ SmmStoreInitInstance (
                   NULL
                   );
   if (EFI_ERROR (Status)) {
+    gBS->UninstallProtocolInterface (
+           Instance->Handle,
+           &gEdkiiVariableStoreSyncProtocolGuid,
+           &mVariableStoreSync
+           );
     return Status;
   }
 
@@ -138,6 +170,8 @@ SmmStoreVirtualNotifyEvent (
   )
 {
   SmmStoreLibVirtualAddressChange (EfiConvertPointer);
+  EfiConvertPointer (0, (VOID **)&mVariableStoreSync.Begin);
+  EfiConvertPointer (0, (VOID **)&mVariableStoreSync.End);
 
   // Convert Fvb
   EfiConvertPointer (0x0, (VOID **)&mSmmStoreInstance->FvbProtocol.EraseBlocks);
