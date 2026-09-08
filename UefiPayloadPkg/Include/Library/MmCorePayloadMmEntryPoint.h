@@ -31,7 +31,7 @@ extern VOID  *gHobList;
   @param  HobStart  Pointer to the beginning of the HOB List passed in from the PEI Phase.
 
 **/
-VOID
+UINT8
 EFIAPI
 CEntryPoint (
   IN PAYLOAD_MM_CORE_CALL_CONTEXT  *PayloadMmCallContext

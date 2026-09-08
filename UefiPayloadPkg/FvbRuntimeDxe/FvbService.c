@@ -944,7 +944,7 @@ IsFvHeaderValid (
 **/
 EFI_STATUS
 FvbInitialize (
-  VOID
+  IN EFI_FIRMWARE_VOLUME_HEADER  *ValidatedHeader OPTIONAL
   )
 {
   EFI_FW_VOL_INSTANCE         *FwVolInstance;
@@ -959,14 +959,22 @@ FvbInitialize (
   VARIABLE_STORE_HEADER       VariableStore;
   VOID                        *VarData;
 
-  InitVariableStore ();
-  GetVariableFlashNvStorageInfo (&BaseAddress, &NvVariableLength);
-  FvHeader    = (EFI_FIRMWARE_VOLUME_HEADER *)(UINTN)BaseAddress;
+  Status = InitVariableStore ();
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  Status = GetVariableFlashNvStorageInfo (&BaseAddress, &NvVariableLength);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  FvHeader = ValidatedHeader != NULL ? ValidatedHeader : (VOID *)(UINTN)BaseAddress;
 
   //
   // Check FV header and variable store header
   //
-  if (!IsFvHeaderValid (BaseAddress)) {
+  if ((ValidatedHeader == NULL) && !IsFvHeaderValid (BaseAddress)) {
     //
     //  Write back a healthy FV header
     //
@@ -1032,9 +1040,11 @@ FvbInitialize (
   //
   // Add a FVB Protocol Instance
   //
-  Status = InstallFvbProtocol (FwVolInstance, mFvbModuleGlobal.NumFv);
-  mFvbModuleGlobal.NumFv++;
+  // Protocol installation can notify consumers synchronously.
   mFvbModuleGlobal.FvInstance = FwVolInstance;
-
+  mFvbModuleGlobal.NumFv++;
+  Status = InstallFvbProtocol (FwVolInstance, mFvbModuleGlobal.NumFv - 1);
+  // The legacy installer can publish FVB before a later notification fails.
+  // Retain its backing state even when installation reports an error.
   return Status;
 }

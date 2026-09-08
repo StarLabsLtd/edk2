@@ -44,6 +44,12 @@ PayloadMmCmdLoadAndCallCore (
   UINTN  Command;
   UINT8  Status;
 
+  if ((PayloadMmInterfaceInfo == NULL) || (PayloadMmLoadContext == NULL) ||
+      ((UINTN)PayloadMmLoadContext > MAX_UINT32 - sizeof (*PayloadMmLoadContext)))
+  {
+    return EFI_INVALID_PARAMETER;
+  }
+
   Command = PayloadMmInterfaceInfo->ApmCmd | (PAYLOAD_MM_CMD_LOAD_AND_CALL_CORE << 8);
 
   Status = TriggerSmi (Command, (UINTN)PayloadMmLoadContext, 3);
@@ -68,7 +74,7 @@ MmIplPlatformHookLibConstructor (
   EFI_HOB_GUID_TYPE  *GuidHob;
 
   GuidHob = GetFirstGuidHob (&gPayloadMmInterfaceInfoGuid);
-  if (GuidHob == NULL) {
+  if ((GuidHob == NULL) || (GET_GUID_HOB_DATA_SIZE (GuidHob) != sizeof (*PayloadMmInterfaceInfo))) {
     DEBUG ((DEBUG_WARN, "PayloadMmCmdInterface used without platform support!\n"));
     return EFI_UNSUPPORTED;
   }

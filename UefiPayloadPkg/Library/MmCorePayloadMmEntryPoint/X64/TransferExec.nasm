@@ -24,6 +24,7 @@ struc Edk2PrivateData
   Intel5LevelPagingNeeded: resb 1
   XdSupported: resb 1
   MsrIa32MiscEnableSupported: resb 1
+  LoadStatus: resb 1
 endstruc
 
 struc PayloadMmCallContext
@@ -67,11 +68,12 @@ BITS 32
 global ASM_PFX(ModeSwitchCallCEntry)
 ASM_PFX(ModeSwitchCallCEntry):
     ; Switch stack
+    push    ebx
     mov     ecx, esp
     mov     edx, ebp
 
     ; Acquire internal private data
-    mov     ebx, [esp + 4]
+    mov     ebx, [esp + 8]
     mov     ebx, [ebx + ImplementationPrivateData]
 
     ; Really, need per-CPU stack.
@@ -82,19 +84,17 @@ ASM_PFX(ModeSwitchCallCEntry):
     push    edx
 
     ; System V ABI: Preserve registers (not truly required by X64 ABI)
-    ;push    ebx
     push    esi
     push    edi
 
     ; System V ABI: Stash argument
-    mov     edi, [ecx + 4]
+    mov     edi, [ecx + 8]
 
     ; Enable features
+    mov     eax, cr2
+    push    eax
     mov     eax, cr3
     push    eax
-
-    mov     eax, dword [ebx + PrivateDataPageTable]
-    mov     cr3, eax
 
     mov     eax, cr4
     push    eax
@@ -110,6 +110,11 @@ ASM_PFX(ModeSwitchCallCEntry):
     sub     esp, 6
     sidt    [esp]
 
+    mov     ecx, MSR_EFER
+    rdmsr
+    push    edx
+    push    eax
+
 ; enable NXE if supported
     cmp     byte [ebx + XdSupported], 0
     jz      .SkipXd
@@ -121,6 +126,7 @@ ASM_PFX(ModeSwitchCallCEntry):
 ; MSR_IA32_MISC_ENABLE not supported
     xor     edx, edx
     push    edx                         ; don't try to restore the XD Disable bit just before RSM
+    push    edx
     jmp     .EnableNxe
 
 ; Check XD disable bit
@@ -128,6 +134,7 @@ ASM_PFX(ModeSwitchCallCEntry):
     mov     ecx, MSR_IA32_MISC_ENABLE
     rdmsr
     push    edx                         ; save MSR_IA32_MISC_ENABLE[63-32]
+    push    eax
     test    edx, BIT2                   ; MSR_IA32_MISC_ENABLE[34]
     jz      .EnableNxe
     and     dx, ~BIT2                   ; clear XD Disable bit if it is set
@@ -138,6 +145,9 @@ ASM_PFX(ModeSwitchCallCEntry):
     or      ax, BIT11                   ; enable NXE
     wrmsr
 .SkipXd:
+
+    mov     eax, dword [ebx + PrivateDataPageTable]
+    mov     cr3, eax
 
     mov     ecx, MSR_EFER
     rdmsr
@@ -175,6 +185,7 @@ BITS 64
     sub     rsp, 0x20
     mov     rcx, rdi
     call    ASM_PFX(CEntryPoint)
+    mov     byte [rbx + LoadStatus], al
     add     rsp, 0x20
 
     ;
@@ -199,25 +210,22 @@ BITS 32
     pop     eax
     mov     cr0, eax
 
+    cmp     byte [ebx + XdSupported], 0
+    jz      .RestoreEfer
+    pop     edi
+    pop     esi
+.RestoreEfer:
+    pop     eax
+    pop     edx
     mov     ecx, MSR_EFER
-    rdmsr
-    and     ax, ~BIT8                   ; disable LME
     wrmsr
-
     cmp     byte [ebx + XdSupported], 0
     jz      .1
-
-    mov     ecx, MSR_EFER
-    rdmsr
-    and     ax, ~BIT11                  ; disable NXE
-    wrmsr
-
-    pop     edx                         ; get saved MSR_IA32_MISC_ENABLE[63-32]
-    test    edx, BIT2
+    cmp     byte [ebx + MsrIa32MiscEnableSupported], 0
     jz      .1
+    mov     eax, edi
+    mov     edx, esi
     mov     ecx, MSR_IA32_MISC_ENABLE
-    rdmsr
-    or      dx, BIT2                    ; set XD Disable bit if it was set before
     wrmsr
 
 .1:
@@ -231,10 +239,12 @@ BITS 32
     pop     eax
     mov     cr3, eax
 
+    pop     eax
+    mov     cr2, eax
+
     ; System V ABI: Restore registers
     pop     edi
     pop     esi
-    ;pop     ebx
 
     ; Switch stack
     pop     edx
@@ -243,8 +253,8 @@ BITS 32
     mov     ebp, edx
     mov     esp, ecx
 
-    ; Set PAYLOAD_MM_RET_SUCCESS; TODO: Real return value.
-    xor     eax, eax
+    movzx   eax, byte [ebx + LoadStatus]
+    pop     ebx
 
     ret
 
@@ -252,6 +262,7 @@ global ASM_PFX(NativeModeCallCEntry)
 ASM_PFX(NativeModeCallCEntry):
 BITS 64
     ; Switch stack
+    push    rbx
     mov     rcx, rsp
     mov     rdx, rbp
 
@@ -266,18 +277,16 @@ BITS 64
     push    rdx
 
     ; System V ABI: Preserve registers (not truly required by X64 ABI)
-    ;push    rbx
     push    r12
     push    r13
     push    r14
     push    r15
 
     ; Enable features
+    mov     rax, cr2
+    push    rax
     mov     rax, cr3
     push    rax
-
-    mov     eax, dword [rbx + PrivateDataPageTable]
-    mov     cr3, rax
 
     mov     rax, cr4
     push    rax
@@ -293,6 +302,11 @@ BITS 64
     sub     rsp, 10
     sidt    [rsp]
 
+    mov     ecx, MSR_EFER
+    rdmsr
+    push    rdx
+    push    rax
+
 ; enable NXE if supported
     cmp     byte [rbx + XdSupported], 0
     jz      .SkipXd
@@ -304,6 +318,7 @@ BITS 64
 ; MSR_IA32_MISC_ENABLE not supported
     xor     edx, edx
     push    rdx                         ; don't try to restore the XD Disable bit just before RSM
+    push    rdx
     jmp     .EnableNxe
 
 ; Check XD disable bit
@@ -311,6 +326,7 @@ BITS 64
     mov     ecx, MSR_IA32_MISC_ENABLE
     rdmsr
     push    rdx                         ; save MSR_IA32_MISC_ENABLE[63-32]
+    push    rax
     test    edx, BIT2                   ; MSR_IA32_MISC_ENABLE[34]
     jz      .EnableNxe
     and     dx, ~BIT2                   ; clear XD Disable bit if it is set
@@ -321,6 +337,9 @@ BITS 64
     or      ax, BIT11                   ; enable NXE
     wrmsr
 .SkipXd:
+
+    mov     eax, dword [rbx + PrivateDataPageTable]
+    mov     cr3, rax
 
     mov     rax, cr0
     push    rax
@@ -344,6 +363,7 @@ BITS 64
     sub     rsp, 0x20
     mov     rcx, rdi
     call    ASM_PFX(CEntryPoint)
+    mov     byte [rbx + LoadStatus], al
     add     rsp, 0x20
 
     ;
@@ -360,21 +380,11 @@ BITS 64
 
     cmp     byte [rbx + XdSupported], 0
     jz      .1
-
-    mov     ecx, MSR_EFER
-    rdmsr
-    and     ax, ~BIT11                  ; disable NXE
-    wrmsr
-
-    pop     rdx                         ; get saved MSR_IA32_MISC_ENABLE[63-32]
-    test    edx, BIT2
-    jz      .1
-    mov     ecx, MSR_IA32_MISC_ENABLE
-    rdmsr
-    or      dx, BIT2                    ; set XD Disable bit if it was set before
-    wrmsr
-
+    pop     rdi
+    pop     rsi
 .1:
+    pop     r8
+    pop     r9
     lidt    [rsp]
     add     rsp, 10
 
@@ -385,12 +395,29 @@ BITS 64
     pop     rax
     mov     cr3, rax
 
+    pop     rax
+    mov     cr2, rax
+
+    ; Restore NX only after returning to the caller's page tables.
+    mov     eax, r8d
+    mov     edx, r9d
+    mov     ecx, MSR_EFER
+    wrmsr
+    cmp     byte [rbx + XdSupported], 0
+    jz      .RestoredMsrs
+    cmp     byte [rbx + MsrIa32MiscEnableSupported], 0
+    jz      .RestoredMsrs
+    mov     eax, edi
+    mov     edx, esi
+    mov     ecx, MSR_IA32_MISC_ENABLE
+    wrmsr
+.RestoredMsrs:
+
     ; System V ABI: Restore registers
     pop     r15
     pop     r14
     pop     r13
     pop     r12
-    ;pop     rbx
 
     ; Switch stack
     pop     rdx
@@ -399,7 +426,7 @@ BITS 64
     mov     rbp, rdx
     mov     rsp, rcx
 
-    ; Set PAYLOAD_MM_RET_SUCCESS; TODO: Real return value.
-    xor     rax, rax
+    movzx   eax, byte [rbx + LoadStatus]
+    pop     rbx
 
     ret

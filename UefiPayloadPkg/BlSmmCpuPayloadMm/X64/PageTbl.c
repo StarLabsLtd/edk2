@@ -179,6 +179,9 @@ SmmInitPageTable (
   // Generate initial SMM page table.
   //
   PageTable = GenSmmPageTable (mPagingMode, mPhysicalAddressBits);
+  if ((PageTable == 0) || (PageTable > MAX_UINT32)) {
+    return 0;
+  }
 
   if (HEAP_GUARD_NONSTOP_MODE ||
       NULL_DETECTION_NONSTOP_MODE)
@@ -201,7 +204,9 @@ SmmInitPageTable (
     // Register Smm Page Fault Handler
     //
     Status = RegisterCpuInterruptHandler (EXCEPT_IA32_PAGE_FAULT, SmiPFHandler);
-    ASSERT_EFI_ERROR (Status);
+    if (EFI_ERROR (Status)) {
+      return 0;
+    }
   }
 
   //
