@@ -8,10 +8,19 @@
 
 #include <PiMm.h>
 #include <Guid/VariableFlashInfo.h>
+#include <Guid/SystemNvDataGuid.h>
+#include <Protocol/SmmFaultTolerantWrite.h>
 #include <Library/FvLib.h>
 #include <Library/MmServicesTableLib.h>
 #include "FvbSmmCommon.h"
 #include "FvbService.h"
+
+typedef union {
+  UINT64    Alignment;
+  UINT8     Bytes[sizeof (EFI_FIRMWARE_VOLUME_HEADER) + sizeof (EFI_FV_BLOCK_MAP_ENTRY) + sizeof (VARIABLE_STORE_HEADER)];
+} STORE_HEADER;
+
+STATIC VARIABLE_FLASH_INFO  mFlashInfo;
 
 /**
   Get intial variable data.
@@ -147,55 +156,33 @@ InstallFvbProtocol (
   return Status;
 }
 
-/**
-  The driver entry point for SMM Firmware Volume Block Driver.
-
-  The function does the necessary initialization work
-  Firmware Volume Block Driver.
-
-  @param[in]  ImageHandle       The firmware allocated handle for the UEFI image.
-  @param[in]  SystemTable       A pointer to the EFI system table.
-
-  @retval     EFI_SUCCESS       This funtion always return EFI_SUCCESS.
-                                It will ASSERT on errors.
-
-**/
+/** Read and validate the existing store without changing its contents. **/
+STATIC
 EFI_STATUS
-EFIAPI
-FvbStandaloneMmInitialize (
-  IN EFI_HANDLE           ImageHandle,
-  IN EFI_MM_SYSTEM_TABLE  *SystemTable
+ReadStoreHeader (
+  IN EFI_PHYSICAL_ADDRESS  Address,
+  OUT STORE_HEADER         *Store
   )
 {
   EFI_STATUS                  Status;
-  EFI_HOB_GUID_TYPE           *Hob;
   VARIABLE_FLASH_INFO         *Info;
   EFI_FIRMWARE_VOLUME_HEADER  *Header;
   VARIABLE_STORE_HEADER       *Variable;
   UINTN                       Size;
 
-  union {
-    UINT64    Alignment;
-    UINT8     Bytes[sizeof (EFI_FIRMWARE_VOLUME_HEADER) + sizeof (EFI_FV_BLOCK_MAP_ENTRY) + sizeof (VARIABLE_STORE_HEADER)];
-  } Store;
-
-  Status = LibFvbFlashDeviceInit ();
+  Info   = &mFlashInfo;
+  Size   = sizeof (Store->Bytes);
+  Status = LibFvbFlashDeviceRead ((UINTN)Address, &Size, Store->Bytes);
   if (EFI_ERROR (Status)) {
     return Status;
   }
 
-  // Initialization has validated the HOB and confined access to the existing store.
-  Hob    = GetFirstGuidHob (&gVariableFlashInfoHobGuid);
-  Info   = GET_GUID_HOB_DATA (Hob);
-  Size   = sizeof (Store.Bytes);
-  Status = LibFvbFlashDeviceRead ((UINTN)Info->NvVariableBaseAddress, &Size, Store.Bytes);
-  if (EFI_ERROR (Status)) {
-    return Status;
+  if (Size != sizeof (Store->Bytes)) {
+    return EFI_DEVICE_ERROR;
   }
 
-  Header = (VOID *)Store.Bytes;
-  if ((Size != sizeof (Store.Bytes)) ||
-      (Header->HeaderLength != sizeof (*Header) + sizeof (EFI_FV_BLOCK_MAP_ENTRY)) ||
+  Header = (VOID *)Store->Bytes;
+  if ((Header->HeaderLength != sizeof (*Header) + sizeof (EFI_FV_BLOCK_MAP_ENTRY)) ||
       (Header->ExtHeaderOffset != 0) ||
       (Header->Signature != EFI_FVH_SIGNATURE) || (Header->Revision != EFI_FVH_REVISION) ||
       !CompareGuid (&Header->FileSystemGuid, &gEfiSystemNvDataFvGuid) ||
@@ -209,7 +196,7 @@ FvbStandaloneMmInitialize (
     return EFI_VOLUME_CORRUPTED;
   }
 
-  Variable = (VOID *)(Store.Bytes + Header->HeaderLength);
+  Variable = (VOID *)(Store->Bytes + Header->HeaderLength);
   if (!CompareGuid (&Variable->Signature, &gEfiAuthenticatedVariableGuid) ||
       (Info->NvVariableLength < Header->HeaderLength) ||
       (Variable->Size != Info->NvVariableLength - Header->HeaderLength) ||
@@ -218,5 +205,136 @@ FvbStandaloneMmInitialize (
     return EFI_VOLUME_CORRUPTED;
   }
 
-  return FvbInitialize (Header);
+  return EFI_SUCCESS;
+}
+
+STATIC
+EFI_STATUS
+ReadWorkingHeader (
+  IN EFI_PHYSICAL_ADDRESS                      Address,
+  OUT EFI_FAULT_TOLERANT_WORKING_BLOCK_HEADER  *Header
+  )
+{
+  EFI_STATUS  Status;
+  UINTN       Size;
+
+  Size   = sizeof (*Header);
+  Status = LibFvbFlashDeviceRead ((UINTN)Address, &Size, (UINT8 *)Header);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  return Size == sizeof (*Header) ? EFI_SUCCESS : EFI_DEVICE_ERROR;
+}
+
+STATIC
+EFI_STATUS
+ReadRecoveryHeader (
+  OUT STORE_HEADER  *Store
+  )
+{
+  EFI_STATUS                               Status;
+  EFI_FAULT_TOLERANT_WORKING_BLOCK_HEADER  Expected;
+  EFI_FAULT_TOLERANT_WORKING_BLOCK_HEADER  Header;
+
+  // This layout's entire primary working block must fit the spare image.
+  if ((mFlashInfo.FtwWorkingLength < sizeof (Expected)) ||
+      (mFlashInfo.NvVariableLength + mFlashInfo.FtwWorkingLength != mFlashInfo.FtwSpareLength))
+  {
+    return EFI_VOLUME_CORRUPTED;
+  }
+
+  SetMem (&Expected, sizeof (Expected), MAX_UINT8);
+  CopyGuid (&Expected.Signature, &gEdkiiWorkingBlockSignatureGuid);
+  Expected.WriteQueueSize    = mFlashInfo.FtwWorkingLength - sizeof (Expected);
+  Expected.Crc               = CalculateCrc32 (&Expected, sizeof (Expected));
+  Expected.WorkingBlockValid = FTW_VALID_STATE;
+
+  Status = ReadWorkingHeader (mFlashInfo.FtwWorkingBaseAddress, &Header);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  // A valid primary workspace must not be replaced with an unrelated spare.
+  if (CompareMem (&Header, &Expected, sizeof (Header)) == 0) {
+    return EFI_VOLUME_CORRUPTED;
+  }
+
+  Status = ReadWorkingHeader (mFlashInfo.FtwSpareBaseAddress + mFlashInfo.NvVariableLength, &Header);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  if (CompareMem (&Header, &Expected, sizeof (Header)) != 0) {
+    return EFI_VOLUME_CORRUPTED;
+  }
+
+  // FTW validates the complete spare journal before restoring the working block.
+  return ReadStoreHeader (mFlashInfo.FtwSpareBaseAddress, Store);
+}
+
+STATIC
+EFI_STATUS
+EFIAPI
+FtwReady (
+  IN CONST EFI_GUID  *Protocol,
+  IN VOID            *Interface,
+  IN EFI_HANDLE      Handle
+  )
+{
+  STORE_HEADER  Store;
+  EFI_STATUS    Status;
+
+  Status = ReadStoreHeader (mFlashInfo.NvVariableBaseAddress, &Store);
+  if (EFI_ERROR (Status)) {
+    // Notify return values are ignored; do not dispatch Variable on bad media.
+    DEBUG ((DEBUG_ERROR, "Recovered variable store is invalid: %r\n", Status));
+    CpuDeadLoop ();
+  }
+
+  return EFI_SUCCESS;
+}
+
+EFI_STATUS
+EFIAPI
+FvbStandaloneMmInitialize (
+  IN EFI_HANDLE           ImageHandle,
+  IN EFI_MM_SYSTEM_TABLE  *SystemTable
+  )
+{
+  EFI_STATUS         Status;
+  EFI_HOB_GUID_TYPE  *Hob;
+  STORE_HEADER       Store;
+  VOID               *Registration;
+
+  Status = LibFvbFlashDeviceInit ();
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  // Flash initialization validated the HOB and confined access to this store.
+  Hob = GetFirstGuidHob (&gVariableFlashInfoHobGuid);
+  CopyMem (&mFlashInfo, GET_GUID_HOB_DATA (Hob), sizeof (mFlashInfo));
+  Status = ReadStoreHeader (mFlashInfo.NvVariableBaseAddress, &Store);
+  if (Status == EFI_VOLUME_CORRUPTED) {
+    Status = ReadRecoveryHeader (&Store);
+  }
+
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  Status = gMmst->MmRegisterProtocolNotify (&gEfiSmmFaultTolerantWriteProtocolGuid, FtwReady, &Registration);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  Status = FvbInitialize ((VOID *)Store.Bytes);
+  if (EFI_ERROR (Status)) {
+    if (EFI_ERROR (gMmst->MmRegisterProtocolNotify (&gEfiSmmFaultTolerantWriteProtocolGuid, NULL, &Registration))) {
+      CpuDeadLoop ();
+    }
+  }
+
+  return Status;
 }

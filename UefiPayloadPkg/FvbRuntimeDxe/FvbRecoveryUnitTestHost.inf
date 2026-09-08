@@ -1,0 +1,34 @@
+## @file
+# Host checks for the MM FVB recovery bootstrap.
+# Copyright (c) 2026, Star Labs Systems. All rights reserved.<BR>
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION    = 0x00010017
+  BASE_NAME      = FvbRecoveryUnitTest
+  FILE_GUID      = f3e1a18e-7e4e-4de4-a120-74b707e3ce67
+  VERSION_STRING = 1.0
+  MODULE_TYPE    = HOST_APPLICATION
+
+[Sources]
+  FvbRecoveryUnitTest.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  UefiPayloadPkg/UefiPayloadPkg.dec
+  UefiCpuPkg/UefiCpuPkg.dec
+  UnitTestFrameworkPkg/UnitTestFrameworkPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  SmmStoreGeometryLib
+  UnitTestLib
+
+[Guids]
+  gEfiSystemNvDataFvGuid
+  gEfiAuthenticatedVariableGuid
+  gEdkiiWorkingBlockSignatureGuid
