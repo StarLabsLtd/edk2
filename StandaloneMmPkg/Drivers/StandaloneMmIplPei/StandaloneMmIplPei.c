@@ -662,7 +662,7 @@ MmIplBuildCommBufferHob (
   Should only be used in the absence of CpuMpPei.
 
 **/
-VOID
+EFI_STATUS
 MmIplBuildMpInformationHob (
   IN UINT8      *HobBuffer,
   IN OUT UINTN  *HobBufferSize
@@ -673,6 +673,7 @@ MmIplBuildMpInformationHob (
   // Therefore, this function should never be called.
   //
   ASSERT (FALSE);
+  return EFI_NOT_FOUND;
 }
 
 /**
