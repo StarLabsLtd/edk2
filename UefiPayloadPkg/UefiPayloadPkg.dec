@@ -76,6 +76,9 @@
   gMicrosoftKekUefi2023Guid   = { 0xf5a81b7b, 0x419a, 0x4a92, { 0x82, 0x12, 0x1c, 0x36, 0x9b, 0xcb, 0xe2, 0xcb } }
   gMicrosoftPkOem2023Guid     = { 0x701649dd, 0x8739, 0x40b9, { 0xbb, 0xdb, 0x9c, 0xa4, 0x34, 0xfd, 0xcd, 0x3b } }
 
+  gAmdPhoenixVbiosRomSectionGuid          = { 0xc202d877, 0xc729, 0x4f63, { 0xbf, 0x6d, 0xb7, 0xf1, 0x59, 0x68, 0x11, 0x0f } }
+  gEfiPlatformToAmdGopConfigurationGuid   = { 0x18b95167, 0x2ed8, 0x447d, { 0xa6, 0x5d, 0xd0, 0xe5, 0xe6, 0xf5, 0xd9, 0x89 } }
+
 [Ppis]
   gEfiPayLoadHobBasePpiGuid = { 0xdbe23aa1, 0xa342, 0x4b97, {0x85, 0xb6, 0xb2, 0x26, 0xf1, 0x61, 0x73, 0x89} }
 
@@ -145,10 +148,15 @@ gUefiPayloadPkgTokenSpaceGuid.PcdUseUniversalPayloadSerialPort|TRUE|BOOLEAN|0x00
 ## Indicates whether allows PCI Root Bridge to allocate DMA memory resource above 4G
 gUefiPayloadPkgTokenSpaceGuid.PcdPciAllocateMemoryAbove4GB|FALSE|BOOLEAN|0x0000002E
 
+[PcdsFeatureFlag]
+## Supply the external Phoenix GOP with bundled VBIOS and display configuration.
+gUefiPayloadPkgTokenSpaceGuid.PcdUseAmdExternalGop|FALSE|BOOLEAN|0x000001F0
+## Probe controller option ROMs in addition to any bundled VBIOS.
+gUefiPayloadPkgTokenSpaceGuid.PcdLoadOptionRoms|FALSE|BOOLEAN|0x000001F1
+
 ## Indicates whether the alternate setup GOP mode should cap wide displays to a
 ## centered viewport when the physical framebuffer is wider than the configured
 ## aspect ratio.
-[PcdsFeatureFlag]
 gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiWideAspectCapSupport|FALSE|BOOLEAN|0x00000032
 
 ## Indicates whether all boot devices are connected before the selected boot

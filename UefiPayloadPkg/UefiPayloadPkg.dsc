@@ -59,6 +59,7 @@
   DEFINE NVME_ENABLE                  = TRUE
   DEFINE LOCKBOX_SUPPORT              = FALSE
   DEFINE LOAD_OPTION_ROMS             = FALSE
+  DEFINE USE_AMD_GOP                 = FALSE
   DEFINE PAYLOAD_FB_HIDPI_WIDE_ASPECT_CAP_SUPPORT = FALSE
   DEFINE PAYLOAD_FB_HIDPI_WIDE_ASPECT_CAP_WIDTH   = 16
   DEFINE PAYLOAD_FB_HIDPI_WIDE_ASPECT_CAP_HEIGHT  = 9
@@ -806,6 +807,8 @@
 ################################################################################
 [PcdsFeatureFlag]
   gUefiPayloadPkgTokenSpaceGuid.PcdPayloadMmSupport|$(PAYLOAD_MM_SUPPORT)
+  gUefiPayloadPkgTokenSpaceGuid.PcdUseAmdExternalGop|$(USE_AMD_GOP)
+  gUefiPayloadPkgTokenSpaceGuid.PcdLoadOptionRoms|$(LOAD_OPTION_ROMS)
   gEfiMdeModulePkgTokenSpaceGuid.PcdConOutGopSupport|TRUE
   gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiWideAspectCapSupport|$(PAYLOAD_FB_HIDPI_WIDE_ASPECT_CAP_SUPPORT)
   gUefiPayloadPkgTokenSpaceGuid.PcdConnectAllDevices|$(CONNECT_ALL_DEVICES)
@@ -1391,7 +1394,7 @@
   #
   # Support for loading Option ROMs from PCI-Express devices
   #
-!if $(LOAD_OPTION_ROMS) == TRUE
+!if $(LOAD_OPTION_ROMS) == TRUE || $(USE_AMD_GOP) == TRUE
   UefiPayloadPkg/PciPlatformDxe/PciPlatformDxe.inf
 !endif
 
@@ -1431,7 +1434,12 @@
 !if $(DISABLE_SERIAL_TERMINAL) == FALSE
   MdeModulePkg/Universal/Console/TerminalDxe/TerminalDxe.inf
 !endif
+
+!if $(USE_AMD_GOP) == TRUE
+  UefiPayloadPkg/AmdGopPlatformToDriver/AmdGopPlatformToDriver.inf
+!else
   UefiPayloadPkg/GraphicsOutputDxe/GraphicsOutputDxe.inf
+!endif
 !if $(PERFORMANCE_MEASUREMENT_ENABLE)
   MdeModulePkg/Universal/Acpi/FirmwarePerformanceDataTableDxe/FirmwarePerformanceDxe.inf
 !endif
