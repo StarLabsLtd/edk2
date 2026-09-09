@@ -42,6 +42,11 @@ extern "C" {
 //
 // Mock Trigger function for SmmControl2 protocol
 //
+static EFI_STATUS    mMockTriggerStatus;
+static EFI_STATUS    mMockReturnStatus;
+static UINT64        mMockReturnBufferSize;
+static BOOLEAN       mMockTriggerCompletesRequest;
+
 static EFI_STATUS EFIAPI
 MockTrigger (
   IN CONST EFI_MM_CONTROL_PROTOCOL  *This,
@@ -51,7 +56,16 @@ MockTrigger (
   IN UINTN                          ActivationInterval OPTIONAL
   )
 {
-  return EFI_SUCCESS;
+  MM_COMM_BUFFER_STATUS  *CommonBufferStatus;
+
+  if (mMockTriggerCompletesRequest) {
+    CommonBufferStatus = (MM_COMM_BUFFER_STATUS *)(UINTN)mMmCommonBuffer.Status;
+    CommonBufferStatus->IsCommBufferValid = FALSE;
+    CommonBufferStatus->ReturnBufferSize  = mMockReturnBufferSize;
+    CommonBufferStatus->ReturnStatus      = mMockReturnStatus;
+  }
+
+  return mMockTriggerStatus;
 }
 
 //
@@ -98,6 +112,11 @@ protected:
     mMmCommonBuffer.NumberOfPages = COMM_BUFFER_PAGES;
     mMmCommonBuffer.Status        = (EFI_PHYSICAL_ADDRESS)(UINTN)&mCommonBufferStatus;
 
+    mMockTriggerStatus            = EFI_SUCCESS;
+    mMockReturnStatus             = EFI_SUCCESS;
+    mMockReturnBufferSize         = 0;
+    mMockTriggerCompletesRequest  = TRUE;
+
     // Set up the mock SmmControl2 protocol
     mMockSmmControl2.Trigger              = MockTrigger;
     mMockSmmControl2.Clear                = MockClear;
@@ -127,6 +146,51 @@ TEST_F (MmCommunicationOverflowTest, V1NormalMessageLengthSucceeds) {
 
   // BufferSize = 24 + 64 = 88, well within 16KiB
   ASSERT_EQ (Status, EFI_SUCCESS);
+}
+
+// Test Description:
+// A successful trigger without MM consumption must not return stale results.
+TEST_F (MmCommunicationOverflowTest, UnconsumedRequestReturnsNotReady) {
+  EFI_MM_COMMUNICATE_HEADER  *Header = (EFI_MM_COMMUNICATE_HEADER *)mCommBuffer;
+  UINTN                      CommSize;
+  EFI_STATUS                 Status;
+
+  ZeroMem (&Header->HeaderGuid, sizeof (EFI_GUID));
+  Header->MessageLength = 64;
+  CommSize = OFFSET_OF (EFI_MM_COMMUNICATE_HEADER, Data) + Header->MessageLength;
+
+  mMockTriggerCompletesRequest            = FALSE;
+  mCommonBufferStatus.ReturnStatus        = EFI_SUCCESS;
+  mCommonBufferStatus.ReturnBufferSize    = 0;
+
+  Status = ProcessCommunicationBuffer (mCommBuffer, &CommSize);
+
+  ASSERT_EQ (Status, EFI_NOT_READY);
+  ASSERT_FALSE (mCommonBufferStatus.IsCommBufferValid);
+  ASSERT_EQ (CommSize, OFFSET_OF (EFI_MM_COMMUNICATE_HEADER, Data) + Header->MessageLength);
+}
+
+// Test Description:
+// A failed trigger cancels the request without returning stale results.
+TEST_F (MmCommunicationOverflowTest, TriggerFailureCancelsRequest) {
+  EFI_MM_COMMUNICATE_HEADER  *Header = (EFI_MM_COMMUNICATE_HEADER *)mCommBuffer;
+  UINTN                      CommSize;
+  EFI_STATUS                 Status;
+
+  ZeroMem (&Header->HeaderGuid, sizeof (EFI_GUID));
+  Header->MessageLength = 64;
+  CommSize = OFFSET_OF (EFI_MM_COMMUNICATE_HEADER, Data) + Header->MessageLength;
+
+  mMockTriggerStatus                  = EFI_DEVICE_ERROR;
+  mMockTriggerCompletesRequest        = FALSE;
+  mCommonBufferStatus.ReturnStatus     = EFI_SUCCESS;
+  mCommonBufferStatus.ReturnBufferSize = 0;
+
+  Status = ProcessCommunicationBuffer (mCommBuffer, &CommSize);
+
+  ASSERT_EQ (Status, EFI_UNSUPPORTED);
+  ASSERT_FALSE (mCommonBufferStatus.IsCommBufferValid);
+  ASSERT_EQ (CommSize, OFFSET_OF (EFI_MM_COMMUNICATE_HEADER, Data) + Header->MessageLength);
 }
 
 // Test Description:
