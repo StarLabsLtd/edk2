@@ -41,3 +41,4 @@
   gSpiFlashInfoGuid
   gUefiAcpiBoardInfoGuid
   gVariableFlashInfoHobGuid
+  gUniversalPayloadSerialPortInfoGuid
