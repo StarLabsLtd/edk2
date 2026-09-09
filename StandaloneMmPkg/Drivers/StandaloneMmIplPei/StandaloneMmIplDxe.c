@@ -565,7 +565,7 @@ StandaloneMmIplDxeEntry (
   //
   // Locate and execute Mm Core to dispatch MM drivers.
   //
-  Status = ExecuteMmCoreFromMmram (MmCommBuffer);
+  Status = ExecuteMmCoreFromMmram (MmCommBuffer, FALSE);
 
   if (MmCoreBufferAddress != NULL) {
     FreePool (MmCoreBufferAddress);

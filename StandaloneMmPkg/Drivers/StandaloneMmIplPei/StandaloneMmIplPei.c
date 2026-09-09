@@ -707,7 +707,7 @@ StandaloneMmIplPeiEntry (
   //
   // Locate and execute Mm Core to dispatch MM drivers.
   //
-  Status = ExecuteMmCoreFromMmram (MmCommBuffer);
+  Status = ExecuteMmCoreFromMmram (MmCommBuffer, TRUE);
   ASSERT_EFI_ERROR (Status);
 
   //
