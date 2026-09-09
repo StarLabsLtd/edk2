@@ -16,6 +16,7 @@
 #include <Guid/MmCommBuffer.h>
 #include <Guid/MmUnblockRegion.h>
 #include <Guid/PayloadMmInterfaceInfoGuid.h>
+#include <Guid/PayloadMmSpiStoreInfoGuid.h>
 #include <Guid/SmmS3CommunicationInfoGuid.h>
 #include <Guid/SmramMemoryReserve.h>
 #include <Guid/SpiFlashInfoGuid.h>
@@ -114,6 +115,7 @@ ParsePayloadMmFeatureInfo (
   PLD_S3_COMMUNICATION                  SharedInfo;
   EFI_SMRAM_HOB_DESCRIPTOR_BLOCK        *SmramInfo;
   SPI_FLASH_INFO                        SpiInfo;
+  PAYLOAD_MM_SPI_STORE_INFO             SpiStoreInfo;
   VARIABLE_FLASH_INFO                   FlashInfo;
   EFI_PHYSICAL_ADDRESS                  SmramBase;
   UINT64                                SmramSize;
@@ -137,7 +139,7 @@ ParsePayloadMmFeatureInfo (
       (Interface->pad != 0) || (Interface->bootloader_smm_is_64bit > 1) ||
       (Interface->apm_cmd != PAYLOAD_MM_APM_COMMAND) || (Smram->size != sizeof (*Smram)) ||
       (Shared->size != sizeof (*Shared)) || (Spi->size != sizeof (*Spi)) ||
-      (Spi->revision != 1) || (Spi->flags != 0) ||
+      (Spi->revision != 2) || (Spi->flags != 0) ||
       (Spi->spi_address.address_space_id != SPACE_ID_PCI_CONFIGURATION) ||
       (Spi->spi_address.register_bit_width != 32) ||
       (Spi->spi_address.register_bit_offset != 0) || (Spi->spi_address.reserved != 0) ||
@@ -164,7 +166,9 @@ ParsePayloadMmFeatureInfo (
       (SpiBase == 0) || ((SpiBase & EFI_PAGE_MASK) != 0) ||
       (SpiBase > MAX_UINT32 - EFI_PAGE_SIZE) ||
       (Spi->block_size == 0) || ((Spi->block_size & EFI_PAGE_MASK) != 0) ||
-      ((StoreBase & EFI_PAGE_MASK) != 0) || (Spi->store_size % Spi->block_size != 0))
+      ((StoreBase & EFI_PAGE_MASK) != 0) || (Spi->store_size % Spi->block_size != 0) ||
+      (Spi->store_offset % Spi->block_size != 0) ||
+      (Spi->store_offset > MAX_UINT32 - Spi->store_size))
   {
     return EFI_INVALID_PARAMETER;
   }
@@ -218,10 +222,17 @@ ParsePayloadMmFeatureInfo (
   SpiInfo.SpiAddress.RegisterBitWidth = 32;
   SpiInfo.SpiAddress.AccessSize       = EFI_ACPI_3_0_DWORD;
   SpiInfo.SpiAddress.Address          = SpiBase;
+  ZeroMem (&SpiStoreInfo, sizeof (SpiStoreInfo));
+  SpiStoreInfo.Revision    = PAYLOAD_MM_SPI_STORE_INFO_REVISION;
+  SpiStoreInfo.StoreOffset = Spi->store_offset;
+  SpiStoreInfo.StoreBase   = StoreBase;
+  SpiStoreInfo.StoreSize   = Spi->store_size;
+  SpiStoreInfo.BlockSize   = Spi->block_size;
 
   if ((BuildGuidDataHob (&gPayloadMmInterfaceInfoGuid, &InterfaceInfo, sizeof (InterfaceInfo)) == NULL) ||
       (BuildGuidDataHob (&gS3CommunicationGuid, &SharedInfo, sizeof (SharedInfo)) == NULL) ||
       (BuildGuidDataHob (&gSpiFlashInfoGuid, &SpiInfo, sizeof (SpiInfo)) == NULL) ||
+      (BuildGuidDataHob (&gPayloadMmSpiStoreInfoGuid, &SpiStoreInfo, sizeof (SpiStoreInfo)) == NULL) ||
       (BuildGuidDataHob (&gVariableFlashInfoHobGuid, &FlashInfo, sizeof (FlashInfo)) == NULL))
   {
     return EFI_OUT_OF_RESOURCES;

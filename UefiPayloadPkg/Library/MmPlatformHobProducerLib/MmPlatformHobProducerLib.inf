@@ -22,6 +22,7 @@
 
 [Sources]
   MmPlatformHobProducerLib.c
+  SerialHobValidation.c
 
 [Packages]
   MdePkg/MdePkg.dec
@@ -37,6 +38,7 @@
 
 [Guids]
   gPayloadMmInterfaceInfoGuid
+  gPayloadMmSpiStoreInfoGuid
   gS3CommunicationGuid
   gSpiFlashInfoGuid
   gUefiAcpiBoardInfoGuid

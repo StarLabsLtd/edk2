@@ -11,6 +11,7 @@
 #include <Library/HobLib.h>
 #include <Library/SmmStoreGeometryLib.h>
 #include <Library/SpiFlashLib.h>
+#include <Guid/PayloadMmSpiStoreInfoGuid.h>
 
 STATIC UINTN   mStoreBase;
 STATIC UINTN   mStoreSize;
@@ -22,13 +23,15 @@ LibFvbFlashDeviceInit (
   VOID
   )
 {
-  EFI_HOB_GUID_TYPE    *Hob;
-  VARIABLE_FLASH_INFO  *Info;
-  VARIABLE_FLASH_INFO  Expected;
-  EFI_STATUS           Status;
-  UINT64               StoreSize;
-  UINT64               BiosBase;
-  UINT32               BiosSize;
+  EFI_HOB_GUID_TYPE              *Hob;
+  EFI_HOB_GUID_TYPE              *StoreHob;
+  VARIABLE_FLASH_INFO            *Info;
+  VARIABLE_FLASH_INFO            Expected;
+  PAYLOAD_MM_SPI_STORE_INFO      *StoreInfo;
+  EFI_STATUS                     Status;
+  UINT64                         StoreSize;
+  UINT32                         BiosBase;
+  UINT32                         BiosSize;
 
   mStoreSize = 0;
   Hob        = GetFirstGuidHob (&gVariableFlashInfoHobGuid);
@@ -37,6 +40,12 @@ LibFvbFlashDeviceInit (
   }
 
   Info = GET_GUID_HOB_DATA (Hob);
+  StoreHob = GetFirstGuidHob (&gPayloadMmSpiStoreInfoGuid);
+  if ((StoreHob == NULL) || (GET_GUID_HOB_DATA_SIZE (StoreHob) != sizeof (*StoreInfo))) {
+    return EFI_NOT_FOUND;
+  }
+
+  StoreInfo = GET_GUID_HOB_DATA (StoreHob);
   if ((Info->NvVariableBaseAddress > MAX_UINT32) ||
       (Info->FtwSpareBaseAddress < Info->NvVariableBaseAddress) ||
       (Info->FtwSpareBaseAddress > MAX_UINT32) || (Info->FtwSpareLength == 0) ||
@@ -62,25 +71,35 @@ LibFvbFlashDeviceInit (
     return EFI_INVALID_PARAMETER;
   }
 
+  if ((StoreInfo->Revision != PAYLOAD_MM_SPI_STORE_INFO_REVISION) ||
+      (StoreInfo->StoreBase != Info->NvVariableBaseAddress) ||
+      (StoreInfo->StoreSize != StoreSize) ||
+      (StoreInfo->BlockSize != Info->FtwWorkingLength) ||
+      (StoreInfo->StoreOffset % StoreInfo->BlockSize != 0) ||
+      (StoreInfo->StoreOffset > MAX_UINT32 - StoreSize))
+  {
+    return EFI_INVALID_PARAMETER;
+  }
+
   Status = SpiConstructor ();
   if (EFI_ERROR (Status)) {
     return Status;
   }
 
-  Status = SpiGetRegionAddress (FlashRegionBios, NULL, &BiosSize);
+  Status = SpiGetRegionAddress (FlashRegionBios, &BiosBase, &BiosSize);
   if (EFI_ERROR (Status)) {
     return Status;
   }
 
-  BiosBase = BASE_4GB - BiosSize;
-  if ((Info->NvVariableBaseAddress < BiosBase) ||
-      (StoreSize > BiosSize - (Info->NvVariableBaseAddress - BiosBase)))
+  if ((StoreInfo->StoreOffset < BiosBase) ||
+      (StoreInfo->StoreOffset - BiosBase > BiosSize) ||
+      (StoreSize > BiosSize - (StoreInfo->StoreOffset - BiosBase)))
   {
     return EFI_INVALID_PARAMETER;
   }
 
   mStoreBase  = (UINTN)Info->NvVariableBaseAddress;
-  mBiosOffset = (UINT32)(mStoreBase - BiosBase);
+  mBiosOffset = StoreInfo->StoreOffset - BiosBase;
   mStoreSize  = (UINTN)StoreSize;
   return EFI_SUCCESS;
 }
