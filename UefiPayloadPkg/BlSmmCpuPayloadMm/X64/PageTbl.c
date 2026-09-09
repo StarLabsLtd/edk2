@@ -162,6 +162,7 @@ SmmInitPageTable (
   UNIVERSAL_PAYLOAD_SERIAL_PORT_INFO  *Serial;
   UINT64                             SerialBase;
   UINT64                             SerialSize;
+  UINT64                             MaximumAddress;
 
   //
   // Initialize spin lock
@@ -170,6 +171,11 @@ SmmInitPageTable (
 
   m1GPageTableSupport  = Is1GPageSupport ();
   mPhysicalAddressBits = CalculateMaximumSupportAddress (gPayloadMmCpuPrivateData->PayloadMmPrivateData.Intel5LevelPagingNeeded);
+  if ((mPhysicalAddressBits == 0) || (mPhysicalAddressBits > 52)) {
+    return 0;
+  }
+
+  MaximumAddress = LShiftU64 (1, mPhysicalAddressBits);
   if (gPayloadMmCpuPrivateData->PayloadMmPrivateData.Intel5LevelPagingNeeded) {
     mPagingMode = m1GPageTableSupport ? Paging5Level1GB : Paging5Level;
   } else {
@@ -195,6 +201,12 @@ SmmInitPageTable (
   if ((Serial != NULL) && Serial->UseMmio && (Serial->RegisterBase != 0)) {
     SerialBase = Serial->RegisterBase & ~(UINT64)EFI_PAGE_MASK;
     SerialSize = ALIGN_VALUE (Serial->RegisterBase - SerialBase + 8 * Serial->RegisterStride, EFI_PAGE_SIZE);
+    if ((SerialBase >= MaximumAddress) ||
+        (SerialSize - 1 > MaximumAddress - 1 - SerialBase))
+    {
+      return 0;
+    }
+
     Status = SmmClearMemoryAttributesEx (
                PageTable,
                mPagingMode,
