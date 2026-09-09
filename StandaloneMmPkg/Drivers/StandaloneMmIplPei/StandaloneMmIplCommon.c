@@ -239,13 +239,19 @@ FindLargestMmramRange (
 
   @param[in]  Pages                     Page count of MM core image.
   @param[out] NewBlock                  Pointer to new MMRAM blocks.
+  @param[in]  PreserveMmramReservation  TRUE in PEI to retain the completed
+                                         descriptor as the replacement HOB.
+                                         FALSE in DXE to allocate a temporary
+                                         pool descriptor, which the caller
+                                         owns and must free.
 
   @return  EFI_PHYSICAL_ADDRESS         Address for MM core image to be loaded in MMRAM.
 **/
 EFI_PHYSICAL_ADDRESS
 MmIplAllocateMmramPage (
   IN  UINTN                           Pages,
-  OUT EFI_MMRAM_HOB_DESCRIPTOR_BLOCK  **NewBlock
+  OUT EFI_MMRAM_HOB_DESCRIPTOR_BLOCK  **NewBlock,
+  IN  BOOLEAN                         PreserveMmramReservation
   )
 {
   UINTN                           LagestMmramRangeIndex;
@@ -276,21 +282,24 @@ MmIplAllocateMmramPage (
   // 2. Split the largest region and mark the allocated region as ALLOCATED
   //
   FullMmramRangeCount = CurrentBlock->NumberOfMmReservedRegions + 1;
-  NewDescriptorBlock  = (EFI_MMRAM_HOB_DESCRIPTOR_BLOCK *)AllocatePool (
-                                                            sizeof (EFI_MMRAM_HOB_DESCRIPTOR_BLOCK) + ((FullMmramRangeCount - 1) * sizeof (EFI_MMRAM_DESCRIPTOR))
-                                                            );
-  ASSERT (NewDescriptorBlock != NULL);
+  if (PreserveMmramReservation) {
+    NewDescriptorBlock = (EFI_MMRAM_HOB_DESCRIPTOR_BLOCK *)BuildGuidHob (
+                                                              &gEfiSmmSmramMemoryGuid,
+                                                              sizeof (EFI_MMRAM_HOB_DESCRIPTOR_BLOCK) + ((FullMmramRangeCount - 1) * sizeof (EFI_MMRAM_DESCRIPTOR))
+                                                              );
+  } else {
+    NewDescriptorBlock = (EFI_MMRAM_HOB_DESCRIPTOR_BLOCK *)AllocatePool (
+                                                              sizeof (EFI_MMRAM_HOB_DESCRIPTOR_BLOCK) + ((FullMmramRangeCount - 1) * sizeof (EFI_MMRAM_DESCRIPTOR))
+                                                              );
+  }
+
   if (NewDescriptorBlock == NULL) {
     return 0;
   }
 
   NewDescriptorBlock->NumberOfMmReservedRegions = FullMmramRangeCount;
   FullMmramRanges                               = NewDescriptorBlock->Descriptor;
-
-  //
-  // Get current MMRAM descriptors and fill to the full MMRAM ranges
-  //
-  CopyMem (NewDescriptorBlock->Descriptor, CurrentBlock->Descriptor, CurrentBlock->NumberOfMmReservedRegions * sizeof (EFI_MMRAM_DESCRIPTOR));
+  CopyMem (FullMmramRanges, CurrentBlock->Descriptor, CurrentBlock->NumberOfMmReservedRegions * sizeof (EFI_MMRAM_DESCRIPTOR));
 
   Largest = &FullMmramRanges[LagestMmramRangeIndex];
   ASSERT ((Largest->PhysicalSize & EFI_PAGE_MASK) == 0);
@@ -307,6 +316,11 @@ MmIplAllocateMmramPage (
   Allocated->RegionState   = Largest->RegionState | EFI_ALLOCATED;
   Allocated->PhysicalSize  = EFI_PAGES_TO_SIZE (Pages);
 
+  if (PreserveMmramReservation) {
+    // Make the completed replacement the HOB found by later PEI consumers.
+    ZeroMem (&MmramInfoHob->Name, sizeof (MmramInfoHob->Name));
+  }
+
   //
   // New MMRAM descriptor block
   //
@@ -318,14 +332,20 @@ MmIplAllocateMmramPage (
 /**
   Load the MM Core image into MMRAM and executes the MM Core from MMRAM.
 
-  @param[in] MmCommBuffer               MM communicate buffer
+  @param[in] MmCommBuffer               MM communicate buffer.
+  @param[in] PreserveMmramReservation   TRUE in PEI to retain the replacement
+                                        MMRAM HOB. FALSE in DXE to use a
+                                        temporary pool descriptor, which this
+                                        function frees after creating the MM
+                                        HOB list.
 
   @return    EFI_STATUS                 Execute MM core successfully.
              Other                      Execute MM core failed.
 **/
 EFI_STATUS
 ExecuteMmCoreFromMmram (
-  IN  MM_COMM_BUFFER  *MmCommBuffer
+  IN  MM_COMM_BUFFER  *MmCommBuffer,
+  IN  BOOLEAN         PreserveMmramReservation
   )
 {
   EFI_STATUS                      Status;
@@ -382,7 +402,7 @@ ExecuteMmCoreFromMmram (
   //
   // Allocate memory for the image being loaded from unallocated mmram range
   //
-  ImageContext.ImageAddress = MmIplAllocateMmramPage (PageCount, &Block);
+  ImageContext.ImageAddress = MmIplAllocateMmramPage (PageCount, &Block, PreserveMmramReservation);
   if (ImageContext.ImageAddress == 0) {
     Status = EFI_NOT_FOUND;
     goto Done;
@@ -466,7 +486,7 @@ ExecuteMmCoreFromMmram (
   }
 
 Done:
-  if (Block != NULL) {
+  if ((Block != NULL) && !PreserveMmramReservation) {
     FreePool (Block);
   }
 

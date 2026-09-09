@@ -217,7 +217,8 @@ MmAccessClose (
 **/
 EFI_STATUS
 ExecuteMmCoreFromMmram (
-  IN  MM_COMM_BUFFER  *MmCommBuffer
+  IN  MM_COMM_BUFFER  *MmCommBuffer,
+  IN  BOOLEAN         PreserveMmramReservation
   );
 
 /**

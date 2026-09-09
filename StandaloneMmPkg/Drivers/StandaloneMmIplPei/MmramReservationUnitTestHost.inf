@@ -1,0 +1,40 @@
+## @file
+# Host checks for standalone MM MMRAM reservation lifetime.
+#
+# Copyright (c) 2026, Star Labs Systems. All rights reserved.<BR>
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION    = 0x00010017
+  BASE_NAME      = MmramReservationUnitTest
+  FILE_GUID      = C1CC7371-66DA-4C5B-9B5C-ECD6E9C3D2E4
+  VERSION_STRING = 1.0
+  MODULE_TYPE    = HOST_APPLICATION
+
+[Sources]
+  StandaloneMmIplCommon.c
+  MmramReservationUnitTest.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  StandaloneMmPkg/StandaloneMmPkg.dec
+  UefiCpuPkg/UefiCpuPkg.dec
+  UnitTestFrameworkPkg/UnitTestFrameworkPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  UnitTestLib
+
+[BuildOptions]
+  GCC:*_*_*_DLINK_FLAGS = -Wl,--gc-sections
+
+[Guids]
+  gEfiSmmSmramMemoryGuid
+  gEventMmDispatchGuid
+
+[Pcd]
+  gUefiCpuPkgTokenSpaceGuid.PcdCpuSmmProfileEnable
