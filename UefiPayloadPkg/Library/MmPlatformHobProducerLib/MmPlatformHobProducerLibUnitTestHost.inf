@@ -1,0 +1,27 @@
+## @file
+# Host checks for payload MM serial HOB validation.
+#
+# Copyright (c) 2026, Star Labs Systems. All rights reserved.<BR>
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION    = 0x00010017
+  BASE_NAME      = MmPlatformHobProducerLibUnitTest
+  FILE_GUID      = 8FD4F34D-5C65-4D35-A9F9-E7B621A91B90
+  VERSION_STRING = 1.0
+  MODULE_TYPE    = HOST_APPLICATION
+
+[Sources]
+  SerialHobValidation.c
+  MmPlatformHobProducerLibUnitTest.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  UnitTestFrameworkPkg/UnitTestFrameworkPkg.dec
+
+[LibraryClasses]
+  BaseMemoryLib
+  DebugLib
+  UnitTestLib

@@ -214,6 +214,7 @@ SmmStoreInitialize (
   UINT32                NvVariableSize;
   UINT32                FtwWorkingSize;
   UINT32                FtwSpareSize;
+  VARIABLE_FLASH_INFO   FlashInfo;
 
   Status = SmmStoreLibInitialize ();
   if (EFI_ERROR (Status)) {
@@ -242,24 +243,25 @@ SmmStoreInitialize (
     return Status;
   }
 
-  //
-  // The layout (starts at MmioAddress):
-  //
-  //  -------------------------- ------------- ------------------------------
-  // |                          |             |                              |
-  // |         Variable         |   Working   |         Spare Range          |
-  // |          Range           |    Range    | (larger than variable range) |
-  // |                          |             |                              |
-  //  <- (BlockCount / 2) - 1 -> <- 1 block -> <----- (BlockCount / 2) ----->
-  //           blocks                                      blocks
-  //
+  Status = SmmStoreGetFlashInfo (MmioAddress, BlockSize, BlockCount, &FlashInfo);
+  if (EFI_ERROR (Status)) {
+    SmmStoreLibDeinitialize ();
+    return Status;
+  }
 
-  NvStorageSize = BlockCount * BlockSize;
-  NvStorageBase = MmioAddress;
+  // This backend also publishes the legacy 32-bit base and size PCDs.
+  if ((MmioAddress > MAX_UINT32) || (BlockCount > MAX_UINT32 / BlockSize) ||
+      ((UINT64)BlockCount * BlockSize - 1 > MAX_UINT32 - MmioAddress))
+  {
+    SmmStoreLibDeinitialize ();
+    return EFI_UNSUPPORTED;
+  }
 
-  FtwSpareSize   = (BlockCount / 2) * BlockSize;
-  FtwWorkingSize = 1 * BlockSize;
-  NvVariableSize = NvStorageSize - FtwSpareSize - FtwWorkingSize;
+  NvStorageSize  = (UINT32)(BlockCount * BlockSize);
+  NvStorageBase  = (UINT32)FlashInfo.NvVariableBaseAddress;
+  FtwSpareSize   = (UINT32)FlashInfo.FtwSpareLength;
+  FtwWorkingSize = (UINT32)FlashInfo.FtwWorkingLength;
+  NvVariableSize = (UINT32)FlashInfo.NvVariableLength;
   DEBUG ((DEBUG_INFO, "NvStorageBase:0x%x, NvStorageSize:0x%x\n", NvStorageBase, NvStorageSize));
 
   Status = PcdSet32S (PcdFlashNvStorageVariableSize, NvVariableSize);
