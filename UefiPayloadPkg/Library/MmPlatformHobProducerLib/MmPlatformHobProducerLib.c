@@ -13,10 +13,12 @@
 #include <Library/SafeIntLib.h>
 #include <Guid/AcpiBoardInfoGuid.h>
 #include <Guid/PayloadMmInterfaceInfoGuid.h>
+#include <Guid/PayloadMmSpiStoreInfoGuid.h>
 #include <Guid/SmmS3CommunicationInfoGuid.h>
 #include <Guid/SpiFlashInfoGuid.h>
 #include <Guid/VariableFlashInfo.h>
 #include <UniversalPayload/SerialPortInfo.h>
+#include "SerialHobValidation.h"
 
 EFI_STATUS
 EFIAPI
@@ -28,6 +30,7 @@ CreateMmPlatformHob (
   EFI_GUID           *Guids[] = {
     &gUefiAcpiBoardInfoGuid,
     &gPayloadMmInterfaceInfoGuid,
+    &gPayloadMmSpiStoreInfoGuid,
     &gS3CommunicationGuid,
     &gSpiFlashInfoGuid,
     &gVariableFlashInfoHobGuid,
@@ -64,14 +67,8 @@ CreateMmPlatformHob (
 
       Serial = GET_GUID_HOB_DATA (Hobs[Index]);
       if ((GET_GUID_HOB_DATA_SIZE (Hobs[Index]) < sizeof (*Serial)) ||
-          (Serial->Header.Revision != UNIVERSAL_PAYLOAD_SERIAL_PORT_INFO_REVISION) ||
-          (Serial->Header.Length < sizeof (*Serial)) ||
           (Serial->Header.Length > GET_GUID_HOB_DATA_SIZE (Hobs[Index])) ||
-          (Serial->BaudRate == 0) || (Serial->BaudRate > MAX_UINT32 / 16) ||
-          (Serial->RegisterStride == 0) || (Serial->RegisterStride > 8) ||
-          ((Serial->RegisterStride & (Serial->RegisterStride - 1)) != 0) ||
-          (Serial->RegisterBase > MAX_UINT32 - 8 * Serial->RegisterStride) ||
-          (!Serial->UseMmio && (Serial->RegisterBase > MAX_UINT16 - 8 * Serial->RegisterStride)))
+          EFI_ERROR (PayloadMmValidateSerialInfo (Serial)))
       {
         return EFI_COMPROMISED_DATA;
       }

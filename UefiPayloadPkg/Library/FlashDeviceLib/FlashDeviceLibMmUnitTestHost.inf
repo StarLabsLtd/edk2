@@ -28,3 +28,4 @@
 
 [Guids]
   gVariableFlashInfoHobGuid
+  gPayloadMmSpiStoreInfoGuid

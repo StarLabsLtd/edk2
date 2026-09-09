@@ -13,13 +13,20 @@
 #include <Library/SmmStoreGeometryLib.h>
 #include <Library/SpiFlashLib.h>
 #include <Library/UnitTestLib.h>
+#include <Guid/PayloadMmSpiStoreInfoGuid.h>
 
 STATIC struct {
   EFI_HOB_GUID_TYPE      Hob;
   VARIABLE_FLASH_INFO    Info;
 } mHob;
-STATIC BOOLEAN     mPresent;
+STATIC struct {
+  EFI_HOB_GUID_TYPE          Hob;
+  PAYLOAD_MM_SPI_STORE_INFO  Info;
+} mStoreHob;
+STATIC BOOLEAN     mVariablePresent;
+STATIC BOOLEAN     mStorePresent;
 STATIC EFI_STATUS  mSpiStatus;
+STATIC UINT32      mBiosBase;
 STATIC UINT32      mBiosSize;
 STATIC UINTN       mTransfers;
 STATIC UINT32      mAddress;
@@ -30,7 +37,15 @@ GetFirstGuidHob (
   IN CONST EFI_GUID  *Guid
   )
 {
-  return mPresent && CompareGuid (Guid, &gVariableFlashInfoHobGuid) ? &mHob : NULL;
+  if (CompareGuid (Guid, &gVariableFlashInfoHobGuid)) {
+    return mVariablePresent ? &mHob : NULL;
+  }
+
+  if (CompareGuid (Guid, &gPayloadMmSpiStoreInfoGuid)) {
+    return mStorePresent ? &mStoreHob : NULL;
+  }
+
+  return NULL;
 }
 
 EFI_STATUS
@@ -51,7 +66,7 @@ SpiGetRegionAddress (
   )
 {
   if (Base != NULL) {
-    *Base = 0;
+    *Base = mBiosBase;
   }
 
   if (Size != NULL) {
@@ -99,6 +114,30 @@ SpiFlashErase (
 }
 
 STATIC
+VOID
+InitializeMockStore (
+  VOID
+  )
+{
+  ZeroMem (&mHob, sizeof (mHob));
+  ZeroMem (&mStoreHob, sizeof (mStoreHob));
+  mHob.Hob.Header.HobLength      = sizeof (mHob);
+  mStoreHob.Hob.Header.HobLength = sizeof (mStoreHob);
+  mVariablePresent               = TRUE;
+  mStorePresent                  = TRUE;
+  mSpiStatus                     = EFI_SUCCESS;
+  mBiosBase                      = 0x600000;
+  mBiosSize                      = 10 * SIZE_1MB;
+  mTransfers                     = 0;
+  ASSERT_EFI_ERROR (SmmStoreGetFlashInfo (0xEFC30000, SIZE_64KB, 8, &mHob.Info));
+  mStoreHob.Info.Revision    = PAYLOAD_MM_SPI_STORE_INFO_REVISION;
+  mStoreHob.Info.StoreOffset = 0x630000;
+  mStoreHob.Info.StoreBase   = mHob.Info.NvVariableBaseAddress;
+  mStoreHob.Info.StoreSize   = SIZE_512KB;
+  mStoreHob.Info.BlockSize   = SIZE_64KB;
+}
+
+STATIC
 UNIT_TEST_STATUS
 EFIAPI
 StoreBounds (
@@ -108,31 +147,25 @@ StoreBounds (
   UINT8  Buffer;
   UINTN  Size;
 
-  ZeroMem (&mHob, sizeof (mHob));
-  mHob.Hob.Header.HobLength = sizeof (mHob);
-  mPresent                  = TRUE;
-  mSpiStatus                = EFI_SUCCESS;
-  mBiosSize                 = SIZE_16MB;
-  mTransfers                = 0;
-  UT_ASSERT_NOT_EFI_ERROR (SmmStoreGetFlashInfo (0xFF630000, SIZE_64KB, 8, &mHob.Info));
+  InitializeMockStore ();
   UT_ASSERT_NOT_EFI_ERROR (LibFvbFlashDeviceInit ());
   Size = 1;
-  UT_ASSERT_NOT_EFI_ERROR (LibFvbFlashDeviceRead (0xFF630000, &Size, &Buffer));
-  UT_ASSERT_EQUAL (mAddress, 0x630000);
-  UT_ASSERT_NOT_EFI_ERROR (LibFvbFlashDeviceWrite (0xFF6AFFFF, &Size, &Buffer));
-  UT_ASSERT_NOT_EFI_ERROR (LibFvbFlashDeviceBlockErase (0xFF6A0000, SIZE_64KB));
+  UT_ASSERT_NOT_EFI_ERROR (LibFvbFlashDeviceRead (0xEFC30000, &Size, &Buffer));
+  UT_ASSERT_EQUAL (mAddress, 0x30000);
+  UT_ASSERT_NOT_EFI_ERROR (LibFvbFlashDeviceWrite (0xEFCAFFFF, &Size, &Buffer));
+  UT_ASSERT_NOT_EFI_ERROR (LibFvbFlashDeviceBlockErase (0xEFCA0000, SIZE_64KB));
   UT_ASSERT_EQUAL (mTransfers, 3);
 
-  UT_ASSERT_STATUS_EQUAL (LibFvbFlashDeviceRead (0xFF62FFFF, &Size, &Buffer), EFI_INVALID_PARAMETER);
-  UT_ASSERT_STATUS_EQUAL (LibFvbFlashDeviceWrite (0xFF6B0000, &Size, &Buffer), EFI_INVALID_PARAMETER);
+  UT_ASSERT_STATUS_EQUAL (LibFvbFlashDeviceRead (0xEFC2FFFF, &Size, &Buffer), EFI_INVALID_PARAMETER);
+  UT_ASSERT_STATUS_EQUAL (LibFvbFlashDeviceWrite (0xEFCB0000, &Size, &Buffer), EFI_INVALID_PARAMETER);
   Size = 2;
-  UT_ASSERT_STATUS_EQUAL (LibFvbFlashDeviceWrite (0xFF6AFFFF, &Size, &Buffer), EFI_INVALID_PARAMETER);
+  UT_ASSERT_STATUS_EQUAL (LibFvbFlashDeviceWrite (0xEFCAFFFF, &Size, &Buffer), EFI_INVALID_PARAMETER);
   Size = MAX_UINTN;
-  UT_ASSERT_STATUS_EQUAL (LibFvbFlashDeviceRead (0xFF630000, &Size, &Buffer), EFI_INVALID_PARAMETER);
-  UT_ASSERT_STATUS_EQUAL (LibFvbFlashDeviceBlockErase (0xFF630001, SIZE_64KB), EFI_INVALID_PARAMETER);
-  UT_ASSERT_STATUS_EQUAL (LibFvbFlashDeviceRead (0xFF630000, NULL, &Buffer), EFI_INVALID_PARAMETER);
+  UT_ASSERT_STATUS_EQUAL (LibFvbFlashDeviceRead (0xEFC30000, &Size, &Buffer), EFI_INVALID_PARAMETER);
+  UT_ASSERT_STATUS_EQUAL (LibFvbFlashDeviceBlockErase (0xEFC30001, SIZE_64KB), EFI_INVALID_PARAMETER);
+  UT_ASSERT_STATUS_EQUAL (LibFvbFlashDeviceRead (0xEFC30000, NULL, &Buffer), EFI_INVALID_PARAMETER);
   Size = 1;
-  UT_ASSERT_STATUS_EQUAL (LibFvbFlashDeviceRead (0xFF630000, &Size, NULL), EFI_INVALID_PARAMETER);
+  UT_ASSERT_STATUS_EQUAL (LibFvbFlashDeviceRead (0xEFC30000, &Size, NULL), EFI_INVALID_PARAMETER);
   UT_ASSERT_EQUAL (mTransfers, 3);
   return UNIT_TEST_PASSED;
 }
@@ -147,24 +180,54 @@ InitializationFailures (
   UINT8  Buffer;
   UINTN  Size;
 
-  mPresent = FALSE;
+  InitializeMockStore ();
+  mVariablePresent = FALSE;
   UT_ASSERT_STATUS_EQUAL (LibFvbFlashDeviceInit (), EFI_NOT_FOUND);
   Size = 1;
-  UT_ASSERT_STATUS_EQUAL (LibFvbFlashDeviceRead (0xFF630000, &Size, &Buffer), EFI_INVALID_PARAMETER);
-  mPresent                  = TRUE;
+  UT_ASSERT_STATUS_EQUAL (LibFvbFlashDeviceRead (0xEFC30000, &Size, &Buffer), EFI_INVALID_PARAMETER);
+  mVariablePresent          = TRUE;
   mHob.Hob.Header.HobLength = sizeof (mHob) - 1;
   UT_ASSERT_STATUS_EQUAL (LibFvbFlashDeviceInit (), EFI_NOT_FOUND);
   mHob.Hob.Header.HobLength = sizeof (mHob);
-  UT_ASSERT_NOT_EFI_ERROR (SmmStoreGetFlashInfo (0xFF630000, SIZE_64KB, 8, &mHob.Info));
+  mStorePresent = FALSE;
+  UT_ASSERT_STATUS_EQUAL (LibFvbFlashDeviceInit (), EFI_NOT_FOUND);
+  mStorePresent = TRUE;
+  mStoreHob.Hob.Header.HobLength = sizeof (mStoreHob) - 1;
+  UT_ASSERT_STATUS_EQUAL (LibFvbFlashDeviceInit (), EFI_NOT_FOUND);
+  mStoreHob.Hob.Header.HobLength = sizeof (mStoreHob);
   mHob.Info.FtwWorkingBaseAddress++;
   UT_ASSERT_STATUS_EQUAL (LibFvbFlashDeviceInit (), EFI_INVALID_PARAMETER);
   mHob.Info.FtwWorkingBaseAddress--;
   mSpiStatus = EFI_DEVICE_ERROR;
   UT_ASSERT_STATUS_EQUAL (LibFvbFlashDeviceInit (), EFI_DEVICE_ERROR);
   mSpiStatus = EFI_SUCCESS;
-  mBiosSize  = SIZE_1MB;
+  mStoreHob.Info.Revision++;
   UT_ASSERT_STATUS_EQUAL (LibFvbFlashDeviceInit (), EFI_INVALID_PARAMETER);
-  UT_ASSERT_STATUS_EQUAL (LibFvbFlashDeviceWrite (0xFF630000, &Size, &Buffer), EFI_INVALID_PARAMETER);
+  mStoreHob.Info.Revision--;
+  mStoreHob.Info.StoreBase++;
+  UT_ASSERT_STATUS_EQUAL (LibFvbFlashDeviceInit (), EFI_INVALID_PARAMETER);
+  mStoreHob.Info.StoreBase--;
+  mStoreHob.Info.StoreSize -= SIZE_64KB;
+  UT_ASSERT_STATUS_EQUAL (LibFvbFlashDeviceInit (), EFI_INVALID_PARAMETER);
+  mStoreHob.Info.StoreSize += SIZE_64KB;
+  mStoreHob.Info.BlockSize += SIZE_64KB;
+  UT_ASSERT_STATUS_EQUAL (LibFvbFlashDeviceInit (), EFI_INVALID_PARAMETER);
+  mStoreHob.Info.BlockSize -= SIZE_64KB;
+  mStoreHob.Info.StoreOffset++;
+  UT_ASSERT_STATUS_EQUAL (LibFvbFlashDeviceInit (), EFI_INVALID_PARAMETER);
+  mStoreHob.Info.StoreOffset--;
+  mStoreHob.Info.StoreOffset = MAX_UINT32 - SIZE_256KB + 1;
+  UT_ASSERT_STATUS_EQUAL (LibFvbFlashDeviceInit (), EFI_INVALID_PARAMETER);
+  mStoreHob.Info.StoreOffset = mBiosBase - 1;
+  UT_ASSERT_STATUS_EQUAL (LibFvbFlashDeviceInit (), EFI_INVALID_PARAMETER);
+  mStoreHob.Info.StoreOffset = mBiosBase + mBiosSize + SIZE_64KB;
+  UT_ASSERT_STATUS_EQUAL (LibFvbFlashDeviceInit (), EFI_INVALID_PARAMETER);
+  mStoreHob.Info.StoreOffset = mBiosBase + mBiosSize - SIZE_64KB;
+  UT_ASSERT_STATUS_EQUAL (LibFvbFlashDeviceInit (), EFI_INVALID_PARAMETER);
+  mStoreHob.Info.StoreOffset = 0x630000;
+  mBiosSize  = SIZE_256KB;
+  UT_ASSERT_STATUS_EQUAL (LibFvbFlashDeviceInit (), EFI_INVALID_PARAMETER);
+  UT_ASSERT_STATUS_EQUAL (LibFvbFlashDeviceWrite (0xEFC30000, &Size, &Buffer), EFI_INVALID_PARAMETER);
   return UNIT_TEST_PASSED;
 }
 
