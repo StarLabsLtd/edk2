@@ -20,6 +20,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Register/Intel/Cpuid.h>
 
 #include "BlSmmCpuPayloadMm.h"
+#include <UniversalPayload/SerialPortInfo.h>
 
 #define PAGE_TABLE_PAGES  8
 #define ACC_MAX_BIT       BIT3
@@ -153,10 +154,14 @@ SmmInitPageTable (
   VOID
   )
 {
-  UINTN                     PageTable;
-  UINTN                     PageFaultHandlerHookAddress;
-  IA32_IDT_GATE_DESCRIPTOR  *IdtEntry;
-  EFI_STATUS                Status;
+  UINTN                              PageTable;
+  UINTN                              PageFaultHandlerHookAddress;
+  IA32_IDT_GATE_DESCRIPTOR            *IdtEntry;
+  EFI_STATUS                         Status;
+  EFI_HOB_GUID_TYPE                   *SerialHob;
+  UNIVERSAL_PAYLOAD_SERIAL_PORT_INFO  *Serial;
+  UINT64                             SerialBase;
+  UINT64                             SerialSize;
 
   //
   // Initialize spin lock
@@ -185,12 +190,16 @@ SmmInitPageTable (
 
   // Direct MM debug output needs its UART under the resident CR3 too.
   // Do not advertise this device page as an MM communication buffer.
-  if (DebugPrintEnabled () && PcdGetBool (PcdSerialUseMmio)) {
+  SerialHob = GetFirstGuidHob (&gUniversalPayloadSerialPortInfoGuid);
+  Serial    = SerialHob == NULL ? NULL : GET_GUID_HOB_DATA (SerialHob);
+  if ((Serial != NULL) && Serial->UseMmio && (Serial->RegisterBase != 0)) {
+    SerialBase = Serial->RegisterBase & ~(UINT64)EFI_PAGE_MASK;
+    SerialSize = ALIGN_VALUE (Serial->RegisterBase - SerialBase + 8 * Serial->RegisterStride, EFI_PAGE_SIZE);
     Status = SmmClearMemoryAttributesEx (
                PageTable,
                mPagingMode,
-               PcdGet64 (PcdSerialRegisterBase) & ~(UINT64)EFI_PAGE_MASK,
-               EFI_PAGE_SIZE,
+               SerialBase,
+               SerialSize,
                EFI_MEMORY_RP | EFI_MEMORY_RO
                );
     if (EFI_ERROR (Status)) {
@@ -200,8 +209,8 @@ SmmInitPageTable (
     Status = SmmSetMemoryAttributesEx (
                PageTable,
                mPagingMode,
-               PcdGet64 (PcdSerialRegisterBase) & ~(UINT64)EFI_PAGE_MASK,
-               EFI_PAGE_SIZE,
+               SerialBase,
+               SerialSize,
                EFI_MEMORY_XP
                );
     if (EFI_ERROR (Status)) {
