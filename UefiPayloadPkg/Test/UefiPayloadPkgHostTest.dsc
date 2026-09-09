@@ -22,6 +22,10 @@
   SmmStoreGeometryLib|UefiPayloadPkg/Library/SmmStoreGeometryLib/SmmStoreGeometryLib.inf
 
 [Components]
+  StandaloneMmPkg/Drivers/StandaloneMmIplPei/MmramReservationUnitTestHost.inf {
+    <BuildOptions>
+      GCC:*_*_*_DLINK_FLAGS = -Wl,--gc-sections
+  }
   UefiPayloadPkg/Library/FmpDeviceSmmLib/FmpDeviceSmmLibUnitTestHost.inf
   UefiPayloadPkg/Library/MmPlatformHobProducerLib/MmPlatformHobProducerLibUnitTestHost.inf
   UefiPayloadPkg/Library/PlatformSecureLib/PlatformSecureLibMmUnitTestHost.inf
