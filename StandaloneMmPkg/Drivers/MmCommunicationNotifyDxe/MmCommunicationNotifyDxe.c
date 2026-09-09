@@ -74,6 +74,7 @@ MmGuidedEventNotify (
   )
 {
   UINTN                      Size;
+  EFI_STATUS                 Status;
   EFI_MM_COMMUNICATE_HEADER  *CommunicateHeader;
 
   CommunicateHeader = (EFI_MM_COMMUNICATE_HEADER *)(UINTN)mMmCommonBuffer.PhysicalStart;
@@ -89,7 +90,12 @@ MmGuidedEventNotify (
   // Generate the Software SMI and return the result
   //
   Size = sizeof (EFI_MM_COMMUNICATE_HEADER);
-  mMmCommunication2->Communicate (mMmCommunication2, CommunicateHeader, CommunicateHeader, &Size);
+  Status = mMmCommunication2->Communicate (mMmCommunication2, CommunicateHeader, CommunicateHeader, &Size);
+  if (EFI_ERROR (Status)) {
+    // MM security policy must observe the handoff before execution continues.
+    DEBUG ((DEBUG_ERROR, "MM event %g delivery failed: %r\n", Context, Status));
+    CpuDeadLoop ();
+  }
 }
 
 /**
@@ -220,7 +226,10 @@ MmCommunicationNotifyEntryPoint (
   // Locate gMmCommBufferHobGuid and cache the content
   //
   GuidHob = GetFirstGuidHob (&gMmCommBufferHobGuid);
-  ASSERT (GuidHob != NULL);
+  if (GuidHob == NULL) {
+    DEBUG ((DEBUG_ERROR, "MM notification buffer is missing\n"));
+    CpuDeadLoop ();
+  }
   MmCommonBuffer = GET_GUID_HOB_DATA (GuidHob);
   CopyMem (&mMmCommonBuffer, MmCommonBuffer, sizeof (MM_COMM_BUFFER));
 
@@ -228,13 +237,19 @@ MmCommunicationNotifyEntryPoint (
   // Get SMM Access Protocol
   //
   Status = gBS->LocateProtocol (&gEfiSmmAccess2ProtocolGuid, NULL, (VOID **)&mSmmAccess);
-  ASSERT_EFI_ERROR (Status);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "MM access protocol is missing: %r\n", Status));
+    CpuDeadLoop ();
+  }
 
   //
   // Get MM Communication Protocol 2 instance
   //
   Status = gBS->LocateProtocol (&gEfiMmCommunication2ProtocolGuid, NULL, (VOID **)&mMmCommunication2);
-  ASSERT_EFI_ERROR (Status);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "MM communication protocol is missing: %r\n", Status));
+    CpuDeadLoop ();
+  }
 
   //
   // Create the set of protocol and event notifications that the Standalone Mm requires
@@ -248,6 +263,10 @@ MmCommunicationNotifyEntryPoint (
                                  mMmEvents[Index].NotifyContext,
                                  &Registration
                                  );
+      if (mMmEvents[Index].Event == NULL) {
+        DEBUG ((DEBUG_ERROR, "MM protocol notification registration failed\n"));
+        CpuDeadLoop ();
+      }
     } else {
       Status = gBS->CreateEventEx (
                       EVT_NOTIFY_SIGNAL,
@@ -257,7 +276,10 @@ MmCommunicationNotifyEntryPoint (
                       mMmEvents[Index].Guid,
                       &mMmEvents[Index].Event
                       );
-      ASSERT_EFI_ERROR (Status);
+      if (EFI_ERROR (Status)) {
+        DEBUG ((DEBUG_ERROR, "MM event registration failed: %r\n", Status));
+        CpuDeadLoop ();
+      }
     }
   }
 
