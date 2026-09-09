@@ -69,6 +69,7 @@ MmVirtualAddressChangeEvent (
                                       This parameter is optional and may be NULL.
 
   @retval EFI_SUCCESS                 The message was successfully posted.
+  @retval EFI_NOT_READY               The SMI completed without MM consuming the request.
   @retval EFI_INVALID_PARAMETER       The CommBuffer was NULL or CommSize was invalid.
   @retval EFI_BAD_BUFFER_SIZE         The buffer is too large for the MM implementation.
                                       If this error is returned, the MessageLength field
@@ -143,7 +144,14 @@ ProcessCommunicationBuffer (
   //
   Status = mSmmControl2->Trigger (mSmmControl2, NULL, NULL, FALSE, 0);
   if (EFI_ERROR (Status)) {
+    CommonBufferStatus->IsCommBufferValid = FALSE;
     return EFI_UNSUPPORTED;
+  }
+
+  // MM clears this flag after consuming the request. Do not return stale results.
+  if (CommonBufferStatus->IsCommBufferValid) {
+    CommonBufferStatus->IsCommBufferValid = FALSE;
+    return EFI_NOT_READY;
   }
 
   if (CommonBufferStatus->ReturnBufferSize > BufferSize) {
@@ -181,6 +189,7 @@ ProcessCommunicationBuffer (
                                       start with EFI_MM_COMMUNICATE_HEADER_V3.
 
   @retval EFI_SUCCESS                 The message was successfully posted.
+  @retval EFI_NOT_READY               The SMI completed without MM consuming the request.
   @retval EFI_INVALID_PARAMETER       CommBufferPhysical was NULL or CommBufferVirtual was NULL.
   @retval EFI_BAD_BUFFER_SIZE         The buffer is too large for the MM implementation.
                                       If this error is returned, the MessageSize field
@@ -214,6 +223,7 @@ MmCommunicate3 (
                                       This parameter is optional and may be NULL.
 
   @retval EFI_SUCCESS                 The message was successfully posted.
+  @retval EFI_NOT_READY               The SMI completed without MM consuming the request.
   @retval EFI_INVALID_PARAMETER       The CommBuffer was NULL.
   @retval EFI_BAD_BUFFER_SIZE         The buffer is too large for the MM implementation.
                                       If this error is returned, the MessageLength field
@@ -249,6 +259,7 @@ MmCommunicate2 (
                                       This parameter is optional and may be NULL.
 
   @retval EFI_SUCCESS                 The message was successfully posted.
+  @retval EFI_NOT_READY               The SMI completed without MM consuming the request.
   @retval EFI_INVALID_PARAMETER       The CommBuffer was NULL.
   @retval EFI_BAD_BUFFER_SIZE         The buffer is too large for the MM implementation.
                                       If this error is returned, the MessageLength field
