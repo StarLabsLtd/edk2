@@ -256,15 +256,27 @@ MmCommunicationNotifyEntryPoint (
   //
   for (Index = 0; mMmEvents[Index].NotificationType != EndNotify; Index++) {
     if (mMmEvents[Index].NotificationType == ProtocolNotify) {
-      mMmEvents[Index].Event = EfiCreateProtocolNotifyEvent (
-                                 mMmEvents[Index].Guid,
-                                 TPL_CALLBACK,
-                                 mMmEvents[Index].NotifyFunction,
-                                 mMmEvents[Index].NotifyContext,
-                                 &Registration
-                                 );
-      if (mMmEvents[Index].Event == NULL) {
-        DEBUG ((DEBUG_ERROR, "MM protocol notification registration failed\n"));
+      Status = gBS->CreateEvent (
+                      EVT_NOTIFY_SIGNAL,
+                      TPL_CALLBACK,
+                      mMmEvents[Index].NotifyFunction,
+                      mMmEvents[Index].NotifyContext,
+                      &mMmEvents[Index].Event
+                      );
+      if (EFI_ERROR (Status)) {
+        DEBUG ((DEBUG_ERROR, "MM protocol notification event failed: %r\n", Status));
+        CpuDeadLoop ();
+      }
+
+      Status = gBS->RegisterProtocolNotify (mMmEvents[Index].Guid, mMmEvents[Index].Event, &Registration);
+      if (EFI_ERROR (Status)) {
+        DEBUG ((DEBUG_ERROR, "MM protocol notification registration failed: %r\n", Status));
+        CpuDeadLoop ();
+      }
+
+      Status = gBS->SignalEvent (mMmEvents[Index].Event);
+      if (EFI_ERROR (Status)) {
+        DEBUG ((DEBUG_ERROR, "MM initial protocol notification failed: %r\n", Status));
         CpuDeadLoop ();
       }
     } else {
