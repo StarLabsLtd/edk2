@@ -1,0 +1,29 @@
+## @file
+# Secure Boot configuration policy for the resident payload MM variable service.
+#
+# Copyright (c) 2026, Star Labs Systems. All rights reserved.<BR>
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001B
+  BASE_NAME                      = PlatformSecureLibMm
+  FILE_GUID                      = 49A78669-2AE0-4A39-9F30-686FD0363DE3
+  MODULE_TYPE                    = MM_STANDALONE
+  PI_SPECIFICATION_VERSION       = 0x00010032
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = PlatformSecureLib|MM_STANDALONE
+
+[Sources]
+  PlatformSecureLibMm.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  SecurityPkg/SecurityPkg.dec
+
+[LibraryClasses]
+  MmServicesTableLib
+
+[Guids]
+  gEfiEventReadyToBootGuid
+  gEfiEventExitBootServicesGuid

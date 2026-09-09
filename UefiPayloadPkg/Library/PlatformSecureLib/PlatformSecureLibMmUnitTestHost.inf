@@ -1,0 +1,29 @@
+## @file
+# Host-only checks for the MM Secure Boot configuration window.
+# Copyright (c) 2026, Star Labs Systems. All rights reserved.<BR>
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION    = 0x00010017
+  BASE_NAME      = PlatformSecureLibMmUnitTest
+  FILE_GUID      = AE5D9ED1-902F-4687-BCBF-E11C0D0DDCD5
+  VERSION_STRING = 1.0
+  MODULE_TYPE    = HOST_APPLICATION
+
+[Sources]
+  PlatformSecureLibMm.c
+  PlatformSecureLibMmUnitTest.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  SecurityPkg/SecurityPkg.dec
+  UnitTestFrameworkPkg/UnitTestFrameworkPkg.dec
+
+[LibraryClasses]
+  BaseMemoryLib
+  UnitTestLib
+
+[Guids]
+  gEfiEventReadyToBootGuid
+  gEfiEventExitBootServicesGuid
