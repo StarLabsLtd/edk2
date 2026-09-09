@@ -345,13 +345,15 @@ struct cb_pld_generic_register {
 struct cb_pld_mm_spi_controller_info {
   UINT32                            tag;
   UINT32                            size;
-  UINT16                            revision;    /* The version of this table. Currently "0" */
+  UINT16                            revision;    /* The version of this table. */
   UINT16                            flags;    /* A set of flags to describe this SPI controller, defined above */
   struct cb_pld_generic_register    spi_address;  /* The address of the PCIe SPI controller, if present */
-  /* Downstream revision 1 describes flash, not a RAM read cache. */
+  /* CPU address of the memory-mapped SMMSTORE region. */
   struct cbuint64                  store_base;
   UINT32                           store_size;
   UINT32                           block_size;
+  /* Revision 2: SMMSTORE offset in the SPI flash address space. */
+  UINT32                           store_offset;
 };
 
 /*
