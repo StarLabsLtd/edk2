@@ -176,7 +176,8 @@ InstallFvbProtocol (
 
 EFI_STATUS
 FvbInitialize (
-  IN EFI_FIRMWARE_VOLUME_HEADER  *ValidatedHeader OPTIONAL
+  IN EFI_FIRMWARE_VOLUME_HEADER  *ValidatedHeader OPTIONAL,
+  IN BOOLEAN                     Format
   );
 
 extern FWB_GLOBAL               mFvbModuleGlobal;

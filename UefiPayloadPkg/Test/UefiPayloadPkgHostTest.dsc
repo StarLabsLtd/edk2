@@ -37,6 +37,10 @@
     <BuildOptions>
       GCC:*_*_*_DLINK_FLAGS = -Wl,--gc-sections
   }
+  UefiPayloadPkg/FvbRuntimeDxe/FvbFormatUnitTestHost.inf {
+    <BuildOptions>
+      GCC:*_*_*_DLINK_FLAGS = -Wl,--gc-sections
+  }
   MdeModulePkg/Universal/FaultTolerantWriteDxe/FtwJournalUnitTestHost.inf {
     <BuildOptions>
       GCC:*_*_*_DLINK_FLAGS = -Wl,--gc-sections
