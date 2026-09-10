@@ -329,7 +329,7 @@ FvbStandaloneMmInitialize (
     return Status;
   }
 
-  Status = FvbInitialize ((VOID *)Store.Bytes);
+  Status = FvbInitialize ((VOID *)Store.Bytes, FALSE);
   if (EFI_ERROR (Status)) {
     if (EFI_ERROR (gMmst->MmRegisterProtocolNotify (&gEfiSmmFaultTolerantWriteProtocolGuid, NULL, &Registration))) {
       CpuDeadLoop ();
