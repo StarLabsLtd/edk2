@@ -213,5 +213,5 @@ FvbSmmInitialize (
   IN EFI_SYSTEM_TABLE  *SystemTable
   )
 {
-  return FvbInitialize (NULL, FALSE);
+  return FvbInitialize (NULL, NULL);
 }
