@@ -302,10 +302,12 @@ FvbStandaloneMmInitialize (
   IN EFI_MM_SYSTEM_TABLE  *SystemTable
   )
 {
-  EFI_STATUS         Status;
-  EFI_HOB_GUID_TYPE  *Hob;
-  STORE_HEADER       Store;
-  VOID               *Registration;
+  EFI_FIRMWARE_VOLUME_HEADER  *ValidatedHeader;
+  EFI_HOB_GUID_TYPE           *Hob;
+  EFI_STATUS                  Status;
+  CONST VARIABLE_FLASH_INFO   *FormatInfo;
+  STORE_HEADER                Store;
+  VOID                        *Registration;
 
   Status = LibFvbFlashDeviceInit ();
   if (EFI_ERROR (Status)) {
@@ -315,9 +317,16 @@ FvbStandaloneMmInitialize (
   // Flash initialization validated the HOB and confined access to this store.
   Hob = GetFirstGuidHob (&gVariableFlashInfoHobGuid);
   CopyMem (&mFlashInfo, GET_GUID_HOB_DATA (Hob), sizeof (mFlashInfo));
-  Status = ReadStoreHeader (mFlashInfo.NvVariableBaseAddress, &Store);
+  ValidatedHeader = (VOID *)Store.Bytes;
+  FormatInfo      = NULL;
+  Status          = ReadStoreHeader (mFlashInfo.NvVariableBaseAddress, &Store);
   if (Status == EFI_VOLUME_CORRUPTED) {
     Status = ReadRecoveryHeader (&Store);
+    if (Status == EFI_VOLUME_CORRUPTED) {
+      ValidatedHeader = NULL;
+      FormatInfo      = &mFlashInfo;
+      Status          = EFI_SUCCESS;
+    }
   }
 
   if (EFI_ERROR (Status)) {
@@ -329,7 +338,7 @@ FvbStandaloneMmInitialize (
     return Status;
   }
 
-  Status = FvbInitialize ((VOID *)Store.Bytes);
+  Status = FvbInitialize (ValidatedHeader, FormatInfo);
   if (EFI_ERROR (Status)) {
     if (EFI_ERROR (gMmst->MmRegisterProtocolNotify (&gEfiSmmFaultTolerantWriteProtocolGuid, NULL, &Registration))) {
       CpuDeadLoop ();
