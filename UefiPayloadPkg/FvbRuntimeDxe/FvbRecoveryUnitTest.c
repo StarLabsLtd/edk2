@@ -8,10 +8,21 @@
 #include <Uefi.h>
 #include <Library/UnitTestLib.h>
 #include <Library/SmmStoreGeometryLib.h>
+#include "FvbInfo.c"
 #include "FvbServiceStandaloneMm.c"
 
 STATIC UINT8       mImage[SIZE_512KB];
 STATIC EFI_STATUS  mReadStatus;
+
+EFI_STATUS
+EFIAPI
+GetVariableFlashFtwSpareInfo (
+  OUT EFI_PHYSICAL_ADDRESS  *BaseAddress,
+  OUT UINT64                *Length
+  )
+{
+  return EFI_UNSUPPORTED;
+}
 
 EFI_STATUS
 EFIAPI
@@ -38,6 +49,33 @@ LibFvbFlashDeviceRead (
 
   CopyMem (Buffer, mImage + Offset, *Size);
   return EFI_SUCCESS;
+}
+
+STATIC
+UNIT_TEST_STATUS
+EFIAPI
+FormatHeader (
+  IN UNIT_TEST_CONTEXT  Context
+  )
+{
+  EFI_FIRMWARE_VOLUME_HEADER  *Header;
+
+  UT_ASSERT_NOT_EFI_ERROR (SmmStoreGetFlashInfo (0xFF630000, SIZE_64KB, 8, &mFlashInfo));
+  Header = GetFvHeaderTemplate (&mFlashInfo);
+  UT_ASSERT_NOT_NULL (Header);
+  UT_ASSERT_EQUAL (Header->FvLength, SIZE_512KB);
+  UT_ASSERT_EQUAL (Header->BlockMap[0].Length, SIZE_64KB);
+  UT_ASSERT_EQUAL (Header->BlockMap[0].NumBlocks, 8);
+  UT_ASSERT_EQUAL (CalculateSum16 ((UINT16 *)Header, Header->HeaderLength), 0);
+
+  UT_ASSERT_NOT_EFI_ERROR (SmmStoreGetFlashInfo (0xFF900000, SIZE_64KB, 7, &mFlashInfo));
+  Header = GetFvHeaderTemplate (&mFlashInfo);
+  UT_ASSERT_NOT_NULL (Header);
+  UT_ASSERT_EQUAL (Header->FvLength, 7 * SIZE_64KB);
+  UT_ASSERT_EQUAL (Header->BlockMap[0].Length, SIZE_64KB);
+  UT_ASSERT_EQUAL (Header->BlockMap[0].NumBlocks, 7);
+  UT_ASSERT_EQUAL (CalculateSum16 ((UINT16 *)Header, Header->HeaderLength), 0);
+  return UNIT_TEST_PASSED;
 }
 
 STATIC
@@ -121,6 +159,10 @@ main (
   }
 
   Status = CreateUnitTestSuite (&Suite, Framework, "Recovery bootstrap", "Fvb.Recovery", NULL, NULL);
+  if (!EFI_ERROR (Status)) {
+    Status = AddTestCase (Suite, "Build format header from store geometry", "Format", FormatHeader, NULL, NULL, NULL);
+  }
+
   if (!EFI_ERROR (Status)) {
     Status = AddTestCase (Suite, "Primary and spare snapshots", "Snapshot", RecoverySnapshot, NULL, NULL, NULL);
   }
