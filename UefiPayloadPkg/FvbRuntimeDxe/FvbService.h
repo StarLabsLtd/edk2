@@ -11,6 +11,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Guid/EventGroup.h>
 #include <Guid/FirmwareFileSystem2.h>
 #include <Guid/SystemNvDataGuid.h>
+#include <Guid/VariableFlashInfo.h>
 #include <Guid/VariableFormat.h>
 #include <Protocol/DevicePath.h>
 #include <Protocol/FirmwareVolumeBlock.h>
@@ -84,12 +85,15 @@ typedef struct {
 /**
   Get a heathy FV header used for variable store recovery
 
-  @retval     The FV header.
+  @param[in]  FlashInfo    The validated store geometry, or NULL to use the
+                           configured variable-store layout.
+
+  @retval     The FV header, or NULL if the geometry is invalid.
 
 **/
 EFI_FIRMWARE_VOLUME_HEADER *
 GetFvHeaderTemplate (
-  VOID
+  IN CONST VARIABLE_FLASH_INFO  *FlashInfo OPTIONAL
   );
 
 EFI_STATUS
@@ -177,7 +181,7 @@ InstallFvbProtocol (
 EFI_STATUS
 FvbInitialize (
   IN EFI_FIRMWARE_VOLUME_HEADER  *ValidatedHeader OPTIONAL,
-  IN BOOLEAN                     Format
+  IN CONST VARIABLE_FLASH_INFO   *FormatInfo OPTIONAL
   );
 
 extern FWB_GLOBAL               mFvbModuleGlobal;
