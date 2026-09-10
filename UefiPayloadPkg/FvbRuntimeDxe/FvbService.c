@@ -968,7 +968,7 @@ WriteInitialVariableData (
   Firmware Volume Block Driver.
 
   @param[in]  ValidatedHeader   A previously validated store header, or NULL.
-  @param[in]  Format            Format the store without reading its header.
+  @param[in]  FormatInfo        The validated geometry to use when formatting.
 
   @retval     EFI_SUCCESS       The firmware volume was initialized.
   @retval     Others            The firmware volume could not be initialized.
@@ -977,7 +977,7 @@ WriteInitialVariableData (
 EFI_STATUS
 FvbInitialize (
   IN EFI_FIRMWARE_VOLUME_HEADER  *ValidatedHeader OPTIONAL,
-  IN BOOLEAN                     Format
+  IN CONST VARIABLE_FLASH_INFO   *FormatInfo OPTIONAL
   )
 {
   EFI_FW_VOL_INSTANCE         *FwVolInstance;
@@ -985,6 +985,7 @@ FvbInitialize (
   EFI_FV_BLOCK_MAP_ENTRY      *BlockMap;
   EFI_PHYSICAL_ADDRESS        BaseAddress;
   UINT64                      NvVariableLength;
+  UINTN                       EraseLength;
   UINTN                       WriteAddr;
   EFI_STATUS                  LockStatus;
   EFI_STATUS                  Status;
@@ -1007,18 +1008,23 @@ FvbInitialize (
   //
   // Check FV header and variable store header
   //
-  if (Format || ((ValidatedHeader == NULL) && !IsFvHeaderValid (BaseAddress))) {
+  if ((FormatInfo != NULL) || ((ValidatedHeader == NULL) && !IsFvHeaderValid (BaseAddress))) {
     //
     //  Write back a healthy FV header
     //
     DEBUG ((DEBUG_ERROR, "Fvb: Writing back a healthy FV header: 0x%lx\n", BaseAddress));
-    FvHeader = GetFvHeaderTemplate ();
-    Status   = LibFvbFlashDeviceBlockLock ((UINTN)BaseAddress, FvHeader->BlockMap->Length, FALSE);
+    FvHeader = GetFvHeaderTemplate (FormatInfo);
+    if (FvHeader == NULL) {
+      return EFI_INVALID_PARAMETER;
+    }
+
+    EraseLength = FormatInfo == NULL ? FvHeader->BlockMap->Length : (UINTN)FvHeader->FvLength;
+    Status      = LibFvbFlashDeviceBlockLock ((UINTN)BaseAddress, EraseLength, FALSE);
     if (EFI_ERROR (Status)) {
       return Status;
     }
 
-    Status = LibFvbFlashDeviceBlockErase ((UINTN)BaseAddress, FvHeader->BlockMap->Length);
+    Status = LibFvbFlashDeviceBlockErase ((UINTN)BaseAddress, EraseLength);
     if (EFI_ERROR (Status)) {
       goto Lock;
     }
@@ -1068,8 +1074,8 @@ FvbInitialize (
     Status = EFI_SUCCESS;
 
 Lock:
-    LockStatus = LibFvbFlashDeviceBlockLock ((UINTN)BaseAddress, FvHeader->BlockMap->Length, TRUE);
-    WriteBackInvalidateDataCacheRange ((VOID *)(UINTN)BaseAddress, FvHeader->BlockMap->Length);
+    LockStatus = LibFvbFlashDeviceBlockLock ((UINTN)BaseAddress, EraseLength, TRUE);
+    WriteBackInvalidateDataCacheRange ((VOID *)(UINTN)BaseAddress, EraseLength);
     if (!EFI_ERROR (Status)) {
       Status = LockStatus;
     }
