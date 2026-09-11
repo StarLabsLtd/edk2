@@ -226,7 +226,9 @@ SendCommunicateBuffer (
                                   mVariableBufferPhysical,
                                   mVariableBuffer
                                   );
-    ASSERT_EFI_ERROR (Status);
+    if (EFI_ERROR (Status)) {
+      return Status;
+    }
 
     SmmCommunicateHeaderV3    = (EFI_MM_COMMUNICATE_HEADER_V3 *)mVariableBuffer;
     SmmVariableFunctionHeader = (SMM_VARIABLE_COMMUNICATE_HEADER *)SmmCommunicateHeaderV3->MessageData;
@@ -240,7 +242,9 @@ SendCommunicateBuffer (
                                     mVariableBuffer,
                                     &CommSize
                                     );
-    ASSERT_EFI_ERROR (Status);
+    if (EFI_ERROR (Status)) {
+      return Status;
+    }
 
     SmmCommunicateHeader      = (EFI_MM_COMMUNICATE_HEADER *)mVariableBuffer;
     SmmVariableFunctionHeader = (SMM_VARIABLE_COMMUNICATE_HEADER *)SmmCommunicateHeader->Data;
