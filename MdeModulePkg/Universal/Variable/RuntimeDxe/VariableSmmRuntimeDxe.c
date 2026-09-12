@@ -200,7 +200,8 @@ InitCommunicateBuffer (
     SmmVariableFunctionHeader           = (SMM_VARIABLE_COMMUNICATE_HEADER *)SmmCommunicateHeader->Data;
   }
 
-  SmmVariableFunctionHeader->Function = Function;
+  SmmVariableFunctionHeader->Function     = Function;
+  SmmVariableFunctionHeader->ReturnStatus = EFI_DEVICE_ERROR;
   if (DataPtr != NULL) {
     *DataPtr = SmmVariableFunctionHeader->Data;
   }
@@ -1456,7 +1457,8 @@ GetVariablePayloadSize (
     SmmCommunicateHeaderV3->MessageSize = SMM_VARIABLE_COMMUNICATE_HEADER_SIZE + sizeof (SMM_VARIABLE_COMMUNICATE_GET_PAYLOAD_SIZE);
     SmmVariableFunctionHeader           = (SMM_VARIABLE_COMMUNICATE_HEADER *)SmmCommunicateHeaderV3->MessageData;
 
-    SmmVariableFunctionHeader->Function = SMM_VARIABLE_FUNCTION_GET_PAYLOAD_SIZE;
+    SmmVariableFunctionHeader->Function     = SMM_VARIABLE_FUNCTION_GET_PAYLOAD_SIZE;
+    SmmVariableFunctionHeader->ReturnStatus = EFI_DEVICE_ERROR;
     SmmGetPayloadSize                   = (SMM_VARIABLE_COMMUNICATE_GET_PAYLOAD_SIZE *)SmmVariableFunctionHeader->Data;
 
     //
@@ -1479,7 +1481,8 @@ GetVariablePayloadSize (
     SmmCommunicateHeader->MessageLength = SMM_VARIABLE_COMMUNICATE_HEADER_SIZE + sizeof (SMM_VARIABLE_COMMUNICATE_GET_PAYLOAD_SIZE);
     SmmVariableFunctionHeader           = (SMM_VARIABLE_COMMUNICATE_HEADER *)SmmCommunicateHeader->Data;
 
-    SmmVariableFunctionHeader->Function = SMM_VARIABLE_FUNCTION_GET_PAYLOAD_SIZE;
+    SmmVariableFunctionHeader->Function     = SMM_VARIABLE_FUNCTION_GET_PAYLOAD_SIZE;
+    SmmVariableFunctionHeader->ReturnStatus = EFI_DEVICE_ERROR;
     SmmGetPayloadSize                   = (SMM_VARIABLE_COMMUNICATE_GET_PAYLOAD_SIZE *)SmmVariableFunctionHeader->Data;
 
     //
@@ -1564,7 +1567,8 @@ GetRuntimeCacheInfo (
     SmmCommunicateHeaderV3->MessageSize = SMM_VARIABLE_COMMUNICATE_HEADER_SIZE + sizeof (SMM_VARIABLE_COMMUNICATE_GET_RUNTIME_CACHE_INFO);
 
     SmmVariableFunctionHeader           = (SMM_VARIABLE_COMMUNICATE_HEADER *)SmmCommunicateHeaderV3->MessageData;
-    SmmVariableFunctionHeader->Function = SMM_VARIABLE_FUNCTION_GET_RUNTIME_CACHE_INFO;
+    SmmVariableFunctionHeader->Function     = SMM_VARIABLE_FUNCTION_GET_RUNTIME_CACHE_INFO;
+    SmmVariableFunctionHeader->ReturnStatus = EFI_DEVICE_ERROR;
     SmmGetRuntimeCacheInfo              = (SMM_VARIABLE_COMMUNICATE_GET_RUNTIME_CACHE_INFO *)SmmVariableFunctionHeader->Data;
 
     //
@@ -1581,7 +1585,8 @@ GetRuntimeCacheInfo (
     SmmCommunicateHeader->MessageLength = SMM_VARIABLE_COMMUNICATE_HEADER_SIZE + sizeof (SMM_VARIABLE_COMMUNICATE_GET_RUNTIME_CACHE_INFO);
 
     SmmVariableFunctionHeader           = (SMM_VARIABLE_COMMUNICATE_HEADER *)SmmCommunicateHeader->Data;
-    SmmVariableFunctionHeader->Function = SMM_VARIABLE_FUNCTION_GET_RUNTIME_CACHE_INFO;
+    SmmVariableFunctionHeader->Function     = SMM_VARIABLE_FUNCTION_GET_RUNTIME_CACHE_INFO;
+    SmmVariableFunctionHeader->ReturnStatus = EFI_DEVICE_ERROR;
     SmmGetRuntimeCacheInfo              = (SMM_VARIABLE_COMMUNICATE_GET_RUNTIME_CACHE_INFO *)SmmVariableFunctionHeader->Data;
 
     //
@@ -1737,7 +1742,8 @@ SendRuntimeVariableCacheContextToSmm (
     SmmCommunicateHeaderV3->MessageSize = SMM_VARIABLE_COMMUNICATE_HEADER_SIZE + sizeof (SMM_VARIABLE_COMMUNICATE_RUNTIME_VARIABLE_CACHE_CONTEXT);
 
     SmmVariableFunctionHeader           = (SMM_VARIABLE_COMMUNICATE_HEADER *)SmmCommunicateHeaderV3->MessageData;
-    SmmVariableFunctionHeader->Function = SMM_VARIABLE_FUNCTION_INIT_RUNTIME_VARIABLE_CACHE_CONTEXT;
+    SmmVariableFunctionHeader->Function     = SMM_VARIABLE_FUNCTION_INIT_RUNTIME_VARIABLE_CACHE_CONTEXT;
+    SmmVariableFunctionHeader->ReturnStatus = EFI_DEVICE_ERROR;
     SmmRuntimeVarCacheContext           = (SMM_VARIABLE_COMMUNICATE_RUNTIME_VARIABLE_CACHE_CONTEXT *)SmmVariableFunctionHeader->Data;
 
     SmmRuntimeVarCacheContext->RuntimeHobCache      = (VARIABLE_STORE_HEADER *)(UINTN)mVariableRtCacheInfo.RuntimeHobCacheBuffer;
@@ -1765,7 +1771,8 @@ SendRuntimeVariableCacheContextToSmm (
     SmmCommunicateHeader->MessageLength = SMM_VARIABLE_COMMUNICATE_HEADER_SIZE + sizeof (SMM_VARIABLE_COMMUNICATE_RUNTIME_VARIABLE_CACHE_CONTEXT);
 
     SmmVariableFunctionHeader           = (SMM_VARIABLE_COMMUNICATE_HEADER *)SmmCommunicateHeader->Data;
-    SmmVariableFunctionHeader->Function = SMM_VARIABLE_FUNCTION_INIT_RUNTIME_VARIABLE_CACHE_CONTEXT;
+    SmmVariableFunctionHeader->Function     = SMM_VARIABLE_FUNCTION_INIT_RUNTIME_VARIABLE_CACHE_CONTEXT;
+    SmmVariableFunctionHeader->ReturnStatus = EFI_DEVICE_ERROR;
     SmmRuntimeVarCacheContext           = (SMM_VARIABLE_COMMUNICATE_RUNTIME_VARIABLE_CACHE_CONTEXT *)SmmVariableFunctionHeader->Data;
 
     SmmRuntimeVarCacheContext->RuntimeHobCache      = (VARIABLE_STORE_HEADER *)(UINTN)mVariableRtCacheInfo.RuntimeHobCacheBuffer;
