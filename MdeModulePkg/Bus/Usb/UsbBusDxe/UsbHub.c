@@ -850,6 +850,12 @@ UsbHubResetPort (
   UINTN                Index;
   EFI_STATUS           Status;
 
+  //
+  // Timing control: also settle before retry resets, as in Slim Bootloader.
+  // Initial enumeration already waits for stability in UsbEnumerateNewDev().
+  //
+  gBS->Stall (USB_WAIT_PORT_STABLE_STALL);
+
   Status = UsbHubSetPortFeature (HubIf, Port, (EFI_USB_PORT_FEATURE)USB_HUB_PORT_RESET);
 
   if (EFI_ERROR (Status)) {
