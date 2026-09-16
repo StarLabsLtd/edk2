@@ -66,6 +66,27 @@ CfrUpdateSecurityMenuEntries (
   );
 
 /**
+  Register a ReadyToBoot callback that write-locks CFR variables marked
+  CFR_OPTFLAG_LOCK_AT_BOOT.
+
+**/
+EFI_STATUS
+EFIAPI
+CfrRegisterLockAtBootEvent (
+  VOID
+  );
+
+/**
+  Free deferred lock state. Safe to call if nothing was registered.
+
+**/
+VOID
+EFIAPI
+CfrCleanupLockAtBoot (
+  VOID
+  );
+
+/**
   This function allows a caller to extract the current configuration for one
   or more named elements from the target driver.
 
