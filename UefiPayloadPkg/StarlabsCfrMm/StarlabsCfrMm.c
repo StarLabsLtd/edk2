@@ -51,6 +51,8 @@ STATIC CONST CFR_OPTION  mOptions[] = {
   },
   { CfrPowerOnAc,          L"power_on_ac",     2, { 0,    1    }
   },
+  { CfrChargingPolicy,     L"charging_policy", 3, { 0, 0xaa, 0xbb }
+  },
   { CfrAutomaticStart,     L"automatic_start", 3, { 0,    1, 2 }
   }
 };

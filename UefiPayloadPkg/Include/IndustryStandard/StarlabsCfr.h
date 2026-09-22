@@ -23,7 +23,7 @@
 #define STARLABS_CFR_NOT_FOUND    3
 #define STARLABS_CFR_UNSUPPORTED  4
 #define STARLABS_CFR_DENIED       5
-#define STARLABS_CFR_OPTION_MASK  (0x3FFE | BIT18)
+#define STARLABS_CFR_OPTION_MASK  (0x3FFE | BIT18 | BIT19)
 
 typedef enum {
   CfrFnLock             = 1,
@@ -39,7 +39,8 @@ typedef enum {
   CfrPowerLed           = 11,
   CfrChargeLed          = 12,
   CfrPowerOnAc          = 13,
-  CfrAutomaticStart     = 18
+  CfrAutomaticStart     = 18,
+  CfrChargingPolicy     = 19
 } STARLABS_CFR_OPTION;
 
 typedef struct {
