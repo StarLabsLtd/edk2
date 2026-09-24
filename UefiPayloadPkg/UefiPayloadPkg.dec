@@ -165,6 +165,11 @@ gUefiPayloadPkgTokenSpaceGuid.PcdConnectAllDevices|TRUE|BOOLEAN|0x00000035
 
 gUefiPayloadPkgTokenSpaceGuid.PcdCbmemTimestamps|FALSE|BOOLEAN|0x00000036
 
+
+## Use the two-step full-reset sequence when the FADT reset register is CF9.
+## Platforms which require the FADT-advertised reset value can override this.
+gUefiPayloadPkgTokenSpaceGuid.PcdUseFullCf9ResetSequence|TRUE|BOOLEAN|0x0000003C
+
 [PcdsFixedAtBuild]
 ## If PcdPayloadFbHiDpiWideAspectCapSupport is enabled and the physical
 ## framebuffer is wider than the configured aspect ratio, the alternate setup GOP

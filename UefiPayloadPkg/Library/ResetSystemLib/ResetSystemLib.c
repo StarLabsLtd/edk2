@@ -78,7 +78,9 @@ ResetCold (
   // Flush before asserting reset so the platform does not hang mid-reboot.
   //
   AsmWbinvd ();
-  if (mAcpiBoardInfo.ResetRegAddress == LEGACY_RESET_CONTROL_REG) {
+  if ((mAcpiBoardInfo.ResetRegAddress == LEGACY_RESET_CONTROL_REG) &&
+      FeaturePcdGet (PcdUseFullCf9ResetSequence))
+  {
     IoWrite8 (LEGACY_RESET_CONTROL_REG, LEGACY_RESET_FULL | LEGACY_RESET_SYSTEM);
     IoWrite8 (
       LEGACY_RESET_CONTROL_REG,
