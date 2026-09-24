@@ -710,6 +710,7 @@ ParseSerialPort (
   Serial->Header.Length   = sizeof (UNIVERSAL_PAYLOAD_SERIAL_PORT_INFO);
   Serial->RegisterStride  = 1;
   Serial->UseMmio         = TRUE;
+  Serial->InputHertz      = 0;
 
   PropertyPtr = FdtGetProperty (Fdt, SubNode, "current-speed", &TempLen);
   ASSERT (TempLen > 0);
