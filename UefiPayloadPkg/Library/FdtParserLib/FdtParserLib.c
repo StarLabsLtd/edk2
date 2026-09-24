@@ -725,6 +725,12 @@ ParseSerialPort (
     Serial->RegisterStride = (UINT8)(1 << Fdt32ToCpu (*Data32));
   }
 
+  PropertyPtr = FdtGetProperty (Fdt, SubNode, "clock-frequency", &TempLen);
+  if (TempLen > 0) {
+    Data32             = (UINT32 *)(PropertyPtr->Data);
+    Serial->InputHertz = Fdt32ToCpu (*Data32);
+  }
+
   PropertyPtr = FdtGetProperty (Fdt, SubNode, "reg", &TempLen);
   ASSERT (TempLen > 0);
   if (TempLen > 0) {
@@ -766,6 +772,7 @@ ParseSerialPort (
   DEBUG ((DEBUG_INFO, "Serial->RegisterBase   = 0x%x\n", Serial->RegisterBase));
   DEBUG ((DEBUG_INFO, "Serial->BaudRate       = %d\n", Serial->BaudRate));
   DEBUG ((DEBUG_INFO, "Serial->RegisterStride = %x\n", Serial->RegisterStride));
+  DEBUG ((DEBUG_INFO, "Serial->InputHertz     = %d\n", Serial->InputHertz));
 }
 
 /**
