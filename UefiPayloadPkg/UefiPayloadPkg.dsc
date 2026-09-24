@@ -789,6 +789,7 @@
   gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiWideAspectCapSupport|$(PAYLOAD_FB_HIDPI_WIDE_ASPECT_CAP_SUPPORT)
   gUefiPayloadPkgTokenSpaceGuid.PcdConnectAllDevices|$(CONNECT_ALL_DEVICES)
   gUefiPayloadPkgTokenSpaceGuid.PcdCbmemTimestamps|$(CBMEM_TIMESTAMPS)
+  gUefiPayloadPkgTokenSpaceGuid.PcdUseFullCf9ResetSequence|TRUE
   ## This PCD specified whether ACPI SDT protocol is installed.
   gEfiMdeModulePkgTokenSpaceGuid.PcdInstallAcpiSdtProtocol|TRUE
   gEfiMdeModulePkgTokenSpaceGuid.PcdHiiOsRuntimeSupport|FALSE
