@@ -1425,6 +1425,9 @@ SetupResetReminder (
     FreePool (StringBuffer1);
     FreePool (StringBuffer2);
 
-    gRT->ResetSystem (EfiResetCold, EFI_SUCCESS, 0, NULL);
+    //
+    // Warm reset keeps in-memory requests (e.g. TPM PPI) across the reboot.
+    //
+    gRT->ResetSystem (EfiResetWarm, EFI_SUCCESS, 0, NULL);
   }
 }
