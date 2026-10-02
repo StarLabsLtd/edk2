@@ -2171,17 +2171,12 @@ FmpDeviceSetImageWithStatus (
       FlashFmapBuffer = NULL;
     }
 
-    if (UseManifest && LayoutMismatch) {
+    if (LayoutMismatch) {
       //
-      // Manifest regions no longer match the current flash layout; fall back to
-      // flashing the full BIOS region from the new image.
+      // A manifest authorizes only its selected regions. Never broaden that
+      // selection when the current flash layout cannot be verified.
       //
-      CHAR8        RegionName[REGION_MANIFEST_NAME_LEN + 1];
-      CONST CHAR8  *BiosRegionSource;
-
-      UseManifest            = FALSE;
-      UseBiosRegion          = FALSE;
-      VariableStorePreserved = FALSE;
+      CHAR8  RegionName[REGION_MANIFEST_NAME_LEN + 1];
 
       if (MismatchIndex != MAX_UINTN) {
         CopyMem (
@@ -2202,31 +2197,8 @@ FmpDeviceSetImageWithStatus (
           ));
       }
 
-      TriedBiosFallback = TRUE;
-      if (!EFI_ERROR (
-             FindBiosFallbackRegion (
-               BlockSize,
-               BaseImageSize,
-               (CONST UINT8 *)Image,
-               BaseImageSize,
-               &BiosOffset,
-               &BiosSize,
-               &BiosRegionSource
-               )
-             ))
-      {
-        UseBiosRegion = TRUE;
-        DEBUG ((
-          DEBUG_WARN,
-          "%a(): flashing %a BIOS region instead (0x%x+0x%x)\n",
-          __func__,
-          BiosRegionSource,
-          (UINT32)BiosOffset,
-          (UINT32)BiosSize
-          ));
-      } else {
-        DEBUG ((DEBUG_WARN, "%a(): unable to locate BIOS region for fallback\n", __func__));
-      }
+      DEBUG ((DEBUG_ERROR, "%a(): refusing to broaden manifest update\n", __func__));
+      goto InvalidImage;
     }
   }
 
