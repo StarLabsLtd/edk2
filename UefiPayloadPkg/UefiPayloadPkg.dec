@@ -167,6 +167,10 @@ gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiWideAspectCapHeight|9|UINT32|0x00
 
 ## Hardware S5 sleep type written to PM1_CNT by ResetShutdown().
 gUefiPayloadPkgTokenSpaceGuid.PcdResetShutdownSleepType|7|UINT16|0x00000039
+## Include CF9 FULL_RST in the cold-reset sequence. Platforms that configure
+#  power-good toggling separately may select the hard-reset sequence instead.
+gUefiPayloadPkgTokenSpaceGuid.PcdResetColdUseFullCf9|TRUE|BOOLEAN|0x0000003B
+
 [PcdsFeatureFlag]
 ## Enable the coreboot payload MM variable service.
 gUefiPayloadPkgTokenSpaceGuid.PcdPayloadMmSupport|FALSE|BOOLEAN|0x0000003A
