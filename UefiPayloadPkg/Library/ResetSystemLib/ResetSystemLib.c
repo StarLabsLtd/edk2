@@ -73,17 +73,21 @@ ResetCold (
   VOID
   )
 {
+  UINT8  ResetControl;
+
   //
   // Capsule updates may leave flash writes pending in cache-backed paths.
   // Flush before asserting reset so the platform does not hang mid-reboot.
   //
   AsmWbinvd ();
   if (mAcpiBoardInfo.ResetRegAddress == LEGACY_RESET_CONTROL_REG) {
-    IoWrite8 (LEGACY_RESET_CONTROL_REG, LEGACY_RESET_FULL | LEGACY_RESET_SYSTEM);
-    IoWrite8 (
-      LEGACY_RESET_CONTROL_REG,
-      LEGACY_RESET_FULL | LEGACY_RESET_CPU | LEGACY_RESET_SYSTEM
-      );
+    ResetControl = LEGACY_RESET_SYSTEM;
+    if (FixedPcdGetBool (PcdResetColdUseFullCf9)) {
+      ResetControl |= LEGACY_RESET_FULL;
+    }
+
+    IoWrite8 (LEGACY_RESET_CONTROL_REG, ResetControl);
+    IoWrite8 (LEGACY_RESET_CONTROL_REG, ResetControl | LEGACY_RESET_CPU);
   } else {
     IoWrite8 ((UINTN)mAcpiBoardInfo.ResetRegAddress, mAcpiBoardInfo.ResetValue);
   }
