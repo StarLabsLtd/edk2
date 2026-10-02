@@ -32,6 +32,7 @@
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/UefiRuntimeServicesTableLib.h>
 #include <Coreboot.h>
+#include <LastAttemptStatus.h>
 
 #include "FmpDeviceSmmFlashRetry.h"
 #include "FmpDeviceSmmManifest.h"
@@ -43,6 +44,14 @@
 #define FMAP_SIGNATURE  "__FMAP__"
 #define FMAP_VER_MAJOR  1
 #define FMAP_NAME_LEN   32
+
+// Device-library failure codes are retained by FmpDxe across the update reset.
+#define SMM_FMP_ERROR_FLASH_FMAP_READ    (LAST_ATTEMPT_STATUS_DEVICE_LIBRARY_MIN_ERROR_CODE_VALUE + 0)
+#define SMM_FMP_ERROR_FLASH_FMAP_PARSE   (LAST_ATTEMPT_STATUS_DEVICE_LIBRARY_MIN_ERROR_CODE_VALUE + 1)
+#define SMM_FMP_ERROR_FLASH_FMAP_OTHER   (LAST_ATTEMPT_STATUS_DEVICE_LIBRARY_MIN_ERROR_CODE_VALUE + 2)
+#define SMM_FMP_ERROR_FLASH_REGION       (LAST_ATTEMPT_STATUS_DEVICE_LIBRARY_MIN_ERROR_CODE_VALUE + 3)
+#define SMM_FMP_ERROR_FLASH_LAYOUT       (LAST_ATTEMPT_STATUS_DEVICE_LIBRARY_MIN_ERROR_CODE_VALUE + 4)
+#define SMM_FMP_ERROR_CAPSULE_METADATA   (LAST_ATTEMPT_STATUS_DEVICE_LIBRARY_MIN_ERROR_CODE_VALUE + 5)
 
 #pragma pack(1)
 typedef struct {
@@ -173,7 +182,14 @@ ReadAnyBlockWithRetry (
   OUT    VOID     *Buffer
   )
 {
-  return FmpDeviceFlashReadWithRetry (&mFlashIo, Lba, Offset, NumBytes, Buffer);
+  EFI_STATUS  Status;
+
+  Status = FmpDeviceFlashReadWithRetry (&mFlashIo, Lba, Offset, NumBytes, Buffer);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "%a(): LBA 0x%Lx offset 0x%Lx: %r\n", __func__, Lba, (UINT64)Offset, Status));
+  }
+
+  return Status;
 }
 
 /**
@@ -195,7 +211,14 @@ ProgramAnyBlockWithRetry (
   IN  UINTN        BlockSize
   )
 {
-  return FmpDeviceFlashProgramWithRetry (&mFlashIo, Lba, Expected, VerifyBuffer, BlockSize);
+  EFI_STATUS  Status;
+
+  Status = FmpDeviceFlashProgramWithRetry (&mFlashIo, Lba, Expected, VerifyBuffer, BlockSize);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "%a(): LBA 0x%Lx: %r\n", __func__, Lba, Status));
+  }
+
+  return Status;
 }
 
 STATIC
@@ -1289,6 +1312,7 @@ FmpDeviceCheckImageWithStatus (
     }
   } else if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "%a(): invalid region manifest: %r\n", __func__, Status));
+    *LastAttemptStatus = SMM_FMP_ERROR_CAPSULE_METADATA;
     return EFI_ABORTED;
   } else if (FirmwareImageSize != FwSize) {
     DEBUG ((
@@ -1963,6 +1987,7 @@ FmpDeviceSetImageWithStatus (
   if (ManifestEntryCount > 0) {
     if ((FmapHeader == NULL) || (FmapHeader->AreaCount == 0)) {
       DEBUG ((DEBUG_ERROR, "%a(): manifest found without a valid FMAP\n", __func__));
+      *LastAttemptStatus = SMM_FMP_ERROR_CAPSULE_METADATA;
       return EFI_ABORTED;
     }
 
@@ -2083,6 +2108,13 @@ FmpDeviceSetImageWithStatus (
                             );
     if (EFI_ERROR (FlashFmapStatus)) {
       LayoutMismatch = TRUE;
+      if (FlashFmapStatus == EFI_DEVICE_ERROR) {
+        *LastAttemptStatus = SMM_FMP_ERROR_FLASH_FMAP_READ;
+      } else if (FlashFmapStatus == EFI_NOT_FOUND) {
+        *LastAttemptStatus = SMM_FMP_ERROR_FLASH_FMAP_PARSE;
+      } else {
+        *LastAttemptStatus = SMM_FMP_ERROR_FLASH_FMAP_OTHER;
+      }
       DEBUG ((DEBUG_WARN, "%a(): failed to load flash FMAP: %r\n", __func__, FlashFmapStatus));
     } else {
       Status = FindFmapRegion (
@@ -2145,6 +2177,7 @@ FmpDeviceSetImageWithStatus (
                    &FlashRegionSize
                    );
         if (EFI_ERROR (Status) || (FlashRegionOffset != RegionOffset) || (FlashRegionSize != RegionSize)) {
+          *LastAttemptStatus = EFI_ERROR (Status) ? SMM_FMP_ERROR_FLASH_REGION : SMM_FMP_ERROR_FLASH_LAYOUT;
           LayoutMismatch      = TRUE;
           MismatchIndex       = EntryIndex;
           CapsuleRegionOffset = RegionOffset;
@@ -2389,6 +2422,10 @@ FmpDeviceSetImageWithStatus (
   return EFI_SUCCESS;
 
 InvalidImage:
+  if (*LastAttemptStatus == LAST_ATTEMPT_STATUS_ERROR_UNSUCCESSFUL) {
+    *LastAttemptStatus = SMM_FMP_ERROR_CAPSULE_METADATA;
+  }
+
   if (FlashFmapBuffer != NULL) {
     FreePool (FlashFmapBuffer);
   }
@@ -2438,11 +2475,9 @@ IoError:
   FreePool (ReadBuffer);
   DEBUG ((
     DEBUG_ERROR,
-    "%a(): flashing has failed at block 0x%x/0x%x: %r\n",
+    "%a(): flashing has failed: %r\n",
     __func__,
-    Block,
-    BlockCount,
-    EFI_DEVICE_ERROR
+    Status
     ));
   return EFI_DEVICE_ERROR;
 }
