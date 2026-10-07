@@ -77,10 +77,10 @@ CfrRegisterLockAtBootEvent (
   );
 
 /**
-  Free deferred lock state. Safe to call if nothing was registered.
+  Activate boot locks and close the event before unloading.
 
 **/
-VOID
+EFI_STATUS
 EFIAPI
 CfrCleanupLockAtBoot (
   VOID
