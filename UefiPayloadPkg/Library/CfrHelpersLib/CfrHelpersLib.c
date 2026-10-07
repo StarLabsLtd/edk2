@@ -18,7 +18,7 @@
 #define CFR_MAX_NESTING_DEPTH  32
 #define CFR_OPTION_FLAGS_MASK  (CFR_OPTFLAG_READONLY | CFR_OPTFLAG_INACTIVE | \
                                 CFR_OPTFLAG_SUPPRESS | CFR_OPTFLAG_VOLATILE | \
-                                CFR_OPTFLAG_RUNTIME)
+                                CFR_OPTFLAG_RUNTIME | CFR_OPTFLAG_LOCK_AT_BOOT)
 
 /**
   CFR_VARBINARY records are variable-length, so they aren't formal fields.
