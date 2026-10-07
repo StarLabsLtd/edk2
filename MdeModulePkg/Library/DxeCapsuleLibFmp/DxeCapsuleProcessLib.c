@@ -285,6 +285,7 @@ InitCapsulePtr (
   UINTN                 Index;
   UINTN                 Index2;
   UINTN                 Index3;
+  UINTN                 CapsuleIndex;
   UINTN                 CapsuleNameNumber;
   UINTN                 CapsuleNameTotalNumber;
   UINTN                 CapsuleNameCapsuleTotalNumber;
@@ -409,13 +410,13 @@ InitCapsulePtr (
   // Find all capsule images from hob
   //
   HobPointer.Raw = GetHobList ();
-  Index          = 0;
+  CapsuleIndex   = 0;
   Index2         = 0;
   while ((HobPointer.Raw = GetNextHob (EFI_HOB_TYPE_UEFI_CAPSULE, HobPointer.Raw)) != NULL) {
     if (IsCapsuleNameCapsule ((VOID *)(UINTN)HobPointer.Capsule->BaseAddress)) {
       CapsuleNameCapsulePtr[Index2++] = (VOID *)(UINTN)HobPointer.Capsule->BaseAddress;
     } else {
-      mCapsulePtr[Index++] = (VOID *)(UINTN)HobPointer.Capsule->BaseAddress;
+      mCapsulePtr[CapsuleIndex++] = (VOID *)(UINTN)HobPointer.Capsule->BaseAddress;
     }
 
     HobPointer.Raw = GET_NEXT_HOB (HobPointer);
@@ -462,7 +463,7 @@ InitCapsulePtr (
 
   if (CapsuleOnDiskBuf != NULL) {
     for (Index2 = 0; Index2 < CapsuleOnDiskNum; Index2++) {
-      mCapsulePtr[Index++] = CapsuleOnDiskBuf[Index2].ImageAddress;
+      mCapsulePtr[CapsuleIndex++] = CapsuleOnDiskBuf[Index2].ImageAddress;
       FreePool (CapsuleOnDiskBuf[Index2].FileInfo);
     }
 
