@@ -2513,6 +2513,9 @@ FmpDeviceSmmLibConstructor (
   IN EFI_SYSTEM_TABLE  *SystemTable
   )
 {
-  SmmStoreLibInitialize ();
-  return EFI_SUCCESS;
+  //
+  // FMP uses only the full-flash interface. Payload MM may own the variable
+  // store and reject ordinary raw commands even when full-flash access is armed.
+  //
+  return SmmStoreLibInitialize (FALSE);
 }

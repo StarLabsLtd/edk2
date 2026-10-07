@@ -535,7 +535,10 @@ SmmStoreLibVirtualAddressChange (
 }
 
 /**
-  Initializes SmmStore support
+  Initializes SmmStore support.
+
+  @param[in] ProbeBackend  Probe the ordinary raw interface. Full-flash-only
+                          consumers must pass FALSE.
 
   @retval EFI_UNSUPPORTED       SmmStore is missing or unusable.
   @retval EFI_DEVICE_ERROR      The SmmStore backend failed.
@@ -545,7 +548,7 @@ SmmStoreLibVirtualAddressChange (
 **/
 EFI_STATUS
 SmmStoreLibInitialize (
-  VOID
+  IN BOOLEAN  ProbeBackend
   )
 {
   EFI_STATUS                       Status;
@@ -626,11 +629,13 @@ SmmStoreLibInitialize (
 
   mArgComBuf = (VOID *)mArgComBufPhys;
 
-  Status = SmmStoreLibProbeBackend ();
-  if (EFI_ERROR (Status)) {
-    DEBUG ((DEBUG_WARN, "%a: SmmStore backend probe failed: %r\n", __func__, Status));
-    SmmStoreLibClearState ();
-    return EFI_UNSUPPORTED;
+  if (ProbeBackend) {
+    Status = SmmStoreLibProbeBackend ();
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_WARN, "%a: SmmStore backend probe failed: %r\n", __func__, Status));
+      SmmStoreLibClearState ();
+      return EFI_UNSUPPORTED;
+    }
   }
 
   //
