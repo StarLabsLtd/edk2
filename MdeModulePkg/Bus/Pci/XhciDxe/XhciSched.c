@@ -1331,10 +1331,18 @@ XhcEndpointRunning (
   IN UINT8              Dci
   )
 {
-  DEVICE_CONTEXT  *OutputContext;
+  VOID  *OutputContext;
 
   OutputContext = Xhc->UsbDevContext[SlotId].OutputContext;
-  return OutputContext && OutputContext->EP[Dci - 1].EPState == 1;
+  if (OutputContext == NULL) {
+    return FALSE;
+  }
+
+  if (Xhc->HcCParams.Data.Csz == 0) {
+    return ((DEVICE_CONTEXT *)OutputContext)->EP[Dci - 1].EPState == 1;
+  }
+
+  return ((DEVICE_CONTEXT_64 *)OutputContext)->EP[Dci - 1].EPState == 1;
 }
 
 /**
@@ -1357,10 +1365,18 @@ XhcEndpointHalted (
   IN UINT8              Dci
   )
 {
-  DEVICE_CONTEXT  *OutputContext;
+  VOID  *OutputContext;
 
   OutputContext = Xhc->UsbDevContext[SlotId].OutputContext;
-  return OutputContext && OutputContext->EP[Dci - 1].EPState == 2;
+  if (OutputContext == NULL) {
+    return FALSE;
+  }
+
+  if (Xhc->HcCParams.Data.Csz == 0) {
+    return ((DEVICE_CONTEXT *)OutputContext)->EP[Dci - 1].EPState == 2;
+  }
+
+  return ((DEVICE_CONTEXT_64 *)OutputContext)->EP[Dci - 1].EPState == 2;
 }
 
 /**
