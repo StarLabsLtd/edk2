@@ -849,16 +849,26 @@ UsbHubResetPort (
   EFI_USB_PORT_STATUS  PortState;
   UINTN                Index;
   EFI_STATUS           Status;
+  BOOLEAN              SuperSpeed;
+  UINT16               ResetChange;
+
+  SuperSpeed  = (BOOLEAN)(HubIf->Device->Speed == EFI_USB_SPEED_SUPER);
+  ResetChange = SuperSpeed ? USB_SS_PORT_STAT_C_BH_RESET : USB_PORT_STAT_C_RESET;
+
+  if (SuperSpeed) {
+    Status = UsbHubClearPortFeature (HubIf, Port, (EFI_USB_PORT_FEATURE)USB_HUB_C_BH_PORT_RESET);
+    if (EFI_ERROR (Status)) {
+      return Status;
+    }
+  }
 
   //
-  // Reset the SuperSpeed link as well as the downstream device. The xHCI
-  // driver reports both hot and warm reset completion as C_RESET.
+  // External SuperSpeed hubs report warm-reset completion as C_BH_PORT_RESET.
   //
   Status = UsbHubSetPortFeature (
              HubIf,
              Port,
-             (EFI_USB_PORT_FEATURE)(HubIf->Device->Speed == EFI_USB_SPEED_SUPER ?
-                                    USB_HUB_BH_PORT_RESET : USB_HUB_PORT_RESET)
+             (EFI_USB_PORT_FEATURE)(SuperSpeed ? USB_HUB_BH_PORT_RESET : USB_HUB_PORT_RESET)
              );
 
   if (EFI_ERROR (Status)) {
@@ -872,7 +882,7 @@ UsbHubResetPort (
   gBS->Stall (USB_SET_PORT_RESET_STALL);
 
   //
-  // Check USB_PORT_STAT_C_RESET bit to see if the resetting state is done.
+  // Wait for the completion bit matching the requested reset.
   //
   ZeroMem (&PortState, sizeof (EFI_USB_PORT_STATUS));
 
@@ -883,9 +893,14 @@ UsbHubResetPort (
       return Status;
     }
 
-    if (!EFI_ERROR (Status) &&
-        USB_BIT_IS_SET (PortState.PortChangeStatus, USB_PORT_STAT_C_RESET))
-    {
+    if (USB_BIT_IS_SET (PortState.PortChangeStatus, ResetChange)) {
+      if (SuperSpeed) {
+        Status = UsbHubClearPortFeature (HubIf, Port, (EFI_USB_PORT_FEATURE)USB_HUB_C_BH_PORT_RESET);
+        if (EFI_ERROR (Status)) {
+          return Status;
+        }
+      }
+
       gBS->Stall (USB_SET_PORT_RECOVERY_STALL);
       return EFI_SUCCESS;
     }
