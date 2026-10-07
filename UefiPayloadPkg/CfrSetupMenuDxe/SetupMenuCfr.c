@@ -590,55 +590,48 @@ CfrFwupdSettingsInit (
   CfrFwupdSettingsAppend (&Header, sizeof (Header));
 }
 
-typedef struct _CFR_LOCK_AT_BOOT_ENTRY {
-  struct _CFR_LOCK_AT_BOOT_ENTRY  *Next;
-  CHAR16                          *Name;
-} CFR_LOCK_AT_BOOT_ENTRY;
+#define CFR_BOOT_LOCK_VARIABLE  L"CfrBootLock"
 
-STATIC CFR_LOCK_AT_BOOT_ENTRY  *mLockAtBootList  = NULL;
-STATIC EFI_EVENT               mLockAtBootEvent = NULL;
-STATIC BOOLEAN                 mLockAtBootApplied = FALSE;
+STATIC EFI_EVENT  mLockAtBootEvent;
+STATIC BOOLEAN    mLockAtBootRequired;
 
 /**
-  Queue a CFR option variable to be write-locked at ReadyToBoot.
-
+  Lock the options before unloading, or when leaving firmware setup.
 **/
-STATIC
-VOID
+EFI_STATUS
 EFIAPI
-CfrQueueLockAtBoot (
-  IN CONST CHAR16  *VariableName
+CfrCleanupLockAtBoot (
+  VOID
   )
 {
-  CFR_LOCK_AT_BOOT_ENTRY  *Entry;
-  UINTN                   NameSize;
+  EFI_STATUS  Status;
+  UINT8       Locked;
 
-  if ((VariableName == NULL) || (VariableName[0] == L'\0')) {
-    return;
+  if (!mLockAtBootRequired) {
+    return EFI_SUCCESS;
   }
 
-  Entry = AllocateZeroPool (sizeof (*Entry));
-  if (Entry == NULL) {
-    DEBUG ((DEBUG_WARN, "CFR: Failed to queue lock-at-boot for \"%s\"!\n", VariableName));
-    return;
+  Locked = 1;
+  Status = gRT->SetVariable (
+                  CFR_BOOT_LOCK_VARIABLE,
+                  &mSetupMenuFormsetGuid,
+                  EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS,
+                  sizeof (Locked),
+                  &Locked
+                  );
+  if (EFI_ERROR (Status)) {
+    return Status;
   }
 
-  NameSize   = StrSize (VariableName);
-  Entry->Name = AllocateCopyPool (NameSize, VariableName);
-  if (Entry->Name == NULL) {
-    FreePool (Entry);
-    DEBUG ((DEBUG_WARN, "CFR: Failed to queue lock-at-boot for \"%s\"!\n", VariableName));
-    return;
+  mLockAtBootRequired = FALSE;
+  if (mLockAtBootEvent != NULL) {
+    gBS->CloseEvent (mLockAtBootEvent);
+    mLockAtBootEvent = NULL;
   }
 
-  Entry->Next      = mLockAtBootList;
-  mLockAtBootList  = Entry;
+  return EFI_SUCCESS;
 }
 
-/**
-  Apply deferred Variable Policy locks for CFR_OPTFLAG_LOCK_AT_BOOT options.
-
-**/
 STATIC
 VOID
 EFIAPI
@@ -647,41 +640,17 @@ CfrApplyLockAtBoot (
   IN VOID       *Context
   )
 {
-  CFR_LOCK_AT_BOOT_ENTRY  *Entry;
-  EFI_STATUS              Status;
+  EFI_STATUS  Status;
 
-  if (mLockAtBootApplied) {
-    return;
-  }
-
-  mLockAtBootApplied = TRUE;
-
-  if (mVariablePolicy == NULL) {
-    DEBUG ((DEBUG_WARN, "CFR: No Variable Policy; skipping lock-at-boot!\n"));
-    return;
-  }
-
-  for (Entry = mLockAtBootList; Entry != NULL; Entry = Entry->Next) {
-    Status = RegisterBasicVariablePolicy (
-               mVariablePolicy,
-               &gEficorebootNvDataGuid,
-               Entry->Name,
-               VARIABLE_POLICY_NO_MIN_SIZE,
-               VARIABLE_POLICY_NO_MAX_SIZE,
-               VARIABLE_POLICY_NO_MUST_ATTR,
-               VARIABLE_POLICY_NO_CANT_ATTR,
-               VARIABLE_POLICY_TYPE_LOCK_NOW
-               );
-    if (EFI_ERROR (Status)) {
-      DEBUG ((DEBUG_WARN, "CFR: Failed to lock-at-boot variable \"%s\"!\n", Entry->Name));
-    }
+  Status = CfrCleanupLockAtBoot ();
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "CFR: Failed to activate boot locks: %r\n", Status));
   }
 }
 
 /**
-  Register a ReadyToBoot callback that write-locks CFR variables marked
-  CFR_OPTFLAG_LOCK_AT_BOOT.
-
+  Register the trigger policy before EndOfDxe closes policy registration.
+  The volatile trigger cannot be reset once ReadyToBoot creates it.
 **/
 EFI_STATUS
 EFIAPI
@@ -691,52 +660,35 @@ CfrRegisterLockAtBootEvent (
 {
   EFI_STATUS  Status;
 
-  if ((mLockAtBootList == NULL) || (mLockAtBootEvent != NULL)) {
+  if (!mLockAtBootRequired || (mLockAtBootEvent != NULL)) {
     return EFI_SUCCESS;
   }
 
-  Status = EfiCreateEventReadyToBootEx (
-             TPL_CALLBACK,
-             CfrApplyLockAtBoot,
-             NULL,
-             &mLockAtBootEvent
+  Status = gRT->SetVariable (CFR_BOOT_LOCK_VARIABLE, &mSetupMenuFormsetGuid, 0, 0, NULL);
+  if (EFI_ERROR (Status) && (Status != EFI_NOT_FOUND)) {
+    return Status;
+  }
+
+  Status = RegisterBasicVariablePolicy (
+             mVariablePolicy,
+             &mSetupMenuFormsetGuid,
+             CFR_BOOT_LOCK_VARIABLE,
+             sizeof (UINT8),
+             sizeof (UINT8),
+             EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS,
+             EFI_VARIABLE_NON_VOLATILE,
+             VARIABLE_POLICY_TYPE_LOCK_ON_CREATE
              );
   if (EFI_ERROR (Status)) {
-    mLockAtBootEvent = NULL;
+    return Status;
   }
 
-  return Status;
-}
-
-/**
-  Free deferred lock state. Safe to call if nothing was registered.
-
-**/
-VOID
-EFIAPI
-CfrCleanupLockAtBoot (
-  VOID
-  )
-{
-  CFR_LOCK_AT_BOOT_ENTRY  *Entry;
-  CFR_LOCK_AT_BOOT_ENTRY  *Next;
-
-  if (mLockAtBootEvent != NULL) {
-    gBS->CloseEvent (mLockAtBootEvent);
-    mLockAtBootEvent = NULL;
-  }
-
-  for (Entry = mLockAtBootList; Entry != NULL; Entry = Next) {
-    Next = Entry->Next;
-    if (Entry->Name != NULL) {
-      FreePool (Entry->Name);
-    }
-
-    FreePool (Entry);
-  }
-
-  mLockAtBootList    = NULL;
-  mLockAtBootApplied = FALSE;
+  return EfiCreateEventReadyToBootEx (
+           TPL_CALLBACK,
+           CfrApplyLockAtBoot,
+           NULL,
+           &mLockAtBootEvent
+           );
 }
 
 /**
@@ -1330,8 +1282,24 @@ CfrProduceStorageForOption (
     if (EFI_ERROR (Status)) {
       DEBUG ((DEBUG_WARN, "CFR: Failed to lock variable \"%s\"!\n", VariableCfrName));
     }
-  } else if (OptionFlags & CFR_OPTFLAG_LOCK_AT_BOOT) {
-    CfrQueueLockAtBoot (VariableCfrName);
+  } else if ((OptionFlags & CFR_OPTFLAG_LOCK_AT_BOOT) && (mVariablePolicy != NULL)) {
+    Status = RegisterVarStateVariablePolicy (
+               mVariablePolicy,
+               &gEficorebootNvDataGuid,
+               VariableCfrName,
+               VARIABLE_POLICY_NO_MIN_SIZE,
+               VARIABLE_POLICY_NO_MAX_SIZE,
+               VARIABLE_POLICY_NO_MUST_ATTR,
+               VARIABLE_POLICY_NO_CANT_ATTR,
+               &mSetupMenuFormsetGuid,
+               CFR_BOOT_LOCK_VARIABLE,
+               1
+               );
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_ERROR, "CFR: Failed to register boot lock for \"%s\": %r\n", VariableCfrName, Status));
+    } else {
+      mLockAtBootRequired = TRUE;
+    }
   }
 
   FreePool (VariableCfrName);
