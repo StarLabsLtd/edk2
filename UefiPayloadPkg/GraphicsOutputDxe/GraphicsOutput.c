@@ -582,14 +582,26 @@ GraphicsOutputBlt (
   //
   Tpl = gBS->RaiseTPL (TPL_NOTIFY);
   if (Scale == 1) {
+    if ((BltOperation == EfiBltVideoToBltBuffer) || (BltOperation == EfiBltVideoToVideo)) {
+      SourceX += ViewportOffsetX;
+      SourceY += ViewportOffsetY;
+    }
+
+    if ((BltOperation == EfiBltBufferToVideo) || (BltOperation == EfiBltVideoToVideo) ||
+        (BltOperation == EfiBltVideoFill))
+    {
+      DestinationX += ViewportOffsetX;
+      DestinationY += ViewportOffsetY;
+    }
+
     Status = FrameBufferBlt (
                Private->FrameBufferBltLibConfigure,
                BltBuffer,
                BltOperation,
-               SourceX + ViewportOffsetX,
-               SourceY + ViewportOffsetY,
-               DestinationX + ViewportOffsetX,
-               DestinationY + ViewportOffsetY,
+               SourceX,
+               SourceY,
+               DestinationX,
+               DestinationY,
                Width,
                Height,
                Delta
