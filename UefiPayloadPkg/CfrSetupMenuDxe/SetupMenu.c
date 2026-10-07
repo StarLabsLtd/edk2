@@ -87,6 +87,11 @@ CfrSetupMenuUnload (
 {
   EFI_STATUS  Status;
 
+  Status = CfrCleanupLockAtBoot ();
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
   //
   // Uninstall Device Path and Config Access protocols
   //
@@ -104,8 +109,6 @@ CfrSetupMenuUnload (
   // Remove our HII data
   //
   HiiRemovePackages (mSetupMenuPrivate.HiiHandle);
-
-  CfrCleanupLockAtBoot ();
 
   return Status;
 }
