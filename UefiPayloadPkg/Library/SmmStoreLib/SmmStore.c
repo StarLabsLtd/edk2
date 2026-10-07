@@ -16,6 +16,7 @@
 #include <Library/MemoryAllocationLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/SmmStoreLib.h>
+#include <Library/TimerLib.h>
 #include "SmmStore.h"
 
 /*
@@ -58,9 +59,7 @@ StallBetweenCallAttempts (
   IN UINTN  Attempt
   )
 {
-  if ((gBS != NULL) && (gBS->Stall != NULL)) {
-    gBS->Stall ((Attempt + 1) * SMMSTORE_CALL_RETRY_STALL_US);
-  }
+  MicroSecondDelay ((Attempt + 1) * SMMSTORE_CALL_RETRY_STALL_US);
 }
 
 /**
