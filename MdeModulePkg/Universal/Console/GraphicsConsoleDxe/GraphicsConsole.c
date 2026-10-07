@@ -2035,7 +2035,7 @@ FlushCursor (
                       0,
                       GlyphWidth,
                       GlyphHeight,
-                      GlyphWidth * sizeof (EFI_GRAPHICS_OUTPUT_BLT_PIXEL)
+                      sizeof (BltChar[0])
                       );
   }
 
@@ -2069,7 +2069,7 @@ FlushCursor (
                       GlyphY,
                       GlyphWidth,
                       GlyphHeight,
-                      GlyphWidth * sizeof (EFI_GRAPHICS_OUTPUT_BLT_PIXEL)
+                      sizeof (BltChar[0])
                       );
   }
 
