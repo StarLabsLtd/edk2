@@ -59,7 +59,8 @@ ASM_PFX(CallMmCore):
     ; Acquire internal private data
     mov     ebx, strict dword 0         ;    lea     eax, [ASM_PFX(gPatchEdk2PayloadMmPrivateData)]
 gPatchEdk2PayloadMmPrivateDataAbsAddr:
-    mov     rbx, [ebx]
+    ; The patch label follows the four-byte private-data immediate.
+    mov     ebx, [ebx - 4]
 
     ; Really, need per-CPU stack.
     mov     rax, [rbx + PrivateDataStackPointers]
