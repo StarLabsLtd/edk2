@@ -28,6 +28,7 @@
   DxeServicesTableLib
   HobLib
   MemoryAllocationLib
+  TimerLib
   UefiBootServicesTableLib
 
 [Guids]
