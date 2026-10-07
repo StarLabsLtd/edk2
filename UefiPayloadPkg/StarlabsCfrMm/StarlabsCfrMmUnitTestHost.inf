@@ -25,3 +25,7 @@
   BaseMemoryLib
   DebugLib
   UnitTestLib
+  MemoryAllocationLib
+
+[Protocols]
+  gEfiSmmVariableProtocolGuid

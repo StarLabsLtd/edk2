@@ -13,6 +13,9 @@
 STATIC BOOLEAN  mPresent;
 STATIC UINT32   mStoredValue;
 STATIC UINTN    mWrites;
+STATIC BOOLEAN  mWriteProtected;
+STATIC EFI_MM_SYSTEM_TABLE  mMmServices;
+EFI_MM_SYSTEM_TABLE         *gMmst = &mMmServices;
 
 STATIC
 EFI_STATUS
@@ -68,6 +71,48 @@ SetVariable (
 }
 
 STATIC
+EFI_STATUS
+EFIAPI
+ManageInterrupt (
+  IN CONST EFI_GUID  *HandlerType,
+  IN CONST VOID      *Context,
+  IN OUT VOID        *CommBuffer,
+  IN OUT UINTN       *CommBufferSize
+  )
+{
+  SMM_VARIABLE_COMMUNICATE_HEADER           *Message;
+  SMM_VARIABLE_COMMUNICATE_ACCESS_VARIABLE  *Variable;
+  UINTN                                    NameSize;
+
+  NameSize = StrSize (L"trackpad_state");
+  if (!CompareGuid (HandlerType, &gEfiSmmVariableProtocolGuid) ||
+      (*CommBufferSize != SMM_VARIABLE_COMMUNICATE_HEADER_SIZE +
+       OFFSET_OF (SMM_VARIABLE_COMMUNICATE_ACCESS_VARIABLE, Name) +
+       NameSize + sizeof (mStoredValue)))
+  {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  Message  = CommBuffer;
+  Variable = (VOID *)Message->Data;
+  if ((Message->Function != SMM_VARIABLE_FUNCTION_SET_VARIABLE) ||
+      (Variable->NameSize != NameSize))
+  {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  Message->ReturnStatus = mWriteProtected ? EFI_WRITE_PROTECTED :
+                          SetVariable (
+                            Variable->Name,
+                            &Variable->Guid,
+                            Variable->Attributes,
+                            Variable->DataSize,
+                            (UINT8 *)Variable->Name + Variable->NameSize
+                            );
+  return EFI_SUCCESS;
+}
+
+STATIC
 UNIT_TEST_STATUS
 EFIAPI
 PreferenceAccess (
@@ -79,7 +124,8 @@ PreferenceAccess (
 
   ZeroMem (&Variable, sizeof (Variable));
   Variable.SmmGetVariable = GetVariable;
-  Variable.SmmSetVariable = SetVariable;
+  mMmServices.MmiManage   = ManageInterrupt;
+  mWriteProtected         = FALSE;
   mVariable               = &Variable;
   mSupportedOptions       = 1U << CfrTrackpad;
   mPresent                = FALSE;
@@ -111,6 +157,13 @@ PreferenceAccess (
   Request.Id = CfrFnLock;
   UT_ASSERT_STATUS_EQUAL (AccessOption (&Request), EFI_UNSUPPORTED);
   UT_ASSERT_EQUAL (mWrites, 1);
+
+  Request.Id      = CfrTrackpad;
+  Request.Value   = 0x22;
+  mWriteProtected = TRUE;
+  UT_ASSERT_STATUS_EQUAL (AccessOption (&Request), EFI_WRITE_PROTECTED);
+  UT_ASSERT_EQUAL (mWrites, 1);
+  UT_ASSERT_EQUAL (mStoredValue, 0);
 
   Request.Command = STARLABS_CFR_CAPS;
   UT_ASSERT_STATUS_EQUAL (AccessOption (&Request), EFI_SUCCESS);

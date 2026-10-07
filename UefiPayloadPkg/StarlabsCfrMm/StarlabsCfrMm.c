@@ -12,6 +12,8 @@
 #include <Library/HobLib.h>
 #include <Library/IoLib.h>
 #include <Library/MmServicesTableLib.h>
+#include <Library/MemoryAllocationLib.h>
+#include <Guid/SmmVariableCommon.h>
 #include <Protocol/SmmVariable.h>
 
 #define CFR_ATTRIBUTES  (EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS)
@@ -65,6 +67,49 @@ STATIC EFI_GUID                   mCfrGuid = {
 STATIC EFI_SMM_VARIABLE_PROTOCOL  *mVariable;
 STATIC STARLABS_CFR_MAILBOX       *mMailbox;
 STATIC UINT32                     mSupportedOptions;
+
+STATIC
+EFI_STATUS
+SetOption (
+  IN CONST CHAR16  *Name,
+  IN UINT32        Value
+  )
+{
+  SMM_VARIABLE_COMMUNICATE_HEADER           *Message;
+  SMM_VARIABLE_COMMUNICATE_ACCESS_VARIABLE  *Variable;
+  UINTN                                    NameSize;
+  UINTN                                    Size;
+  EFI_STATUS                               Status;
+
+  NameSize = StrSize (Name);
+  Size     = SMM_VARIABLE_COMMUNICATE_HEADER_SIZE +
+             OFFSET_OF (SMM_VARIABLE_COMMUNICATE_ACCESS_VARIABLE, Name) +
+             NameSize + sizeof (Value);
+  Message = AllocateZeroPool (Size);
+  if (Message == NULL) {
+    return EFI_OUT_OF_RESOURCES;
+  }
+
+  Message->Function     = SMM_VARIABLE_FUNCTION_SET_VARIABLE;
+  Message->ReturnStatus = EFI_UNSUPPORTED;
+  Variable              = (VOID *)Message->Data;
+  CopyGuid (&Variable->Guid, &mCfrGuid);
+  Variable->Attributes = CFR_ATTRIBUTES;
+  Variable->NameSize   = NameSize;
+  Variable->DataSize   = sizeof (Value);
+  CopyMem (Variable->Name, Name, NameSize);
+  CopyMem ((UINT8 *)Variable->Name + NameSize, &Value, sizeof (Value));
+
+  // Mailbox requests must use the resident untrusted path, not SmmSetVariable's
+  // trusted override of variable write locks.
+  Status = gMmst->MmiManage (&gEfiSmmVariableProtocolGuid, NULL, Message, &Size);
+  if (!EFI_ERROR (Status)) {
+    Status = Message->ReturnStatus;
+  }
+
+  FreePool (Message);
+  return Status;
+}
 
 STATIC
 EFI_STATUS
@@ -157,7 +202,7 @@ AccessOption (
     return EFI_SUCCESS;
   }
 
-  return mVariable->SmmSetVariable ((CHAR16 *)Option->Name, &mCfrGuid, CFR_ATTRIBUTES, sizeof (Request->Value), &Request->Value);
+  return SetOption (Option->Name, Request->Value);
 }
 
 STATIC

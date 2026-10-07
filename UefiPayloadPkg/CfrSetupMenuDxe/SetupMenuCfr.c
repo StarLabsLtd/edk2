@@ -868,6 +868,10 @@ CfrFwupdSettingsAddNumericOption (
   ZeroMem (&Record, sizeof (Record));
   Record.HeaderSize   = sizeof (Record);
   Record.CfrFlags     = Option->flags;
+  if (Option->flags & CFR_OPTFLAG_LOCK_AT_BOOT) {
+    Record.CfrFlags |= CFR_OPTFLAG_READONLY;
+  }
+
   Record.ObjectId     = Option->object_id;
   Record.DefaultValue = Option->default_value;
   Record.Min          = Option->min;

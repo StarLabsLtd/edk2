@@ -27,6 +27,7 @@
   HobLib
   IoLib
   MmServicesTableLib
+  MemoryAllocationLib
   StandaloneMmDriverEntryPoint
 
 [Guids]
