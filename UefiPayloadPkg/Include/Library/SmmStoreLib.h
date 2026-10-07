@@ -170,7 +170,10 @@ typedef EFI_STATUS EFIAPI (*CONVERT_POINTER_CALLBACK) (
   );
 
 /**
-  Initializes SmmStore support
+  Initializes SmmStore support.
+
+  @param[in] ProbeBackend  Probe the ordinary raw interface. Full-flash-only
+                          consumers must pass FALSE.
 
   @retval EFI_UNSUPPORTED       SmmStore is missing or unusable.
   @retval EFI_DEVICE_ERROR      The SmmStore backend failed.
@@ -179,7 +182,7 @@ typedef EFI_STATUS EFIAPI (*CONVERT_POINTER_CALLBACK) (
 **/
 EFI_STATUS
 SmmStoreLibInitialize (
-  VOID
+  IN BOOLEAN  ProbeBackend
   );
 
 /**

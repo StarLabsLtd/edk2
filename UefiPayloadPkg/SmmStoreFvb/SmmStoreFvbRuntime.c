@@ -216,7 +216,7 @@ SmmStoreInitialize (
   UINT32                FtwSpareSize;
   VARIABLE_FLASH_INFO   FlashInfo;
 
-  Status = SmmStoreLibInitialize ();
+  Status = SmmStoreLibInitialize (TRUE);
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "%a: Failed to initialize SmmStoreLib\n", __func__));
     return Status;
