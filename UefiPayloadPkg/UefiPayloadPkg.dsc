@@ -202,6 +202,7 @@
 
   # Security options:
   #
+  DEFINE AMD_FTPM_ENABLE                = FALSE
   DEFINE TPM_ENABLE                     = TRUE
   DEFINE TPM2_ENABLE                    = TRUE
   DEFINE TPM1_ENABLE                    = TRUE
@@ -1426,7 +1427,11 @@
   SecurityPkg/Tcg/Tcg2Dxe/Tcg2Dxe.inf {
     <LibraryClasses>
       Tpm2DeviceLib|SecurityPkg/Library/Tpm2DeviceLibRouter/Tpm2DeviceLibRouterDxe.inf
+!if $(AMD_FTPM_ENABLE) == TRUE
+      NULL|UefiPayloadPkg/Library/Tpm2DeviceLibAmdFtpm/Tpm2DeviceLibAmdFtpm.inf
+!else
       NULL|SecurityPkg/Library/Tpm2DeviceLibDTpm/Tpm2InstanceLibDTpm.inf
+!endif
       HashLib|SecurityPkg/Library/HashLibBaseCryptoRouter/HashLibBaseCryptoRouterDxe.inf
       NULL|SecurityPkg/Library/HashInstanceLibSha1/HashInstanceLibSha1.inf
       NULL|SecurityPkg/Library/HashInstanceLibSha256/HashInstanceLibSha256.inf

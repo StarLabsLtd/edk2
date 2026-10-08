@@ -1,0 +1,36 @@
+## @file
+#  AMD firmware TPM transport for UefiPayload.
+#
+#  Copyright (c) 2026, Star Labs Ltd. All rights reserved.<BR>
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = Tpm2DeviceLibAmdFtpm
+  FILE_GUID                      = 3ea42b7a-d8e9-4b4f-b6ed-f0955a3739a0
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = NULL|DXE_DRIVER
+  CONSTRUCTOR                    = AmdFtpmConstructor
+
+[Sources]
+  Tpm2DeviceLibAmdFtpm.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  SecurityPkg/SecurityPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  IoLib
+  TimerLib
+  Tpm2DeviceLib
+  UefiLib
+
+[Protocols]
+  gEfiAcpiTableProtocolGuid
+
+[Depex]
+  gEfiAcpiTableProtocolGuid
