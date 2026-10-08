@@ -16,6 +16,7 @@
 #include <Library/PcdLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/UefiDriverEntryPoint.h>
+#include <Library/UefiLib.h>
 #include <Library/Tpm2DeviceLib.h>
 #include <Protocol/AcpiSystemDescriptionTable.h>
 #include <Protocol/AcpiTable.h>
@@ -73,12 +74,13 @@ RemoveTpm2AcpiTables (
 }
 
 STATIC
-VOID
+EFI_STATUS
 BuildTpm2AcpiTable (
   OUT UEFI_PAYLOAD_TPM2_ACPI_TABLE  *Table
   )
 {
-  TPM2_PTP_INTERFACE_TYPE  InterfaceType;
+  TPM2_PTP_INTERFACE_TYPE       InterfaceType;
+  UEFI_PAYLOAD_TPM2_ACPI_TABLE  *Inherited;
   UINT64                   OemTableId;
   UINT8                    Revision;
 
@@ -111,8 +113,32 @@ BuildTpm2AcpiTable (
     Table->StartMethod = EFI_TPM2_ACPI_TABLE_START_METHOD_TIS;
   }
 
+  // Preserve the bootloader's transport, including AMD's reduced CRB interface.
+  Inherited = (VOID *)EfiLocateFirstAcpiTable (
+                        EFI_ACPI_5_0_TRUSTED_COMPUTING_PLATFORM_2_TABLE_SIGNATURE
+                        );
+  if (Inherited != NULL) {
+    if ((Inherited->Header.Revision != EFI_TPM2_ACPI_TABLE_REVISION_4) ||
+        (Inherited->Header.Length < OFFSET_OF (UEFI_PAYLOAD_TPM2_ACPI_TABLE, Laml)))
+    {
+      return EFI_UNSUPPORTED;
+    }
+
+    CopyMem (&Table->Header, &Inherited->Header, sizeof (Table->Header));
+    Table->Header.Length = sizeof (*Table);
+    Table->Flags                = Inherited->Flags;
+    Table->AddressOfControlArea = Inherited->AddressOfControlArea;
+    Table->StartMethod          = Inherited->StartMethod;
+    CopyMem (
+      Table->PlatformSpecificParameters,
+      Inherited->PlatformSpecificParameters,
+      sizeof (Table->PlatformSpecificParameters)
+      );
+  }
+
   Table->Laml = PcdGet32 (PcdTpm2AcpiTableLaml);
   Table->Lasa = PcdGet64 (PcdTpm2AcpiTableLasa);
+  return EFI_SUCCESS;
 }
 
 EFI_STATUS
@@ -138,7 +164,11 @@ Tpm2AcpiTableDxeEntryPoint (
     return Status;
   }
 
-  BuildTpm2AcpiTable (&Tpm2Table);
+  Status = BuildTpm2AcpiTable (&Tpm2Table);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
   if ((Tpm2Table.Laml == 0) || (Tpm2Table.Lasa == 0)) {
     DEBUG ((DEBUG_ERROR, "%a: TPM2 event log address is not available\n", __func__));
     return EFI_NOT_READY;
