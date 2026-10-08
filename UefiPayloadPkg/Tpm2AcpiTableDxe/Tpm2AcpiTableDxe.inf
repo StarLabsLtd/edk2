@@ -29,6 +29,7 @@
   PcdLib
   UefiBootServicesTableLib
   UefiDriverEntryPoint
+  UefiLib
 
 [Protocols]
   gEfiAcpiSdtProtocolGuid                       ## CONSUMES
