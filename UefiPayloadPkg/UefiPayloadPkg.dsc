@@ -59,6 +59,7 @@
   DEFINE NVME_ENABLE                  = TRUE
   DEFINE LOCKBOX_SUPPORT              = FALSE
   DEFINE LOAD_OPTION_ROMS             = FALSE
+  DEFINE USE_AMD_GOP                 = FALSE
   DEFINE PAYLOAD_FB_HIDPI_WIDE_ASPECT_CAP_SUPPORT = FALSE
   DEFINE PAYLOAD_FB_HIDPI_WIDE_ASPECT_CAP_WIDTH   = 16
   DEFINE PAYLOAD_FB_HIDPI_WIDE_ASPECT_CAP_HEIGHT  = 9
@@ -67,6 +68,7 @@
   DEFINE MEMORY_TYPE_EFI_ACPI_RECLAIM_MEMORY = 0x19
   DEFINE MEMORY_TYPE_INFORMATION_BIN_BASE = 0
   DEFINE MEMORY_TYPE_INFORMATION_BIN_SIZE = 0
+  DEFINE RESET_COLD_USE_FULL_CF9       = TRUE
 
   #
   # Capsule updates
@@ -806,6 +808,8 @@
 ################################################################################
 [PcdsFeatureFlag]
   gUefiPayloadPkgTokenSpaceGuid.PcdPayloadMmSupport|$(PAYLOAD_MM_SUPPORT)
+  gUefiPayloadPkgTokenSpaceGuid.PcdUseAmdExternalGop|$(USE_AMD_GOP)
+  gUefiPayloadPkgTokenSpaceGuid.PcdLoadOptionRoms|$(LOAD_OPTION_ROMS)
   gEfiMdeModulePkgTokenSpaceGuid.PcdConOutGopSupport|TRUE
   gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiWideAspectCapSupport|$(PAYLOAD_FB_HIDPI_WIDE_ASPECT_CAP_SUPPORT)
   gUefiPayloadPkgTokenSpaceGuid.PcdConnectAllDevices|$(CONNECT_ALL_DEVICES)
@@ -858,6 +862,7 @@
   gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiWideAspectCapWidth|$(PAYLOAD_FB_HIDPI_WIDE_ASPECT_CAP_WIDTH)
   gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiWideAspectCapHeight|$(PAYLOAD_FB_HIDPI_WIDE_ASPECT_CAP_HEIGHT)
   gUefiPayloadPkgTokenSpaceGuid.PcdResetShutdownSleepType|7
+  gUefiPayloadPkgTokenSpaceGuid.PcdResetColdUseFullCf9|$(RESET_COLD_USE_FULL_CF9)
 
   gUefiPayloadPkgTokenSpaceGuid.PcdBootManagerEscape|$(BOOT_MANAGER_ESCAPE)
 
@@ -1390,7 +1395,7 @@
   #
   # Support for loading Option ROMs from PCI-Express devices
   #
-!if $(LOAD_OPTION_ROMS) == TRUE
+!if $(LOAD_OPTION_ROMS) == TRUE || $(USE_AMD_GOP) == TRUE
   UefiPayloadPkg/PciPlatformDxe/PciPlatformDxe.inf
 !endif
 
@@ -1430,7 +1435,12 @@
 !if $(DISABLE_SERIAL_TERMINAL) == FALSE
   MdeModulePkg/Universal/Console/TerminalDxe/TerminalDxe.inf
 !endif
+
+!if $(USE_AMD_GOP) == TRUE
+  UefiPayloadPkg/AmdGopPlatformToDriver/AmdGopPlatformToDriver.inf
+!else
   UefiPayloadPkg/GraphicsOutputDxe/GraphicsOutputDxe.inf
+!endif
 !if $(PERFORMANCE_MEASUREMENT_ENABLE)
   MdeModulePkg/Universal/Acpi/FirmwarePerformanceDataTableDxe/FirmwarePerformanceDxe.inf
 !endif

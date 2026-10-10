@@ -28,6 +28,7 @@
 [LibraryClasses]
   UefiDriverEntryPoint
   DxeServicesTableLib
+  DxeServicesLib
   DebugLib
   MemoryAllocationLib
   BaseMemoryLib
@@ -35,3 +36,10 @@
 [Protocols]
   gEfiPciPlatformProtocolGuid                   ## PRODUCES
   gEfiPciIoProtocolGuid                         ## COMSUMES
+
+[Guids]
+  gAmdPhoenixVbiosRomSectionGuid
+
+[FeaturePcd]
+  gUefiPayloadPkgTokenSpaceGuid.PcdUseAmdExternalGop
+  gUefiPayloadPkgTokenSpaceGuid.PcdLoadOptionRoms
