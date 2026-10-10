@@ -103,6 +103,7 @@ ReleaseSpiBar0 (
 
   @param[in] PchSpiBase           PCH SPI PCI Base Address
   @param[in] CpuSmmBwp            Need to disable CPU SMM Bios write protection or not
+  @param[out] SmmStsSave          Previous in-SMM qualification, also valid on failure
 
   @retval EFI_SUCCESS             The protocol instance was properly initialized
   @retval EFI_ACCESS_DENIED       The BIOS Region can only be updated in SMM phase
@@ -111,8 +112,9 @@ ReleaseSpiBar0 (
 EFI_STATUS
 EFIAPI
 DisableBiosWriteProtect (
-  IN  UINTN  PchSpiBase,
-  IN  UINT8  CpuSmmBwp
+  IN  UINTN    PchSpiBase,
+  IN  UINT8    CpuSmmBwp,
+  OUT BOOLEAN  *SmmStsSave
   );
 
 /**
@@ -120,6 +122,7 @@ DisableBiosWriteProtect (
 
   @param[in] PchSpiBase           PCH SPI PCI Base Address
   @param[in] CpuSmmBwp            Need to disable CPU SMM Bios write protection or not
+  @param[in] SmmStsSave           In-SMM qualification to restore
 
   @retval None
 
@@ -127,8 +130,9 @@ DisableBiosWriteProtect (
 VOID
 EFIAPI
 EnableBiosWriteProtect (
-  IN  UINTN  PchSpiBase,
-  IN  UINT8  CpuSmmBwp
+  IN  UINTN    PchSpiBase,
+  IN  UINT8    CpuSmmBwp,
+  IN  BOOLEAN  SmmStsSave
   );
 
 /**

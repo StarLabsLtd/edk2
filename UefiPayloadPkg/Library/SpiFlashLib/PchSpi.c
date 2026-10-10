@@ -36,36 +36,34 @@ ReleaseSpiBar0 (
 }
 
 /**
-  This function is to enable/disable BIOS Write Protect in SMM phase.
+  Set the chipset in-SMM qualification and return its previous state.
 
-  @param[in] EnableSmmSts        Flag to Enable/disable Bios write protect
+  @param[in] EnableSmmSts  Whether flash writes are qualified as SMM accesses.
 
+  @return Previous in-SMM qualification state.
 **/
-VOID
+STATIC
+BOOLEAN
 CpuSmmDisableBiosWriteProtect (
   IN  BOOLEAN  EnableSmmSts
   )
 {
-  UINT32  Data32;
+  UINT32   Data32;
+  BOOLEAN  SmmStsSave;
 
+  Data32     = MmioRead32 (0xFED30880);
+  SmmStsSave = (Data32 & BIT0) != 0;
   if (EnableSmmSts) {
-    //
-    // Disable BIOS Write Protect in SMM phase.
-    //
-    Data32 = MmioRead32 ((UINTN)(0xFED30880)) | (UINT32)(BIT0);
-    AsmWriteMsr32 (0x000001FE, Data32);
+    Data32 |= BIT0;
   } else {
-    //
-    // Enable BIOS Write Protect in SMM phase
-    //
-    Data32 = MmioRead32 ((UINTN)(0xFED30880)) & (UINT32)(~BIT0);
-    AsmWriteMsr32 (0x000001FE, Data32);
+    Data32 &= ~BIT0;
   }
 
-  //
-  // Read FED30880h back to ensure the setting went through.
-  //
-  Data32 = MmioRead32 (0xFED30880);
+  AsmWriteMsr32 (0x000001FE, Data32);
+  // Read back the chipset status to complete the qualification change.
+  MmioRead32 (0xFED30880);
+
+  return SmmStsSave;
 }
 
 /**
@@ -73,6 +71,7 @@ CpuSmmDisableBiosWriteProtect (
 
   @param[in] PchSpiBase           PCH SPI PCI Base Address
   @param[in] CpuSmmBwp            Need to disable CPU SMM Bios write protection or not
+  @param[out] SmmStsSave          Previous in-SMM qualification, also valid on failure
 
   @retval EFI_SUCCESS             The protocol instance was properly initialized
   @retval EFI_ACCESS_DENIED       The BIOS Region can only be updated in SMM phase
@@ -81,10 +80,13 @@ CpuSmmDisableBiosWriteProtect (
 EFI_STATUS
 EFIAPI
 DisableBiosWriteProtect (
-  IN  UINTN  PchSpiBase,
-  IN  UINT8  CpuSmmBwp
+  IN  UINTN    PchSpiBase,
+  IN  UINT8    CpuSmmBwp,
+  OUT BOOLEAN  *SmmStsSave
   )
 {
+  *SmmStsSave = FALSE;
+
   //
   // Write clear BC_SYNC_SS prior to change WPD from 0 to 1.
   //
@@ -96,7 +98,7 @@ DisableBiosWriteProtect (
   MmioOr8 (PchSpiBase + R_SPI_BCR, B_SPI_BCR_BIOSWE);
 
   if (CpuSmmBwp != 0) {
-    CpuSmmDisableBiosWriteProtect (TRUE);
+    *SmmStsSave = CpuSmmDisableBiosWriteProtect (TRUE);
   }
 
   if ((MmioRead8 (PchSpiBase + R_SPI_BCR) & B_SPI_BCR_BIOSWE) == 0) {
@@ -112,13 +114,15 @@ DisableBiosWriteProtect (
 
   @param[in] PchSpiBase           PCH SPI PCI Base Address
   @param[in] CpuSmmBwp            Need to disable CPU SMM Bios write protection or not
+  @param[in] SmmStsSave           In-SMM qualification to restore
 
 **/
 VOID
 EFIAPI
 EnableBiosWriteProtect (
-  IN  UINTN  PchSpiBase,
-  IN  UINT8  CpuSmmBwp
+  IN  UINTN    PchSpiBase,
+  IN  UINT8    CpuSmmBwp,
+  IN  BOOLEAN  SmmStsSave
   )
 {
   //
@@ -127,7 +131,7 @@ EnableBiosWriteProtect (
   MmioAnd8 (PchSpiBase + R_SPI_BCR, (UINT8)(~B_SPI_BCR_BIOSWE));
 
   if (CpuSmmBwp != 0) {
-    CpuSmmDisableBiosWriteProtect (FALSE);
+    CpuSmmDisableBiosWriteProtect (SmmStsSave);
   }
 }
 

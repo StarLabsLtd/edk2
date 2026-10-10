@@ -440,6 +440,7 @@ SendSpiCmd (
   UINT32        SpiDataCount;
   UINT32        FlashCycle;
   UINT8         BiosCtlSave;
+  BOOLEAN       SmmStsSave;
   SPI_INSTANCE  *SpiInstance;
   UINT32        Data32;
   UINT32        RegionSize;
@@ -477,7 +478,11 @@ SendSpiCmd (
   //
   if ((FlashCycleType == FlashCycleWrite) || (FlashCycleType == FlashCycleErase)) {
     BiosCtlSave = SaveAndDisableSpiPrefetchCache (SpiBaseAddress);
-    Status = DisableBiosWriteProtect (SpiBaseAddress, mSpiInstance->Flags & FLAGS_SPI_DISABLE_SMM_WRITE_PROTECT);
+    Status = DisableBiosWriteProtect (
+               SpiBaseAddress,
+               SpiInstance->Flags & FLAGS_SPI_DISABLE_SMM_WRITE_PROTECT,
+               &SmmStsSave
+               );
     if (EFI_ERROR (Status)) {
       goto SendSpiCmdEnd;
     }
@@ -786,7 +791,11 @@ SendSpiCmdEnd:
   /// Restore the settings for SPI Prefetching and Caching and enable BIOS Write Protect
   ///
   if ((FlashCycleType == FlashCycleWrite) || (FlashCycleType == FlashCycleErase)) {
-    EnableBiosWriteProtect (SpiBaseAddress, mSpiInstance->Flags & FLAGS_SPI_DISABLE_SMM_WRITE_PROTECT);
+    EnableBiosWriteProtect (
+      SpiBaseAddress,
+      SpiInstance->Flags & FLAGS_SPI_DISABLE_SMM_WRITE_PROTECT,
+      SmmStsSave
+      );
     SetSpiBiosControlRegister (SpiBaseAddress, BiosCtlSave);
   }
 
