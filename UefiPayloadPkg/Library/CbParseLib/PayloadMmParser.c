@@ -139,7 +139,7 @@ ParsePayloadMmFeatureInfo (
       (Interface->pad != 0) || (Interface->bootloader_smm_is_64bit > 1) ||
       (Interface->apm_cmd != PAYLOAD_MM_APM_COMMAND) || (Smram->size != sizeof (*Smram)) ||
       (Shared->size != sizeof (*Shared)) || (Spi->size != sizeof (*Spi)) ||
-      (Spi->revision != 2) || (Spi->flags != 0) ||
+      (Spi->revision != 2) || ((Spi->flags & ~FLAGS_SPI_DISABLE_SMM_WRITE_PROTECT) != 0) ||
       (Spi->spi_address.address_space_id != SPACE_ID_PCI_CONFIGURATION) ||
       (Spi->spi_address.register_bit_width != 32) ||
       (Spi->spi_address.register_bit_offset != 0) || (Spi->spi_address.reserved != 0) ||
@@ -218,6 +218,7 @@ ParsePayloadMmFeatureInfo (
   SharedInfo.CommBuffer.CpuStart      = SharedBase;
   SharedInfo.CommBuffer.PhysicalSize  = EFI_PAGE_SIZE;
   ZeroMem (&SpiInfo, sizeof (SpiInfo));
+  SpiInfo.Flags                       = Spi->flags;
   SpiInfo.SpiAddress.AddressSpaceId   = SPACE_ID_PCI_CONFIGURATION;
   SpiInfo.SpiAddress.RegisterBitWidth = 32;
   SpiInfo.SpiAddress.AccessSize       = EFI_ACPI_3_0_DWORD;
@@ -259,6 +260,14 @@ ParsePayloadMmFeatureInfo (
   Status = UnblockMmRange (SpiBase, EFI_PAGE_SIZE);
   if (EFI_ERROR (Status)) {
     return Status;
+  }
+
+  if ((Spi->flags & FLAGS_SPI_DISABLE_SMM_WRITE_PROTECT) != 0) {
+    // The SPI library reads in-SMM qualification from the chipset status page.
+    Status = UnblockMmRange (0xFED30000, EFI_PAGE_SIZE);
+    if (EFI_ERROR (Status)) {
+      return Status;
+    }
   }
 
   SpiBar = MmioRead32 ((UINTN)SpiBase + PCI_BASE_ADDRESSREG_OFFSET);
