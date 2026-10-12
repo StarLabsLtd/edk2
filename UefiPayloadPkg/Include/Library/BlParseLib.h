@@ -50,6 +50,19 @@ GetParameterBase (
   );
 
 /**
+  Find a coreboot table record by tag.
+
+  @param[in] Tag  Record tag.
+
+  @retval NULL    The record was not found.
+  @return         Pointer to the record.
+**/
+VOID *
+FindCbTag (
+  IN UINT32  Tag
+  );
+
+/**
   Acquire the memory map information.
 
   @param  MemInfoCallback     The callback routine
