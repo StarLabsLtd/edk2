@@ -38,3 +38,9 @@ VarCheckPolicyIsPrimaryBufferValid (
   IN EFI_PHYSICAL_ADDRESS  Buffer,
   IN UINT64                Length
   );
+
+EFI_STATUS
+EFIAPI
+VarCheckPolicyLibCommonDestructor (
+  VOID
+  );

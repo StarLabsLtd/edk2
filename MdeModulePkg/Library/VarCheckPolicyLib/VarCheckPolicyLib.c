@@ -41,6 +41,7 @@ VariableServiceGetVariable (
   );
 
 UINT8  mSecurityEvalBuffer[VAR_CHECK_POLICY_MM_COMM_BUFFER_SIZE];
+STATIC EFI_HANDLE  mPolicyMmiHandle;
 
 // Pagination Cache Variables
 UINT8   *mPaginationCache         = NULL;
@@ -451,7 +452,6 @@ VarCheckPolicyLibCommonConstructor (
   )
 {
   EFI_STATUS  Status;
-  EFI_HANDLE  DiscardedHandle;
 
   // Initialize the business logic with the internal GetVariable handler.
   Status = InitVariablePolicyLib (VariableServiceGetVariable);
@@ -463,12 +463,11 @@ VarCheckPolicyLibCommonConstructor (
     VarCheckLibRegisterSetVariableCheckHandler (ValidateSetVariable);
 
     // Register the MMI handlers for receiving policy commands.
-    DiscardedHandle = NULL;
-    Status          = gMmst->MmiHandlerRegister (
-                               VarCheckPolicyLibMmiHandler,
-                               &gVarCheckPolicyLibMmiHandlerGuid,
-                               &DiscardedHandle
-                               );
+    Status = gMmst->MmiHandlerRegister (
+                     VarCheckPolicyLibMmiHandler,
+                     &gVarCheckPolicyLibMmiHandlerGuid,
+                     &mPolicyMmiHandle
+                     );
   }
   // Otherwise, there's not much we can do.
   else {
@@ -477,4 +476,26 @@ VarCheckPolicyLibCommonConstructor (
   }
 
   return Status;
+}
+
+EFI_STATUS
+EFIAPI
+VarCheckPolicyLibCommonDestructor (
+  VOID
+  )
+{
+  EFI_STATUS  Status;
+
+  if (mPolicyMmiHandle == NULL) {
+    return EFI_SUCCESS;
+  }
+
+  Status = gMmst->MmiHandlerUnRegister (mPolicyMmiHandle);
+  if (EFI_ERROR (Status)) {
+    // The dispatcher must not retain a callback into an unloaded image.
+    CpuDeadLoop ();
+  }
+
+  mPolicyMmiHandle = NULL;
+  return EFI_SUCCESS;
 }

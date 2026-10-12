@@ -1,0 +1,57 @@
+## @file
+# Fixed Standalone MM variable service for coreboot.
+#
+# Copyright (c) 2026, Star Labs Systems. All rights reserved.<BR>
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[FV.FIXEDMMFV]
+FvNameGuid         = CDF87DCC-3398-4DE9-B487-C15DA0B44E1D
+BlockSize          = 0x1000
+FvAlignment        = 16
+ERASE_POLARITY     = 1
+MEMORY_MAPPED      = TRUE
+STICKY_WRITE       = TRUE
+LOCK_CAP           = TRUE
+LOCK_STATUS        = TRUE
+WRITE_DISABLED_CAP = TRUE
+WRITE_ENABLED_CAP  = TRUE
+WRITE_STATUS       = TRUE
+WRITE_LOCK_CAP     = TRUE
+WRITE_LOCK_STATUS  = TRUE
+READ_DISABLED_CAP  = TRUE
+READ_ENABLED_CAP   = TRUE
+READ_STATUS        = TRUE
+READ_LOCK_CAP      = TRUE
+READ_LOCK_STATUS   = TRUE
+
+APRIORI DXE {
+  INF UefiPayloadPkg/CorebootMmBridge/CorebootMmBridge.inf
+}
+
+INF StandaloneMmPkg/Core/StandaloneMmCore.inf
+INF UefiPayloadPkg/CorebootMmBridge/CorebootMmBridge.inf
+INF UefiPayloadPkg/FvbRuntimeDxe/FvbStandaloneMm.inf
+INF MdeModulePkg/Universal/FaultTolerantWriteDxe/FaultTolerantWriteStandaloneMm.inf
+// FTW publication follows replay and synchronous store-header verification.
+FILE MM_STANDALONE = 7ee2c0c1-c21a-4113-a53a-66824a95696f {
+  SECTION SMM_DEPEX_EXP = { gEfiSmmFaultTolerantWriteProtocolGuid }
+  SECTION PE32 = $(OUTPUT_DIRECTORY)/$(TARGET)_$(TOOL_CHAIN_TAG)/IA32/VariableStandaloneMm.efi
+  SECTION UI = "VariableStandaloneMm"
+  SECTION VERSION = "1.0"
+}
+
+[Rule.Common.MM_CORE_STANDALONE]
+  FILE MM_CORE_STANDALONE = $(NAMED_GUID) {
+    PE32 PE32 $(INF_OUTPUT)/$(MODULE_NAME).efi
+    UI STRING = "$(MODULE_NAME)" Optional
+    VERSION STRING = "$(INF_VERSION)" Optional BUILD_NUM = $(BUILD_NUMBER)
+  }
+
+[Rule.Common.MM_STANDALONE]
+  FILE MM_STANDALONE = $(NAMED_GUID) {
+    SMM_DEPEX SMM_DEPEX Optional $(INF_OUTPUT)/$(MODULE_NAME).depex
+    PE32 PE32 $(INF_OUTPUT)/$(MODULE_NAME).efi
+    UI STRING = "$(MODULE_NAME)" Optional
+    VERSION STRING = "$(INF_VERSION)" Optional BUILD_NUM = $(BUILD_NUMBER)
+  }

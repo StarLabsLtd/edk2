@@ -75,7 +75,7 @@ VariableClearNotifySmmReady (
 /**
   Notify the system that the SMM variable write driver is ready.
 **/
-VOID
+EFI_STATUS
 VariableNotifySmmWriteReady (
   VOID
   )
@@ -90,7 +90,7 @@ VariableNotifySmmWriteReady (
                     EFI_NATIVE_INTERFACE,
                     NULL
                     );
-  ASSERT_EFI_ERROR (Status);
+  return Status;
 }
 
 /**
