@@ -31,6 +31,16 @@ VarCheckPolicyLibStandaloneConstructor (
   return VarCheckPolicyLibCommonConstructor ();
 }
 
+EFI_STATUS
+EFIAPI
+VarCheckPolicyLibStandaloneDestructor (
+  IN EFI_HANDLE           ImageHandle,
+  IN EFI_MM_SYSTEM_TABLE  *SystemTable
+  )
+{
+  return VarCheckPolicyLibCommonDestructor ();
+}
+
 /**
   This function is wrapper function to validate the Primary Buffer (CommBuffer).
 
