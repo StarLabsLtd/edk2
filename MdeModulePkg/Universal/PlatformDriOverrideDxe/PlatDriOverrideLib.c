@@ -6,6 +6,8 @@
 
 **/
 
+#include <Guid/EventGroup.h>
+
 #include "InternalPlatDriOverrideDxe.h"
 
 #define PLATFORM_OVERRIDE_ITEM_SIGNATURE  SIGNATURE_32('p','d','o','i')
@@ -1498,6 +1500,7 @@ GetDriverFromMapping (
               //
               // Try to start the driver
               //
+              EfiEventGroupSignal (&gEfiEventExternalImageStartGuid);
               Status = gBS->StartImage (ImageHandle, NULL, NULL);
               if (EFI_ERROR (Status)) {
                 DriverImageInfo->UnStartable = TRUE;

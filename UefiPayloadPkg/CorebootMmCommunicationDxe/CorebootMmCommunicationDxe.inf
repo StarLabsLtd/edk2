@@ -36,6 +36,7 @@
   UefiRuntimeLib
 
 [Guids]
+  gCorebootVariableServiceReadyGuid
   gEfiEventVirtualAddressChangeGuid
   gSmmVariableWriteGuid
   gVarCheckPolicyLibMmiHandlerGuid

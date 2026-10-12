@@ -14,12 +14,12 @@
   Allow Secure Boot configuration during trusted firmware Setup only.
 
   This policy trusts preboot firmware, not an independent presence sensor.
-  The boot manager signals ReadyToBoot before executing a boot option, but
-  exempts its built-in Setup menu. MM retains the event markers across S3;
-  returning from a boot option must not reopen the configuration window.
+  Setup remains available until the boot manager hands off to an OS. MM also
+  closes the window before any external preboot image runs. These markers
+  persist across S3, so returning from an image cannot reopen the window.
 
   @retval TRUE   Neither boot handoff event has reached MM.
-  @retval FALSE  A handoff event occurred, or the MM lookup failed unexpectedly.
+  @retval FALSE  A handoff occurred, or the MM lookup failed unexpectedly.
 **/
 BOOLEAN
 EFIAPI
@@ -33,5 +33,9 @@ UserPhysicalPresent (
     return FALSE;
   }
 
-  return gMmst->MmLocateProtocol (&gEfiEventExitBootServicesGuid, NULL, &Interface) == EFI_NOT_FOUND;
+  if (gMmst->MmLocateProtocol (&gEfiEventExitBootServicesGuid, NULL, &Interface) != EFI_NOT_FOUND) {
+    return FALSE;
+  }
+
+  return gMmst->MmLocateProtocol (&gEfiEventExternalImageStartGuid, NULL, &Interface) == EFI_NOT_FOUND;
 }

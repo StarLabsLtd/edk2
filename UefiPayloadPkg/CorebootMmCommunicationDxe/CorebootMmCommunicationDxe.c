@@ -1067,16 +1067,66 @@ MmCommunicate2 (
   IN OUT UINTN                             *CommunicationSize OPTIONAL
   )
 {
+  EFI_MM_COMMUNICATE_HEADER       *Header;
+  SMM_VARIABLE_COMMUNICATE_HEADER *VariableHeader;
+  EFI_STATUS                      Status;
+
   if ((CommunicationBufferPhysical == NULL) || (CommunicationBufferVirtual == NULL)) {
     return EFI_INVALID_PARAMETER;
   }
 
-  return Communicate (CommunicationBufferVirtual, CommunicationSize);
+  Header = CommunicationBufferVirtual;
+  VariableHeader = NULL;
+  if (CompareGuid (&Header->HeaderGuid, &gEfiSmmVariableProtocolGuid) &&
+      (Header->MessageLength >= SMM_VARIABLE_COMMUNICATE_HEADER_SIZE) &&
+      ((CommunicationSize == NULL) ||
+       (*CommunicationSize >= OFFSET_OF (EFI_MM_COMMUNICATE_HEADER, Data) + SMM_VARIABLE_COMMUNICATE_HEADER_SIZE)))
+  {
+    SMM_VARIABLE_COMMUNICATE_HEADER *Request = (VOID *)Header->Data;
+
+    if ((Request->Function == SMM_VARIABLE_FUNCTION_READY_TO_BOOT) ||
+        (Request->Function == SMM_VARIABLE_FUNCTION_EXIT_BOOT_SERVICE))
+    {
+      VariableHeader = Request;
+    }
+  }
+
+  Status = Communicate (CommunicationBufferVirtual, CommunicationSize);
+  if (VariableHeader != NULL) {
+    if (!EFI_ERROR (Status)) {
+      Status = VariableHeader->ReturnStatus;
+    }
+
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_ERROR, "MM variable lifecycle notification failed: %r\n", Status));
+      CpuDeadLoop ();
+    }
+  }
+
+  return Status;
 }
 
 STATIC EFI_MM_COMMUNICATION2_PROTOCOL  mMmCommunication2 = {
   MmCommunicate2
 };
+
+STATIC
+EFI_STATUS
+CheckVariableServiceReady (
+  VOID
+  )
+{
+  UINT8                      Buffer[OFFSET_OF (EFI_MM_COMMUNICATE_HEADER, Data) + 1];
+  EFI_MM_COMMUNICATE_HEADER  *Header;
+  UINTN                      Size;
+
+  Header = (VOID *)Buffer;
+  ZeroMem (Buffer, sizeof (Buffer));
+  CopyGuid (&Header->HeaderGuid, &gCorebootVariableServiceReadyGuid);
+  Header->MessageLength = 1;
+  Size                  = sizeof (Buffer);
+  return Communicate (Buffer, &Size);
+}
 
 STATIC
 VOID
@@ -1172,6 +1222,11 @@ CorebootMmCommunicationEntryPoint (
   }
 
   InitializeSpinLock (&mCommunicationLock);
+
+  Status = CheckVariableServiceReady ();
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
 
   Status = gBS->CreateEventEx (
                   EVT_NOTIFY_SIGNAL,

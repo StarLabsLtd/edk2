@@ -36,6 +36,18 @@
   DEFINE SIO_BUS_ENABLE               = FALSE
   DEFINE SECURITY_STUB_ENABLE         = TRUE
   DEFINE SMM_SUPPORT                  = FALSE
+  DEFINE FIXED_MM_SERVICE             = FALSE
+
+!if $(FIXED_MM_SERVICE) == TRUE
+!if $(SMM_SUPPORT) == TRUE
+  !error "SMM_SUPPORT and FIXED_MM_SERVICE cannot both be TRUE"
+!endif
+!if $(BUILD_ARCH) != IA32
+!if $(BUILD_ARCH) != X64
+  !error "FIXED_MM_SERVICE requires an x86 build"
+!endif
+!endif
+!endif
   DEFINE PLATFORM_BOOT_TIMEOUT        = 3
   DEFINE BOOT_MANAGER_ESCAPE          = FALSE
   DEFINE ATA_ENABLE                   = TRUE
@@ -101,6 +113,10 @@
   #
   DEFINE   BOOTLOADER                 = SBL
 
+!if $(FIXED_MM_SERVICE) == TRUE && $(BOOTLOADER) != "COREBOOT"
+  !error "FIXED_MM_SERVICE requires BOOTLOADER=COREBOOT"
+!endif
+
   #
   # CPU options
   #
@@ -159,6 +175,10 @@
   # NONE:     UEFI payload with no variable modules
   #
   DEFINE VARIABLE_SUPPORT      = EMU
+
+!if $(FIXED_MM_SERVICE) == TRUE && $(VARIABLE_SUPPORT) != "SPI"
+  !error "FIXED_MM_SERVICE requires VARIABLE_SUPPORT=SPI"
+!endif
 
   DEFINE DISABLE_RESET_SYSTEM  = FALSE
   DEFINE NETWORK_DRIVER_ENABLE = FALSE
@@ -1398,6 +1418,10 @@
       NULL|EmbeddedPkg/Library/NvVarStoreFormattedLib/NvVarStoreFormattedLib.inf
   }
 !elseif $(VARIABLE_SUPPORT) == "SPI"
+!if $(FIXED_MM_SERVICE) == TRUE
+  UefiPayloadPkg/CorebootMmCommunicationDxe/CorebootMmCommunicationDxe.inf
+  UefiPayloadPkg/CorebootMmEventDxe/CorebootMmEventDxe.inf
+!else
   MdeModulePkg/Universal/Variable/RuntimeDxe/VariableSmm.inf {
     <LibraryClasses>
       NULL|MdeModulePkg/Library/VarCheckUefiLib/VarCheckUefiLib.inf
@@ -1408,6 +1432,7 @@
 
   UefiPayloadPkg/FvbRuntimeDxe/FvbSmm.inf
   MdeModulePkg/Universal/FaultTolerantWriteDxe/FaultTolerantWriteSmm.inf
+!endif
   MdeModulePkg/Universal/Variable/RuntimeDxe/VariableSmmRuntimeDxe.inf
 !endif
 

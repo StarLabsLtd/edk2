@@ -19,6 +19,7 @@
 
 [Packages]
   MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
   UefiPayloadPkg/UefiPayloadPkg.dec
 
 [LibraryClasses]
@@ -28,9 +29,13 @@
 
 [Guids]
   gCorebootVariableServiceInfoGuid
+  gCorebootVariableServiceReadyGuid
+  gEfiEventExternalImageStartGuid
+  gSmmVariableWriteGuid
 
 [Protocols]
   gEfiMmConfigurationProtocolGuid               ## PRODUCES
+  gEfiSmmVariableProtocolGuid                   ## CONSUMES
 
 [Depex]
   TRUE

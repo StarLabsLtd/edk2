@@ -27,3 +27,4 @@
 [Guids]
   gEfiEventReadyToBootGuid
   gEfiEventExitBootServicesGuid
+  gEfiEventExternalImageStartGuid

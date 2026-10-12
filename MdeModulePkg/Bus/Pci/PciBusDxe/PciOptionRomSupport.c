@@ -6,6 +6,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 
 **/
 
+#include <Guid/EventGroup.h>
 #include "PciBus.h"
 
 /**
@@ -753,6 +754,7 @@ ProcessOpRomImage (
       //
       AddDriver (PciDevice, NULL, PciOptionRomImageDevicePath);
     } else {
+      EfiEventGroupSignal (&gEfiEventExternalImageStartGuid);
       Status = gBS->StartImage (ImageHandle, NULL, NULL);
       if (!EFI_ERROR (Status)) {
         //
