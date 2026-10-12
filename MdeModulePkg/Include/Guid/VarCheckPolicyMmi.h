@@ -49,16 +49,23 @@ typedef struct _VAR_CHECK_POLICY_COMM_GET_INFO_PARAMS {
 #define   VAR_CHECK_POLICY_COMM_GET_INFO_PARAMS_END \
             (OFFSET_OF(VAR_CHECK_POLICY_COMM_GET_INFO_PARAMS, InputVariableName))
 
+//
+// Reserve space for the larger X64 headers so pagination is identical when
+// the client and MM service use different architectures.
+//
+#define   VAR_CHECK_POLICY_MAX_MM_HEADER_SIZE      (sizeof (EFI_GUID) + sizeof (UINT64))
+#define   VAR_CHECK_POLICY_MAX_POLICY_HEADER_SIZE  ((3 * sizeof (UINT32)) + sizeof (UINT64))
+
 // Make sure that we will hold at least the headers.
-#define   VAR_CHECK_POLICY_MM_COMM_BUFFER_SIZE  MAX((OFFSET_OF(EFI_MM_COMMUNICATE_HEADER, Data) + sizeof (VAR_CHECK_POLICY_COMM_HEADER) + EFI_PAGES_TO_SIZE(1)), EFI_PAGES_TO_SIZE(4))
+#define   VAR_CHECK_POLICY_MM_COMM_BUFFER_SIZE  MAX((VAR_CHECK_POLICY_MAX_MM_HEADER_SIZE + VAR_CHECK_POLICY_MAX_POLICY_HEADER_SIZE + EFI_PAGES_TO_SIZE(1)), EFI_PAGES_TO_SIZE(4))
 #define   VAR_CHECK_POLICY_MM_DUMP_BUFFER_SIZE  (VAR_CHECK_POLICY_MM_COMM_BUFFER_SIZE - \
-                                                    (OFFSET_OF(EFI_MM_COMMUNICATE_HEADER, Data) + \
-                                                      sizeof(VAR_CHECK_POLICY_COMM_HEADER) + \
+                                                    (VAR_CHECK_POLICY_MAX_MM_HEADER_SIZE + \
+                                                      VAR_CHECK_POLICY_MAX_POLICY_HEADER_SIZE + \
                                                       sizeof(VAR_CHECK_POLICY_COMM_DUMP_PARAMS)))
 
 #define   VAR_CHECK_POLICY_MM_GET_INFO_BUFFER_SIZE  (VAR_CHECK_POLICY_MM_COMM_BUFFER_SIZE - \
-                                                      (OFFSET_OF(EFI_MM_COMMUNICATE_HEADER, Data) + \
-                                                        sizeof(VAR_CHECK_POLICY_COMM_HEADER) + \
+                                                      (VAR_CHECK_POLICY_MAX_MM_HEADER_SIZE + \
+                                                        VAR_CHECK_POLICY_MAX_POLICY_HEADER_SIZE + \
                                                         OFFSET_OF(VAR_CHECK_POLICY_COMM_GET_INFO_PARAMS, InputVariableName)))
 
 STATIC_ASSERT (

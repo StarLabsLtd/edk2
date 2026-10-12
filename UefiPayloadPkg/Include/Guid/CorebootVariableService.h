@@ -19,9 +19,10 @@
 
 #define COREBOOT_VARIABLE_REGISTER_SUCCESS  0
 
-#define COREBOOT_VARIABLE_BUFFER_IDLE      0
-#define COREBOOT_VARIABLE_BUFFER_REQUEST   1
-#define COREBOOT_VARIABLE_BUFFER_RESPONSE  2
+#define COREBOOT_VARIABLE_BUFFER_IDLE          0
+#define COREBOOT_VARIABLE_BUFFER_REQUEST       1
+#define COREBOOT_VARIABLE_BUFFER_RESPONSE      2
+#define COREBOOT_VARIABLE_BUFFER_CONSTRUCTING  3
 
 // HOB passed by coreboot while the fixed MM firmware volume is initialized.
 typedef struct {
@@ -53,8 +54,11 @@ typedef struct {
   UINT32        Transaction;
   UINT32        MessageSize;
   UINT32        ResponseSize;
-  EFI_STATUS    Status;
+  UINT64        Status;
 } COREBOOT_VARIABLE_SERVICE_BUFFER;
+
+STATIC_ASSERT (OFFSET_OF (COREBOOT_VARIABLE_SERVICE_BUFFER, Status) == 24, "Coreboot buffer ABI");
+STATIC_ASSERT (sizeof (COREBOOT_VARIABLE_SERVICE_BUFFER) == 32, "Coreboot buffer ABI");
 
 extern EFI_GUID  gCorebootVariableServiceInfoGuid;
 extern EFI_GUID  gCorebootVariableServiceReadyGuid;
