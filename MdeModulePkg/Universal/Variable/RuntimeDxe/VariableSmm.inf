@@ -142,6 +142,7 @@
   gEfiMdeModulePkgTokenSpaceGuid.PcdEmuVariableNvStoreReserved       ## SOMETIMES_CONSUMES
 
 [FeaturePcd]
+  gEfiMdeModulePkgTokenSpaceGuid.PcdEnableVariableRuntimeCache        ## CONSUMES
   gEfiMdeModulePkgTokenSpaceGuid.PcdVariableCollectStatistics        ## CONSUMES  # statistic the information of variable.
   gEfiMdePkgTokenSpaceGuid.PcdUefiVariableDefaultLangDeprecate       ## CONSUMES  # Auto update PlatformLang/Lang
 

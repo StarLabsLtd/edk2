@@ -14,6 +14,7 @@
   VERSION_STRING                 = 1.0
   LIBRARY_CLASS                  = NULL|DXE_RUNTIME_DRIVER DXE_SMM_DRIVER
   CONSTRUCTOR                    = VarCheckPolicyLibTraditionalConstructor
+  DESTRUCTOR                     = VarCheckPolicyLibTraditionalDestructor
 
 
 [Sources]
