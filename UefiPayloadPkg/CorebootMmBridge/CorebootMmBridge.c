@@ -8,11 +8,48 @@
 #include <PiMm.h>
 
 #include <Guid/CorebootVariableService.h>
+#include <Guid/SmmVariableCommon.h>
 #include <Library/HobLib.h>
 #include <Library/MmServicesTableLib.h>
 #include <Protocol/MmConfiguration.h>
+#include <Protocol/SmmVariable.h>
 
 STATIC COREBOOT_VARIABLE_REGISTER_MM_ENTRY  mRegisterMmEntry;
+
+STATIC
+EFI_STATUS
+EFIAPI
+VariableServiceReady (
+  IN     EFI_HANDLE  DispatchHandle,
+  IN     CONST VOID  *Context         OPTIONAL,
+  IN OUT VOID        *CommBuffer      OPTIONAL,
+  IN OUT UINTN       *CommBufferSize  OPTIONAL
+  )
+{
+  EFI_STATUS  Status;
+  VOID        *Protocol;
+
+  if ((CommBuffer == NULL) || (CommBufferSize == NULL) ||
+      (*CommBufferSize != sizeof (UINT8)) || (*(UINT8 *)CommBuffer != 0))
+  {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  Status = gMmst->MmLocateProtocol (
+                    &gEfiSmmVariableProtocolGuid,
+                    NULL,
+                    &Protocol
+                    );
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  return gMmst->MmLocateProtocol (
+                  &gSmmVariableWriteGuid,
+                  NULL,
+                  &Protocol
+                  );
+}
 
 STATIC
 EFI_STATUS
@@ -57,6 +94,8 @@ CorebootMmBridgeEntryPoint (
   COREBOOT_VARIABLE_SERVICE_INFO  *ServiceInfo;
   EFI_HOB_GUID_TYPE               *Hob;
   EFI_HANDLE                      Handle;
+  EFI_HANDLE                      ReadyHandler;
+  EFI_STATUS                      Status;
 
   Hob = GetFirstGuidHob (&gCorebootVariableServiceInfoGuid);
   if ((Hob == NULL) ||
@@ -81,11 +120,25 @@ CorebootMmBridgeEntryPoint (
 
   mRegisterMmEntry = (COREBOOT_VARIABLE_REGISTER_MM_ENTRY)(UINTN)ServiceInfo->RegisterMmEntry;
 
+  Status = gMmst->MmiHandlerRegister (
+                    VariableServiceReady,
+                    &gCorebootVariableServiceReadyGuid,
+                    &ReadyHandler
+                    );
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
   Handle = NULL;
-  return gMmst->MmInstallProtocolInterface (
-                  &Handle,
-                  &gEfiMmConfigurationProtocolGuid,
-                  EFI_NATIVE_INTERFACE,
-                  &mMmConfiguration
-                  );
+  Status = gMmst->MmInstallProtocolInterface (
+                    &Handle,
+                    &gEfiMmConfigurationProtocolGuid,
+                    EFI_NATIVE_INTERFACE,
+                    &mMmConfiguration
+                    );
+  if (EFI_ERROR (Status)) {
+    gMmst->MmiHandlerUnRegister (ReadyHandler);
+  }
+
+  return Status;
 }
