@@ -601,13 +601,18 @@ FlushSpareBlockToWorkingBlock (
   //                            WorkingBlockValid);
   // To skip Signature and Crc: sizeof(EFI_GUID)+sizeof(UINT32).
   //
-  FtwUpdateFvState (
-    FtwDevice->FtwBackupFvb,
-    FtwDevice->SpareBlockSize,
-    FtwDevice->FtwSpareLba + FtwDevice->FtwWorkSpaceLbaInSpare,
-    FtwDevice->FtwWorkSpaceBaseInSpare + sizeof (EFI_GUID) + sizeof (UINT32),
-    WORKING_BLOCK_VALID
-    );
+  Status = FtwUpdateFvState (
+             FtwDevice->FtwBackupFvb,
+             FtwDevice->SpareBlockSize,
+             FtwDevice->FtwSpareLba + FtwDevice->FtwWorkSpaceLbaInSpare,
+             FtwDevice->FtwWorkSpaceBaseInSpare + sizeof (EFI_GUID) + sizeof (UINT32),
+             WORKING_BLOCK_VALID
+             );
+  if (EFI_ERROR (Status)) {
+    FreePool (Buffer);
+    return Status;
+  }
+
   //
   // Read from spare block to memory buffer
   //
@@ -1374,7 +1379,9 @@ InitFtwProtocol (
                FtwDevice->FtwWorkSpaceSize,
                FtwDevice->FtwWorkSpace
                );
-    ASSERT_EFI_ERROR (Status);
+    if (EFI_ERROR (Status)) {
+      return Status;
+    }
 
     //
     // If spare block is valid, then replace working block content.
@@ -1396,12 +1403,22 @@ InitFtwProtocol (
         __func__,
         Status
         ));
-      FtwAbort (&FtwDevice->FtwInstance);
+      if (EFI_ERROR (Status)) {
+        return Status;
+      }
+
+      Status = FtwAbort (&FtwDevice->FtwInstance);
+      if (EFI_ERROR (Status) && (Status != EFI_NOT_FOUND)) {
+        return Status;
+      }
+
       //
       // Refresh work space.
       //
       Status = WorkSpaceRefresh (FtwDevice);
-      ASSERT_EFI_ERROR (Status);
+      if (EFI_ERROR (Status)) {
+        return Status;
+      }
     } else {
       DEBUG ((
         DEBUG_INFO,
@@ -1420,7 +1437,9 @@ InitFtwProtocol (
       // Initialize the work space
       //
       Status = FtwReclaimWorkSpace (FtwDevice, FALSE);
-      ASSERT_EFI_ERROR (Status);
+      if (EFI_ERROR (Status)) {
+        return Status;
+      }
     }
   }
 
@@ -1434,7 +1453,10 @@ InitFtwProtocol (
       )
   {
     DEBUG ((DEBUG_ERROR, "Ftw: Init.. find first record not SpareCompleted, abort()\n"));
-    FtwAbort (&FtwDevice->FtwInstance);
+    Status = FtwAbort (&FtwDevice->FtwInstance);
+    if (EFI_ERROR (Status) && (Status != EFI_NOT_FOUND)) {
+      return Status;
+    }
   }
 
   //
@@ -1447,7 +1469,10 @@ InitFtwProtocol (
       )
   {
     DEBUG ((DEBUG_ERROR, "Ftw: Init.. find last record completed but header not, abort()\n"));
-    FtwAbort (&FtwDevice->FtwInstance);
+    Status = FtwAbort (&FtwDevice->FtwInstance);
+    if (EFI_ERROR (Status) && (Status != EFI_NOT_FOUND)) {
+      return Status;
+    }
   }
 
   //
@@ -1462,7 +1487,9 @@ InitFtwProtocol (
 
   if (!IsErasedFlashBuffer (FtwDevice->FtwWorkSpace + Offset, FtwDevice->FtwWorkSpaceSize - Offset)) {
     Status = FtwReclaimWorkSpace (FtwDevice, TRUE);
-    ASSERT_EFI_ERROR (Status);
+    if (EFI_ERROR (Status)) {
+      return Status;
+    }
   }
 
   //
@@ -1475,21 +1502,33 @@ InitFtwProtocol (
     if (FtwDevice->FtwLastWriteRecord->BootBlockUpdate == FTW_VALID_STATE) {
       Status = FlushSpareBlockToBootBlock (FtwDevice);
       DEBUG ((DEBUG_ERROR, "Ftw: Restart boot block update - %r\n", Status));
-      ASSERT_EFI_ERROR (Status);
-      FtwAbort (&FtwDevice->FtwInstance);
+      if (EFI_ERROR (Status)) {
+        return Status;
+      }
+      Status = FtwAbort (&FtwDevice->FtwInstance);
+      if (EFI_ERROR (Status) && (Status != EFI_NOT_FOUND)) {
+        return Status;
+      }
     } else {
       //
       // if (SpareCompleted) THEN  Restart to fault tolerant write.
       //
       FvbHandle = NULL;
       FvbHandle = GetFvbByAddress ((EFI_PHYSICAL_ADDRESS)(UINTN)((INT64)FtwDevice->SpareAreaAddress + FtwDevice->FtwLastWriteRecord->RelativeOffset), &Fvb);
-      if (FvbHandle != NULL) {
-        Status = FtwRestart (&FtwDevice->FtwInstance, FvbHandle);
-        DEBUG ((DEBUG_ERROR, "Ftw: Restart last write - %r\n", Status));
-        ASSERT_EFI_ERROR (Status);
+      if (FvbHandle == NULL) {
+        return EFI_NOT_FOUND;
       }
 
-      FtwAbort (&FtwDevice->FtwInstance);
+      Status = FtwRestart (&FtwDevice->FtwInstance, FvbHandle);
+      DEBUG ((DEBUG_ERROR, "Ftw: Restart last write - %r\n", Status));
+      if (EFI_ERROR (Status)) {
+        return Status;
+      }
+
+      Status = FtwAbort (&FtwDevice->FtwInstance);
+      if (EFI_ERROR (Status) && (Status != EFI_NOT_FOUND)) {
+        return Status;
+      }
     }
   }
 
