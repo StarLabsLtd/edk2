@@ -30,6 +30,10 @@
   gEfiMdeModulePkgTokenSpaceGuid.PcdFlashNvStorageVariableBase64|0
 
 [Components]
+  MdeModulePkg/Library/UefiBootManagerLib/ExternalImageStartUnitTestHost.inf {
+    <BuildOptions>
+      GCC:*_*_*_DLINK_FLAGS = -Wl,--gc-sections
+  }
   UefiPayloadPkg/Library/FmpDeviceSmmLib/FmpDeviceSmmLibUnitTestHost.inf
   UefiPayloadPkg/Library/PlatformSecureLib/PlatformSecureLibMmUnitTestHost.inf
   UefiPayloadPkg/FvbRuntimeDxe/FvbRecoveryUnitTestHost.inf {
