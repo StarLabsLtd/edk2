@@ -20,7 +20,25 @@
 [LibraryClasses]
   SmmStoreGeometryLib|UefiPayloadPkg/Library/SmmStoreGeometryLib/SmmStoreGeometryLib.inf
 
+[PcdsDynamicDefault]
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFlashNvStorageVariableBase|0
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFlashNvStorageVariableSize|0
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFlashNvStorageFtwWorkingBase|0
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFlashNvStorageFtwWorkingSize|0
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFlashNvStorageFtwSpareBase|0
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFlashNvStorageFtwSpareSize|0
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFlashNvStorageVariableBase64|0
+
 [Components]
   UefiPayloadPkg/Library/FmpDeviceSmmLib/FmpDeviceSmmLibUnitTestHost.inf
   UefiPayloadPkg/Library/PlatformSecureLib/PlatformSecureLibMmUnitTestHost.inf
+  UefiPayloadPkg/FvbRuntimeDxe/FvbRecoveryUnitTestHost.inf {
+    <BuildOptions>
+      GCC:*_*_*_DLINK_FLAGS = -Wl,--gc-sections
+  }
+  UefiPayloadPkg/FvbRuntimeDxe/FvbMmUnitTestHost.inf
+  UefiPayloadPkg/FvbRuntimeDxe/FvbFormatUnitTestHost.inf {
+    <BuildOptions>
+      GCC:*_*_*_DLINK_FLAGS = -Wl,--gc-sections
+  }
   UefiPayloadPkg/Library/SmmStoreGeometryLib/SmmStoreGeometryLibUnitTestHost.inf
