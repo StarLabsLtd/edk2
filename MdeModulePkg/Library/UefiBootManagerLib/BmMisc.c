@@ -536,7 +536,14 @@ EfiBootManagerDispatchDeferredImages (
         // a 5 Minute period
         //
         gBS->SetWatchdogTimer (5 * 60, 0x0000, 0x00, NULL);
-        EfiEventGroupSignal (&gEfiEventExternalImageStartGuid);
+        Status = EfiEventGroupSignal (&gEfiEventExternalImageStartGuid);
+        if (EFI_ERROR (Status)) {
+          gBS->SetWatchdogTimer (0x0000, 0x0000, 0x0000, NULL);
+          gBS->UnloadImage (ImageHandle);
+          FreePool (Handles);
+          return Status;
+        }
+
         gBS->StartImage (ImageHandle, NULL, NULL);
 
         //

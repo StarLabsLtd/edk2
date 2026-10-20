@@ -1526,7 +1526,14 @@ EfiBootManagerProcessLoadOption (
       //
       gBS->SetWatchdogTimer (5 * 60, 0, 0, NULL);
 
-      EfiEventGroupSignal (&gEfiEventExternalImageStartGuid);
+      Status = EfiEventGroupSignal (&gEfiEventExternalImageStartGuid);
+      if (EFI_ERROR (Status)) {
+        LoadOption->Status = Status;
+        gBS->SetWatchdogTimer (0, 0, 0, NULL);
+        gBS->UnloadImage (ImageHandle);
+        break;
+      }
+
       LoadOption->Status = gBS->StartImage (ImageHandle, &LoadOption->ExitDataSize, &LoadOption->ExitData);
       DEBUG ((
         DEBUG_INFO | DEBUG_LOAD,

@@ -754,7 +754,13 @@ ProcessOpRomImage (
       //
       AddDriver (PciDevice, NULL, PciOptionRomImageDevicePath);
     } else {
-      EfiEventGroupSignal (&gEfiEventExternalImageStartGuid);
+      Status = EfiEventGroupSignal (&gEfiEventExternalImageStartGuid);
+      if (EFI_ERROR (Status)) {
+        gBS->UnloadImage (ImageHandle);
+        FreePool (PciOptionRomImageDevicePath);
+        return Status;
+      }
+
       Status = gBS->StartImage (ImageHandle, NULL, NULL);
       if (!EFI_ERROR (Status)) {
         //
