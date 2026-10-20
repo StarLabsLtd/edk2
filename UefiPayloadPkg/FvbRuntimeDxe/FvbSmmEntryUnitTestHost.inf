@@ -1,0 +1,46 @@
+## @file
+# Host checks for traditional SMM FVB backend initialisation ordering.
+# Copyright (c) 2026, Star Labs Systems. All rights reserved.<BR>
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION    = 0x00010017
+  BASE_NAME      = FvbSmmEntryUnitTest
+  FILE_GUID      = 5A4ECE90-9586-4A4B-BB27-0377238032E1
+  VERSION_STRING = 1.0
+  MODULE_TYPE    = HOST_APPLICATION
+
+[Sources]
+  FvbSmmEntryUnitTest.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  UefiCpuPkg/UefiCpuPkg.dec
+  UefiPayloadPkg/UefiPayloadPkg.dec
+  UnitTestFrameworkPkg/UnitTestFrameworkPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  MemoryAllocationLib
+  UnitTestLib
+
+[Guids]
+  gEfiAuthenticatedVariableGuid
+  gEfiFirmwareFileSystem2Guid
+  gEfiSystemNvDataFvGuid
+  gNvVariableInfoGuid
+  gVariableFlashInfoHobGuid
+
+[Protocols]
+  gEfiDevicePathProtocolGuid
+  gEfiSmmFirmwareVolumeBlockProtocolGuid
+
+[Pcd]
+  gUefiPayloadPkgTokenSpaceGuid.PcdNvsDataFile
+
+[BuildOptions]
+  GCC:*_*_*_DLINK_FLAGS = -Wl,--gc-sections

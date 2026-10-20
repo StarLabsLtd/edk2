@@ -41,6 +41,7 @@
       GCC:*_*_*_DLINK_FLAGS = -Wl,--gc-sections
   }
   UefiPayloadPkg/FvbRuntimeDxe/FvbMmUnitTestHost.inf
+  UefiPayloadPkg/FvbRuntimeDxe/FvbSmmEntryUnitTestHost.inf
   UefiPayloadPkg/FvbRuntimeDxe/FvbFormatUnitTestHost.inf {
     <BuildOptions>
       GCC:*_*_*_DLINK_FLAGS = -Wl,--gc-sections
