@@ -37,6 +37,8 @@
 [Sources]
   Reclaim.c
   Variable.c
+  VariableWriteService.c
+  VariableWriteServiceSmm.c
   VariableSmm.c
   VariableStandaloneMm.c
   VariableNonVolatile.c

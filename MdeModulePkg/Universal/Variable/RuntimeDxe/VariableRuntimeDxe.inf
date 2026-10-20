@@ -35,6 +35,7 @@
 [Sources]
   Reclaim.c
   Variable.c
+  VariableWriteService.c
   VariableDxe.c
   Variable.h
   VariableNonVolatile.c

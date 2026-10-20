@@ -1047,30 +1047,6 @@ SmmEndOfDxeCallback (
 }
 
 /**
-  Initializes variable write service for SMM.
-
-**/
-STATIC
-EFI_STATUS
-VariableWriteServiceInitializeSmm (
-  VOID
-  )
-{
-  EFI_STATUS  Status;
-
-  Status = VariableWriteServiceInitialize ();
-  if (EFI_ERROR (Status)) {
-    DEBUG ((DEBUG_ERROR, "Variable write service initialization failed. Status = %r\n", Status));
-    return Status;
-  }
-
-  //
-  // Notify the variable wrapper driver the variable write service is ready
-  //
-  return VariableNotifySmmWriteReady ();
-}
-
-/**
   SMM Fault Tolerant Write protocol notification event handler.
 
   Non-Volatile variable write may needs FTW protocol to reclaim when
