@@ -7,6 +7,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 
 **/
 
+#include <Library/BaseLib.h>
 #include <Library/StandaloneMmMemLib.h>
 
 #include "VarCheckPolicyLib.h"
@@ -28,7 +29,14 @@ VarCheckPolicyLibStandaloneConstructor (
   IN EFI_MM_SYSTEM_TABLE  *SystemTable
   )
 {
-  return VarCheckPolicyLibCommonConstructor ();
+  EFI_STATUS  Status;
+
+  Status = VarCheckPolicyLibCommonConstructor ();
+  if (EFI_ERROR (Status)) {
+    CpuDeadLoop ();
+  }
+
+  return Status;
 }
 
 EFI_STATUS

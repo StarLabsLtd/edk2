@@ -455,25 +455,24 @@ VarCheckPolicyLibCommonConstructor (
 
   // Initialize the business logic with the internal GetVariable handler.
   Status = InitVariablePolicyLib (VariableServiceGetVariable);
-
-  // Only proceed with init if the business logic could be initialized.
-  if (!EFI_ERROR (Status)) {
-    // Register the VarCheck handler for SetVariable filtering.
-    // Forward the check to the business logic of the library.
-    VarCheckLibRegisterSetVariableCheckHandler (ValidateSetVariable);
-
-    // Register the MMI handlers for receiving policy commands.
-    Status = gMmst->MmiHandlerRegister (
-                     VarCheckPolicyLibMmiHandler,
-                     &gVarCheckPolicyLibMmiHandlerGuid,
-                     &mPolicyMmiHandle
-                     );
-  }
-  // Otherwise, there's not much we can do.
-  else {
+  if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "%a - Cannot Initialize VariablePolicyLib! %r\n", __func__, Status));
-    ASSERT_EFI_ERROR (Status);
+    return Status;
   }
+
+  // Register the VarCheck handler for SetVariable filtering.
+  // Forward the check to the business logic of the library.
+  Status = VarCheckLibRegisterSetVariableCheckHandler (ValidateSetVariable);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  // Register the MMI handlers for receiving policy commands.
+  Status = gMmst->MmiHandlerRegister (
+                   VarCheckPolicyLibMmiHandler,
+                   &gVarCheckPolicyLibMmiHandlerGuid,
+                   &mPolicyMmiHandle
+                   );
 
   return Status;
 }
