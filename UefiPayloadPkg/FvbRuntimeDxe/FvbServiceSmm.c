@@ -213,5 +213,12 @@ FvbSmmInitialize (
   IN EFI_SYSTEM_TABLE  *SystemTable
   )
 {
+  EFI_STATUS  Status;
+
+  Status = LibFvbFlashDeviceInit ();
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
   return FvbInitialize (NULL, NULL);
 }
