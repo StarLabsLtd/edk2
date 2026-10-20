@@ -29,6 +29,7 @@ STATIC UINTN                mNotifyCalls;
 STATIC UINTN                mUnregisterCalls;
 STATIC UINTN                mInitializeCalls;
 STATIC UINTN                mInstallCalls;
+STATIC VOID                 *mInstalledInterface;
 
 VOID *
 EFIAPI
@@ -120,6 +121,10 @@ InstallProtocol (
   )
 {
   mInstallCalls++;
+  if (!EFI_ERROR (mInstallStatus)) {
+    mInstalledInterface = Interface;
+  }
+
   return mInstallStatus;
 }
 
@@ -143,6 +148,7 @@ ResetMocks (
   mUnregisterCalls  = 0;
   mInitializeCalls  = 0;
   mInstallCalls     = 0;
+  mInstalledInterface = NULL;
   mMmst.MmRegisterProtocolNotify = RegisterProtocolNotify;
   mMmst.MmInstallProtocolInterface = InstallProtocol;
 }
@@ -195,6 +201,9 @@ PublishFvbLast (
 
   UT_ASSERT_NOT_EFI_ERROR (InstallFvbProtocol (&Instance, 0));
   UT_ASSERT_EQUAL (mInstallCalls, 1);
+  UT_ASSERT_NOT_NULL (mInstalledInterface);
+  FreePool (BASE_CR (mInstalledInterface, EFI_FW_VOL_BLOCK_DEVICE, FwVolBlockInstance));
+  mInstalledInterface = NULL;
   mInstallStatus = EFI_DEVICE_ERROR;
   UT_ASSERT_STATUS_EQUAL (InstallFvbProtocol (&Instance, 0), EFI_DEVICE_ERROR);
   UT_ASSERT_EQUAL (mInstallCalls, 2);
