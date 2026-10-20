@@ -30,6 +30,10 @@
   gEfiMdeModulePkgTokenSpaceGuid.PcdFlashNvStorageVariableBase64|0
 
 [Components]
+  MdeModulePkg/Library/VarCheckPolicyLib/VarCheckPolicyLibStandaloneMmUnitTestHost.inf {
+    <BuildOptions>
+      GCC:*_*_*_DLINK_FLAGS = -Wl,--gc-sections -Wl,--wrap=CpuDeadLoop
+  }
   MdeModulePkg/Library/UefiBootManagerLib/ExternalImageStartUnitTestHost.inf {
     <BuildOptions>
       GCC:*_*_*_DLINK_FLAGS = -Wl,--gc-sections
@@ -40,6 +44,7 @@
     <BuildOptions>
       GCC:*_*_*_DLINK_FLAGS = -Wl,--gc-sections
   }
+  MdeModulePkg/Universal/Variable/RuntimeDxe/VariableWriteServiceUnitTestHost.inf
   UefiPayloadPkg/FvbRuntimeDxe/FvbMmUnitTestHost.inf
   UefiPayloadPkg/FvbRuntimeDxe/FvbSmmEntryUnitTestHost.inf
   UefiPayloadPkg/FvbRuntimeDxe/FvbFormatUnitTestHost.inf {
