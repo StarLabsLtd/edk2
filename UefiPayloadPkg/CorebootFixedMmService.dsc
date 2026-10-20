@@ -100,7 +100,7 @@
 [Components]
   StandaloneMmPkg/Core/StandaloneMmCore.inf
   UefiPayloadPkg/CorebootMmBridge/CorebootMmBridge.inf
-  UefiPayloadPkg/FvbRuntimeDxe/FvbStandaloneMm.inf
+  UefiPayloadPkg/FvbRuntimeDxe/FvbMm.inf
   MdeModulePkg/Universal/FaultTolerantWriteDxe/FaultTolerantWriteStandaloneMm.inf
   MdeModulePkg/Universal/Variable/RuntimeDxe/VariableStandaloneMm.inf {
     <LibraryClasses>

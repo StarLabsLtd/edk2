@@ -7,9 +7,65 @@
 **/
 
 #include <PiSmm.h>
+#include <Library/DxeServicesLib.h>
 #include <Library/SmmServicesTableLib.h>
+#include <Library/UefiBootServicesTableLib.h>
 #include "FvbSmmCommon.h"
 #include "FvbService.h"
+
+/**
+  Get intial variable data.
+
+  @param[out]  VarData          Valid variable data.
+  @param[out]  VarSize          Valid variable size.
+
+  @retval RETURN_SUCCESS        Successfully found initial variable data.
+  @retval RETURN_NOT_FOUND      Failed to find the variable data file from FV.
+  @retval EFI_INVALID_PARAMETER VarData or VarSize is null.
+
+**/
+EFI_STATUS
+GetInitialVariableData (
+  OUT VOID   **VarData,
+  OUT UINTN  *VarSize
+  )
+{
+  EFI_STATUS                     Status;
+  VOID                           *ImageData;
+  UINTN                          ImageSize;
+  EFI_FIRMWARE_VOLUME_HEADER     *FvHeader;
+  VARIABLE_STORE_HEADER          *VariableStore;
+  AUTHENTICATED_VARIABLE_HEADER  *Variable;
+  UINTN                          VariableSize;
+  UINTN                          VarEndAddr;
+
+  if ((VarData == NULL) || (VarSize == NULL)) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  Status = GetSectionFromAnyFv (PcdGetPtr (PcdNvsDataFile), EFI_SECTION_RAW, 0, &ImageData, &ImageSize);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  FvHeader      = (EFI_FIRMWARE_VOLUME_HEADER *)ImageData;
+  VariableStore = (VARIABLE_STORE_HEADER *)((UINT8 *)ImageData + FvHeader->HeaderLength);
+  VarEndAddr    = (UINTN)VariableStore + VariableStore->Size;
+  Variable      = (AUTHENTICATED_VARIABLE_HEADER *)HEADER_ALIGN (VariableStore + 1);
+  *VarData      = (VOID *)Variable;
+  while (((UINTN)Variable < VarEndAddr)) {
+    if (Variable->StartId != VARIABLE_DATA) {
+      break;
+    }
+
+    VariableSize = sizeof (AUTHENTICATED_VARIABLE_HEADER) + Variable->DataSize + Variable->NameSize;
+    Variable     = (AUTHENTICATED_VARIABLE_HEADER *)HEADER_ALIGN ((UINTN)Variable + VariableSize);
+  }
+
+  *VarSize = (UINTN)Variable - HEADER_ALIGN (VariableStore + 1);
+
+  return EFI_SUCCESS;
+}
 
 /**
   The function installs EFI_SMM_FIRMWARE_VOLUME_BLOCK protocol
@@ -58,7 +114,7 @@ InstallFvbProtocol (
     TempPtr               = AllocateRuntimeCopyPool (sizeof (FV_MEMMAP_DEVICE_PATH), &mFvMemmapDevicePathTemplate);
     FvbDevice->DevicePath = (EFI_DEVICE_PATH_PROTOCOL *)TempPtr;
     if (FvbDevice->DevicePath == NULL) {
-      ASSERT (FALSE);
+      FreePool (FvbDevice);
       return EFI_OUT_OF_RESOURCES;
     }
 
@@ -69,7 +125,7 @@ InstallFvbProtocol (
     TempPtr               = AllocateRuntimeCopyPool (sizeof (FV_PIWG_DEVICE_PATH), &mFvPIWGDevicePathTemplate);
     FvbDevice->DevicePath = (EFI_DEVICE_PATH_PROTOCOL *)TempPtr;
     if (FvbDevice->DevicePath == NULL) {
-      ASSERT (FALSE);
+      FreePool (FvbDevice);
       return EFI_OUT_OF_RESOURCES;
     }
 
@@ -80,24 +136,42 @@ InstallFvbProtocol (
   }
 
   //
-  // Install the SMM Firmware Volume Block Protocol and Device Path Protocol
+  // Publish the callable FVB interface only after its device path is ready.
   //
   FvbHandle = NULL;
   Status    = gSmst->SmmInstallProtocolInterface (
                        &FvbHandle,
-                       &gEfiSmmFirmwareVolumeBlockProtocolGuid,
+                       &gEfiDevicePathProtocolGuid,
                        EFI_NATIVE_INTERFACE,
-                       &FvbDevice->FwVolBlockInstance
+                       FvbDevice->DevicePath
                        );
-  ASSERT_EFI_ERROR (Status);
+  if (EFI_ERROR (Status)) {
+    FreePool (FvbDevice->DevicePath);
+    FreePool (FvbDevice);
+    return Status;
+  }
 
   Status = gSmst->SmmInstallProtocolInterface (
                     &FvbHandle,
-                    &gEfiDevicePathProtocolGuid,
+                    &gEfiSmmFirmwareVolumeBlockProtocolGuid,
                     EFI_NATIVE_INTERFACE,
-                    FvbDevice->DevicePath
+                    &FvbDevice->FwVolBlockInstance
                     );
-  ASSERT_EFI_ERROR (Status);
+  if (EFI_ERROR (Status)) {
+    if (!EFI_ERROR (
+           gSmst->SmmUninstallProtocolInterface (
+                    FvbHandle,
+                    &gEfiDevicePathProtocolGuid,
+                    FvbDevice->DevicePath
+                    )
+           ))
+    {
+      FreePool (FvbDevice->DevicePath);
+    }
+
+    FreePool (FvbDevice);
+    return Status;
+  }
 
   //
   // Notify the Fvb wrapper driver SMM fvb is ready
@@ -110,7 +184,13 @@ InstallFvbProtocol (
                      &FvbDevice->FwVolBlockInstance
                      );
 
-  return Status;
+  // FVB consumers may now retain callbacks into this image. Keep it resident
+  // even if the separate DXE wrapper notification fails.
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "Fvb: DXE wrapper notification failed: %r\n", Status));
+  }
+
+  return EFI_SUCCESS;
 }
 
 /**
@@ -133,7 +213,5 @@ FvbSmmInitialize (
   IN EFI_SYSTEM_TABLE  *SystemTable
   )
 {
-  FvbInitialize ();
-
-  return EFI_SUCCESS;
+  return FvbInitialize (NULL, NULL);
 }

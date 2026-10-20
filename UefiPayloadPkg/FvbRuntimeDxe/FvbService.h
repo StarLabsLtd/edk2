@@ -11,12 +11,10 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Guid/EventGroup.h>
 #include <Guid/FirmwareFileSystem2.h>
 #include <Guid/SystemNvDataGuid.h>
+#include <Guid/VariableFlashInfo.h>
 #include <Guid/VariableFormat.h>
 #include <Protocol/DevicePath.h>
 #include <Protocol/FirmwareVolumeBlock.h>
-#include <Library/UefiDriverEntryPoint.h>
-#include <Library/UefiBootServicesTableLib.h>
-#include <Library/UefiLib.h>
 #include <Library/BaseLib.h>
 #include <Library/DebugLib.h>
 #include <Library/BaseMemoryLib.h>
@@ -25,9 +23,9 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Library/MemoryAllocationLib.h>
 #include <Library/PcdLib.h>
 #include <Library/FlashDeviceLib.h>
+#include <Library/VariableFlashInfoLib.h>
 #include <Library/DevicePathLib.h>
 #include <Library/HobLib.h>
-#include <Library/DxeServicesLib.h>
 #include <Guid/NvVariableInfoGuid.h>
 #include <Register/ArchitecturalMsr.h>
 
@@ -87,12 +85,15 @@ typedef struct {
 /**
   Get a heathy FV header used for variable store recovery
 
-  @retval     The FV header.
+  @param[in]  FlashInfo    The validated store geometry, or NULL to use the
+                           configured variable-store layout.
+
+  @retval     The FV header, or NULL if the geometry is invalid.
 
 **/
 EFI_FIRMWARE_VOLUME_HEADER *
 GetFvHeaderTemplate (
-  VOID
+  IN CONST VARIABLE_FLASH_INFO  *FlashInfo OPTIONAL
   );
 
 EFI_STATUS
@@ -166,6 +167,12 @@ GetFvbInstance (
   );
 
 EFI_STATUS
+GetInitialVariableData (
+  OUT VOID   **VarData,
+  OUT UINTN  *VarSize
+  );
+
+EFI_STATUS
 InstallFvbProtocol (
   IN  EFI_FW_VOL_INSTANCE  *FwhInstance,
   IN  UINTN                InstanceNum
@@ -173,7 +180,8 @@ InstallFvbProtocol (
 
 EFI_STATUS
 FvbInitialize (
-  VOID
+  IN EFI_FIRMWARE_VOLUME_HEADER  *ValidatedHeader OPTIONAL,
+  IN CONST VARIABLE_FLASH_INFO   *FormatInfo OPTIONAL
   );
 
 extern FWB_GLOBAL               mFvbModuleGlobal;

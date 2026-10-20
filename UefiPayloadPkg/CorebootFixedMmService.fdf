@@ -31,7 +31,7 @@ APRIORI DXE {
 
 INF StandaloneMmPkg/Core/StandaloneMmCore.inf
 INF UefiPayloadPkg/CorebootMmBridge/CorebootMmBridge.inf
-INF UefiPayloadPkg/FvbRuntimeDxe/FvbStandaloneMm.inf
+INF UefiPayloadPkg/FvbRuntimeDxe/FvbMm.inf
 INF MdeModulePkg/Universal/FaultTolerantWriteDxe/FaultTolerantWriteStandaloneMm.inf
 // FTW publication follows replay and synchronous store-header verification.
 FILE MM_STANDALONE = 7ee2c0c1-c21a-4113-a53a-66824a95696f {

@@ -1,0 +1,72 @@
+## @file
+# Fixed-service MM firmware-volume block driver.
+#
+# Copyright (c) 2026, Star Labs Systems. All rights reserved.<BR>
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = FvbMm
+  FILE_GUID                      = C2BDAA5B-E881-4B74-8B3E-B537B3E2651A
+  MODULE_TYPE                    = MM_STANDALONE
+  VERSION_STRING                 = 1.0
+  PI_SPECIFICATION_VERSION       = 0x00010032
+  ENTRY_POINT                    = FvbMmInitialize
+
+[Sources]
+  FvbInfo.c
+  FvbMm.c
+  FvbMmStore.c
+  FvbMmStore.h
+  FvbService.c
+  FvbService.h
+  FvbSmmCommon.h
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  StandaloneMmPkg/StandaloneMmPkg.dec
+  UefiCpuPkg/UefiCpuPkg.dec
+  UefiPayloadPkg/UefiPayloadPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  CacheMaintenanceLib
+  DebugLib
+  FlashDeviceLib
+  FvLib
+  HobLib
+  IoLib
+  MemoryAllocationLib
+  MmServicesTableLib
+  PcdLib
+  SmmStoreGeometryLib
+  StandaloneMmDriverEntryPoint
+  VariableFlashInfoLib
+
+[Guids]
+  gEdkiiWorkingBlockSignatureGuid
+  gEfiAuthenticatedVariableGuid
+  gEfiFirmwareFileSystem2Guid
+  gEfiSystemNvDataFvGuid
+  gNvVariableInfoGuid
+  gVariableFlashInfoHobGuid
+
+[Protocols]
+  gEfiSmmFaultTolerantWriteProtocolGuid         # PROTOCOL CONSUMED
+  gEfiSmmFirmwareVolumeBlockProtocolGuid        # PROTOCOL ALWAYS_PRODUCED
+
+[Pcd]
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFlashNvStorageVariableBase
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFlashNvStorageVariableBase64
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFlashNvStorageVariableSize
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFlashNvStorageFtwSpareBase
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFlashNvStorageFtwSpareSize
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFlashNvStorageFtwWorkingBase
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFlashNvStorageFtwWorkingSize
+  gUefiPayloadPkgTokenSpaceGuid.PcdNvsDataFile
+
+[Depex]
+  TRUE
