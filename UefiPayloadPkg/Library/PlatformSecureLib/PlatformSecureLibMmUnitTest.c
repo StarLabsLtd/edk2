@@ -17,6 +17,7 @@ STATIC EFI_MM_SYSTEM_TABLE  mMmst;
 EFI_MM_SYSTEM_TABLE         *gMmst = &mMmst;
 STATIC EFI_STATUS          mReadyStatus;
 STATIC EFI_STATUS          mExitStatus;
+STATIC EFI_STATUS          mExternalStatus;
 
 STATIC
 EFI_STATUS
@@ -36,6 +37,10 @@ LocateProtocol (
     return mExitStatus;
   }
 
+  if (CompareGuid (Protocol, &gEfiEventExternalImageStartGuid)) {
+    return mExternalStatus;
+  }
+
   return EFI_INVALID_PARAMETER;
 }
 
@@ -49,22 +54,30 @@ ConfigurationWindow (
   mMmst.MmLocateProtocol = LocateProtocol;
   mReadyStatus          = EFI_NOT_FOUND;
   mExitStatus           = EFI_NOT_FOUND;
+  mExternalStatus       = EFI_NOT_FOUND;
   UT_ASSERT_TRUE (UserPhysicalPresent ());
 
+  // Each phase marker independently closes the configuration window.
   mReadyStatus = EFI_SUCCESS;
   UT_ASSERT_FALSE (UserPhysicalPresent ());
   // Repeated calls cannot reopen the window after a boot attempt.
   UT_ASSERT_FALSE (UserPhysicalPresent ());
+  mReadyStatus = EFI_NOT_FOUND;
   mExitStatus = EFI_SUCCESS;
   UT_ASSERT_FALSE (UserPhysicalPresent ());
-
-  // ExitBootServices must also close it without ReadyToBoot.
-  mReadyStatus = EFI_NOT_FOUND;
+  mExitStatus     = EFI_NOT_FOUND;
+  mExternalStatus = EFI_SUCCESS;
   UT_ASSERT_FALSE (UserPhysicalPresent ());
+
+  // Unexpected lookup errors fail closed for every marker.
+  mExternalStatus = EFI_NOT_FOUND;
   mExitStatus = EFI_DEVICE_ERROR;
   UT_ASSERT_FALSE (UserPhysicalPresent ());
   mExitStatus  = EFI_NOT_FOUND;
   mReadyStatus = EFI_DEVICE_ERROR;
+  UT_ASSERT_FALSE (UserPhysicalPresent ());
+  mReadyStatus    = EFI_NOT_FOUND;
+  mExternalStatus = EFI_DEVICE_ERROR;
   UT_ASSERT_FALSE (UserPhysicalPresent ());
   return UNIT_TEST_PASSED;
 }
