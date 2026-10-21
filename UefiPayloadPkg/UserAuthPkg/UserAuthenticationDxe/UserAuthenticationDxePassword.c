@@ -71,6 +71,7 @@ GetPasswordHashFromVariable (
   OUT USER_PASSWORD_VAR_STRUCT       *UserPasswordVarStruct
   )
 {
+  EFI_STATUS                        Status;
   UINTN                             DataSize;
   CHAR16                            PasswordName[sizeof(USER_AUTHENTICATION_VAR_NAME)/sizeof(CHAR16) + 5];
 
@@ -80,14 +81,19 @@ GetPasswordHashFromVariable (
     UnicodeSPrint (PasswordName, sizeof (PasswordName), L"%s", USER_AUTHENTICATION_VAR_NAME);
   }
 
-  DataSize = sizeof(*UserPasswordVarStruct);
-  return gRT->GetVariable (
-                PasswordName,
-                UserGuid,
-                NULL,
-                &DataSize,
-                UserPasswordVarStruct
-                );
+  DataSize = sizeof (*UserPasswordVarStruct);
+  Status   = gRT->GetVariable (
+                    PasswordName,
+                    UserGuid,
+                    NULL,
+                    &DataSize,
+                    UserPasswordVarStruct
+                    );
+  if (!EFI_ERROR (Status) && (DataSize != sizeof (*UserPasswordVarStruct))) {
+    return EFI_COMPROMISED_DATA;
+  }
+
+  return Status;
 }
 
 /**
@@ -224,7 +230,9 @@ SavePasswordToVariable (
   // If password is NULL, it means we want to clean password field saved in variable region.
   //
   if (Password != NULL) {
-    KeyLibGenerateSalt (UserPasswordVarStruct.PasswordSalt, sizeof(UserPasswordVarStruct.PasswordSalt));
+    if (!KeyLibGenerateSalt (UserPasswordVarStruct.PasswordSalt, sizeof (UserPasswordVarStruct.PasswordSalt))) {
+      return EFI_DEVICE_ERROR;
+    }
     HashOk = KeyLibGeneratePBKDF2Hash (
                HASH_TYPE_SHA256,
                (UINT8 *)Password,
@@ -277,8 +285,8 @@ IsPasswordVerified (
   PasswordTryCount = &mAdminPasswordTryCount;
 
   Status = GetPasswordHashFromVariable (UserGuid, 0, &UserPasswordVarStruct);
-  if (EFI_ERROR(Status)) {
-    return TRUE;
+  if (EFI_ERROR (Status)) {
+    return (BOOLEAN)(Status == EFI_NOT_FOUND);
   }
 
   //
@@ -312,8 +320,8 @@ IsPasswordSet (
   EFI_STATUS                        Status;
 
   Status = GetPasswordHashFromVariable(UserGuid, 0, &UserPasswordVarStruct);
-  if (EFI_ERROR(Status)) {
-    return FALSE;
+  if (EFI_ERROR (Status)) {
+    return (BOOLEAN)(Status != EFI_NOT_FOUND);
   }
   return TRUE;
 }

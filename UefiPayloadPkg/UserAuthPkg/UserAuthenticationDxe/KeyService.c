@@ -78,9 +78,11 @@ KeyLibGenerateSalt (
   if (SaltValue == NULL) {
     return FALSE;
   }
-  RandomSeed(NULL, 0);
-  RandomBytes(SaltValue, SaltSize);
-  return TRUE;
+  if (!RandomSeed (NULL, 0)) {
+    return FALSE;
+  }
+
+  return RandomBytes (SaltValue, SaltSize);
 }
 
 /**
