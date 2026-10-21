@@ -33,6 +33,7 @@
 [Guids]
   gEdkiiVarErrorFlagGuid
   gEfiAuthenticatedVariableGuid
+  gEfiGlobalVariableGuid
   gEfiVariableGuid
 
 [Pcd]

@@ -24,6 +24,174 @@ STATIC EFI_STATUS  mFtwStatus;
 STATIC UINTN       mFtwCalls;
 STATIC UINTN       mSyncCalls;
 STATIC BOOLEAN     mCorruptOnFtwFailure;
+STATIC BOOLEAN     mInjectFindStatus;
+STATIC EFI_STATUS  mFindStatus;
+STATIC UINTN       mFindCalls;
+STATIC UINTN       mStoreEndCalls;
+STATIC EFI_STATUS  mUpdateStatus;
+STATIC UINTN       mUpdateCalls;
+STATIC UINTN       mAuthProcessCalls;
+STATIC UINTN       mAcquireCalls;
+STATIC UINTN       mReleaseCalls;
+STATIC UINTN       mSecureBootHookCalls;
+
+EFI_STATUS
+__real_FindVariable (
+  IN  CHAR16                  *VariableName,
+  IN  EFI_GUID                *VendorGuid,
+  OUT VARIABLE_POINTER_TRACK  *PtrTrack,
+  IN  VARIABLE_GLOBAL         *Global,
+  IN  BOOLEAN                 IgnoreRtCheck
+  );
+
+EFI_STATUS
+__wrap_FindVariable (
+  IN  CHAR16                  *VariableName,
+  IN  EFI_GUID                *VendorGuid,
+  OUT VARIABLE_POINTER_TRACK  *PtrTrack,
+  IN  VARIABLE_GLOBAL         *Global,
+  IN  BOOLEAN                 IgnoreRtCheck
+  )
+{
+  mFindCalls++;
+  if (mInjectFindStatus) {
+    return mFindStatus;
+  }
+
+  return __real_FindVariable (VariableName, VendorGuid, PtrTrack, Global, IgnoreRtCheck);
+}
+
+EFI_STATUS
+__real_GetVariableStoreEndPointer (
+  IN  VARIABLE_STORE_HEADER  *VarStoreHeader,
+  IN  VARIABLE_STORE_TYPE    StoreType,
+  IN  UINTN                  NvEndOffset,
+  OUT VARIABLE_HEADER        **EndPtr
+  );
+
+EFI_STATUS
+__wrap_GetVariableStoreEndPointer (
+  IN  VARIABLE_STORE_HEADER  *VarStoreHeader,
+  IN  VARIABLE_STORE_TYPE    StoreType,
+  IN  UINTN                  NvEndOffset,
+  OUT VARIABLE_HEADER        **EndPtr
+  )
+{
+  mStoreEndCalls++;
+  if (mInjectFindStatus) {
+    return mFindStatus;
+  }
+
+  return __real_GetVariableStoreEndPointer (VarStoreHeader, StoreType, NvEndOffset, EndPtr);
+}
+
+EFI_STATUS
+__wrap_UpdateVariable (
+  IN      CHAR16                  *VariableName,
+  IN      EFI_GUID                *VendorGuid,
+  IN      VOID                    *Data,
+  IN      UINTN                   DataSize,
+  IN      UINT32                  Attributes,
+  IN      UINT32                  KeyIndex,
+  IN      UINT64                  MonotonicCount,
+  IN OUT  VARIABLE_POINTER_TRACK  *Variable,
+  IN      EFI_TIME                *TimeStamp
+  )
+{
+  mUpdateCalls++;
+  return mUpdateStatus;
+}
+
+VOID
+AcquireLockOnlyAtBootTime (
+  IN EFI_LOCK  *Lock
+  )
+{
+  mAcquireCalls++;
+}
+
+VOID
+ReleaseLockOnlyAtBootTime (
+  IN EFI_LOCK  *Lock
+  )
+{
+  mReleaseCalls++;
+}
+
+VOID
+EFIAPI
+SecureBootHook (
+  IN CHAR16    *VariableName,
+  IN EFI_GUID  *VendorGuid
+  )
+{
+  mSecureBootHookCalls++;
+}
+
+EFI_STATUS
+SetVariableCheckHandlerMor (
+  IN CHAR16    *VariableName,
+  IN EFI_GUID  *VendorGuid,
+  IN UINT32    Attributes,
+  IN UINTN     DataSize,
+  IN VOID      *Data
+  )
+{
+  return EFI_SUCCESS;
+}
+
+EFI_STATUS
+EFIAPI
+VarCheckLibSetVariableCheck (
+  IN CHAR16                    *VariableName,
+  IN EFI_GUID                  *VendorGuid,
+  IN UINT32                    Attributes,
+  IN UINTN                     DataSize,
+  IN VOID                      *Data,
+  IN VAR_CHECK_REQUEST_SOURCE  RequestSource
+  )
+{
+  return EFI_SUCCESS;
+}
+
+EFI_STATUS
+EFIAPI
+AuthVariableLibProcessVariable (
+  IN CHAR16    *VariableName,
+  IN EFI_GUID  *VendorGuid,
+  IN VOID      *Data,
+  IN UINTN     DataSize,
+  IN UINT32    Attributes
+  )
+{
+  mAuthProcessCalls++;
+  return EFI_SUCCESS;
+}
+
+VOID
+VariableSpeculationBarrier (
+  VOID
+  )
+{
+}
+
+UINT32
+EFIAPI
+InterlockedIncrement (
+  IN volatile UINT32  *Value
+  )
+{
+  return ++(*Value);
+}
+
+UINT32
+EFIAPI
+InterlockedDecrement (
+  IN volatile UINT32  *Value
+  )
+{
+  return --(*Value);
+}
 
 EFI_STATUS
 FtwVariableSpace (
@@ -142,6 +310,161 @@ SetUpReclaim (
   mFtwCalls  = 0;
   mSyncCalls = 0;
   mCorruptOnFtwFailure = FALSE;
+  mVariableModuleGlobal->MaxVariableSize         = STORE_BUFFER_SIZE / 2;
+  mVariableModuleGlobal->MaxAuthVariableSize     = STORE_BUFFER_SIZE / 2;
+  mVariableModuleGlobal->MaxVolatileVariableSize = STORE_BUFFER_SIZE / 2;
+  mInjectFindStatus                              = FALSE;
+  mFindCalls                                     = 0;
+  mStoreEndCalls                                 = 0;
+  mUpdateStatus                                  = EFI_SUCCESS;
+  mUpdateCalls                                   = 0;
+  mAuthProcessCalls                              = 0;
+  mAcquireCalls                                  = 0;
+  mReleaseCalls                                  = 0;
+  mSecureBootHookCalls                           = 0;
+}
+
+STATIC
+VOID
+InitializeWriteInfo (
+  OUT AUTH_VARIABLE_INFO  *Info,
+  IN  CHAR16              *Name,
+  IN  EFI_GUID            *VendorGuid,
+  IN  UINT8               *Value
+  )
+{
+  ZeroMem (Info, sizeof (*Info));
+  Info->VariableName = Name;
+  Info->VendorGuid   = VendorGuid;
+  Info->Data         = Value;
+  Info->DataSize     = sizeof (*Value);
+  Info->Attributes   = VARIABLE_ATTRIBUTE_NV_BS_RT;
+}
+
+STATIC
+UNIT_TEST_STATUS
+AssertPublicLookupFailure (
+  IN EFI_STATUS  LookupStatus,
+  IN BOOLEAN     AuthSupport
+  )
+{
+  EFI_GUID  VendorGuid;
+  UINT8     Value;
+
+  ZeroMem (&VendorGuid, sizeof (VendorGuid));
+  Value = 0x5a;
+  mVariableModuleGlobal->VariableGlobal.AuthSupport = AuthSupport;
+  mInjectFindStatus                                 = TRUE;
+  mFindStatus                                       = LookupStatus;
+
+  UT_ASSERT_STATUS_EQUAL (
+    VariableServiceSetVariable (
+      L"Write",
+      &VendorGuid,
+      VARIABLE_ATTRIBUTE_NV_BS_RT,
+      sizeof (Value),
+      &Value
+      ),
+    LookupStatus
+    );
+  UT_ASSERT_EQUAL (mStoreEndCalls, 1);
+  UT_ASSERT_EQUAL (mUpdateCalls, 0);
+  UT_ASSERT_EQUAL (mAuthProcessCalls, 0);
+  UT_ASSERT_EQUAL (mAcquireCalls, 1);
+  UT_ASSERT_EQUAL (mReleaseCalls, 1);
+  UT_ASSERT_EQUAL (mVariableModuleGlobal->VariableGlobal.ReentrantState, 0);
+  UT_ASSERT_EQUAL (mSecureBootHookCalls, 0);
+  return UNIT_TEST_PASSED;
+}
+
+STATIC
+UNIT_TEST_STATUS
+EFIAPI
+WriteEntryPointsPreserveLookupStatus (
+  IN UNIT_TEST_CONTEXT  Context
+  )
+{
+  STATIC CONST EFI_STATUS  ErrorStatuses[] = {
+    EFI_VOLUME_CORRUPTED,
+    EFI_DEVICE_ERROR,
+    EFI_OUT_OF_RESOURCES
+  };
+  VARIABLE_STORE_HEADER    *Store;
+  AUTH_VARIABLE_INFO       Info;
+  EFI_GUID                 VendorGuid;
+  UINT8                    Value;
+
+  ZeroMem (&VendorGuid, sizeof (VendorGuid));
+  Value = 0x5a;
+
+  for (UINTN ErrorIndex = 0; ErrorIndex < ARRAY_SIZE (ErrorStatuses); ErrorIndex++) {
+    for (UINTN AuthSupport = 0; AuthSupport <= 1; AuthSupport++) {
+      Store = InitializeStore (FALSE);
+      SetUpReclaim (Store, FALSE);
+      mVariableModuleGlobal->NonVolatileLastVariableOffset = sizeof (*Store);
+      UT_ASSERT_EQUAL (
+        AssertPublicLookupFailure (ErrorStatuses[ErrorIndex], (BOOLEAN)AuthSupport),
+        UNIT_TEST_PASSED
+        );
+    }
+
+    Store = InitializeStore (FALSE);
+    SetUpReclaim (Store, FALSE);
+    mVariableModuleGlobal->NonVolatileLastVariableOffset = sizeof (*Store);
+    InitializeWriteInfo (&Info, L"Write", &VendorGuid, &Value);
+    mInjectFindStatus = TRUE;
+    mFindStatus       = ErrorStatuses[ErrorIndex];
+    UT_ASSERT_STATUS_EQUAL (VariableExLibUpdateVariable (&Info), ErrorStatuses[ErrorIndex]);
+    UT_ASSERT_EQUAL (mFindCalls, 1);
+    UT_ASSERT_EQUAL (mUpdateCalls, 0);
+  }
+
+  // EFI_NOT_FOUND remains the creation case for both entry points.
+  Store = InitializeStore (FALSE);
+  SetUpReclaim (Store, FALSE);
+  mVariableModuleGlobal->NonVolatileLastVariableOffset = sizeof (*Store);
+  mVariableModuleGlobal->VariableGlobal.AuthSupport    = TRUE;
+  mInjectFindStatus = TRUE;
+  mFindStatus       = EFI_NOT_FOUND;
+  UT_ASSERT_NOT_EFI_ERROR (
+    VariableServiceSetVariable (L"Write", &VendorGuid, VARIABLE_ATTRIBUTE_NV_BS_RT, sizeof (Value), &Value)
+    );
+  UT_ASSERT_EQUAL (mUpdateCalls, 0);
+  UT_ASSERT_EQUAL (mAuthProcessCalls, 1);
+  UT_ASSERT_EQUAL (mAcquireCalls, 1);
+  UT_ASSERT_EQUAL (mReleaseCalls, 1);
+  UT_ASSERT_EQUAL (mVariableModuleGlobal->VariableGlobal.ReentrantState, 0);
+  UT_ASSERT_EQUAL (mSecureBootHookCalls, 1);
+
+  SetUpReclaim (Store, FALSE);
+  mVariableModuleGlobal->NonVolatileLastVariableOffset = sizeof (*Store);
+  InitializeWriteInfo (&Info, L"Write", &VendorGuid, &Value);
+  mInjectFindStatus = TRUE;
+  mFindStatus       = EFI_NOT_FOUND;
+  UT_ASSERT_NOT_EFI_ERROR (VariableExLibUpdateVariable (&Info));
+  UT_ASSERT_EQUAL (mUpdateCalls, 1);
+
+  // EFI_SUCCESS remains the existing-variable update case.
+  Store = InitializeStore (FALSE);
+  AppendRecord (GetStartPointer (Store), FALSE, VAR_ADDED, L"Write", 0x11);
+  CopyGuid (GetVendorGuidPtr (GetStartPointer (Store), FALSE), &VendorGuid);
+  SetUpReclaim (Store, FALSE);
+  mVariableModuleGlobal->NonVolatileLastVariableOffset =
+    (UINTN)GetNextVariablePtr (GetStartPointer (Store), FALSE) - (UINTN)Store;
+  mVariableModuleGlobal->VariableGlobal.AuthSupport = TRUE;
+  UT_ASSERT_NOT_EFI_ERROR (
+    VariableServiceSetVariable (L"Write", &VendorGuid, VARIABLE_ATTRIBUTE_NV_BS_RT, sizeof (Value), &Value)
+    );
+  UT_ASSERT_EQUAL (mUpdateCalls, 0);
+  UT_ASSERT_EQUAL (mAuthProcessCalls, 1);
+
+  SetUpReclaim (Store, FALSE);
+  mVariableModuleGlobal->NonVolatileLastVariableOffset =
+    (UINTN)GetNextVariablePtr (GetStartPointer (Store), FALSE) - (UINTN)Store;
+  InitializeWriteInfo (&Info, L"Write", &VendorGuid, &Value);
+  UT_ASSERT_NOT_EFI_ERROR (VariableExLibUpdateVariable (&Info));
+  UT_ASSERT_EQUAL (mUpdateCalls, 1);
+  return UNIT_TEST_PASSED;
 }
 
 STATIC
@@ -287,40 +610,79 @@ FailedRecoveryInvalidatesReadBoundary (
   VARIABLE_STORE_HEADER   *Store;
   VARIABLE_HEADER         *Variable;
   VARIABLE_POINTER_TRACK  Track;
+  AUTH_VARIABLE_INFO      Info;
   EFI_GUID                *VendorGuid;
+  UINT8                   Value;
+  UINT8                   StoreAfterFailure[STORE_BUFFER_SIZE];
   UINTN                   LastOffset;
   UINTN                   CommonSize;
   UINTN                   HwErrSize;
 
-  Store      = InitializeStore (FALSE);
-  Variable   = GetStartPointer (Store);
-  AppendRecord (Variable, FALSE, VAR_ADDED, L"Keep", 0x11);
-  VendorGuid = GetVendorGuidPtr (Variable, FALSE);
-  UT_ASSERT_NOT_EFI_ERROR (
-    ValidateVariableStore (Store, Store->Size, FALSE, &LastOffset, &CommonSize, &HwErrSize)
-    );
+  Value = 0x5a;
+  for (UINTN AuthFormat = 0; AuthFormat <= 1; AuthFormat++) {
+    Store      = InitializeStore ((BOOLEAN)AuthFormat);
+    Variable   = GetStartPointer (Store);
+    AppendRecord (Variable, (BOOLEAN)AuthFormat, VAR_ADDED, L"Keep", 0x11);
+    VendorGuid = GetVendorGuidPtr (Variable, (BOOLEAN)AuthFormat);
+    UT_ASSERT_NOT_EFI_ERROR (
+      ValidateVariableStore (Store, Store->Size, (BOOLEAN)AuthFormat, &LastOffset, &CommonSize, &HwErrSize)
+      );
 
-  SetUpReclaim (Store, FALSE);
-  mVariableModuleGlobal->NonVolatileLastVariableOffset = LastOffset;
-  mFtwStatus                                            = EFI_DEVICE_ERROR;
-  mCorruptOnFtwFailure                                  = TRUE;
-  UT_ASSERT_STATUS_EQUAL (
-    Reclaim (
-      (EFI_PHYSICAL_ADDRESS)(UINTN)Store,
-      &mVariableModuleGlobal->NonVolatileLastVariableOffset,
-      FALSE,
-      NULL,
-      NULL,
-      0
-      ),
-    EFI_DEVICE_ERROR
-    );
-  UT_ASSERT_EQUAL (mVariableModuleGlobal->NonVolatileLastVariableOffset, 0);
-  ZeroMem (&Track, sizeof (Track));
-  UT_ASSERT_STATUS_EQUAL (
-    FindVariable (L"Keep", VendorGuid, &Track, &mVariableModuleGlobal->VariableGlobal, FALSE),
-    EFI_VOLUME_CORRUPTED
-    );
+    SetUpReclaim (Store, (BOOLEAN)AuthFormat);
+    mVariableModuleGlobal->NonVolatileLastVariableOffset = LastOffset;
+    mFtwStatus                                            = EFI_DEVICE_ERROR;
+    mCorruptOnFtwFailure                                  = TRUE;
+    UT_ASSERT_STATUS_EQUAL (
+      Reclaim (
+        (EFI_PHYSICAL_ADDRESS)(UINTN)Store,
+        &mVariableModuleGlobal->NonVolatileLastVariableOffset,
+        FALSE,
+        NULL,
+        NULL,
+        0
+        ),
+      EFI_DEVICE_ERROR
+      );
+    UT_ASSERT_EQUAL (mVariableModuleGlobal->NonVolatileLastVariableOffset, 0);
+    CopyMem (StoreAfterFailure, Store, sizeof (StoreAfterFailure));
+    ZeroMem (&Track, sizeof (Track));
+    UT_ASSERT_STATUS_EQUAL (
+      FindVariable (L"Keep", VendorGuid, &Track, &mVariableModuleGlobal->VariableGlobal, FALSE),
+      EFI_VOLUME_CORRUPTED
+      );
+
+    // Both production write entry points must preserve the invalid-boundary
+    // error and avoid mutation after failed recovery.
+    mFindCalls           = 0;
+    mUpdateCalls         = 0;
+    mAuthProcessCalls    = 0;
+    mAcquireCalls        = 0;
+    mReleaseCalls        = 0;
+    mSecureBootHookCalls = 0;
+    UT_ASSERT_STATUS_EQUAL (
+      VariableServiceSetVariable (
+        L"Write",
+        VendorGuid,
+        VARIABLE_ATTRIBUTE_NV_BS_RT,
+        sizeof (Value),
+        &Value
+        ),
+      EFI_VOLUME_CORRUPTED
+      );
+    UT_ASSERT_EQUAL (mUpdateCalls, 0);
+    UT_ASSERT_EQUAL (mAuthProcessCalls, 0);
+    UT_ASSERT_EQUAL (mAcquireCalls, 1);
+    UT_ASSERT_EQUAL (mReleaseCalls, 1);
+    UT_ASSERT_EQUAL (mVariableModuleGlobal->VariableGlobal.ReentrantState, 0);
+    UT_ASSERT_EQUAL (mSecureBootHookCalls, 0);
+    UT_ASSERT_EQUAL (CompareMem (StoreAfterFailure, Store, sizeof (StoreAfterFailure)), 0);
+
+    InitializeWriteInfo (&Info, L"Write", VendorGuid, &Value);
+    UT_ASSERT_STATUS_EQUAL (VariableExLibUpdateVariable (&Info), EFI_VOLUME_CORRUPTED);
+    UT_ASSERT_EQUAL (mUpdateCalls, 0);
+    UT_ASSERT_EQUAL (CompareMem (StoreAfterFailure, Store, sizeof (StoreAfterFailure)), 0);
+  }
+
   return UNIT_TEST_PASSED;
 }
 
@@ -572,6 +934,18 @@ main (
 
   if (!EFI_ERROR (Status)) {
     Status = AddTestCase (Suite, "Failed reclaim can be retried", "Retry", ReclaimFailureCanBeRetried, NULL, NULL, NULL);
+  }
+
+  if (!EFI_ERROR (Status)) {
+    Status = AddTestCase (
+               Suite,
+               "Write entry points preserve lookup errors",
+               "WriteErrors",
+               WriteEntryPointsPreserveLookupStatus,
+               NULL,
+               NULL,
+               NULL
+               );
   }
 
   if (!EFI_ERROR (Status)) {
