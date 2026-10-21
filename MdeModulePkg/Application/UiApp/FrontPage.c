@@ -294,6 +294,7 @@ DrawFrontPageBatteryStatus (
   UINTN                            Rows;
   UINTN                            Index;
   UINTN                            ClearWidth;
+  INT32                            SavedAttribute;
   CHAR16                           ClearString[MAX_STRING_LEN];
 
   if (!mFrontPageActive || (gST == NULL) || (gST->ConOut == NULL) || (gST->ConOut->Mode == NULL)) {
@@ -308,6 +309,7 @@ DrawFrontPageBatteryStatus (
 
   SavedColumn = ConOut->Mode->CursorColumn;
   SavedRow    = ConOut->Mode->CursorRow;
+  SavedAttribute = ConOut->Mode->Attribute;
 
   ClearWidth = Columns - 1;
   if (ClearWidth >= MAX_STRING_LEN) {
@@ -320,6 +322,7 @@ DrawFrontPageBatteryStatus (
 
   ClearString[ClearWidth] = CHAR_NULL;
 
+  ConOut->SetAttribute (ConOut, EFI_BLUE | EFI_BACKGROUND_LIGHTGRAY);
   if (!EFI_ERROR (ConOut->SetCursorPosition (ConOut, 1, FRONT_PAGE_BATTERY_ROW))) {
     ConOut->OutputString (ConOut, ClearString);
     ConOut->SetCursorPosition (ConOut, 1, FRONT_PAGE_BATTERY_ROW);
@@ -328,6 +331,7 @@ DrawFrontPageBatteryStatus (
     }
   }
 
+  ConOut->SetAttribute (ConOut, SavedAttribute);
   ConOut->SetCursorPosition (ConOut, SavedColumn, SavedRow);
 }
 
