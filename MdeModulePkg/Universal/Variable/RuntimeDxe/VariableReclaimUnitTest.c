@@ -18,10 +18,12 @@
 
 STATIC UINT64      mFlashBuffer[STORE_BUFFER_SIZE / sizeof (UINT64)];
 STATIC UINT64      mCacheBuffer[STORE_BUFFER_SIZE / sizeof (UINT64)];
+STATIC UINT64      mHobBuffer[STORE_BUFFER_SIZE / sizeof (UINT64)];
 STATIC VARIABLE_MODULE_GLOBAL  mModuleGlobal;
 STATIC EFI_STATUS  mFtwStatus;
 STATIC UINTN       mFtwCalls;
 STATIC UINTN       mSyncCalls;
+STATIC BOOLEAN     mCorruptOnFtwFailure;
 
 EFI_STATUS
 FtwVariableSpace (
@@ -32,6 +34,8 @@ FtwVariableSpace (
   mFtwCalls++;
   if (!EFI_ERROR (mFtwStatus)) {
     CopyMem ((VOID *)(UINTN)VariableBase, VariableBuffer, VariableBuffer->Size);
+  } else if (mCorruptOnFtwFailure) {
+    GetStartPointer ((VARIABLE_STORE_HEADER *)(UINTN)VariableBase)->State = 0;
   }
 
   return mFtwStatus;
@@ -137,6 +141,7 @@ SetUpReclaim (
   mFtwStatus = EFI_SUCCESS;
   mFtwCalls  = 0;
   mSyncCalls = 0;
+  mCorruptOnFtwFailure = FALSE;
 }
 
 STATIC
@@ -151,6 +156,8 @@ InterruptedReplacementRecovery (
   VARIABLE_HEADER                *DeletedVariable;
   VARIABLE_HEADER                *UncommittedVariable;
   AUTHENTICATED_VARIABLE_HEADER  *AuthVariable;
+  VARIABLE_POINTER_TRACK         Track;
+  EFI_GUID                       *VendorGuid;
   UINTN                          LastOffset;
   UINTN                          CommonSize;
   UINTN                          HwErrSize;
@@ -195,6 +202,18 @@ InterruptedReplacementRecovery (
     UT_ASSERT_NOT_EFI_ERROR (
       ValidateVariableStore (Store, Store->Size, (BOOLEAN)AuthFormat, &LastOffset, &CommonSize, &HwErrSize)
       );
+    mVariableModuleGlobal->NonVolatileLastVariableOffset = LastOffset;
+    VendorGuid = GetVendorGuidPtr (OldVariable, (BOOLEAN)AuthFormat);
+    ZeroMem (&Track, sizeof (Track));
+    UT_ASSERT_NOT_EFI_ERROR (
+      FindVariable (L"Keep", VendorGuid, &Track, &mVariableModuleGlobal->VariableGlobal, FALSE)
+      );
+    UT_ASSERT_EQUAL (*GetVariableDataPtr (Track.CurrPtr, (BOOLEAN)AuthFormat), 0x11);
+    ZeroMem (&Track, sizeof (Track));
+    UT_ASSERT_STATUS_EQUAL (
+      FindVariable (L"Deleted", VendorGuid, &Track, &mVariableModuleGlobal->VariableGlobal, FALSE),
+      EFI_NOT_FOUND
+      );
 
     // The reclaimed offset accepts the writer's normal record-write followed
     // by state-byte commit, and both committed values remain visible.
@@ -204,6 +223,18 @@ InterruptedReplacementRecovery (
     UncommittedVariable->State = VAR_ADDED;
     UT_ASSERT_NOT_EFI_ERROR (
       ValidateVariableStore (Store, Store->Size, (BOOLEAN)AuthFormat, &LastOffset, &CommonSize, &HwErrSize)
+      );
+    CopyMem (mNvVariableCache, Store, Store->Size);
+    mVariableModuleGlobal->NonVolatileLastVariableOffset = LastOffset;
+    ZeroMem (&Track, sizeof (Track));
+    UT_ASSERT_NOT_EFI_ERROR (
+      FindVariable (
+        L"After",
+        GetVendorGuidPtr (UncommittedVariable, (BOOLEAN)AuthFormat),
+        &Track,
+        &mVariableModuleGlobal->VariableGlobal,
+        FALSE
+        )
       );
     UT_ASSERT_EQUAL (*GetVariableDataPtr (UncommittedVariable, (BOOLEAN)AuthFormat), 0x44);
   }
@@ -246,6 +277,271 @@ ReclaimFailureCanBeRetried (
   return UNIT_TEST_PASSED;
 }
 
+STATIC
+UNIT_TEST_STATUS
+EFIAPI
+FailedRecoveryInvalidatesReadBoundary (
+  IN UNIT_TEST_CONTEXT  Context
+  )
+{
+  VARIABLE_STORE_HEADER   *Store;
+  VARIABLE_HEADER         *Variable;
+  VARIABLE_POINTER_TRACK  Track;
+  EFI_GUID                *VendorGuid;
+  UINTN                   LastOffset;
+  UINTN                   CommonSize;
+  UINTN                   HwErrSize;
+
+  Store      = InitializeStore (FALSE);
+  Variable   = GetStartPointer (Store);
+  AppendRecord (Variable, FALSE, VAR_ADDED, L"Keep", 0x11);
+  VendorGuid = GetVendorGuidPtr (Variable, FALSE);
+  UT_ASSERT_NOT_EFI_ERROR (
+    ValidateVariableStore (Store, Store->Size, FALSE, &LastOffset, &CommonSize, &HwErrSize)
+    );
+
+  SetUpReclaim (Store, FALSE);
+  mVariableModuleGlobal->NonVolatileLastVariableOffset = LastOffset;
+  mFtwStatus                                            = EFI_DEVICE_ERROR;
+  mCorruptOnFtwFailure                                  = TRUE;
+  UT_ASSERT_STATUS_EQUAL (
+    Reclaim (
+      (EFI_PHYSICAL_ADDRESS)(UINTN)Store,
+      &mVariableModuleGlobal->NonVolatileLastVariableOffset,
+      FALSE,
+      NULL,
+      NULL,
+      0
+      ),
+    EFI_DEVICE_ERROR
+    );
+  UT_ASSERT_EQUAL (mVariableModuleGlobal->NonVolatileLastVariableOffset, 0);
+  ZeroMem (&Track, sizeof (Track));
+  UT_ASSERT_STATUS_EQUAL (
+    FindVariable (L"Keep", VendorGuid, &Track, &mVariableModuleGlobal->VariableGlobal, FALSE),
+    EFI_VOLUME_CORRUPTED
+    );
+  return UNIT_TEST_PASSED;
+}
+
+STATIC
+UNIT_TEST_STATUS
+EFIAPI
+ReadersStopAtInterruptedTail (
+  IN UNIT_TEST_CONTEXT  Context
+  )
+{
+  STATIC CONST UINT8       InterruptedStates[] = {
+    MAX_UINT8,
+    VAR_HEADER_VALID_ONLY,
+    (MAX_UINT8 & ~BIT6)
+  };
+  VARIABLE_STORE_HEADER    *Store;
+  VARIABLE_STORE_HEADER    *HobStore;
+  VARIABLE_STORE_HEADER    *StoreList[VariableStoreTypeMax];
+  VARIABLE_HEADER          *Variable;
+  VARIABLE_HEADER          *Tail;
+  VARIABLE_HEADER          *Hidden;
+  VARIABLE_HEADER          *Found;
+  VARIABLE_POINTER_TRACK   Track;
+  EFI_GUID                 VendorGuid;
+  EFI_STATUS               Status;
+  UINTN                    LastOffset;
+  UINTN                    CommonSize;
+  UINTN                    HwErrSize;
+  UINT64                   MaximumStorageSize;
+  UINT64                   RemainingStorageSize;
+  UINT64                   MaximumVariableSize;
+
+  ZeroMem (&VendorGuid, sizeof (VendorGuid));
+  VendorGuid.Data1 = 1;
+
+  for (UINTN AuthFormat = 0; AuthFormat <= 1; AuthFormat++) {
+    for (UINTN StateIndex = 0; StateIndex < ARRAY_SIZE (InterruptedStates); StateIndex++) {
+      Store    = InitializeStore ((BOOLEAN)AuthFormat);
+      Variable = GetStartPointer (Store);
+      Tail     = AppendRecord (Variable, (BOOLEAN)AuthFormat, VAR_ADDED, L"Keep", 0x11);
+      CopyGuid (GetVendorGuidPtr (Variable, (BOOLEAN)AuthFormat), &VendorGuid);
+      AppendRecord (Tail, (BOOLEAN)AuthFormat, VAR_ADDED, L"Pending", 0x22);
+      Tail->State = InterruptedStates[StateIndex];
+
+      // Put a valid-looking record exactly where an unsafe GetNextVariablePtr()
+      // walk through the excluded tail would land.
+      Hidden = GetNextVariablePtr (Tail, (BOOLEAN)AuthFormat);
+      AppendRecord (Hidden, (BOOLEAN)AuthFormat, VAR_ADDED, L"Hidden", 0x33);
+      CopyGuid (GetVendorGuidPtr (Hidden, (BOOLEAN)AuthFormat), &VendorGuid);
+
+      UT_ASSERT_NOT_EFI_ERROR (
+        ValidateVariableStore (Store, Store->Size, (BOOLEAN)AuthFormat, &LastOffset, &CommonSize, &HwErrSize)
+        );
+      UT_ASSERT_EQUAL (LastOffset, (UINTN)Tail - (UINTN)Store);
+
+      SetUpReclaim (Store, (BOOLEAN)AuthFormat);
+      mVariableModuleGlobal->NonVolatileLastVariableOffset = LastOffset;
+
+      ZeroMem (StoreList, sizeof (StoreList));
+      StoreList[VariableStoreTypeNv] = mNvVariableCache;
+      Found                          = NULL;
+      UT_ASSERT_NOT_EFI_ERROR (
+        VariableServiceGetNextVariableInternal (L"", &VendorGuid, StoreList, &Found, (BOOLEAN)AuthFormat, LastOffset)
+        );
+      UT_ASSERT_TRUE (Found == GetStartPointer (mNvVariableCache));
+
+      ZeroMem (&Track, sizeof (Track));
+      UT_ASSERT_NOT_EFI_ERROR (
+        FindVariable (L"Keep", &VendorGuid, &Track, &mVariableModuleGlobal->VariableGlobal, FALSE)
+        );
+      ZeroMem (&Track, sizeof (Track));
+      UT_ASSERT_STATUS_EQUAL (
+        FindVariable (L"Hidden", &VendorGuid, &Track, &mVariableModuleGlobal->VariableGlobal, FALSE),
+        EFI_NOT_FOUND
+        );
+      UT_ASSERT_NOT_EFI_ERROR (
+        VariableServiceQueryVariableInfoInternal (
+          VARIABLE_ATTRIBUTE_NV_BS_RT,
+          &MaximumStorageSize,
+          &RemainingStorageSize,
+          &MaximumVariableSize
+          )
+        );
+      UT_ASSERT_EQUAL (MaximumStorageSize - RemainingStorageSize, CommonSize);
+
+      Found = NULL;
+      Status                         = VariableServiceGetNextVariableInternal (
+                                         L"Keep",
+                                         &VendorGuid,
+                                         StoreList,
+                                         &Found,
+                                         (BOOLEAN)AuthFormat,
+                                         LastOffset
+                                         );
+      UT_ASSERT_STATUS_EQUAL (Status, EFI_NOT_FOUND);
+      UT_ASSERT_TRUE (Found == NULL);
+
+      if (StateIndex == 0) {
+        SetMem (mHobBuffer, sizeof (mHobBuffer), MAX_UINT8);
+        HobStore = (VARIABLE_STORE_HEADER *)mHobBuffer;
+        CopyGuid (&HobStore->Signature, (BOOLEAN)AuthFormat ? &gEfiAuthenticatedVariableGuid : &gEfiVariableGuid);
+        HobStore->Size   = STORE_BUFFER_SIZE;
+        HobStore->Format = VARIABLE_STORE_FORMATTED;
+        HobStore->State  = VARIABLE_STORE_HEALTHY;
+        Variable         = GetStartPointer (HobStore);
+        AppendRecord (Variable, (BOOLEAN)AuthFormat, VAR_ADDED, L"Keep", 0x44);
+        CopyGuid (GetVendorGuidPtr (Variable, (BOOLEAN)AuthFormat), &VendorGuid);
+        mVariableModuleGlobal->VariableGlobal.HobVariableBase = (EFI_PHYSICAL_ADDRESS)(UINTN)HobStore;
+        StoreList[VariableStoreTypeHob]                        = HobStore;
+        Found                                                  = NULL;
+        Status                                                 = VariableServiceGetNextVariableInternal (
+                                                                   L"Keep",
+                                                                   &VendorGuid,
+                                                                   StoreList,
+                                                                   &Found,
+                                                                   (BOOLEAN)AuthFormat,
+                                                                   LastOffset
+                                                                   );
+        UT_ASSERT_STATUS_EQUAL (Status, EFI_NOT_FOUND);
+        UT_ASSERT_TRUE (Found == NULL);
+      }
+
+      // Invalid boundary metadata must fail instead of falling back to the
+      // complete declared capacity. Volatile stores remain unaffected.
+      mVariableModuleGlobal->VariableGlobal.HobVariableBase = 0;
+      mVariableModuleGlobal->NonVolatileLastVariableOffset = 0;
+      ZeroMem (&Track, sizeof (Track));
+      UT_ASSERT_STATUS_EQUAL (
+        FindVariable (L"Keep", &VendorGuid, &Track, &mVariableModuleGlobal->VariableGlobal, FALSE),
+        EFI_VOLUME_CORRUPTED
+        );
+      UT_ASSERT_NOT_EFI_ERROR (
+        GetVariableStoreEndPointer (mNvVariableCache, VariableStoreTypeVolatile, 0, &Found)
+        );
+      UT_ASSERT_TRUE (Found == GetEndPointer (mNvVariableCache));
+    }
+  }
+
+  return UNIT_TEST_PASSED;
+}
+
+STATIC
+UNIT_TEST_STATUS
+EFIAPI
+ReadersPreserveTransitionCandidate (
+  IN UNIT_TEST_CONTEXT  Context
+  )
+{
+  VARIABLE_STORE_HEADER   *Store;
+  VARIABLE_STORE_HEADER   *StoreList[VariableStoreTypeMax];
+  VARIABLE_HEADER         *Deleted;
+  VARIABLE_HEADER         *Candidate;
+  VARIABLE_HEADER         *Tail;
+  VARIABLE_HEADER         *Found;
+  VARIABLE_POINTER_TRACK  Track;
+  EFI_GUID                VendorGuid;
+  UINTN                   LastOffset;
+  UINTN                   CommonSize;
+  UINTN                   HwErrSize;
+
+  ZeroMem (&VendorGuid, sizeof (VendorGuid));
+  VendorGuid.Data1 = 2;
+
+  for (UINTN AuthFormat = 0; AuthFormat <= 1; AuthFormat++) {
+    Store     = InitializeStore ((BOOLEAN)AuthFormat);
+    Deleted   = GetStartPointer (Store);
+    Candidate = AppendRecord (Deleted, (BOOLEAN)AuthFormat, (VAR_DELETED & VAR_ADDED), L"Deleted", 0x10);
+    Tail = AppendRecord (
+             Candidate,
+             (BOOLEAN)AuthFormat,
+             (VAR_IN_DELETED_TRANSITION & VAR_ADDED),
+             L"Replace",
+             0x20
+             );
+    AppendRecord (Tail, (BOOLEAN)AuthFormat, VAR_ADDED, L"Replace", 0x30);
+    Tail->State = MAX_UINT8;
+    CopyGuid (GetVendorGuidPtr (Deleted, (BOOLEAN)AuthFormat), &VendorGuid);
+    CopyGuid (GetVendorGuidPtr (Candidate, (BOOLEAN)AuthFormat), &VendorGuid);
+
+    UT_ASSERT_NOT_EFI_ERROR (
+      ValidateVariableStore (Store, Store->Size, (BOOLEAN)AuthFormat, &LastOffset, &CommonSize, &HwErrSize)
+      );
+    UT_ASSERT_EQUAL (LastOffset, (UINTN)Tail - (UINTN)Store);
+    SetUpReclaim (Store, (BOOLEAN)AuthFormat);
+    mVariableModuleGlobal->NonVolatileLastVariableOffset = LastOffset;
+
+    ZeroMem (&Track, sizeof (Track));
+    UT_ASSERT_NOT_EFI_ERROR (
+      FindVariable (L"Replace", &VendorGuid, &Track, &mVariableModuleGlobal->VariableGlobal, FALSE)
+      );
+    UT_ASSERT_EQUAL (Track.CurrPtr->State, (VAR_IN_DELETED_TRANSITION & VAR_ADDED));
+    UT_ASSERT_EQUAL (*GetVariableDataPtr (Track.CurrPtr, (BOOLEAN)AuthFormat), 0x20);
+    ZeroMem (&Track, sizeof (Track));
+    UT_ASSERT_STATUS_EQUAL (
+      FindVariable (L"Deleted", &VendorGuid, &Track, &mVariableModuleGlobal->VariableGlobal, FALSE),
+      EFI_NOT_FOUND
+      );
+
+    ZeroMem (StoreList, sizeof (StoreList));
+    StoreList[VariableStoreTypeNv] = mNvVariableCache;
+    Found                          = NULL;
+    UT_ASSERT_NOT_EFI_ERROR (
+      VariableServiceGetNextVariableInternal (L"", &VendorGuid, StoreList, &Found, (BOOLEAN)AuthFormat, LastOffset)
+      );
+    UT_ASSERT_TRUE (Found == (VARIABLE_HEADER *)((UINTN)mNvVariableCache + ((UINTN)Candidate - (UINTN)Store)));
+    UT_ASSERT_STATUS_EQUAL (
+      VariableServiceGetNextVariableInternal (
+        L"Replace",
+        &VendorGuid,
+        StoreList,
+        &Found,
+        (BOOLEAN)AuthFormat,
+        LastOffset
+        ),
+      EFI_NOT_FOUND
+      );
+  }
+
+  return UNIT_TEST_PASSED;
+}
+
 INT32
 main (
   IN INT32  Argc,
@@ -263,11 +559,55 @@ main (
 
   Status = CreateUnitTestSuite (&Suite, Framework, "Bounded reclaim", "VariableRecovery.Reclaim", NULL, NULL);
   if (!EFI_ERROR (Status)) {
-    Status = AddTestCase (Suite, "Interrupted replacement recovery", "Replacement", InterruptedReplacementRecovery, NULL, NULL, NULL);
+    Status = AddTestCase (
+               Suite,
+               "Interrupted replacement recovery",
+               "Replacement",
+               InterruptedReplacementRecovery,
+               NULL,
+               NULL,
+               NULL
+               );
   }
 
   if (!EFI_ERROR (Status)) {
     Status = AddTestCase (Suite, "Failed reclaim can be retried", "Retry", ReclaimFailureCanBeRetried, NULL, NULL, NULL);
+  }
+
+  if (!EFI_ERROR (Status)) {
+    Status = AddTestCase (
+               Suite,
+               "Failed recovery invalidates the read boundary",
+               "InvalidBoundary",
+               FailedRecoveryInvalidatesReadBoundary,
+               NULL,
+               NULL,
+               NULL
+               );
+  }
+
+  if (!EFI_ERROR (Status)) {
+    Status = AddTestCase (
+               Suite,
+               "Readers stop at interrupted append tail",
+               "Readers",
+               ReadersStopAtInterruptedTail,
+               NULL,
+               NULL,
+               NULL
+               );
+  }
+
+  if (!EFI_ERROR (Status)) {
+    Status = AddTestCase (
+               Suite,
+               "Readers preserve transition recovery candidate",
+               "Transition",
+               ReadersPreserveTransitionCandidate,
+               NULL,
+               NULL,
+               NULL
+               );
   }
 
   if (!EFI_ERROR (Status)) {

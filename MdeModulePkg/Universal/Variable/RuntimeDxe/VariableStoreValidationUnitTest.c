@@ -203,17 +203,19 @@ PreservesInterruptedAppends (
     UT_ASSERT_EQUAL (LastOffset, CommittedEnd + RecordSize);
   }
 
-  Store       = InitializeStore (STORE_BUFFER_SIZE);
-  Variable    = GetStartPointer (Store);
-  RecordSize  = BuildAppendRecord (FALSE, VARIABLE_ATTRIBUTE_NV_BS_RT, L"Pending", 8);
-
-  // Exercise interruptions across the first record write. The validator must
-  // stop at the append start without consuming any untrusted length field.
-  for (UINTN Bytes = 1; Bytes < RecordSize; Bytes++) {
-    SetMem (Variable, RecordSize, MAX_UINT8);
-    WriteAppendRecord (Variable, Bytes);
-    UT_ASSERT_NOT_EFI_ERROR (Validate (Store, FALSE, &LastOffset, NULL, NULL));
-    UT_ASSERT_EQUAL (LastOffset, (UINTN)Variable - (UINTN)Store);
+  // Exercise every interruption point in the first record write for both
+  // record formats. The validator must stop at the append start without
+  // consuming any untrusted length field.
+  for (UINTN AuthFormat = 0; AuthFormat <= 1; AuthFormat++) {
+    Store      = InitializeStore (STORE_BUFFER_SIZE);
+    Variable   = GetStartPointer (Store);
+    RecordSize = BuildAppendRecord ((BOOLEAN)AuthFormat, VARIABLE_ATTRIBUTE_NV_BS_RT, L"Pending", 8);
+    for (UINTN Bytes = 1; Bytes < RecordSize; Bytes++) {
+      SetMem (Variable, RecordSize, MAX_UINT8);
+      WriteAppendRecord (Variable, Bytes);
+      UT_ASSERT_NOT_EFI_ERROR (Validate (Store, (BOOLEAN)AuthFormat, &LastOffset, NULL, NULL));
+      UT_ASSERT_EQUAL (LastOffset, (UINTN)Variable - (UINTN)Store);
+    }
   }
 
   Store           = InitializeStore (STORE_BUFFER_SIZE);
