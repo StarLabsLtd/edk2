@@ -243,6 +243,11 @@ DrawBootPromptLine (
     return EFI_INVALID_PARAMETER;
   }
 
+  Blt              = NULL;
+  ScaledBlt        = NULL;
+  RowInfoArray     = NULL;
+  RowInfoArraySize = 0;
+
   Status = gBS->LocateProtocol (&gEfiHiiFontProtocolGuid, NULL, (VOID **)&HiiFont);
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_INFO, "%a: HII font protocol unavailable: %r\n", __func__, Status));
@@ -284,9 +289,6 @@ DrawBootPromptLine (
   FontInfo.FontInfoMask             = EFI_FONT_INFO_SYS_FONT | EFI_FONT_INFO_SYS_SIZE | EFI_FONT_INFO_SYS_STYLE;
   FontInfo.FontInfo.FontSize        = EFI_GLYPH_HEIGHT;
   FontInfo.FontInfo.FontName[0]     = CHAR_NULL;
-  RowInfoArray                      = NULL;
-  RowInfoArraySize                  = 0;
-
   Status = HiiFont->StringToImage (
                       HiiFont,
                       EFI_HII_IGNORE_IF_NO_GLYPH | EFI_HII_OUT_FLAG_CLIP | EFI_HII_OUT_FLAG_CLIP_CLEAN_X | EFI_HII_OUT_FLAG_CLIP_CLEAN_Y | EFI_HII_IGNORE_LINE_BREAK,
