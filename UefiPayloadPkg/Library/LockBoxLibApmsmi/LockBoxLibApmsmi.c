@@ -139,7 +139,7 @@ SendSmmSvc (
   @param[in]  Length  Size of the payload in bytes.
 **/
 STATIC
-VOID
+RETURN_STATUS
 ForwardOpalDeviceLockBoxToSmm (
   IN VOID   *Buffer,
   IN UINTN  Length
@@ -151,9 +151,10 @@ ForwardOpalDeviceLockBoxToSmm (
   UINT8                 *Ptr;
   UINT8                 *End;
   UINT32                MinRecLen;
+  RETURN_STATUS         ReturnStatus;
 
   if ((Buffer == NULL) || (Length == 0)) {
-    return;
+    return RETURN_INVALID_PARAMETER;
   }
 
   MinRecLen = OFFSET_OF (OPAL_DEVICE_LOCKBOX_DATA, DevicePath);
@@ -169,17 +170,19 @@ ForwardOpalDeviceLockBoxToSmm (
                    );
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_VERBOSE, "%a(): AllocatePages() failed: %r\n", __func__, Status));
-    return;
+    return RETURN_OUT_OF_RESOURCES;
   }
 
   Ctx = (OPAL_S3_SMM_CTX *)(UINTN)CtxPhys;
   ZeroMem (Ctx, EFI_PAGE_SIZE);
 
-  while (Ptr + MinRecLen <= End) {
+  ReturnStatus = RETURN_SUCCESS;
+  while ((UINTN)(End - Ptr) >= MinRecLen) {
     OPAL_DEVICE_LOCKBOX_DATA  *Rec;
 
     Rec = (OPAL_DEVICE_LOCKBOX_DATA *)(VOID *)Ptr;
-    if ((Rec->Length < MinRecLen) || (Ptr + Rec->Length > End)) {
+    if ((Rec->Length < MinRecLen) || (Rec->Length > (UINTN)(End - Ptr))) {
+      ReturnStatus = RETURN_INVALID_PARAMETER;
       break;
     }
 
@@ -198,6 +201,7 @@ ForwardOpalDeviceLockBoxToSmm (
       Status = SendSmmSvc (OPAL_S3_SMM_SUBCMD_SET_SECRET, CtxPhys);
       if (EFI_ERROR (Status)) {
         DEBUG ((DEBUG_VERBOSE, "%a(): OPAL SMI handoff failed: %r\n", __func__, Status));
+        ReturnStatus = RETURN_DEVICE_ERROR;
       }
 
       ZeroMem (Ctx->Password, sizeof (Ctx->Password));
@@ -209,6 +213,7 @@ ForwardOpalDeviceLockBoxToSmm (
 
   ZeroMem (Ctx, EFI_PAGE_SIZE);
   gBS->FreePages (CtxPhys, 1);
+  return ReturnStatus;
 }
 
 /**
@@ -239,8 +244,7 @@ SaveLockBox (
     return RETURN_UNSUPPORTED;
   }
 
-  ForwardOpalDeviceLockBoxToSmm (Buffer, Length);
-  return RETURN_SUCCESS;
+  return ForwardOpalDeviceLockBoxToSmm (Buffer, Length);
 }
 
 /**
@@ -302,8 +306,7 @@ UpdateLockBox (
     return RETURN_UNSUPPORTED;
   }
 
-  ForwardOpalDeviceLockBoxToSmm (Buffer, Length);
-  return RETURN_SUCCESS;
+  return ForwardOpalDeviceLockBoxToSmm (Buffer, Length);
 }
 
 /**
