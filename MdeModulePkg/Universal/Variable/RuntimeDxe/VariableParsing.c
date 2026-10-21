@@ -115,6 +115,14 @@ ValidateVariableStore (
       break;
     }
 
+    if ((Variable->State != VAR_ADDED) &&
+        (Variable->State != (VAR_IN_DELETED_TRANSITION & VAR_ADDED)) &&
+        (Variable->State != (VAR_DELETED & VAR_ADDED)) &&
+        (Variable->State != (VAR_DELETED & VAR_IN_DELETED_TRANSITION & VAR_ADDED)))
+    {
+      return EFI_VOLUME_CORRUPTED;
+    }
+
     if (!IsValidVariableSize (Variable, VariableStoreEnd, AuthFormat) ||
         !IsValidVariableContent (Variable, VariableStoreEnd, AuthFormat))
     {

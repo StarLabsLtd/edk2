@@ -143,7 +143,7 @@ ValidStores (
   UT_ASSERT_EQUAL (HwErrSize, 0);
 
   Second    = Next;
-  Next      = AppendVariable (Second, FALSE, VAR_DELETED, VARIABLE_ATTRIBUTE_NV_BS_RT_HR, L"Deleted", 8);
+  Next      = AppendVariable (Second, FALSE, (VAR_DELETED & VAR_ADDED), VARIABLE_ATTRIBUTE_NV_BS_RT_HR, L"Deleted", 8);
   SecondSize = (UINTN)Next - (UINTN)Second;
   UT_ASSERT_NOT_EFI_ERROR (Validate (Store, FALSE, &LastOffset, &CommonSize, &HwErrSize));
   UT_ASSERT_EQUAL (LastOffset, (UINTN)Next - (UINTN)Store);
@@ -300,6 +300,11 @@ RejectsMalformedLengths (
   Next->State    = VAR_ADDED;
   Next->NameSize = MAX_UINT32;
   Next->DataSize = MAX_UINT32;
+  UT_ASSERT_STATUS_EQUAL (Validate (Store, FALSE, NULL, NULL, NULL), EFI_VOLUME_CORRUPTED);
+
+  Store    = InitializeStore (STORE_BUFFER_SIZE);
+  Variable = GetStartPointer (Store);
+  AppendVariable (Variable, FALSE, 0x5f, VARIABLE_ATTRIBUTE_NV_BS_RT, L"State", 4);
   UT_ASSERT_STATUS_EQUAL (Validate (Store, FALSE, NULL, NULL, NULL), EFI_VOLUME_CORRUPTED);
 
   Store = InitializeStore (MAX_UINT32);
