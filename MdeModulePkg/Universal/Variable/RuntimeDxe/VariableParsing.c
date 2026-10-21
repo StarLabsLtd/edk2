@@ -26,7 +26,11 @@ IsValidVariableHeader (
   IN  VARIABLE_HEADER  *VariableStoreEnd
   )
 {
-  if ((Variable == NULL) || (Variable >= VariableStoreEnd) || (Variable->StartId != VARIABLE_DATA)) {
+  if ((Variable == NULL) || (VariableStoreEnd == NULL) ||
+      ((UINTN)Variable >= (UINTN)VariableStoreEnd) ||
+      (((UINTN)VariableStoreEnd - (UINTN)Variable) < sizeof (*Variable)) ||
+      (Variable->StartId != VARIABLE_DATA))
+  {
     //
     // Variable is NULL or has reached the end of variable store,
     // or the StartId is not correct.
@@ -35,6 +39,84 @@ IsValidVariableHeader (
   }
 
   return TRUE;
+}
+
+EFI_STATUS
+ValidateVariableStore (
+  IN VARIABLE_STORE_HEADER  *VariableStore,
+  IN UINTN                  VariableStoreSize,
+  IN BOOLEAN                AuthFormat,
+  OUT UINTN                 *LastVariableOffset,
+  OUT UINTN                 *CommonVariableTotalSize,
+  OUT UINTN                 *HwErrVariableTotalSize
+  )
+{
+  VARIABLE_HEADER  *Variable;
+  VARIABLE_HEADER  *NextVariable;
+  VARIABLE_HEADER  *VariableStoreEnd;
+  UINT8            *Tail;
+  UINTN            VariableSize;
+  UINTN            CommonSize;
+  UINTN            HwErrSize;
+
+  if ((VariableStore == NULL) || (LastVariableOffset == NULL) ||
+      (CommonVariableTotalSize == NULL) || (HwErrVariableTotalSize == NULL) ||
+      (VariableStoreSize < sizeof (*VariableStore)) ||
+      (VariableStore->Size != VariableStoreSize) ||
+      ((UINTN)VariableStore > (MAX_UINTN - VariableStoreSize)))
+  {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  VariableStoreEnd = (VARIABLE_HEADER *)((UINTN)VariableStore + VariableStoreSize);
+  Variable         = GetStartPointer (VariableStore);
+  if (Variable > VariableStoreEnd) {
+    return EFI_VOLUME_CORRUPTED;
+  }
+
+  CommonSize = 0;
+  HwErrSize  = 0;
+  while (Variable < VariableStoreEnd) {
+    if ((((UINTN)VariableStoreEnd - (UINTN)Variable) < sizeof (*Variable)) ||
+        (Variable->StartId == MAX_UINT16))
+    {
+      for (Tail = (UINT8 *)Variable; Tail < (UINT8 *)VariableStoreEnd; Tail++) {
+        if (*Tail != MAX_UINT8) {
+          return EFI_VOLUME_CORRUPTED;
+        }
+      }
+
+      break;
+    }
+
+    if (!IsValidVariableSize (Variable, VariableStoreEnd, AuthFormat) ||
+        ((Variable->State != VAR_HEADER_VALID_ONLY) &&
+         !IsValidVariableContent (Variable, VariableStoreEnd, AuthFormat)))
+    {
+      return EFI_VOLUME_CORRUPTED;
+    }
+
+    NextVariable = GetNextVariablePtr (Variable, AuthFormat);
+    if ((NextVariable <= Variable) || (NextVariable > VariableStoreEnd)) {
+      return EFI_VOLUME_CORRUPTED;
+    }
+
+    VariableSize = (UINTN)NextVariable - (UINTN)Variable;
+    if ((Variable->Attributes & (EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_HARDWARE_ERROR_RECORD)) ==
+        (EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_HARDWARE_ERROR_RECORD))
+    {
+      HwErrSize += VariableSize;
+    } else {
+      CommonSize += VariableSize;
+    }
+
+    Variable = NextVariable;
+  }
+
+  *LastVariableOffset      = (UINTN)Variable - (UINTN)VariableStore;
+  *CommonVariableTotalSize = CommonSize;
+  *HwErrVariableTotalSize  = HwErrSize;
+  return EFI_SUCCESS;
 }
 
 /**

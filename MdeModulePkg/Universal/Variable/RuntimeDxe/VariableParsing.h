@@ -58,6 +58,34 @@ IsValidVariableContent (
   );
 
 /**
+  Validate and account for every record in a formatted variable store.
+
+  Header-only records are retained as interrupted writes. All other records
+  must contain a complete, terminated variable name. The unused tail must be
+  fully erased.
+
+  @param[in]  VariableStore            Variable store header.
+  @param[in]  VariableStoreSize        Validated extent of the store.
+  @param[in]  AuthFormat               Authenticated-variable record format.
+  @param[out] LastVariableOffset       Offset of the first erased byte.
+  @param[out] CommonVariableTotalSize  Space consumed by ordinary records.
+  @param[out] HwErrVariableTotalSize   Space consumed by hardware-error records.
+
+  @retval EFI_SUCCESS           The complete store is valid.
+  @retval EFI_INVALID_PARAMETER An argument or store extent is invalid.
+  @retval EFI_VOLUME_CORRUPTED  A record or the unused tail is malformed.
+**/
+EFI_STATUS
+ValidateVariableStore (
+  IN VARIABLE_STORE_HEADER  *VariableStore,
+  IN UINTN                  VariableStoreSize,
+  IN BOOLEAN                AuthFormat,
+  OUT UINTN                 *LastVariableOffset,
+  OUT UINTN                 *CommonVariableTotalSize,
+  OUT UINTN                 *HwErrVariableTotalSize
+  );
+
+/**
 
   This code gets the current status of Variable Store.
 
