@@ -489,7 +489,9 @@ InitializeVariableQuota (
   Variable store garbage collection and reclaim operation.
 
   @param[in]      VariableBase            Base address of variable store.
-  @param[out]     LastVariableOffset      Offset of last variable.
+  @param[in,out]  LastVariableOffset      On input, end of the validated source
+                                          prefix. On output, offset of the next
+                                          free byte in the reclaimed store.
   @param[in]      IsVolatile              The variable store is volatile or not;
                                           if it is non-volatile, need FTW.
   @param[in, out] UpdatingPtrTrack        Pointer to updating variable pointer track structure.
@@ -532,6 +534,10 @@ Reclaim (
   VARIABLE_HEADER        *UpdatingVariable;
   VARIABLE_HEADER        *UpdatingInDeletedTransition;
   BOOLEAN                AuthFormat;
+  VARIABLE_HEADER        *SourceEnd;
+  UINTN                  RecoveredLastVariableOffset;
+  EFI_STATUS             ValidationStatus;
+  UINTN                  VariableStoreSize;
 
   AuthFormat                  = mVariableModuleGlobal->VariableGlobal.AuthFormat;
   UpdatingVariable            = NULL;
@@ -542,6 +548,16 @@ Reclaim (
   }
 
   VariableStoreHeader = (VARIABLE_STORE_HEADER *)((UINTN)VariableBase);
+  VariableStoreSize   = VariableStoreHeader->Size;
+
+  if ((LastVariableOffset == NULL) ||
+      (*LastVariableOffset < ((UINTN)GetStartPointer (VariableStoreHeader) - (UINTN)VariableStoreHeader)) ||
+      (*LastVariableOffset > VariableStoreSize))
+  {
+    return EFI_VOLUME_CORRUPTED;
+  }
+
+  SourceEnd = (VARIABLE_HEADER *)((UINTN)VariableStoreHeader + *LastVariableOffset);
 
   CommonVariableTotalSize     = 0;
   CommonUserVariableTotalSize = 0;
@@ -554,12 +570,12 @@ Reclaim (
     Variable          = GetStartPointer (VariableStoreHeader);
     MaximumBufferSize = sizeof (VARIABLE_STORE_HEADER);
 
-    while (IsValidVariableHeader (Variable, GetEndPointer (VariableStoreHeader))) {
+    while (IsValidVariableHeader (Variable, SourceEnd)) {
       NextVariable = GetNextVariablePtr (Variable, AuthFormat);
       if (((Variable->State == VAR_ADDED) || (Variable->State == (VAR_IN_DELETED_TRANSITION & VAR_ADDED))) &&
           (Variable != UpdatingVariable) &&
           (Variable != UpdatingInDeletedTransition) &&
-          IsValidVariableContent (Variable, GetEndPointer (VariableStoreHeader), AuthFormat)
+          IsValidVariableContent (Variable, SourceEnd, AuthFormat)
           )
       {
         VariableSize       = (UINTN)NextVariable - (UINTN)Variable;
@@ -590,7 +606,7 @@ Reclaim (
     // For NV variable reclaim, don't allocate pool here and just use mNvVariableCache
     // as the buffer to reduce SMRAM consumption for SMM variable driver.
     //
-    MaximumBufferSize = mNvVariableCache->Size;
+    MaximumBufferSize = VariableStoreSize;
     ValidBuffer       = (UINT8 *)mNvVariableCache;
   }
 
@@ -606,11 +622,11 @@ Reclaim (
   // Reinstall all ADDED variables as long as they are not identical to Updating Variable.
   //
   Variable = GetStartPointer (VariableStoreHeader);
-  while (IsValidVariableHeader (Variable, GetEndPointer (VariableStoreHeader))) {
+  while (IsValidVariableHeader (Variable, SourceEnd)) {
     NextVariable = GetNextVariablePtr (Variable, AuthFormat);
     if ((Variable != UpdatingVariable) &&
         (Variable->State == VAR_ADDED) &&
-        IsValidVariableContent (Variable, GetEndPointer (VariableStoreHeader), AuthFormat))
+        IsValidVariableContent (Variable, SourceEnd, AuthFormat))
     {
       VariableSize = (UINTN)NextVariable - (UINTN)Variable;
       CopyMem (CurrPtr, (UINT8 *)Variable, VariableSize);
@@ -632,12 +648,12 @@ Reclaim (
   // Reinstall all in delete transition variables.
   //
   Variable = GetStartPointer (VariableStoreHeader);
-  while (IsValidVariableHeader (Variable, GetEndPointer (VariableStoreHeader))) {
+  while (IsValidVariableHeader (Variable, SourceEnd)) {
     NextVariable = GetNextVariablePtr (Variable, AuthFormat);
     if ((Variable != UpdatingVariable) &&
         (Variable != UpdatingInDeletedTransition) &&
         (Variable->State == (VAR_IN_DELETED_TRANSITION & VAR_ADDED)) &&
-        IsValidVariableContent (Variable, GetEndPointer (VariableStoreHeader), AuthFormat))
+        IsValidVariableContent (Variable, SourceEnd, AuthFormat))
     {
       //
       // Buffer has cached all ADDED variable.
@@ -692,7 +708,7 @@ Reclaim (
   // Install the new variable if it is not NULL.
   //
   if (NewVariable != NULL) {
-    if (((UINTN)CurrPtr - (UINTN)ValidBuffer) + NewVariableSize > VariableStoreHeader->Size) {
+    if (((UINTN)CurrPtr - (UINTN)ValidBuffer) + NewVariableSize > VariableStoreSize) {
       //
       // No enough space to store the new variable.
       //
@@ -736,7 +752,7 @@ Reclaim (
     //
     // If volatile/emulated non-volatile variable store, just copy valid buffer.
     //
-    SetMem ((UINT8 *)(UINTN)VariableBase, VariableStoreHeader->Size, 0xff);
+    SetMem ((UINT8 *)(UINTN)VariableBase, VariableStoreSize, 0xff);
     CopyMem ((UINT8 *)(UINTN)VariableBase, ValidBuffer, (UINTN)CurrPtr - (UINTN)ValidBuffer);
     *LastVariableOffset = (UINTN)CurrPtr - (UINTN)ValidBuffer;
     if (!IsVolatile) {
@@ -766,23 +782,31 @@ Reclaim (
       mVariableModuleGlobal->HwErrVariableTotalSize      = 0;
       mVariableModuleGlobal->CommonVariableTotalSize     = 0;
       mVariableModuleGlobal->CommonUserVariableTotalSize = 0;
-      Variable                                           = GetStartPointer ((VARIABLE_STORE_HEADER *)(UINTN)VariableBase);
-      while (IsValidVariableHeader (Variable, GetEndPointer ((VARIABLE_STORE_HEADER *)(UINTN)VariableBase))) {
+      ValidationStatus = ValidateVariableStore (
+                           (VARIABLE_STORE_HEADER *)(UINTN)VariableBase,
+                           VariableStoreSize,
+                           AuthFormat,
+                           &RecoveredLastVariableOffset,
+                           &mVariableModuleGlobal->CommonVariableTotalSize,
+                           &mVariableModuleGlobal->HwErrVariableTotalSize
+                           );
+      if (EFI_ERROR (ValidationStatus)) {
+        goto Done;
+      }
+
+      *LastVariableOffset = RecoveredLastVariableOffset;
+      SourceEnd           = (VARIABLE_HEADER *)((UINTN)VariableStoreHeader + RecoveredLastVariableOffset);
+      Variable            = GetStartPointer ((VARIABLE_STORE_HEADER *)(UINTN)VariableBase);
+      while (IsValidVariableHeader (Variable, SourceEnd)) {
         NextVariable = GetNextVariablePtr (Variable, AuthFormat);
-        VariableSize = (UINTN)NextVariable - (UINTN)Variable;
-        if ((Variable->Attributes & EFI_VARIABLE_HARDWARE_ERROR_RECORD) == EFI_VARIABLE_HARDWARE_ERROR_RECORD) {
-          mVariableModuleGlobal->HwErrVariableTotalSize += VariableSize;
-        } else if ((Variable->Attributes & EFI_VARIABLE_HARDWARE_ERROR_RECORD) != EFI_VARIABLE_HARDWARE_ERROR_RECORD) {
-          mVariableModuleGlobal->CommonVariableTotalSize += VariableSize;
-          if (IsUserVariable (Variable)) {
-            mVariableModuleGlobal->CommonUserVariableTotalSize += VariableSize;
-          }
+        if (((Variable->Attributes & EFI_VARIABLE_HARDWARE_ERROR_RECORD) == 0) &&
+            IsUserVariable (Variable))
+        {
+          mVariableModuleGlobal->CommonUserVariableTotalSize += (UINTN)NextVariable - (UINTN)Variable;
         }
 
         Variable = NextVariable;
       }
-
-      *LastVariableOffset = (UINTN)Variable - (UINTN)VariableBase;
     }
   }
 
@@ -792,7 +816,7 @@ Done:
     DoneStatus = SynchronizeRuntimeVariableCache (
                    &mVariableModuleGlobal->VariableGlobal.VariableRuntimeCacheContext.VariableRuntimeVolatileCache,
                    0,
-                   VariableStoreHeader->Size
+                   VariableStoreSize
                    );
     ASSERT_EFI_ERROR (DoneStatus);
     FreePool (ValidBuffer);
@@ -800,11 +824,11 @@ Done:
     //
     // For NV variable reclaim, we use mNvVariableCache as the buffer, so copy the data back.
     //
-    CopyMem (mNvVariableCache, (UINT8 *)(UINTN)VariableBase, VariableStoreHeader->Size);
+    CopyMem (mNvVariableCache, (UINT8 *)(UINTN)VariableBase, VariableStoreSize);
     DoneStatus = SynchronizeRuntimeVariableCache (
                    &mVariableModuleGlobal->VariableGlobal.VariableRuntimeCacheContext.VariableRuntimeNvCache,
                    0,
-                   VariableStoreHeader->Size
+                   VariableStoreSize
                    );
     ASSERT_EFI_ERROR (DoneStatus);
   }

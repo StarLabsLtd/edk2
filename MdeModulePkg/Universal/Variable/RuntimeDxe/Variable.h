@@ -143,7 +143,7 @@ FlushHobVariableToFlash (
 EFI_STATUS
 Reclaim (
   IN     EFI_PHYSICAL_ADDRESS    VariableBase,
-  OUT    UINTN                   *LastVariableOffset,
+  IN OUT UINTN                   *LastVariableOffset,
   IN     BOOLEAN                 IsVolatile,
   IN OUT VARIABLE_POINTER_TRACK  *UpdatingPtrTrack,
   IN     VARIABLE_HEADER         *NewVariable,

@@ -58,6 +58,7 @@ ValidateVariableStore (
   UINTN            VariableSize;
   UINTN            CommonSize;
   UINTN            HwErrSize;
+  UINTN            RemainingSize;
 
   if ((VariableStore == NULL) || (LastVariableOffset == NULL) ||
       (CommonVariableTotalSize == NULL) || (HwErrVariableTotalSize == NULL) ||
@@ -77,7 +78,32 @@ ValidateVariableStore (
   CommonSize = 0;
   HwErrSize  = 0;
   while (Variable < VariableStoreEnd) {
-    if ((((UINTN)VariableStoreEnd - (UINTN)Variable) < sizeof (*Variable)) ||
+    RemainingSize = (UINTN)VariableStoreEnd - (UINTN)Variable;
+    if (RemainingSize < (OFFSET_OF (VARIABLE_HEADER, State) + sizeof (Variable->State))) {
+      //
+      // A short, non-erased tail can only be the beginning of the next
+      // append.  Do not inspect it as a variable record.
+      //
+      break;
+    }
+
+    //
+    // UpdateVariable() writes the complete record with an erased state and
+    // commits it with a separate State write.  A reset can therefore leave
+    // an arbitrary partial record, or a complete record, in this state.  A
+    // partially programmed state byte can also contain either intermediate
+    // value between MAX_UINT8 and VAR_ADDED.  Nothing after such a record can
+    // have been committed by the append-only writer, so preserve the bounded
+    // prefix and leave the complete remainder for startup reclamation.
+    //
+    if ((Variable->State == MAX_UINT8) ||
+        (Variable->State == VAR_HEADER_VALID_ONLY) ||
+        (Variable->State == (MAX_UINT8 & ~BIT6)))
+    {
+      break;
+    }
+
+    if ((RemainingSize < GetVariableHeaderSize (AuthFormat)) ||
         (Variable->StartId == MAX_UINT16))
     {
       for (Tail = (UINT8 *)Variable; Tail < (UINT8 *)VariableStoreEnd; Tail++) {
@@ -90,8 +116,7 @@ ValidateVariableStore (
     }
 
     if (!IsValidVariableSize (Variable, VariableStoreEnd, AuthFormat) ||
-        ((Variable->State != VAR_HEADER_VALID_ONLY) &&
-         !IsValidVariableContent (Variable, VariableStoreEnd, AuthFormat)))
+        !IsValidVariableContent (Variable, VariableStoreEnd, AuthFormat))
     {
       return EFI_VOLUME_CORRUPTED;
     }

@@ -60,9 +60,10 @@ IsValidVariableContent (
 /**
   Validate and account for every record in a formatted variable store.
 
-  Header-only records are retained as interrupted writes. All other records
-  must contain a complete, terminated variable name. The unused tail must be
-  fully erased.
+  Committed records must contain a complete, terminated variable name. An
+  uncommitted append and everything following it are returned as an opaque
+  dirty tail for startup reclamation; its length fields are not inspected.
+  The unused tail following committed records must be fully erased.
 
   @param[in]  VariableStore            Variable store header.
   @param[in]  VariableStoreSize        Validated extent of the store.
