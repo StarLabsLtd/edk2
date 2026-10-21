@@ -108,10 +108,13 @@ PcatPciRootBridgeWarnAboutBrokenFW (
         "%a: Please consider fixing EDK2 or your firmware\n",
         __func__
         ));
-      return EFI_ACCESS_DENIED;
+      Status = EFI_ACCESS_DENIED;
+      break;
     }
   }
-  return EFI_SUCCESS;
+
+  FreePool (Map);
+  return Status;
 }
 
 /**
@@ -250,9 +253,9 @@ PcatPciRootBridgeParseBars (
           if (MemAperture->Base > Base) {
             NewBase = Base;
           }
-          NewLength = MemAperture->Base;
+          NewLength = MemAperture->Limit;
           if (MemAperture->Limit < Limit) {
-            NewLength = Base;
+            NewLength = Limit;
           }
 
           //
