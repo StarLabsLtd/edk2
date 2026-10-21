@@ -30,6 +30,16 @@
   gEfiMdeModulePkgTokenSpaceGuid.PcdFlashNvStorageVariableBase64|0
 
 [Components]
+  SecurityPkg/Library/AuthVariableLib/AuthServiceSignatureUnitTestHost.inf {
+    <BuildOptions>
+      GCC:*_*_*_CC_FLAGS = -fsanitize=address,undefined -fno-omit-frame-pointer
+      GCC:*_*_*_DLINK_FLAGS = -Wl,--gc-sections -fsanitize=address,undefined
+  }
+  MdeModulePkg/Universal/Variable/RuntimeDxe/VariableStoreValidationUnitTestHost.inf {
+    <BuildOptions>
+      GCC:*_*_*_CC_FLAGS = -fsanitize=address,undefined -fno-omit-frame-pointer
+      GCC:*_*_*_DLINK_FLAGS = -Wl,--gc-sections -fsanitize=address,undefined
+  }
   MdeModulePkg/Library/VarCheckPolicyLib/VarCheckPolicyLibStandaloneMmUnitTestHost.inf {
     <BuildOptions>
       GCC:*_*_*_DLINK_FLAGS = -Wl,--gc-sections -Wl,--wrap=CpuDeadLoop

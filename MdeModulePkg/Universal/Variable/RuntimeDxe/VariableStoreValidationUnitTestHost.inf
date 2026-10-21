@@ -1,0 +1,33 @@
+## @file
+# Host tests for bounded persisted-variable store validation.
+#
+# Copyright (c) 2026, Star Labs Systems. All rights reserved.<BR>
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION    = 0x00010006
+  BASE_NAME      = VariableStoreValidationUnitTest
+  FILE_GUID      = 63F3553D-3D3B-4567-BA48-24F272C718EF
+  MODULE_TYPE    = HOST_APPLICATION
+  VERSION_STRING = 1.0
+
+[Sources]
+  VariableStoreValidationUnitTest.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  UnitTestFrameworkPkg/UnitTestFrameworkPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  UnitTestLib
+
+[Guids]
+  gEfiAuthenticatedVariableGuid
+  gEfiVariableGuid
+
+[FeaturePcd]
+  gEfiMdeModulePkgTokenSpaceGuid.PcdVariableCollectStatistics|FALSE
