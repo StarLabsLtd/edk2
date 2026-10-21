@@ -801,8 +801,14 @@ FvbInitialize (
     Status = ValidateFvHeader ();
   }
 
-  // Install the Default FVB header if required
-  if (EFI_ERROR (Status)) {
+  // Install the default FVB header only when it is absent or invalid.  A read
+  // or allocation failure does not establish corruption and must not erase the
+  // existing variable store.
+  if ((Status != EFI_SUCCESS) && (Status != EFI_NOT_FOUND) && !ForceFormat) {
+    return Status;
+  }
+
+  if (ForceFormat || (Status == EFI_NOT_FOUND)) {
     // There is no valid header, so time to install one.
     DEBUG ((DEBUG_INFO, "%a: The FVB Header is not valid.\n", __func__));
     DEBUG ((
