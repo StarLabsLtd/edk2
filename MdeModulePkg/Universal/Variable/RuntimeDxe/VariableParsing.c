@@ -615,6 +615,37 @@ GetEndPointer (
   return (VARIABLE_HEADER *)HEADER_ALIGN ((UINTN)VarStoreHeader + VarStoreHeader->Size);
 }
 
+EFI_STATUS
+GetVariableStoreEndPointer (
+  IN  VARIABLE_STORE_HEADER  *VarStoreHeader,
+  IN  VARIABLE_STORE_TYPE    StoreType,
+  IN  UINTN                  NvEndOffset,
+  OUT VARIABLE_HEADER        **EndPtr
+  )
+{
+  UINTN  StartOffset;
+
+  if ((VarStoreHeader == NULL) || (EndPtr == NULL)) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  if (StoreType != VariableStoreTypeNv) {
+    *EndPtr = GetEndPointer (VarStoreHeader);
+    return EFI_SUCCESS;
+  }
+
+  StartOffset = (UINTN)GetStartPointer (VarStoreHeader) - (UINTN)VarStoreHeader;
+  if ((NvEndOffset < StartOffset) ||
+      (NvEndOffset > VarStoreHeader->Size) ||
+      ((UINTN)VarStoreHeader > (MAX_UINTN - NvEndOffset)))
+  {
+    return EFI_VOLUME_CORRUPTED;
+  }
+
+  *EndPtr = (VARIABLE_HEADER *)((UINTN)VarStoreHeader + NvEndOffset);
+  return EFI_SUCCESS;
+}
+
 /**
   Compare two EFI_TIME data.
 
@@ -753,7 +784,8 @@ VariableServiceGetNextVariableInternal (
   IN  EFI_GUID               *VendorGuid,
   IN  VARIABLE_STORE_HEADER  **VariableStoreList,
   OUT VARIABLE_HEADER        **VariablePtr,
-  IN  BOOLEAN                AuthFormat
+  IN  BOOLEAN                AuthFormat,
+  IN  UINTN                  NvEndOffset
   )
 {
   EFI_STATUS              Status;
@@ -777,7 +809,16 @@ VariableServiceGetNextVariableInternal (
     }
 
     Variable.StartPtr = GetStartPointer (VariableStoreList[StoreType]);
-    Variable.EndPtr   = GetEndPointer (VariableStoreList[StoreType]);
+    Status = GetVariableStoreEndPointer (
+               VariableStoreList[StoreType],
+               StoreType,
+               NvEndOffset,
+               &Variable.EndPtr
+               );
+    if (EFI_ERROR (Status)) {
+      goto Done;
+    }
+
     Variable.Volatile = (BOOLEAN)(StoreType == VariableStoreTypeVolatile);
 
     Status = FindVariableEx (VariableName, VendorGuid, FALSE, &Variable, AuthFormat);
@@ -846,8 +887,17 @@ VariableServiceGetNextVariableInternal (
       }
 
       Variable.StartPtr = GetStartPointer (VariableStoreList[StoreType]);
-      Variable.EndPtr   = GetEndPointer (VariableStoreList[StoreType]);
-      Variable.CurrPtr  = Variable.StartPtr;
+      Status = GetVariableStoreEndPointer (
+                 VariableStoreList[StoreType],
+                 StoreType,
+                 NvEndOffset,
+                 &Variable.EndPtr
+                 );
+      if (EFI_ERROR (Status)) {
+        goto Done;
+      }
+
+      Variable.CurrPtr = Variable.StartPtr;
     }
 
     //

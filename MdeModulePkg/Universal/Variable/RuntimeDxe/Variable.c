@@ -435,6 +435,7 @@ CalculateCommonUserVariableTotalSize (
 {
   VARIABLE_HEADER              *Variable;
   VARIABLE_HEADER              *NextVariable;
+  VARIABLE_HEADER              *EndPtr;
   UINTN                        VariableSize;
   VAR_CHECK_VARIABLE_PROPERTY  Property;
 
@@ -445,7 +446,17 @@ CalculateCommonUserVariableTotalSize (
   //
   if (mEndOfDxe && (mVariableModuleGlobal->CommonMaxUserVariableSpace != mVariableModuleGlobal->CommonVariableSpace)) {
     Variable = GetStartPointer (mNvVariableCache);
-    while (IsValidVariableHeader (Variable, GetEndPointer (mNvVariableCache))) {
+    if (EFI_ERROR (GetVariableStoreEndPointer (
+                     mNvVariableCache,
+                     VariableStoreTypeNv,
+                     mVariableModuleGlobal->NonVolatileLastVariableOffset,
+                     &EndPtr
+                     )))
+    {
+      return;
+    }
+
+    while (IsValidVariableHeader (Variable, EndPtr)) {
       NextVariable = GetNextVariablePtr (Variable, mVariableModuleGlobal->VariableGlobal.AuthFormat);
       VariableSize = (UINTN)NextVariable - (UINTN)Variable;
       if ((Variable->Attributes & EFI_VARIABLE_HARDWARE_ERROR_RECORD) != EFI_VARIABLE_HARDWARE_ERROR_RECORD) {
@@ -791,6 +802,9 @@ Reclaim (
                            &mVariableModuleGlobal->HwErrVariableTotalSize
                            );
       if (EFI_ERROR (ValidationStatus)) {
+        // The physical store may have changed during the failed FTW. Prevent
+        // readers from reusing the previous boundary with the refreshed cache.
+        *LastVariableOffset = 0;
         goto Done;
       }
 
@@ -902,7 +916,16 @@ FindVariable (
     }
 
     PtrTrack->StartPtr = GetStartPointer (VariableStoreHeader[Type]);
-    PtrTrack->EndPtr   = GetEndPointer (VariableStoreHeader[Type]);
+    Status             = GetVariableStoreEndPointer (
+                           VariableStoreHeader[Type],
+                           Type,
+                           mVariableModuleGlobal->NonVolatileLastVariableOffset,
+                           &PtrTrack->EndPtr
+                           );
+    if (EFI_ERROR (Status)) {
+      return Status;
+    }
+
     PtrTrack->Volatile = (BOOLEAN)(Type == VariableStoreTypeVolatile);
 
     Status =  FindVariableEx (
@@ -1333,7 +1356,17 @@ CheckRemainingSpaceForConsistencyInternal (
     //
     OriginalVarSize           = 0;
     VariablePtrTrack.StartPtr = GetStartPointer (VariableStoreHeader);
-    VariablePtrTrack.EndPtr   = GetEndPointer (VariableStoreHeader);
+    Status                    = GetVariableStoreEndPointer (
+                                  VariableStoreHeader,
+                                  VariableStoreTypeNv,
+                                  mVariableModuleGlobal->NonVolatileLastVariableOffset,
+                                  &VariablePtrTrack.EndPtr
+                                  );
+    if (EFI_ERROR (Status)) {
+      VA_END (Args);
+      return FALSE;
+    }
+
     Status                    = FindVariableEx (
                                   VariableEntry->Name,
                                   VariableEntry->Guid,
@@ -1765,7 +1798,16 @@ UpdateVariable (
       )
   {
     CacheVariable->StartPtr = GetStartPointer (mNvVariableCache);
-    CacheVariable->EndPtr   = GetEndPointer (mNvVariableCache);
+    Status                  = GetVariableStoreEndPointer (
+                                mNvVariableCache,
+                                VariableStoreTypeNv,
+                                mVariableModuleGlobal->NonVolatileLastVariableOffset,
+                                &CacheVariable->EndPtr
+                                );
+    if (EFI_ERROR (Status)) {
+      return Status;
+    }
+
     CacheVariable->Volatile = FALSE;
     Status                  = FindVariableEx (VariableName, VendorGuid, FALSE, CacheVariable, AuthFormat);
     if ((CacheVariable->CurrPtr == NULL) || EFI_ERROR (Status)) {
@@ -2568,7 +2610,8 @@ VariableServiceGetNextVariableName (
               VendorGuid,
               VariableStoreHeader,
               &VariablePtr,
-              AuthFormat
+              AuthFormat,
+              mVariableModuleGlobal->NonVolatileLastVariableOffset
               );
   if (!EFI_ERROR (Status)) {
     VarNameSize = NameSizeOfVariable (VariablePtr, AuthFormat);
@@ -2641,10 +2684,12 @@ VariableServiceSetVariable (
 {
   VARIABLE_POINTER_TRACK  Variable;
   EFI_STATUS              Status;
-  VARIABLE_HEADER         *NextVariable;
   EFI_PHYSICAL_ADDRESS    Point;
   UINTN                   PayloadSize;
   BOOLEAN                 AuthFormat;
+  UINTN                   ReentrantLastVariableOffset;
+  UINTN                   ReentrantCommonVariableTotalSize;
+  UINTN                   ReentrantHwErrVariableTotalSize;
 
   AuthFormat = mVariableModuleGlobal->VariableGlobal.AuthFormat;
 
@@ -2870,14 +2915,23 @@ VariableServiceSetVariable (
   if (1 < InterlockedIncrement (&mVariableModuleGlobal->VariableGlobal.ReentrantState)) {
     Point = mVariableModuleGlobal->VariableGlobal.NonVolatileVariableBase;
     //
-    // Parse non-volatile variable data and get last variable offset.
+    // Revalidate the non-volatile record prefix. A concurrent append may have
+    // stopped before its state-byte commit, so a raw full-store walk is not a
+    // safe way to extend the readable boundary.
     //
-    NextVariable = GetStartPointer ((VARIABLE_STORE_HEADER *)(UINTN)Point);
-    while (IsValidVariableHeader (NextVariable, GetEndPointer ((VARIABLE_STORE_HEADER *)(UINTN)Point))) {
-      NextVariable = GetNextVariablePtr (NextVariable, AuthFormat);
+    Status = ValidateVariableStore (
+               (VARIABLE_STORE_HEADER *)(UINTN)Point,
+               ((VARIABLE_STORE_HEADER *)(UINTN)Point)->Size,
+               AuthFormat,
+               &ReentrantLastVariableOffset,
+               &ReentrantCommonVariableTotalSize,
+               &ReentrantHwErrVariableTotalSize
+               );
+    if (EFI_ERROR (Status)) {
+      goto Done;
     }
 
-    mVariableModuleGlobal->NonVolatileLastVariableOffset = (UINTN)NextVariable - (UINTN)Point;
+    mVariableModuleGlobal->NonVolatileLastVariableOffset = ReentrantLastVariableOffset;
   }
 
   //
@@ -2968,8 +3022,10 @@ VariableServiceQueryVariableInfoInternal (
 {
   VARIABLE_HEADER         *Variable;
   VARIABLE_HEADER         *NextVariable;
+  VARIABLE_HEADER         *VariableStoreEnd;
   UINT64                  VariableSize;
   VARIABLE_STORE_HEADER   *VariableStoreHeader;
+  VARIABLE_STORE_TYPE     StoreType;
   UINT64                  CommonVariableTotalSize;
   UINT64                  HwErrVariableTotalSize;
   EFI_STATUS              Status;
@@ -2983,11 +3039,23 @@ VariableServiceQueryVariableInfoInternal (
     // Query is Volatile related.
     //
     VariableStoreHeader = (VARIABLE_STORE_HEADER *)((UINTN)mVariableModuleGlobal->VariableGlobal.VolatileVariableBase);
+    StoreType           = VariableStoreTypeVolatile;
   } else {
     //
     // Query is Non-Volatile related.
     //
     VariableStoreHeader = mNvVariableCache;
+    StoreType           = VariableStoreTypeNv;
+  }
+
+  Status = GetVariableStoreEndPointer (
+             VariableStoreHeader,
+             StoreType,
+             mVariableModuleGlobal->NonVolatileLastVariableOffset,
+             &VariableStoreEnd
+             );
+  if (EFI_ERROR (Status)) {
+    return Status;
   }
 
   //
@@ -3035,12 +3103,12 @@ VariableServiceQueryVariableInfoInternal (
   //
   // Now walk through the related variable store.
   //
-  while (IsValidVariableHeader (Variable, GetEndPointer (VariableStoreHeader))) {
+  while (IsValidVariableHeader (Variable, VariableStoreEnd)) {
     NextVariable = GetNextVariablePtr (Variable, mVariableModuleGlobal->VariableGlobal.AuthFormat);
     VariableSize = (UINT64)(UINTN)NextVariable - (UINT64)(UINTN)Variable;
 
     if (((Variable->State == VAR_ADDED) || (Variable->State == (VAR_IN_DELETED_TRANSITION & VAR_ADDED))) &&
-        !IsValidVariableContent (Variable, GetEndPointer (VariableStoreHeader), mVariableModuleGlobal->VariableGlobal.AuthFormat))
+        !IsValidVariableContent (Variable, VariableStoreEnd, mVariableModuleGlobal->VariableGlobal.AuthFormat))
     {
       Variable = NextVariable;
       continue;
@@ -3076,7 +3144,7 @@ VariableServiceQueryVariableInfoInternal (
         // this IN_DELETED_TRANSITION variable is valid.
         //
         VariablePtrTrack.StartPtr = GetStartPointer (VariableStoreHeader);
-        VariablePtrTrack.EndPtr   = GetEndPointer (VariableStoreHeader);
+        VariablePtrTrack.EndPtr   = VariableStoreEnd;
         Status                    = FindVariableEx (
                                       GetVariableNamePtr (Variable, mVariableModuleGlobal->VariableGlobal.AuthFormat),
                                       GetVendorGuidPtr (Variable, mVariableModuleGlobal->VariableGlobal.AuthFormat),

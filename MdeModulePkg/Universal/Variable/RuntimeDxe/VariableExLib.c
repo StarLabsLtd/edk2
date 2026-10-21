@@ -109,7 +109,8 @@ VariableExLibFindNextVariable (
              VendorGuid,
              VariableStoreHeader,
              &VariablePtr,
-             mVariableModuleGlobal->VariableGlobal.AuthFormat
+             mVariableModuleGlobal->VariableGlobal.AuthFormat,
+             mVariableModuleGlobal->NonVolatileLastVariableOffset
              );
   if (EFI_ERROR (Status)) {
     AuthVariableInfo->VariableName   = NULL;

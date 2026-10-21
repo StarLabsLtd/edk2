@@ -596,6 +596,7 @@ FindVariableInRuntimeCache (
   VARIABLE_STORE_TYPE     StoreType;
   VARIABLE_STORE_HEADER   *VariableStoreList[VariableStoreTypeMax];
   CACHE_INFO_FLAG         *CacheInfoFlag;
+  UINTN                   NvEndOffset;
 
   Status        = EFI_NOT_FOUND;
   CacheInfoFlag = (CACHE_INFO_FLAG *)(UINTN)mVariableRtCacheInfo.CacheInfoFlagBuffer;
@@ -626,6 +627,11 @@ FindVariableInRuntimeCache (
     VariableStoreList[VariableStoreTypeVolatile] = (VARIABLE_STORE_HEADER *)(UINTN)mVariableRtCacheInfo.RuntimeVolatileCacheBuffer;
     VariableStoreList[VariableStoreTypeHob]      = (VARIABLE_STORE_HEADER *)(UINTN)mVariableRtCacheInfo.RuntimeHobCacheBuffer;
     VariableStoreList[VariableStoreTypeNv]       = (VARIABLE_STORE_HEADER *)(UINTN)mVariableRtCacheInfo.RuntimeNvCacheBuffer;
+    // Runtime caches are published only after write-service initialization
+    // has reclaimed an interrupted append. Pending cache updates are excluded
+    // above, so the complete synchronized cache is a validated read view.
+    NvEndOffset                                    = (VariableStoreList[VariableStoreTypeNv] == NULL) ? 0 :
+                                                     VariableStoreList[VariableStoreTypeNv]->Size;
 
     for (StoreType = (VARIABLE_STORE_TYPE)0; StoreType < VariableStoreTypeMax; StoreType++) {
       if (VariableStoreList[StoreType] == NULL) {
@@ -633,7 +639,16 @@ FindVariableInRuntimeCache (
       }
 
       RtPtrTrack.StartPtr = GetStartPointer (VariableStoreList[StoreType]);
-      RtPtrTrack.EndPtr   = GetEndPointer (VariableStoreList[StoreType]);
+      Status = GetVariableStoreEndPointer (
+                 VariableStoreList[StoreType],
+                 StoreType,
+                 NvEndOffset,
+                 &RtPtrTrack.EndPtr
+                 );
+      if (EFI_ERROR (Status)) {
+        break;
+      }
+
       RtPtrTrack.Volatile = (BOOLEAN)(StoreType == VariableStoreTypeVolatile);
 
       Status = FindVariableEx (VariableName, VendorGuid, FALSE, &RtPtrTrack, mVariableAuthFormat);
@@ -892,6 +907,7 @@ GetNextVariableNameInRuntimeCache (
   VARIABLE_HEADER        *VariablePtr;
   VARIABLE_STORE_HEADER  *VariableStoreHeader[VariableStoreTypeMax];
   CACHE_INFO_FLAG        *CacheInfoFlag;
+  UINTN                  NvEndOffset;
 
   Status        = EFI_NOT_FOUND;
   CacheInfoFlag = (CACHE_INFO_FLAG *)(UINTN)mVariableRtCacheInfo.CacheInfoFlagBuffer;
@@ -916,13 +932,18 @@ GetNextVariableNameInRuntimeCache (
     VariableStoreHeader[VariableStoreTypeVolatile] = (VARIABLE_STORE_HEADER *)(UINTN)mVariableRtCacheInfo.RuntimeVolatileCacheBuffer;
     VariableStoreHeader[VariableStoreTypeHob]      = (VARIABLE_STORE_HEADER *)(UINTN)mVariableRtCacheInfo.RuntimeHobCacheBuffer;
     VariableStoreHeader[VariableStoreTypeNv]       = (VARIABLE_STORE_HEADER *)(UINTN)mVariableRtCacheInfo.RuntimeNvCacheBuffer;
+    // See FindVariableInRuntimeCache() for why the synchronized runtime cache
+    // can use its complete extent.
+    NvEndOffset                                      = (VariableStoreHeader[VariableStoreTypeNv] == NULL) ? 0 :
+                                                       VariableStoreHeader[VariableStoreTypeNv]->Size;
 
     Status =  VariableServiceGetNextVariableInternal (
                 VariableName,
                 VendorGuid,
                 VariableStoreHeader,
                 &VariablePtr,
-                mVariableAuthFormat
+                mVariableAuthFormat,
+                NvEndOffset
                 );
     if (!EFI_ERROR (Status)) {
       VarNameSize = NameSizeOfVariable (VariablePtr, mVariableAuthFormat);
