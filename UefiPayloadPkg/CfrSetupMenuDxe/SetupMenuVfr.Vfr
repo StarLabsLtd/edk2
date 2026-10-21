@@ -21,7 +21,7 @@ formset
     varid = SETUP_MENU_TIMEOUT_VARSTORE_ID,
     attribute = EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS | EFI_VARIABLE_NON_VOLATILE,
     name  = Timeout,
-    guid  = gEfiGlobalVariableGuid;
+    guid  = EFI_GLOBAL_VARIABLE;
 
   form formid = SETUP_MENU_FORM_ID,
     title = STRING_TOKEN(STR_CFR_MENU_TITLE);
