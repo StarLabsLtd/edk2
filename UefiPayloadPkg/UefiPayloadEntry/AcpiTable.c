@@ -12,6 +12,7 @@
 #define UEFI_PAYLOAD_MAX_TPM2_LOG_SIZE   (1024 * 1024)
 #define UEFI_PAYLOAD_MAX_TPM_PCR_INDEX   23
 #define UEFI_PAYLOAD_SPEC_ID_EVENT_NAME  "Spec ID Event"
+#define UEFI_PAYLOAD_MAX_TPM_EVENT_SIZE  (0xFFF8 - sizeof (EFI_HOB_GUID_TYPE))
 
 STATIC
 UINT16
@@ -206,7 +207,6 @@ BuildTpmEventHobsFromAcpi (
   UINT32                Laml;
   EFI_PHYSICAL_ADDRESS  Lasa;
   UINT32                EventType;
-  UINT32                PcrIndex;
   UINTN                 Offset;
   UINTN                 TpmEventCount;
 
@@ -229,11 +229,15 @@ BuildTpmEventHobsFromAcpi (
       break;
     }
 
-    PcrIndex  = ReadUnaligned32 ((UINT32 *)(EventLog + Offset));
     EventType = ReadUnaligned32 ((UINT32 *)(EventLog + Offset + sizeof (TCG_PCRINDEX)));
-    if ((PcrIndex != 0) &&
-        ((EventType != EV_NO_ACTION) || !IsSpecIdEvent (EventLog + Offset + EventDataOffset, EventDataSize)))
+    if ((EventType != EV_NO_ACTION) ||
+        !IsSpecIdEvent (EventLog + Offset + EventDataOffset, EventDataSize))
     {
+      if (EventSize > UEFI_PAYLOAD_MAX_TPM_EVENT_SIZE) {
+        DEBUG ((DEBUG_ERROR, "%a: TPM event is too large for a HOB\n", __func__));
+        break;
+      }
+
       HobData = BuildGuidHob (&gTcgEvent2EntryHobGuid, EventSize);
       if (HobData == NULL) {
         DEBUG ((DEBUG_ERROR, "%a: failed to build TPM event HOB\n", __func__));
