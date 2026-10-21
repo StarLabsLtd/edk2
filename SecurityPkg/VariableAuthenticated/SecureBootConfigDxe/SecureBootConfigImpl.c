@@ -4814,6 +4814,7 @@ SecureBootCallback (
   EFI_HII_POPUP_PROTOCOL          *HiiPopup;
   EFI_HII_POPUP_SELECTION         UserSelection;
   BOOLEAN                         SimpleUi;
+  UINT8                           PreviousSecureBootEnable;
 
   Status               = EFI_SUCCESS;
   SecureBootEnable     = NULL;
@@ -4822,6 +4823,7 @@ SecureBootCallback (
   File                 = NULL;
   EnrollKeyErrorCode   = None_Error;
   GetBrowserDataResult = FALSE;
+  PreviousSecureBootEnable = 0;
 
   if ((This == NULL) || (Value == NULL) || (ActionRequest == NULL)) {
     return EFI_INVALID_PARAMETER;
@@ -4912,6 +4914,7 @@ SecureBootCallback (
       case KEY_SECURE_BOOT_ENABLE:
         GetVariable2 (EFI_SECURE_BOOT_ENABLE_NAME, &gEfiSecureBootEnableDisableGuid, (VOID **)&SecureBootEnable, NULL);
         if (NULL != SecureBootEnable) {
+          PreviousSecureBootEnable = *SecureBootEnable;
           FreePool (SecureBootEnable);
           if (EFI_ERROR (SaveSecureBootVariable (Value->u8))) {
             CreatePopUp (
@@ -4935,6 +4938,12 @@ SecureBootCallback (
 
               if (Key.UnicodeChar == CHAR_CARRIAGE_RETURN) {
                 gRT->ResetSystem (EfiResetCold, EFI_SUCCESS, 0, NULL);
+              } else {
+                Status = SaveSecureBootVariable (PreviousSecureBootEnable);
+                if (!EFI_ERROR (Status)) {
+                  Value->u8 = PreviousSecureBootEnable;
+                  Status    = EFI_ABORTED;
+                }
               }
             } else {
               CreatePopUp (
