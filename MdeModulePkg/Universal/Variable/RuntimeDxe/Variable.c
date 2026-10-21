@@ -2955,6 +2955,8 @@ VariableServiceSetVariable (
       DEBUG ((DEBUG_INFO, "[Variable]: Rewritten a preexisting variable(0x%08x) with different attributes(0x%08x) - %g:%s\n", Variable.CurrPtr->Attributes, Attributes, VendorGuid, VariableName));
       goto Done;
     }
+  } else if (Status != EFI_NOT_FOUND) {
+    goto Done;
   }
 
   if (!FeaturePcdGet (PcdUefiVariableDefaultLangDeprecate)) {
