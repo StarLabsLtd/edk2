@@ -4661,13 +4661,15 @@ KeyEnrollReset (
   //
   // Restore previous Secure Boot state.
   //
-  if (!EFI_ERROR (Status) && !SecureBootWasEnabled) {
+  if (!SecureBootWasEnabled) {
     EFI_STATUS  RestoreStatus;
 
     RestoreStatus = SaveSecureBootVariable (SECURE_BOOT_DISABLE);
     if (EFI_ERROR (RestoreStatus)) {
       DEBUG ((DEBUG_ERROR, "Cannot restore SecureBootEnable to DISABLE: %r\n", RestoreStatus));
-      Status = RestoreStatus;
+      if (!EFI_ERROR (Status)) {
+        Status = RestoreStatus;
+      }
     }
   }
 
