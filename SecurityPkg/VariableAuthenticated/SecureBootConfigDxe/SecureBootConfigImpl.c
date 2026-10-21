@@ -4617,7 +4617,7 @@ KeyEnrollReset (
       "Cannot set CUSTOM_SECURE_BOOT_MODE: %r\n",
       Status
       ));
-    return EFI_SUCCESS;
+    return Status;
   }
 
   // Enroll all the keys from default variables
@@ -4661,10 +4661,13 @@ KeyEnrollReset (
   //
   // Restore previous Secure Boot state.
   //
-  if (!SecureBootWasEnabled) {
-    Status = SaveSecureBootVariable (SECURE_BOOT_DISABLE);
-    if (EFI_ERROR (Status)) {
-      DEBUG ((DEBUG_ERROR, "Cannot restore SecureBootEnable to DISABLE: %r\n", Status));
+  if (!EFI_ERROR (Status) && !SecureBootWasEnabled) {
+    EFI_STATUS  RestoreStatus;
+
+    RestoreStatus = SaveSecureBootVariable (SECURE_BOOT_DISABLE);
+    if (EFI_ERROR (RestoreStatus)) {
+      DEBUG ((DEBUG_ERROR, "Cannot restore SecureBootEnable to DISABLE: %r\n", RestoreStatus));
+      Status = RestoreStatus;
     }
   }
 
