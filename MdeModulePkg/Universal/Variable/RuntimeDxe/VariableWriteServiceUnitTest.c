@@ -12,7 +12,12 @@
 #include "VariableWriteServiceSmm.c"
 
 STATIC VARIABLE_MODULE_GLOBAL    mVariableGlobal;
-STATIC VARIABLE_STORE_HEADER     mVariableStore;
+typedef struct {
+  VARIABLE_STORE_HEADER    Header;
+  UINT8                    Tail[16];
+} TEST_VARIABLE_STORE;
+
+STATIC TEST_VARIABLE_STORE       mVariableStore;
 STATIC VARIABLE_ENTRY_PROPERTY   mAuthEntries[5];
 STATIC CHAR16                    mSecureBootEnable[] = L"SecureBootEnable";
 STATIC CHAR16                    mCustomMode[]       = L"CustomMode";
@@ -22,7 +27,7 @@ STATIC CHAR16                    mCertDbVolatile[]   = L"certdbv";
 STATIC EFI_GUID                  mAuthGuid           = { 0x6e2f9c31, 0xc969, 0x4877, { 0xa5, 0x89, 0xb2, 0x17, 0xf5, 0x38, 0xcc, 0xb9 } };
 
 VARIABLE_MODULE_GLOBAL     *mVariableModuleGlobal = &mVariableGlobal;
-VARIABLE_STORE_HEADER      *mNvVariableCache      = &mVariableStore;
+VARIABLE_STORE_HEADER      *mNvVariableCache      = &mVariableStore.Header;
 AUTH_VAR_LIB_CONTEXT_IN    mAuthContextIn;
 AUTH_VAR_LIB_CONTEXT_OUT   mAuthContextOut;
 
@@ -37,6 +42,8 @@ STATIC UINTN       mReclaimCalls;
 STATIC UINTN       mMorCalls;
 STATIC UINTN       mWriteReadyCalls;
 STATIC CHAR16      *mFailedPropertyName;
+STATIC EFI_STATUS  mReclaimStatus;
+STATIC UINTN       mReclaimInputOffset;
 
 VOID
 AcquireLockOnlyAtBootTime (
@@ -65,7 +72,8 @@ Reclaim (
   )
 {
   mReclaimCalls++;
-  return EFI_SUCCESS;
+  mReclaimInputOffset = *LastVariableOffset;
+  return mReclaimStatus;
 }
 
 VOID
@@ -144,7 +152,7 @@ ResetMocks (
   )
 {
   ZeroMem (&mVariableGlobal, sizeof (mVariableGlobal));
-  ZeroMem (&mVariableStore, sizeof (mVariableStore));
+  SetMem (&mVariableStore, sizeof (mVariableStore), MAX_UINT8);
   ZeroMem (&mAuthContextIn, sizeof (mAuthContextIn));
   ZeroMem (&mAuthContextOut, sizeof (mAuthContextOut));
   ZeroMem (mAuthEntries, sizeof (mAuthEntries));
@@ -160,8 +168,8 @@ ResetMocks (
 
   mVariableGlobal.VariableGlobal.AuthFormat = TRUE;
   mVariableGlobal.MaxAuthVariableSize        = 4096;
-  mVariableStore.Size                        = sizeof (mVariableStore);
-  mVariableGlobal.NonVolatileLastVariableOffset = mVariableStore.Size;
+  mVariableStore.Header.Size                    = sizeof (mVariableStore);
+  mVariableGlobal.NonVolatileLastVariableOffset = sizeof (mVariableStore.Header);
 
   mAuthStatus            = EFI_SUCCESS;
   mPropertyFailureStatus = EFI_ACCESS_DENIED;
@@ -174,6 +182,8 @@ ResetMocks (
   mMorCalls              = 0;
   mWriteReadyCalls       = 0;
   mFailedPropertyName    = NULL;
+  mReclaimStatus         = EFI_SUCCESS;
+  mReclaimInputOffset    = MAX_UINTN;
 }
 
 STATIC
@@ -253,6 +263,27 @@ AuthInitializationFailureStopsReadiness (
   return UNIT_TEST_PASSED;
 }
 
+STATIC
+UNIT_TEST_STATUS
+EFIAPI
+ReclaimFailureStopsReadiness (
+  IN UNIT_TEST_CONTEXT  Context
+  )
+{
+  ResetMocks ();
+  mVariableStore.Tail[0] = 0;
+  mReclaimStatus         = EFI_DEVICE_ERROR;
+
+  UT_ASSERT_STATUS_EQUAL (VariableWriteServiceInitializeSmm (), EFI_DEVICE_ERROR);
+  UT_ASSERT_EQUAL (mReclaimCalls, 1);
+  UT_ASSERT_EQUAL (mReclaimInputOffset, sizeof (mVariableStore.Header));
+  UT_ASSERT_EQUAL (mAcquireCalls, 1);
+  UT_ASSERT_EQUAL (mReleaseCalls, 1);
+  UT_ASSERT_EQUAL (mFlushCalls, 0);
+  UT_ASSERT_EQUAL (mWriteReadyCalls, 0);
+  return UNIT_TEST_PASSED;
+}
+
 INT32
 main (
   IN INT32  Argc,
@@ -279,6 +310,10 @@ main (
 
   if (!EFI_ERROR (Status)) {
     Status = AddTestCase (Suite, "Auth initialization failure stops readiness", "AuthFailure", AuthInitializationFailureStopsReadiness, NULL, NULL, NULL);
+  }
+
+  if (!EFI_ERROR (Status)) {
+    Status = AddTestCase (Suite, "Reclaim failure stops readiness", "ReclaimFailure", ReclaimFailureStopsReadiness, NULL, NULL, NULL);
   }
 
   if (!EFI_ERROR (Status)) {

@@ -13,6 +13,7 @@
 #define STORE_BUFFER_SIZE  1024
 
 STATIC UINT64  mStoreBuffer[STORE_BUFFER_SIZE / sizeof (UINT64)];
+STATIC UINT64  mAppendBuffer[STORE_BUFFER_SIZE / sizeof (UINT64)];
 
 STATIC
 VARIABLE_STORE_HEADER *
@@ -54,6 +55,36 @@ AppendVariable (
   CopyMem (StoredName, Name, NameSize);
   SetMem (GetVariableDataPtr (Variable, AuthFormat), DataSize, 0x5a);
   return GetNextVariablePtr (Variable, AuthFormat);
+}
+
+STATIC
+UINTN
+BuildAppendRecord (
+  IN BOOLEAN       AuthFormat,
+  IN UINT32        Attributes,
+  IN CONST CHAR16  *Name,
+  IN UINTN         DataSize
+  )
+{
+  VARIABLE_HEADER  *Variable;
+  UINTN            RecordSize;
+
+  SetMem (mAppendBuffer, sizeof (mAppendBuffer), MAX_UINT8);
+  Variable = (VARIABLE_HEADER *)mAppendBuffer;
+  AppendVariable (Variable, AuthFormat, VAR_ADDED, Attributes, Name, DataSize);
+  RecordSize      = (UINTN)GetNextVariablePtr (Variable, AuthFormat) - (UINTN)Variable;
+  Variable->State = MAX_UINT8;
+  return RecordSize;
+}
+
+STATIC
+VOID
+WriteAppendRecord (
+  IN VARIABLE_HEADER  *Destination,
+  IN UINTN            BytesToWrite
+  )
+{
+  CopyMem (Destination, mAppendBuffer, BytesToWrite);
 }
 
 STATIC
@@ -131,22 +162,66 @@ ValidStores (
 STATIC
 UNIT_TEST_STATUS
 EFIAPI
-PreservesInterruptedHeader (
+PreservesInterruptedAppends (
   IN UNIT_TEST_CONTEXT  Context
   )
 {
   VARIABLE_STORE_HEADER  *Store;
   VARIABLE_HEADER        *Variable;
-  VARIABLE_HEADER        *Next;
+  VARIABLE_HEADER        *Committed;
+  VARIABLE_HEADER        *Tail;
+  UINTN                  CommittedEnd;
   UINTN                  LastOffset;
+  UINTN                  RecordSize;
 
-  Store    = InitializeStore (STORE_BUFFER_SIZE);
-  Variable = GetStartPointer (Store);
-  Next     = AppendVariable (Variable, FALSE, VAR_HEADER_VALID_ONLY, VARIABLE_ATTRIBUTE_NV_BS_RT, L"Pending", 8);
-  SetMem (GetVariableNamePtr (Variable, FALSE), NameSizeOfVariable (Variable, FALSE), MAX_UINT8);
+  for (UINTN AuthFormat = 0; AuthFormat <= 1; AuthFormat++) {
+    Store      = InitializeStore (STORE_BUFFER_SIZE);
+    Tail       = GetStartPointer (Store);
+    RecordSize = BuildAppendRecord ((BOOLEAN)AuthFormat, VARIABLE_ATTRIBUTE_NV_BS_RT, L"Pending", 8);
+    WriteAppendRecord (Tail, RecordSize);
+    UT_ASSERT_NOT_EFI_ERROR (Validate (Store, (BOOLEAN)AuthFormat, &LastOffset, NULL, NULL));
+    UT_ASSERT_EQUAL (LastOffset, (UINTN)Tail - (UINTN)Store);
 
+    Store     = InitializeStore (STORE_BUFFER_SIZE);
+    Committed = GetStartPointer (Store);
+    Tail      = AppendVariable (Committed, (BOOLEAN)AuthFormat, VAR_ADDED, VARIABLE_ATTRIBUTE_NV_BS_RT, L"Committed", 4);
+    CommittedEnd = (UINTN)Tail - (UINTN)Store;
+    RecordSize   = BuildAppendRecord ((BOOLEAN)AuthFormat, VARIABLE_ATTRIBUTE_NV_BS_RT, L"Pending", 8);
+    WriteAppendRecord (Tail, RecordSize);
+    UT_ASSERT_NOT_EFI_ERROR (Validate (Store, (BOOLEAN)AuthFormat, &LastOffset, NULL, NULL));
+    UT_ASSERT_EQUAL (LastOffset, CommittedEnd);
+
+    // The old value remains the recovery candidate if replacement stopped
+    // after marking it in transition but before committing the new record.
+    Committed->State = (VAR_IN_DELETED_TRANSITION & VAR_ADDED);
+    UT_ASSERT_NOT_EFI_ERROR (Validate (Store, (BOOLEAN)AuthFormat, &LastOffset, NULL, NULL));
+    UT_ASSERT_EQUAL (LastOffset, CommittedEnd);
+
+    // Completing the separate state-byte write makes the append visible.
+    Tail->State = VAR_ADDED;
+    UT_ASSERT_NOT_EFI_ERROR (Validate (Store, (BOOLEAN)AuthFormat, &LastOffset, NULL, NULL));
+    UT_ASSERT_EQUAL (LastOffset, CommittedEnd + RecordSize);
+  }
+
+  Store       = InitializeStore (STORE_BUFFER_SIZE);
+  Variable    = GetStartPointer (Store);
+  RecordSize  = BuildAppendRecord (FALSE, VARIABLE_ATTRIBUTE_NV_BS_RT, L"Pending", 8);
+
+  // Exercise interruptions across the first record write. The validator must
+  // stop at the append start without consuming any untrusted length field.
+  for (UINTN Bytes = 1; Bytes < RecordSize; Bytes++) {
+    SetMem (Variable, RecordSize, MAX_UINT8);
+    WriteAppendRecord (Variable, Bytes);
+    UT_ASSERT_NOT_EFI_ERROR (Validate (Store, FALSE, &LastOffset, NULL, NULL));
+    UT_ASSERT_EQUAL (LastOffset, (UINTN)Variable - (UINTN)Store);
+  }
+
+  Store           = InitializeStore (STORE_BUFFER_SIZE);
+  Variable        = GetStartPointer (Store);
+  Variable->StartId = VARIABLE_DATA;
+  Variable->State = VAR_HEADER_VALID_ONLY;
   UT_ASSERT_NOT_EFI_ERROR (Validate (Store, FALSE, &LastOffset, NULL, NULL));
-  UT_ASSERT_EQUAL (LastOffset, (UINTN)Next - (UINTN)Store);
+  UT_ASSERT_EQUAL (LastOffset, (UINTN)Variable - (UINTN)Store);
   return UNIT_TEST_PASSED;
 }
 
@@ -164,8 +239,8 @@ RejectsTruncation (
   Store       = InitializeStore (STORE_BUFFER_SIZE);
   Variable    = GetStartPointer (Store);
   StartOffset = (UINTN)Variable - (UINTN)Store;
-  Store->Size = (UINT32)(StartOffset + 1);
   *(UINT8 *)Variable = 0;
+  Variable->State    = VAR_ADDED;
   UT_ASSERT_STATUS_EQUAL (Validate (Store, FALSE, NULL, NULL, NULL), EFI_VOLUME_CORRUPTED);
 
   Store    = InitializeStore (STORE_BUFFER_SIZE);
@@ -295,7 +370,7 @@ main (
   }
 
   if (!EFI_ERROR (Status)) {
-    Status = AddTestCase (Suite, "Interrupted header", "Interrupted", PreservesInterruptedHeader, NULL, NULL, NULL);
+    Status = AddTestCase (Suite, "Interrupted append tails", "Interrupted", PreservesInterruptedAppends, NULL, NULL, NULL);
   }
 
   if (!EFI_ERROR (Status)) {
