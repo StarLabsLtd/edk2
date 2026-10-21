@@ -747,28 +747,47 @@ EnrollDefaultKeys (
     if (EFI_ERROR (Status)) {
       DEBUG ((DEBUG_ERROR, "EnrollDefaultKeys: SetVariable(\"%s\", %g): %r\n", EFI_CUSTOM_MODE_NAME,
         &gEfiCustomModeEnableGuid, Status));
-      ASSERT_EFI_ERROR (Status);
+      FreePool (DbxMicrosoftBaseline);
+      return;
     }
   }
 
   Status = GetSectionFromAnyFv(&gMicrosoftDbUefi2011Guid, EFI_SECTION_RAW, 0, (void **)&DbMicrosoftUefi2011, &DbMicrosoftUefi2011Size);
-  ASSERT_EFI_ERROR(Status);
+  if (EFI_ERROR (Status)) {
+    goto FreeKeys;
+  }
   Status = GetSectionFromAnyFv(&gMicrosoftDbUefi2023Guid, EFI_SECTION_RAW, 0, (void **)&DbMicrosoftUefi2023, &DbMicrosoftUefi2023Size);
-  ASSERT_EFI_ERROR(Status);
+  if (EFI_ERROR (Status)) {
+    goto FreeKeys;
+  }
   Status = GetSectionFromAnyFv(&gMicrosoftDbWin2011Guid, EFI_SECTION_RAW, 0, (void **)&DbMicrosoftWin2011, &DbMicrosoftWin2011Size);
-  ASSERT_EFI_ERROR(Status);
+  if (EFI_ERROR (Status)) {
+    goto FreeKeys;
+  }
   Status = GetSectionFromAnyFv(&gMicrosoftDbWinUefi2023Guid, EFI_SECTION_RAW, 0, (void **)&DbMicrosoftWinuefi2023, &DbMicrosoftWinuefi2023Size);
-  ASSERT_EFI_ERROR(Status);
+  if (EFI_ERROR (Status)) {
+    goto FreeKeys;
+  }
   Status = GetSectionFromAnyFv(&gMicrosoftDbxUpdateGuid, EFI_SECTION_RAW, 0, (void **)&DbxMicrosoftUpdate, &DbxMicrosoftUpdateSize);
-  ASSERT_EFI_ERROR(Status);
+  if (EFI_ERROR (Status)) {
+    goto FreeKeys;
+  }
   Status = GetSectionFromAnyFv(&gMicrosoftKek2011Guid, EFI_SECTION_RAW, 0, (void **)&KekMicrosoft2011, &KekMicrosoft2011Size);
-  ASSERT_EFI_ERROR(Status);
+  if (EFI_ERROR (Status)) {
+    goto FreeKeys;
+  }
   Status = GetSectionFromAnyFv(&gMicrosoftKek2023Guid, EFI_SECTION_RAW, 0, (void **)&KekMicrosoft2023, &KekMicrosoft2023Size);
-  ASSERT_EFI_ERROR(Status);
+  if (EFI_ERROR (Status)) {
+    goto FreeKeys;
+  }
   Status = GetSectionFromAnyFv(&gMicrosoftKekUefi2023Guid, EFI_SECTION_RAW, 0, (void **)&KekMicrosoftUefi2023, &KekMicrosoftUefi2023Size);
-  ASSERT_EFI_ERROR(Status);
+  if (EFI_ERROR (Status)) {
+    goto FreeKeys;
+  }
   Status = GetSectionFromAnyFv(&gMicrosoftPkOem2023Guid, EFI_SECTION_RAW, 0, (void **)&PkMicrosoftOem2023, &PkMicrosoftOem2023Size);
-  ASSERT_EFI_ERROR(Status);
+  if (EFI_ERROR (Status)) {
+    goto FreeKeys;
+  }
 
   Status = gRT->SetVariable (EFI_IMAGE_SECURITY_DATABASE1, &gEfiImageSecurityDatabaseGuid,
            (EFI_VARIABLE_NON_VOLATILE |
@@ -806,7 +825,9 @@ EnrollDefaultKeys (
     DbMicrosoftWin2011,     DbMicrosoftWin2011Size,     &gMicrosoftVendorGuid,
     DbMicrosoftWinuefi2023, DbMicrosoftWinuefi2023Size, &gMicrosoftVendorGuid,
     NULL);
-  ASSERT_EFI_ERROR (Status);
+  if (EFI_ERROR (Status)) {
+    goto FreeKeys;
+  }
 
   Status = EnrollListOfCerts (
     EFI_KEY_EXCHANGE_KEY_NAME,
@@ -816,7 +837,9 @@ EnrollDefaultKeys (
     KekMicrosoft2023, KekMicrosoft2023Size, &gMicrosoftVendorGuid,
     KekMicrosoftUefi2023, KekMicrosoftUefi2023Size, &gMicrosoftVendorGuid,
     NULL);
-  ASSERT_EFI_ERROR (Status);
+  if (EFI_ERROR (Status)) {
+    goto FreeKeys;
+  }
 
   Status = EnrollListOfCerts (
     EFI_PLATFORM_KEY_NAME,
@@ -824,20 +847,48 @@ EnrollDefaultKeys (
     &gEfiCertX509Guid,
     PkMicrosoftOem2023, PkMicrosoftOem2023Size, &gMicrosoftVendorGuid,
     NULL);
-  ASSERT_EFI_ERROR (Status);
+  if (EFI_ERROR (Status)) {
+    goto FreeKeys;
+  }
 
 FreeKeys:
   EnrollmentStatus = Status;
-  FreePool(DbMicrosoftUefi2011);
-  FreePool(DbMicrosoftUefi2023);
-  FreePool(DbMicrosoftWin2011);
-  FreePool(DbMicrosoftWinuefi2023);
-  FreePool(DbxMicrosoftBaseline);
-  FreePool(DbxMicrosoftUpdate);
-  FreePool(KekMicrosoft2011);
-  FreePool(KekMicrosoft2023);
-  FreePool(KekMicrosoftUefi2023);
-  FreePool(PkMicrosoftOem2023);
+  if (DbMicrosoftUefi2011 != NULL) {
+    FreePool (DbMicrosoftUefi2011);
+  }
+
+  if (DbMicrosoftUefi2023 != NULL) {
+    FreePool (DbMicrosoftUefi2023);
+  }
+
+  if (DbMicrosoftWin2011 != NULL) {
+    FreePool (DbMicrosoftWin2011);
+  }
+
+  if (DbMicrosoftWinuefi2023 != NULL) {
+    FreePool (DbMicrosoftWinuefi2023);
+  }
+
+  FreePool (DbxMicrosoftBaseline);
+  if (DbxMicrosoftUpdate != NULL) {
+    FreePool (DbxMicrosoftUpdate);
+  }
+
+  if (KekMicrosoft2011 != NULL) {
+    FreePool (KekMicrosoft2011);
+  }
+
+  if (KekMicrosoft2023 != NULL) {
+    FreePool (KekMicrosoft2023);
+  }
+
+  if (KekMicrosoftUefi2023 != NULL) {
+    FreePool (KekMicrosoftUefi2023);
+  }
+
+  if (PkMicrosoftOem2023 != NULL) {
+    FreePool (PkMicrosoftOem2023);
+  }
 
   Settings.CustomMode = STANDARD_SECURE_BOOT_MODE;
   Status = gRT->SetVariable (EFI_CUSTOM_MODE_NAME, &gEfiCustomModeEnableGuid,
@@ -846,7 +897,7 @@ FreeKeys:
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "EnrollDefaultKeys: SetVariable(\"%s\", %g): %r\n", EFI_CUSTOM_MODE_NAME,
       &gEfiCustomModeEnableGuid, Status));
-    ASSERT_EFI_ERROR (Status);
+    return;
   }
 
   if (EFI_ERROR (EnrollmentStatus)) {
@@ -863,7 +914,7 @@ FreeKeys:
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "EnrollDefaultKeys: SetVariable(\"%s\", %g): %r\n", EFI_SECURE_BOOT_ENABLE_NAME,
       &gEfiSecureBootEnableDisableGuid, Status));
-    ASSERT_EFI_ERROR (Status);
+    return;
   }
 
   Settings.SecureBoot = SECURE_BOOT_ENABLE;
@@ -873,7 +924,7 @@ FreeKeys:
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "EnrollDefaultKeys: SetVariable(\"%s\", %g): %r\n", EFI_SECURE_BOOT_MODE_NAME,
       &gEfiGlobalVariableGuid, Status));
-    ASSERT_EFI_ERROR (Status);
+    return;
   }
 
   Status = GetSettings (&Settings, FALSE);
