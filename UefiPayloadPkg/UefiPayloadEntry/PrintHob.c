@@ -72,6 +72,12 @@ PrintSerialGuidHob (
   DEBUG ((DEBUG_INFO, "   RegisterStride = 0x%x\n", SerialPortInfo->RegisterStride));
   DEBUG ((DEBUG_INFO, "   BaudRate       = %d\n", SerialPortInfo->BaudRate));
   DEBUG ((DEBUG_INFO, "   RegisterBase   = 0x%lx\n", SerialPortInfo->RegisterBase));
+  if ((SerialPortInfo->Header.Revision >= 2) &&
+      (SerialPortInfo->Header.Length >= UNIVERSAL_PAYLOAD_SIZEOF_THROUGH_FIELD (UNIVERSAL_PAYLOAD_SERIAL_PORT_INFO, InputHertz)))
+  {
+    DEBUG ((DEBUG_INFO, "   InputHertz     = 0x%x\n", SerialPortInfo->InputHertz));
+  }
+
   return EFI_SUCCESS;
 }
 

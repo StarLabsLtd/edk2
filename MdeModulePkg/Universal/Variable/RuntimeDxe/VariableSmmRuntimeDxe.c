@@ -84,6 +84,13 @@ RecordSecureBootPolicyVarData (
   VOID
   );
 
+VOID
+EFIAPI
+SmmVariableWriteReady (
+  IN EFI_EVENT  Event,
+  IN VOID       *Context
+  );
+
 /**
   Acquires lock only at boot time. Simply returns at runtime.
 
@@ -193,7 +200,8 @@ InitCommunicateBuffer (
     SmmVariableFunctionHeader           = (SMM_VARIABLE_COMMUNICATE_HEADER *)SmmCommunicateHeader->Data;
   }
 
-  SmmVariableFunctionHeader->Function = Function;
+  SmmVariableFunctionHeader->Function     = Function;
+  SmmVariableFunctionHeader->ReturnStatus = EFI_DEVICE_ERROR;
   if (DataPtr != NULL) {
     *DataPtr = SmmVariableFunctionHeader->Data;
   }
@@ -207,7 +215,7 @@ InitCommunicateBuffer (
   @param[in]   DataSize               This size of the function header and the data.
 
   @retval      EFI_SUCCESS            Success is returned from the function in SMM.
-  @retval      Others                 Failure is returned from the function in SMM.
+  @retval      Others                 MM communication or SMM function failure.
 
 **/
 EFI_STATUS
@@ -227,7 +235,10 @@ SendCommunicateBuffer (
                                   mVariableBufferPhysical,
                                   mVariableBuffer
                                   );
-    ASSERT_EFI_ERROR (Status);
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_ERROR, "Variable MM communication failed: %r\n", Status));
+      return Status;
+    }
 
     SmmCommunicateHeaderV3    = (EFI_MM_COMMUNICATE_HEADER_V3 *)mVariableBuffer;
     SmmVariableFunctionHeader = (SMM_VARIABLE_COMMUNICATE_HEADER *)SmmCommunicateHeaderV3->MessageData;
@@ -241,7 +252,10 @@ SendCommunicateBuffer (
                                     mVariableBuffer,
                                     &CommSize
                                     );
-    ASSERT_EFI_ERROR (Status);
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_ERROR, "Variable MM communication failed: %r\n", Status));
+      return Status;
+    }
 
     SmmCommunicateHeader      = (EFI_MM_COMMUNICATE_HEADER *)mVariableBuffer;
     SmmVariableFunctionHeader = (SMM_VARIABLE_COMMUNICATE_HEADER *)SmmCommunicateHeader->Data;
@@ -582,6 +596,7 @@ FindVariableInRuntimeCache (
   VARIABLE_STORE_TYPE     StoreType;
   VARIABLE_STORE_HEADER   *VariableStoreList[VariableStoreTypeMax];
   CACHE_INFO_FLAG         *CacheInfoFlag;
+  UINTN                   NvEndOffset;
 
   Status        = EFI_NOT_FOUND;
   CacheInfoFlag = (CACHE_INFO_FLAG *)(UINTN)mVariableRtCacheInfo.CacheInfoFlagBuffer;
@@ -612,6 +627,11 @@ FindVariableInRuntimeCache (
     VariableStoreList[VariableStoreTypeVolatile] = (VARIABLE_STORE_HEADER *)(UINTN)mVariableRtCacheInfo.RuntimeVolatileCacheBuffer;
     VariableStoreList[VariableStoreTypeHob]      = (VARIABLE_STORE_HEADER *)(UINTN)mVariableRtCacheInfo.RuntimeHobCacheBuffer;
     VariableStoreList[VariableStoreTypeNv]       = (VARIABLE_STORE_HEADER *)(UINTN)mVariableRtCacheInfo.RuntimeNvCacheBuffer;
+    // Runtime caches are published only after write-service initialization
+    // has reclaimed an interrupted append. Pending cache updates are excluded
+    // above, so the complete synchronized cache is a validated read view.
+    NvEndOffset                                    = (VariableStoreList[VariableStoreTypeNv] == NULL) ? 0 :
+                                                     VariableStoreList[VariableStoreTypeNv]->Size;
 
     for (StoreType = (VARIABLE_STORE_TYPE)0; StoreType < VariableStoreTypeMax; StoreType++) {
       if (VariableStoreList[StoreType] == NULL) {
@@ -619,7 +639,16 @@ FindVariableInRuntimeCache (
       }
 
       RtPtrTrack.StartPtr = GetStartPointer (VariableStoreList[StoreType]);
-      RtPtrTrack.EndPtr   = GetEndPointer (VariableStoreList[StoreType]);
+      Status = GetVariableStoreEndPointer (
+                 VariableStoreList[StoreType],
+                 StoreType,
+                 NvEndOffset,
+                 &RtPtrTrack.EndPtr
+                 );
+      if (EFI_ERROR (Status)) {
+        break;
+      }
+
       RtPtrTrack.Volatile = (BOOLEAN)(StoreType == VariableStoreTypeVolatile);
 
       Status = FindVariableEx (VariableName, VendorGuid, FALSE, &RtPtrTrack, mVariableAuthFormat);
@@ -878,6 +907,7 @@ GetNextVariableNameInRuntimeCache (
   VARIABLE_HEADER        *VariablePtr;
   VARIABLE_STORE_HEADER  *VariableStoreHeader[VariableStoreTypeMax];
   CACHE_INFO_FLAG        *CacheInfoFlag;
+  UINTN                  NvEndOffset;
 
   Status        = EFI_NOT_FOUND;
   CacheInfoFlag = (CACHE_INFO_FLAG *)(UINTN)mVariableRtCacheInfo.CacheInfoFlagBuffer;
@@ -902,13 +932,18 @@ GetNextVariableNameInRuntimeCache (
     VariableStoreHeader[VariableStoreTypeVolatile] = (VARIABLE_STORE_HEADER *)(UINTN)mVariableRtCacheInfo.RuntimeVolatileCacheBuffer;
     VariableStoreHeader[VariableStoreTypeHob]      = (VARIABLE_STORE_HEADER *)(UINTN)mVariableRtCacheInfo.RuntimeHobCacheBuffer;
     VariableStoreHeader[VariableStoreTypeNv]       = (VARIABLE_STORE_HEADER *)(UINTN)mVariableRtCacheInfo.RuntimeNvCacheBuffer;
+    // See FindVariableInRuntimeCache() for why the synchronized runtime cache
+    // can use its complete extent.
+    NvEndOffset                                      = (VariableStoreHeader[VariableStoreTypeNv] == NULL) ? 0 :
+                                                       VariableStoreHeader[VariableStoreTypeNv]->Size;
 
     Status =  VariableServiceGetNextVariableInternal (
                 VariableName,
                 VendorGuid,
                 VariableStoreHeader,
                 &VariablePtr,
-                mVariableAuthFormat
+                mVariableAuthFormat,
+                NvEndOffset
                 );
     if (!EFI_ERROR (Status)) {
       VarNameSize = NameSizeOfVariable (VariablePtr, mVariableAuthFormat);
@@ -1443,14 +1478,17 @@ GetVariablePayloadSize (
     SmmCommunicateHeaderV3->MessageSize = SMM_VARIABLE_COMMUNICATE_HEADER_SIZE + sizeof (SMM_VARIABLE_COMMUNICATE_GET_PAYLOAD_SIZE);
     SmmVariableFunctionHeader           = (SMM_VARIABLE_COMMUNICATE_HEADER *)SmmCommunicateHeaderV3->MessageData;
 
-    SmmVariableFunctionHeader->Function = SMM_VARIABLE_FUNCTION_GET_PAYLOAD_SIZE;
+    SmmVariableFunctionHeader->Function     = SMM_VARIABLE_FUNCTION_GET_PAYLOAD_SIZE;
+    SmmVariableFunctionHeader->ReturnStatus = EFI_DEVICE_ERROR;
     SmmGetPayloadSize                   = (SMM_VARIABLE_COMMUNICATE_GET_PAYLOAD_SIZE *)SmmVariableFunctionHeader->Data;
 
     //
     // Send data to SMM.
     //
     Status = mMmCommunication3->Communicate (mMmCommunication3, CommBuffer, CommBuffer);
-    ASSERT_EFI_ERROR (Status);
+    if (EFI_ERROR (Status)) {
+      goto Done;
+    }
   } else {
     CommSize   = SMM_COMMUNICATE_HEADER_SIZE + SMM_VARIABLE_COMMUNICATE_HEADER_SIZE + sizeof (SMM_VARIABLE_COMMUNICATE_GET_PAYLOAD_SIZE);
     CommBuffer = AllocateZeroPool (CommSize);
@@ -1464,14 +1502,17 @@ GetVariablePayloadSize (
     SmmCommunicateHeader->MessageLength = SMM_VARIABLE_COMMUNICATE_HEADER_SIZE + sizeof (SMM_VARIABLE_COMMUNICATE_GET_PAYLOAD_SIZE);
     SmmVariableFunctionHeader           = (SMM_VARIABLE_COMMUNICATE_HEADER *)SmmCommunicateHeader->Data;
 
-    SmmVariableFunctionHeader->Function = SMM_VARIABLE_FUNCTION_GET_PAYLOAD_SIZE;
+    SmmVariableFunctionHeader->Function     = SMM_VARIABLE_FUNCTION_GET_PAYLOAD_SIZE;
+    SmmVariableFunctionHeader->ReturnStatus = EFI_DEVICE_ERROR;
     SmmGetPayloadSize                   = (SMM_VARIABLE_COMMUNICATE_GET_PAYLOAD_SIZE *)SmmVariableFunctionHeader->Data;
 
     //
     // Send data to SMM.
     //
     Status = mMmCommunication2->Communicate (mMmCommunication2, CommBuffer, CommBuffer, &CommSize);
-    ASSERT_EFI_ERROR (Status);
+    if (EFI_ERROR (Status)) {
+      goto Done;
+    }
   }
 
   Status = SmmVariableFunctionHeader->ReturnStatus;
@@ -1547,7 +1588,8 @@ GetRuntimeCacheInfo (
     SmmCommunicateHeaderV3->MessageSize = SMM_VARIABLE_COMMUNICATE_HEADER_SIZE + sizeof (SMM_VARIABLE_COMMUNICATE_GET_RUNTIME_CACHE_INFO);
 
     SmmVariableFunctionHeader           = (SMM_VARIABLE_COMMUNICATE_HEADER *)SmmCommunicateHeaderV3->MessageData;
-    SmmVariableFunctionHeader->Function = SMM_VARIABLE_FUNCTION_GET_RUNTIME_CACHE_INFO;
+    SmmVariableFunctionHeader->Function     = SMM_VARIABLE_FUNCTION_GET_RUNTIME_CACHE_INFO;
+    SmmVariableFunctionHeader->ReturnStatus = EFI_DEVICE_ERROR;
     SmmGetRuntimeCacheInfo              = (SMM_VARIABLE_COMMUNICATE_GET_RUNTIME_CACHE_INFO *)SmmVariableFunctionHeader->Data;
 
     //
@@ -1564,7 +1606,8 @@ GetRuntimeCacheInfo (
     SmmCommunicateHeader->MessageLength = SMM_VARIABLE_COMMUNICATE_HEADER_SIZE + sizeof (SMM_VARIABLE_COMMUNICATE_GET_RUNTIME_CACHE_INFO);
 
     SmmVariableFunctionHeader           = (SMM_VARIABLE_COMMUNICATE_HEADER *)SmmCommunicateHeader->Data;
-    SmmVariableFunctionHeader->Function = SMM_VARIABLE_FUNCTION_GET_RUNTIME_CACHE_INFO;
+    SmmVariableFunctionHeader->Function     = SMM_VARIABLE_FUNCTION_GET_RUNTIME_CACHE_INFO;
+    SmmVariableFunctionHeader->ReturnStatus = EFI_DEVICE_ERROR;
     SmmGetRuntimeCacheInfo              = (SMM_VARIABLE_COMMUNICATE_GET_RUNTIME_CACHE_INFO *)SmmVariableFunctionHeader->Data;
 
     //
@@ -1720,7 +1763,8 @@ SendRuntimeVariableCacheContextToSmm (
     SmmCommunicateHeaderV3->MessageSize = SMM_VARIABLE_COMMUNICATE_HEADER_SIZE + sizeof (SMM_VARIABLE_COMMUNICATE_RUNTIME_VARIABLE_CACHE_CONTEXT);
 
     SmmVariableFunctionHeader           = (SMM_VARIABLE_COMMUNICATE_HEADER *)SmmCommunicateHeaderV3->MessageData;
-    SmmVariableFunctionHeader->Function = SMM_VARIABLE_FUNCTION_INIT_RUNTIME_VARIABLE_CACHE_CONTEXT;
+    SmmVariableFunctionHeader->Function     = SMM_VARIABLE_FUNCTION_INIT_RUNTIME_VARIABLE_CACHE_CONTEXT;
+    SmmVariableFunctionHeader->ReturnStatus = EFI_DEVICE_ERROR;
     SmmRuntimeVarCacheContext           = (SMM_VARIABLE_COMMUNICATE_RUNTIME_VARIABLE_CACHE_CONTEXT *)SmmVariableFunctionHeader->Data;
 
     SmmRuntimeVarCacheContext->RuntimeHobCache      = (VARIABLE_STORE_HEADER *)(UINTN)mVariableRtCacheInfo.RuntimeHobCacheBuffer;
@@ -1748,7 +1792,8 @@ SendRuntimeVariableCacheContextToSmm (
     SmmCommunicateHeader->MessageLength = SMM_VARIABLE_COMMUNICATE_HEADER_SIZE + sizeof (SMM_VARIABLE_COMMUNICATE_RUNTIME_VARIABLE_CACHE_CONTEXT);
 
     SmmVariableFunctionHeader           = (SMM_VARIABLE_COMMUNICATE_HEADER *)SmmCommunicateHeader->Data;
-    SmmVariableFunctionHeader->Function = SMM_VARIABLE_FUNCTION_INIT_RUNTIME_VARIABLE_CACHE_CONTEXT;
+    SmmVariableFunctionHeader->Function     = SMM_VARIABLE_FUNCTION_INIT_RUNTIME_VARIABLE_CACHE_CONTEXT;
+    SmmVariableFunctionHeader->ReturnStatus = EFI_DEVICE_ERROR;
     SmmRuntimeVarCacheContext           = (SMM_VARIABLE_COMMUNICATE_RUNTIME_VARIABLE_CACHE_CONTEXT *)SmmVariableFunctionHeader->Data;
 
     SmmRuntimeVarCacheContext->RuntimeHobCache      = (VARIABLE_STORE_HEADER *)(UINTN)mVariableRtCacheInfo.RuntimeHobCacheBuffer;
@@ -1797,6 +1842,7 @@ SmmVariableReady (
   EFI_STATUS         Status;
   EFI_HANDLE         VariablePolicyHandle;
   EFI_HOB_GUID_TYPE  *GuidHob;
+  VOID              *SmmVariableWriteRegistration;
 
   Status = gBS->LocateProtocol (&gEfiSmmVariableProtocolGuid, NULL, (VOID **)&mSmmVariable);
   if (EFI_ERROR (Status)) {
@@ -1815,7 +1861,10 @@ SmmVariableReady (
   // Allocate memory for variable communicate buffer.
   //
   Status = GetVariablePayloadSize (&mVariableBufferPayloadSize);
-  ASSERT_EFI_ERROR (Status);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "Unable to get variable payload size: %r\n", Status));
+    return;
+  }
   if (mMmCommunication3 != NULL) {
     mVariableBufferSize = SMM_COMMUNICATE_HEADER_SIZE_V3 + SMM_VARIABLE_COMMUNICATE_HEADER_SIZE + mVariableBufferPayloadSize;
   } else {
@@ -1898,6 +1947,14 @@ SmmVariableReady (
                                                      );
   ASSERT_EFI_ERROR (Status);
 
+  EfiCreateProtocolNotifyEvent (
+    &gSmmVariableWriteGuid,
+    TPL_CALLBACK,
+    SmmVariableWriteReady,
+    NULL,
+    &SmmVariableWriteRegistration
+    );
+
   gBS->CloseEvent (Event);
 }
 
@@ -1963,7 +2020,6 @@ VariableSmmRuntimeInitialize (
   )
 {
   VOID       *SmmVariableRegistration;
-  VOID       *SmmVariableWriteRegistration;
   EFI_EVENT  OnReadyToBootEvent;
   EFI_EVENT  ExitBootServiceEvent;
   EFI_EVENT  LegacyBootEvent;
@@ -1979,17 +2035,6 @@ VariableSmmRuntimeInitialize (
     SmmVariableReady,
     ImageHandle,
     &SmmVariableRegistration
-    );
-
-  //
-  // Smm Non-Volatile variable write service is ready
-  //
-  EfiCreateProtocolNotifyEvent (
-    &gSmmVariableWriteGuid,
-    TPL_CALLBACK,
-    SmmVariableWriteReady,
-    NULL,
-    &SmmVariableWriteRegistration
     );
 
   //

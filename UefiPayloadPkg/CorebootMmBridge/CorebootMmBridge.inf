@@ -1,0 +1,41 @@
+## @file
+# Bind the fixed Standalone MM core to coreboot's SMM dispatcher.
+#
+# Copyright (c) 2026, Star Labs Systems. All rights reserved.<BR>
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001B
+  BASE_NAME                      = CorebootMmBridge
+  FILE_GUID                      = 81AA4A2B-611F-4F65-A853-26DB5C4C0B2D
+  MODULE_TYPE                    = MM_STANDALONE
+  VERSION_STRING                 = 1.0
+  PI_SPECIFICATION_VERSION       = 0x00010032
+  ENTRY_POINT                    = CorebootMmBridgeEntryPoint
+
+[Sources]
+  CorebootMmBridge.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  UefiPayloadPkg/UefiPayloadPkg.dec
+
+[LibraryClasses]
+  HobLib
+  MmServicesTableLib
+  StandaloneMmDriverEntryPoint
+
+[Guids]
+  gCorebootVariableServiceInfoGuid
+  gCorebootVariableServiceReadyGuid
+  gEfiEventExternalImageStartGuid
+  gSmmVariableWriteGuid
+
+[Protocols]
+  gEfiMmConfigurationProtocolGuid               ## PRODUCES
+  gEfiSmmVariableProtocolGuid                   ## CONSUMES
+
+[Depex]
+  TRUE

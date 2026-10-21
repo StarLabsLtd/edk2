@@ -65,6 +65,9 @@
   UefiDriverEntryPoint
   DebugLib
 
+[Guids]
+  gEfiEventExternalImageStartGuid
+
 [Protocols]
   gEfiPciHotPlugRequestProtocolGuid               ## SOMETIMES_PRODUCES
   gEfiPciIoProtocolGuid                           ## BY_START

@@ -1,0 +1,29 @@
+## @file
+# Host checks for mandatory variable-property registration.
+# Copyright (c) 2026, Star Labs Systems. All rights reserved.<BR>
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION    = 0x00010017
+  BASE_NAME      = VariableWriteServiceUnitTest
+  FILE_GUID      = 2DF58F4D-EB51-445F-882E-09ABB31E8838
+  VERSION_STRING = 1.0
+  MODULE_TYPE    = HOST_APPLICATION
+
+[Sources]
+  VariableWriteServiceUnitTest.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  UnitTestFrameworkPkg/UnitTestFrameworkPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  UnitTestLib
+
+[Guids]
+  gEdkiiVarErrorFlagGuid

@@ -140,6 +140,16 @@ FlushHobVariableToFlash (
   IN EFI_GUID  *VendorGuid
   );
 
+EFI_STATUS
+Reclaim (
+  IN     EFI_PHYSICAL_ADDRESS    VariableBase,
+  IN OUT UINTN                   *LastVariableOffset,
+  IN     BOOLEAN                 IsVolatile,
+  IN OUT VARIABLE_POINTER_TRACK  *UpdatingPtrTrack,
+  IN     VARIABLE_HEADER         *NewVariable,
+  IN     UINTN                   NewVariableSize
+  );
+
 /**
   Writes a buffer to variable storage space, in the working block.
 
@@ -411,6 +421,11 @@ GetMaxVariableSize (
 **/
 EFI_STATUS
 VariableWriteServiceInitialize (
+  VOID
+  );
+
+EFI_STATUS
+VariableWriteServiceInitializeSmm (
   VOID
   );
 

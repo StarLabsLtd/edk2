@@ -1,0 +1,33 @@
+## @file
+# Host checks for formatting an FVB variable store.
+# Copyright (c) 2026, Star Labs Systems. All rights reserved.<BR>
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION    = 0x00010017
+  BASE_NAME      = FvbFormatUnitTest
+  FILE_GUID      = 59f63e5f-87bf-4ae8-a01d-dfacdd208563
+  VERSION_STRING = 1.0
+  MODULE_TYPE    = HOST_APPLICATION
+
+[Sources]
+  FvbFormatUnitTest.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  UefiPayloadPkg/UefiPayloadPkg.dec
+  UefiCpuPkg/UefiCpuPkg.dec
+  UnitTestFrameworkPkg/UnitTestFrameworkPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  UnitTestLib
+
+[Guids]
+  gEfiFirmwareFileSystem2Guid
+  gEfiSystemNvDataFvGuid
+  gEfiAuthenticatedVariableGuid

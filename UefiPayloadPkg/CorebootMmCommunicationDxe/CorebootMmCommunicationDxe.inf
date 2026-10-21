@@ -1,0 +1,49 @@
+## @file
+# MM communication transport for the coreboot-owned variable service.
+#
+# Copyright (c) 2026, Star Labs Systems. All rights reserved.<BR>
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001B
+  BASE_NAME                      = CorebootMmCommunicationDxe
+  FILE_GUID                      = 78A770F8-FC43-4B88-9230-12AA3E0E1D23
+  MODULE_TYPE                    = DXE_RUNTIME_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = CorebootMmCommunicationEntryPoint
+
+[Sources]
+  CorebootMmCommunicationDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  UefiPayloadPkg/UefiPayloadPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  BlParseLib
+  DebugLib
+  DxeServicesTableLib
+  IoLib
+  SafeIntLib
+  SynchronizationLib
+  TimerLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+  UefiRuntimeLib
+
+[Guids]
+  gCorebootVariableServiceReadyGuid
+  gEfiEventVirtualAddressChangeGuid
+  gSmmVariableWriteGuid
+  gVarCheckPolicyLibMmiHandlerGuid
+
+[Protocols]
+  gEfiMmCommunication2ProtocolGuid              ## PRODUCES
+  gEfiSmmVariableProtocolGuid                   ## PRODUCES
+
+[Depex]
+  TRUE

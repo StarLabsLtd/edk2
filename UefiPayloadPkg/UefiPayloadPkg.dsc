@@ -36,6 +36,18 @@
   DEFINE SIO_BUS_ENABLE               = FALSE
   DEFINE SECURITY_STUB_ENABLE         = TRUE
   DEFINE SMM_SUPPORT                  = FALSE
+  DEFINE FIXED_MM_SERVICE             = FALSE
+
+!if $(FIXED_MM_SERVICE) == TRUE
+!if $(SMM_SUPPORT) == TRUE
+  !error "SMM_SUPPORT and FIXED_MM_SERVICE cannot both be TRUE"
+!endif
+!if $(BUILD_ARCH) != IA32
+!if $(BUILD_ARCH) != X64
+  !error "FIXED_MM_SERVICE requires an x86 build"
+!endif
+!endif
+!endif
   DEFINE PLATFORM_BOOT_TIMEOUT        = 3
   DEFINE BOOT_MANAGER_ESCAPE          = FALSE
   DEFINE ATA_ENABLE                   = TRUE
@@ -101,6 +113,10 @@
   #
   DEFINE   BOOTLOADER                 = SBL
 
+!if $(FIXED_MM_SERVICE) == TRUE && $(BOOTLOADER) != "COREBOOT"
+  !error "FIXED_MM_SERVICE requires BOOTLOADER=COREBOOT"
+!endif
+
   #
   # CPU options
   #
@@ -160,6 +176,10 @@
   #
   DEFINE VARIABLE_SUPPORT      = EMU
 
+!if $(FIXED_MM_SERVICE) == TRUE && $(VARIABLE_SUPPORT) != "SPI"
+  !error "FIXED_MM_SERVICE requires VARIABLE_SUPPORT=SPI"
+!endif
+
   DEFINE DISABLE_RESET_SYSTEM  = FALSE
   DEFINE NETWORK_DRIVER_ENABLE = FALSE
 
@@ -202,6 +222,7 @@
 
   # Security options:
   #
+  DEFINE AMD_FTPM_ENABLE                = FALSE
   DEFINE TPM_ENABLE                     = TRUE
   DEFINE TPM2_ENABLE                    = TRUE
   DEFINE TPM1_ENABLE                    = TRUE
@@ -459,6 +480,7 @@
   SmmStoreLib|UefiPayloadPkg/Library/SmmStoreLib/SmmStoreLib.inf
 !endif
   VarCheckLib|MdeModulePkg/Library/VarCheckLib/VarCheckLib.inf
+  SmmStoreGeometryLib|UefiPayloadPkg/Library/SmmStoreGeometryLib/SmmStoreGeometryLib.inf
   VariablePolicyLib|MdeModulePkg/Library/VariablePolicyLib/VariablePolicyLib.inf
   VariablePolicyHelperLib|MdeModulePkg/Library/VariablePolicyHelperLib/VariablePolicyHelperLib.inf
   VariableFlashInfoLib|MdeModulePkg/Library/BaseVariableFlashInfoLib/BaseVariableFlashInfoLib.inf
@@ -1396,6 +1418,10 @@
       NULL|EmbeddedPkg/Library/NvVarStoreFormattedLib/NvVarStoreFormattedLib.inf
   }
 !elseif $(VARIABLE_SUPPORT) == "SPI"
+!if $(FIXED_MM_SERVICE) == TRUE
+  UefiPayloadPkg/CorebootMmCommunicationDxe/CorebootMmCommunicationDxe.inf
+  UefiPayloadPkg/CorebootMmEventDxe/CorebootMmEventDxe.inf
+!else
   MdeModulePkg/Universal/Variable/RuntimeDxe/VariableSmm.inf {
     <LibraryClasses>
       NULL|MdeModulePkg/Library/VarCheckUefiLib/VarCheckUefiLib.inf
@@ -1406,6 +1432,7 @@
 
   UefiPayloadPkg/FvbRuntimeDxe/FvbSmm.inf
   MdeModulePkg/Universal/FaultTolerantWriteDxe/FaultTolerantWriteSmm.inf
+!endif
   MdeModulePkg/Universal/Variable/RuntimeDxe/VariableSmmRuntimeDxe.inf
 !endif
 
@@ -1426,7 +1453,11 @@
   SecurityPkg/Tcg/Tcg2Dxe/Tcg2Dxe.inf {
     <LibraryClasses>
       Tpm2DeviceLib|SecurityPkg/Library/Tpm2DeviceLibRouter/Tpm2DeviceLibRouterDxe.inf
+!if $(AMD_FTPM_ENABLE) == TRUE
+      NULL|UefiPayloadPkg/Library/Tpm2DeviceLibAmdFtpm/Tpm2DeviceLibAmdFtpm.inf
+!else
       NULL|SecurityPkg/Library/Tpm2DeviceLibDTpm/Tpm2InstanceLibDTpm.inf
+!endif
       HashLib|SecurityPkg/Library/HashLibBaseCryptoRouter/HashLibBaseCryptoRouterDxe.inf
       NULL|SecurityPkg/Library/HashInstanceLibSha1/HashInstanceLibSha1.inf
       NULL|SecurityPkg/Library/HashInstanceLibSha256/HashInstanceLibSha256.inf

@@ -26,6 +26,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Protocol/MmEndOfDxe.h>
 #include <Protocol/SmmVarCheck.h>
 
+#include <Library/BaseLib.h>
 #include <Library/MmServicesTableLib.h>
 #include <Library/VariablePolicyLib.h>
 
@@ -503,6 +504,17 @@ SmmVariableHandler (
   }
 
   SmmVariableFunctionHeader = (SMM_VARIABLE_COMMUNICATE_HEADER *)CommBuffer;
+  if ((!FeaturePcdGet (PcdVariableCollectStatistics) &&
+       (SmmVariableFunctionHeader->Function == SMM_VARIABLE_FUNCTION_GET_STATISTICS)) ||
+      (!FeaturePcdGet (PcdEnableVariableRuntimeCache) &&
+       ((SmmVariableFunctionHeader->Function == SMM_VARIABLE_FUNCTION_INIT_RUNTIME_VARIABLE_CACHE_CONTEXT) ||
+       (SmmVariableFunctionHeader->Function == SMM_VARIABLE_FUNCTION_SYNC_RUNTIME_CACHE) ||
+       (SmmVariableFunctionHeader->Function == SMM_VARIABLE_FUNCTION_GET_RUNTIME_CACHE_INFO))))
+  {
+    Status = EFI_UNSUPPORTED;
+    goto EXIT;
+  }
+
   switch (SmmVariableFunctionHeader->Function) {
     case SMM_VARIABLE_FUNCTION_GET_VARIABLE:
       if (CommBufferPayloadSize < OFFSET_OF (SMM_VARIABLE_COMMUNICATE_ACCESS_VARIABLE, Name)) {
@@ -1035,28 +1047,6 @@ SmmEndOfDxeCallback (
 }
 
 /**
-  Initializes variable write service for SMM.
-
-**/
-VOID
-VariableWriteServiceInitializeSmm (
-  VOID
-  )
-{
-  EFI_STATUS  Status;
-
-  Status = VariableWriteServiceInitialize ();
-  if (EFI_ERROR (Status)) {
-    DEBUG ((DEBUG_ERROR, "Variable write service initialization failed. Status = %r\n", Status));
-  }
-
-  //
-  // Notify the variable wrapper driver the variable write service is ready
-  //
-  VariableNotifySmmWriteReady ();
-}
-
-/**
   SMM Fault Tolerant Write protocol notification event handler.
 
   Non-Volatile variable write may needs FTW protocol to reclaim when
@@ -1124,7 +1114,7 @@ SmmFtwNotificationEvent (
   //
   Status = GetFvbInfoByAddress (NvStorageVariableBase, NULL, &FvbProtocol);
   if (EFI_ERROR (Status)) {
-    return EFI_NOT_FOUND;
+    return Status;
   }
 
   mVariableModuleGlobal->FvbInstance = FvbProtocol;
@@ -1132,9 +1122,14 @@ SmmFtwNotificationEvent (
   //
   // Initializes variable write service after FTW was ready.
   //
-  VariableWriteServiceInitializeSmm ();
+  Status = VariableWriteServiceInitializeSmm ();
+  if (EFI_ERROR (Status) && (Protocol != NULL)) {
+    // Deferred notifications cannot propagate failure to the driver entry point.
+    // Do not continue with a partially initialized write service.
+    CpuDeadLoop ();
+  }
 
-  return EFI_SUCCESS;
+  return Status;
 }
 
 /**
@@ -1325,14 +1320,19 @@ MmVariableServiceInitialize (
     SmmFtwNotifyRegistered = TRUE;
 
     Status = SmmFtwNotificationEvent (NULL, NULL, NULL);
-    if ((Status != EFI_SUCCESS) && (Status != EFI_NOT_FOUND)) {
+    if (EFI_ERROR (Status) &&
+        ((Status != EFI_NOT_FOUND) || (mVariableModuleGlobal->FvbInstance != NULL)))
+    {
       goto ErrorExit;
     }
   } else {
     //
     // Emulated non-volatile variable mode does not depend on FVB and FTW.
     //
-    VariableWriteServiceInitializeSmm ();
+    Status = VariableWriteServiceInitializeSmm ();
+    if (EFI_ERROR (Status)) {
+      goto ErrorExit;
+    }
   }
 
   return EFI_SUCCESS;

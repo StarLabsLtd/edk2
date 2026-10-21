@@ -1,0 +1,36 @@
+## @file
+# Host checks for fixed-service MM FVB initialisation and publication.
+# Copyright (c) 2026, Star Labs Systems. All rights reserved.<BR>
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION    = 0x00010017
+  BASE_NAME      = FvbMmUnitTest
+  FILE_GUID      = 73DBB38F-88E1-4A4C-8AA0-9A9E06E14E61
+  VERSION_STRING = 1.0
+  MODULE_TYPE    = HOST_APPLICATION
+
+[Sources]
+  FvbMmUnitTest.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  UefiCpuPkg/UefiCpuPkg.dec
+  UefiPayloadPkg/UefiPayloadPkg.dec
+  UnitTestFrameworkPkg/UnitTestFrameworkPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  MemoryAllocationLib
+  UnitTestLib
+
+[Guids]
+  gVariableFlashInfoHobGuid
+
+[Protocols]
+  gEfiSmmFaultTolerantWriteProtocolGuid
+  gEfiSmmFirmwareVolumeBlockProtocolGuid

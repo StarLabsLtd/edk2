@@ -7,6 +7,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 
 **/
 
+#include <Guid/EventGroup.h>
 #include "InternalBm.h"
 
 GLOBAL_REMOVE_IF_UNREFERENCED
@@ -1524,6 +1525,14 @@ EfiBootManagerProcessLoadOption (
       // Before calling the image, enable the Watchdog Timer for the 5-minute period
       //
       gBS->SetWatchdogTimer (5 * 60, 0, 0, NULL);
+
+      Status = EfiEventGroupSignal (&gEfiEventExternalImageStartGuid);
+      if (EFI_ERROR (Status)) {
+        LoadOption->Status = Status;
+        gBS->SetWatchdogTimer (0, 0, 0, NULL);
+        gBS->UnloadImage (ImageHandle);
+        break;
+      }
 
       LoadOption->Status = gBS->StartImage (ImageHandle, &LoadOption->ExitDataSize, &LoadOption->ExitData);
       DEBUG ((

@@ -17,5 +17,48 @@
 
 !include UnitTestFrameworkPkg/UnitTestFrameworkPkgHost.dsc.inc
 
+[LibraryClasses]
+  SmmStoreGeometryLib|UefiPayloadPkg/Library/SmmStoreGeometryLib/SmmStoreGeometryLib.inf
+
+[PcdsDynamicDefault]
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFlashNvStorageVariableBase|0
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFlashNvStorageVariableSize|0
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFlashNvStorageFtwWorkingBase|0
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFlashNvStorageFtwWorkingSize|0
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFlashNvStorageFtwSpareBase|0
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFlashNvStorageFtwSpareSize|0
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFlashNvStorageVariableBase64|0
+
 [Components]
+  SecurityPkg/Library/AuthVariableLib/AuthServiceSignatureUnitTestHost.inf {
+    <BuildOptions>
+      GCC:*_*_*_CC_FLAGS = -fsanitize=address,undefined -fno-omit-frame-pointer
+      GCC:*_*_*_DLINK_FLAGS = -Wl,--gc-sections -fsanitize=address,undefined
+  }
+  MdeModulePkg/Universal/Variable/RuntimeDxe/VariableStoreValidationUnitTestHost.inf {
+    <BuildOptions>
+      GCC:*_*_*_CC_FLAGS = -fsanitize=address,undefined -fno-omit-frame-pointer
+      GCC:*_*_*_DLINK_FLAGS = -Wl,--gc-sections -fsanitize=address,undefined
+  }
+  MdeModulePkg/Library/VarCheckPolicyLib/VarCheckPolicyLibStandaloneMmUnitTestHost.inf {
+    <BuildOptions>
+      GCC:*_*_*_DLINK_FLAGS = -Wl,--gc-sections -Wl,--wrap=CpuDeadLoop
+  }
+  MdeModulePkg/Library/UefiBootManagerLib/ExternalImageStartUnitTestHost.inf {
+    <BuildOptions>
+      GCC:*_*_*_DLINK_FLAGS = -Wl,--gc-sections
+  }
   UefiPayloadPkg/Library/FmpDeviceSmmLib/FmpDeviceSmmLibUnitTestHost.inf
+  UefiPayloadPkg/Library/PlatformSecureLib/PlatformSecureLibMmUnitTestHost.inf
+  UefiPayloadPkg/FvbRuntimeDxe/FvbRecoveryUnitTestHost.inf {
+    <BuildOptions>
+      GCC:*_*_*_DLINK_FLAGS = -Wl,--gc-sections
+  }
+  MdeModulePkg/Universal/Variable/RuntimeDxe/VariableWriteServiceUnitTestHost.inf
+  UefiPayloadPkg/FvbRuntimeDxe/FvbMmUnitTestHost.inf
+  UefiPayloadPkg/FvbRuntimeDxe/FvbSmmEntryUnitTestHost.inf
+  UefiPayloadPkg/FvbRuntimeDxe/FvbFormatUnitTestHost.inf {
+    <BuildOptions>
+      GCC:*_*_*_DLINK_FLAGS = -Wl,--gc-sections
+  }
+  UefiPayloadPkg/Library/SmmStoreGeometryLib/SmmStoreGeometryLibUnitTestHost.inf

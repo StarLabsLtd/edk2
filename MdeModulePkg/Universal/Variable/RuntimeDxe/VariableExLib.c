@@ -109,7 +109,8 @@ VariableExLibFindNextVariable (
              VendorGuid,
              VariableStoreHeader,
              &VariablePtr,
-             mVariableModuleGlobal->VariableGlobal.AuthFormat
+             mVariableModuleGlobal->VariableGlobal.AuthFormat,
+             mVariableModuleGlobal->NonVolatileLastVariableOffset
              );
   if (EFI_ERROR (Status)) {
     AuthVariableInfo->VariableName   = NULL;
@@ -157,8 +158,19 @@ VariableExLibUpdateVariable (
   )
 {
   VARIABLE_POINTER_TRACK  Variable;
+  EFI_STATUS              Status;
 
-  FindVariable (AuthVariableInfo->VariableName, AuthVariableInfo->VendorGuid, &Variable, &mVariableModuleGlobal->VariableGlobal, FALSE);
+  Status = FindVariable (
+             AuthVariableInfo->VariableName,
+             AuthVariableInfo->VendorGuid,
+             &Variable,
+             &mVariableModuleGlobal->VariableGlobal,
+             FALSE
+             );
+  if (EFI_ERROR (Status) && (Status != EFI_NOT_FOUND)) {
+    return Status;
+  }
+
   return UpdateVariable (
            AuthVariableInfo->VariableName,
            AuthVariableInfo->VendorGuid,

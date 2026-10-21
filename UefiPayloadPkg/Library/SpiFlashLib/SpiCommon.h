@@ -70,6 +70,7 @@ typedef struct {
   UINT8         NumberOfComponents;
   UINT16        Flags;
   UINT32        Component1StartAddr;
+  UINT32        FlashSize;
 } SPI_INSTANCE;
 
 /**
