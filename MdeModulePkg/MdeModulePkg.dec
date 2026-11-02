@@ -895,6 +895,11 @@
   # @Prompt Enable FULL FTW services.
   gEfiMdeModulePkgTokenSpaceGuid.PcdFullFtwServiceEnable|TRUE|BOOLEAN|0x0001200b
 
+  ## Expose the FTW communication handler to external MM callers.
+  #  Internal FTW protocol services remain available when disabled.
+  # @Prompt Enable external FTW communication.
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFtwExternalCommunication|TRUE|BOOLEAN|0x0001200d
+
   ## Indicates if DXE IPL supports the UEFI decompression algorithm.<BR><BR>
   #   TRUE  - DXE IPL will support UEFI decompression.<BR>
   #   FALSE - DXE IPL will not support UEFI decompression to save space.<BR>
