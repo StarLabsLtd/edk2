@@ -567,8 +567,10 @@ FvbNotificationEvent (
   ///
   /// Register SMM FTW SMI handler
   ///
-  Status = gMmst->MmiHandlerRegister (SmmFaultTolerantWriteHandler, &gEfiSmmFaultTolerantWriteProtocolGuid, &SmmFtwHandle);
-  ASSERT_EFI_ERROR (Status);
+  if (FeaturePcdGet (PcdFtwExternalCommunication)) {
+    Status = gMmst->MmiHandlerRegister (SmmFaultTolerantWriteHandler, &gEfiSmmFaultTolerantWriteProtocolGuid, &SmmFtwHandle);
+    ASSERT_EFI_ERROR (Status);
+  }
 
   //
   // Notify the Ftw wrapper driver SMM Ftw is ready
