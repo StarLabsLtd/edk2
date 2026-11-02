@@ -25,14 +25,16 @@ RegisterMmEntry (
   COREBOOT_VARIABLE_REGISTER_MM_ENTRY  Register;
 
   if ((EntryPoint == NULL) || (mRegisterMmEntry == NULL) ||
-      ((UINTN)EntryPoint > MAX_UINT32))
+      (gMmst->MmiManage == NULL) || ((UINTN)EntryPoint > MAX_UINT32) ||
+      ((UINTN)gMmst->MmiManage > MAX_UINT32))
   {
     return EFI_INVALID_PARAMETER;
   }
 
   Register         = mRegisterMmEntry;
   mRegisterMmEntry = NULL;
-  return (Register ((UINT32)(UINTN)EntryPoint) == COREBOOT_VARIABLE_REGISTER_SUCCESS) ?
+  return (Register ((UINT32)(UINTN)EntryPoint,
+                    (UINT32)(UINTN)gMmst->MmiManage) == COREBOOT_VARIABLE_REGISTER_SUCCESS) ?
          EFI_SUCCESS : EFI_DEVICE_ERROR;
 }
 
@@ -64,7 +66,7 @@ CorebootMmBridgeEntryPoint (
   }
 
   ServiceInfo = GET_GUID_HOB_DATA (Hob);
-  if ((ServiceInfo->Revision != COREBOOT_VARIABLE_SERVICE_REVISION) ||
+  if ((ServiceInfo->Revision != COREBOOT_VARIABLE_SERVICE_INFO_REVISION) ||
       (ServiceInfo->Size != sizeof (*ServiceInfo)) ||
       (ServiceInfo->Reserved != 0) || (ServiceInfo->RegisterMmEntry == 0) ||
       (ServiceInfo->CommunicationBuffer == 0) ||
