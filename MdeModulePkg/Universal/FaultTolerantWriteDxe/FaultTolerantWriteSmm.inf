@@ -75,6 +75,7 @@
 
 [FeaturePcd]
   gEfiMdeModulePkgTokenSpaceGuid.PcdFullFtwServiceEnable    ## CONSUMES
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFtwExternalCommunication ## CONSUMES
 
 #
 # gBS->CalculateCrc32() is consumed in EntryPoint.
