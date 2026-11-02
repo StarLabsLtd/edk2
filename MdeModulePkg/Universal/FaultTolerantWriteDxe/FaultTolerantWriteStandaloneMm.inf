@@ -68,6 +68,7 @@
 
 [FeaturePcd]
   gEfiMdeModulePkgTokenSpaceGuid.PcdFullFtwServiceEnable    ## CONSUMES
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFtwExternalCommunication ## CONSUMES
 
 [Depex]
   TRUE
