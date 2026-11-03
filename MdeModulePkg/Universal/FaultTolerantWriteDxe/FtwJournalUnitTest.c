@@ -36,6 +36,9 @@ JournalStates (
   UT_ASSERT_TRUE (LastRecord == Record);
 
   Header->HeaderAllocated = FTW_VALID_STATE;
+  // A cut during the header program can leave these fields erased. They
+  // cannot be interpreted until the separate allocation commit is written.
+  UT_ASSERT_STATUS_EQUAL (FtwGetLastWriteHeader (Workspace, sizeof (Buffer), &LastHeader), EFI_BUFFER_TOO_SMALL);
   Header->NumberOfWrites  = 1;
   Header->PrivateDataSize = 0;
   UT_ASSERT_STATUS_EQUAL (FtwGetLastWriteHeader (Workspace, sizeof (Buffer), &LastHeader), EFI_BUFFER_TOO_SMALL);
@@ -45,7 +48,17 @@ JournalStates (
   UT_ASSERT_STATUS_EQUAL (FtwGetLastWriteRecord (Header, Remaining, &LastRecord), EFI_SUCCESS);
   UT_ASSERT_TRUE (LastRecord == Record);
 
+  // A committed pending write must remain discoverable even when it fills
+  // the journal. Its spare may be the only copy after an interrupted write.
+  Used = sizeof (*Workspace) + sizeof (*Header) + sizeof (*Record);
+  UT_ASSERT_STATUS_EQUAL (FtwGetLastWriteHeader (Workspace, Used, &LastHeader), EFI_SUCCESS);
+  UT_ASSERT_TRUE (LastHeader == Header);
+  Record->SpareComplete = FTW_VALID_STATE;
+  UT_ASSERT_STATUS_EQUAL (FtwGetLastWriteHeader (Workspace, Used, &LastHeader), EFI_SUCCESS);
+  UT_ASSERT_TRUE (LastHeader == Header);
+
   Record->DestinationComplete = FTW_VALID_STATE;
+  UT_ASSERT_STATUS_EQUAL (FtwGetLastWriteHeader (Workspace, Used, &LastHeader), EFI_SUCCESS);
   UT_ASSERT_STATUS_EQUAL (FtwGetLastWriteRecord (Header, Remaining, &LastRecord), EFI_SUCCESS);
   UT_ASSERT_TRUE (LastRecord == Record);
 

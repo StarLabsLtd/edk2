@@ -65,6 +65,7 @@
   gEfiFaultTolerantWriteProtocolGuid            ## PRODUCES
 
 [FeaturePcd]
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFtwProtectInvalidWorkspace ## CONSUMES
   gEfiMdeModulePkgTokenSpaceGuid.PcdFullFtwServiceEnable    ## CONSUMES
 
 #

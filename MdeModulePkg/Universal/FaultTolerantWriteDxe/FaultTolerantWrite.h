@@ -48,6 +48,12 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 
 #define FTW_DEVICE_SIGNATURE  SIGNATURE_32 ('F', 'T', 'W', 'D')
 
+/* Whether it is safe to reclaim a full workspace in this environment. */
+BOOLEAN
+FtwCanReclaimWorkspace (
+  VOID
+  );
+
 //
 // EFI Fault tolerant protocol private data structure
 //
