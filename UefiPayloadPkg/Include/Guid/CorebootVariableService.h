@@ -11,7 +11,7 @@
 #include <Pi/PiMmCis.h>
 
 #define COREBOOT_VARIABLE_SERVICE_REVISION       1
-#define COREBOOT_VARIABLE_SERVICE_INFO_REVISION  2
+#define COREBOOT_VARIABLE_SERVICE_INFO_REVISION  3
 #define COREBOOT_VARIABLE_SERVICE_HEADER_SIZE  EFI_PAGE_SIZE
 #define COREBOOT_VARIABLE_SERVICE_MESSAGE_CAPACITY  0x20000
 #define COREBOOT_VARIABLE_SERVICE_BUFFER_SIZE  \
@@ -19,6 +19,8 @@
 #define COREBOOT_VARIABLE_BUFFER_SIGNATURE  SIGNATURE_32 ('E', 'V', 'A', 'R')
 
 #define COREBOOT_VARIABLE_REGISTER_SUCCESS  0
+#define COREBOOT_VARIABLE_STORE_INVALID     1
+#define COREBOOT_VARIABLE_STORE_IO_ERROR    3
 
 #define COREBOOT_VARIABLE_BUFFER_IDLE          0
 #define COREBOOT_VARIABLE_BUFFER_REQUEST       1
@@ -33,12 +35,20 @@ typedef struct {
   EFI_PHYSICAL_ADDRESS    CommunicationBuffer;
   UINT32                  CommunicationBufferSize;
   UINT32                  RegisterMmEntry;
+  UINT32                  StoreRead;
+  UINT32                  StoreWrite;
+  UINT32                  StoreErase;
+  UINT32                  StoreValidate;
+  UINT32                  StoreBuffer;
+  UINT32                  StoreBufferSize;
 } COREBOOT_VARIABLE_SERVICE_INFO;
 
-STATIC_ASSERT (sizeof (COREBOOT_VARIABLE_SERVICE_INFO) == 24, "Coreboot service HOB ABI");
+STATIC_ASSERT (sizeof (COREBOOT_VARIABLE_SERVICE_INFO) == 48, "Coreboot service HOB ABI");
 STATIC_ASSERT (OFFSET_OF (COREBOOT_VARIABLE_SERVICE_INFO, CommunicationBuffer) == 8, "Coreboot service HOB ABI");
 STATIC_ASSERT (OFFSET_OF (COREBOOT_VARIABLE_SERVICE_INFO, CommunicationBufferSize) == 16, "Coreboot service HOB ABI");
 STATIC_ASSERT (OFFSET_OF (COREBOOT_VARIABLE_SERVICE_INFO, RegisterMmEntry) == 20, "Coreboot service HOB ABI");
+STATIC_ASSERT (OFFSET_OF (COREBOOT_VARIABLE_SERVICE_INFO, StoreRead) == 24, "Coreboot service HOB ABI");
+STATIC_ASSERT (OFFSET_OF (COREBOOT_VARIABLE_SERVICE_INFO, StoreBuffer) == 40, "Coreboot service HOB ABI");
 
 typedef
 UINT32
@@ -64,3 +74,4 @@ STATIC_ASSERT (sizeof (COREBOOT_VARIABLE_SERVICE_BUFFER) == 32, "Coreboot buffer
 
 extern EFI_GUID  gCorebootVariableServiceInfoGuid;
 extern EFI_GUID  gCorebootVariableServiceReadyGuid;
+extern EFI_GUID  gCorebootVariableStoreReadyGuid;

@@ -1,0 +1,45 @@
+## @file
+# Private firmware-volume interface for coreboot's MM variable store.
+#
+# Copyright (c) 2026, Star Labs Systems. All rights reserved.<BR>
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION              = 0x0001001B
+  BASE_NAME                = CorebootVariableFvb
+  FILE_GUID                = 6A129912-4F84-4ECA-B97B-22BC6C6C6248
+  MODULE_TYPE              = MM_STANDALONE
+  VERSION_STRING           = 1.0
+  PI_SPECIFICATION_VERSION = 0x00010032
+  ENTRY_POINT              = CorebootVariableFvbEntryPoint
+
+[Sources]
+  CorebootVariableFvb.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  UefiPayloadPkg/UefiPayloadPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  HobLib
+  MmServicesTableLib
+  SmmStoreGeometryLib
+  StandaloneMmDriverEntryPoint
+
+[Guids]
+  gCorebootVariableServiceInfoGuid
+  gCorebootVariableStoreInfoGuid
+  gCorebootVariableStoreReadyGuid
+  gVariableFlashInfoHobGuid
+
+[Protocols]
+  gEdkiiFtwStoreValidationProtocolGuid
+  gEfiSmmFirmwareVolumeBlockProtocolGuid
+  gEfiSmmFaultTolerantWriteProtocolGuid
+
+[Depex]
+  TRUE

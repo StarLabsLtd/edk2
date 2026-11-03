@@ -69,6 +69,10 @@ CorebootMmBridgeEntryPoint (
   if ((ServiceInfo->Revision != COREBOOT_VARIABLE_SERVICE_INFO_REVISION) ||
       (ServiceInfo->Size != sizeof (*ServiceInfo)) ||
       (ServiceInfo->Reserved != 0) || (ServiceInfo->RegisterMmEntry == 0) ||
+      (ServiceInfo->StoreRead == 0) || (ServiceInfo->StoreWrite == 0) ||
+      (ServiceInfo->StoreErase == 0) || (ServiceInfo->StoreValidate == 0) ||
+      (ServiceInfo->StoreBuffer == 0) ||
+      (ServiceInfo->StoreBufferSize == 0) ||
       (ServiceInfo->CommunicationBuffer == 0) ||
       (ServiceInfo->CommunicationBufferSize < sizeof (COREBOOT_VARIABLE_SERVICE_BUFFER)))
   {
