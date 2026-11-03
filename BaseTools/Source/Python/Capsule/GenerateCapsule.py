@@ -688,6 +688,7 @@ if __name__ == '__main__':
             try:
                 FmpPayloadHeader.FwVersion              = SinglePayloadDescriptor.FwVersion
                 FmpPayloadHeader.LowestSupportedVersion = SinglePayloadDescriptor.LowestSupportedVersion
+                FmpPayloadHeader.TargetGuid             = SinglePayloadDescriptor.Guid
                 FmpPayloadHeader.Payload                = SinglePayloadDescriptor.Payload
                 Result = FmpPayloadHeader.Encode ()
                 if args.Verbose:
