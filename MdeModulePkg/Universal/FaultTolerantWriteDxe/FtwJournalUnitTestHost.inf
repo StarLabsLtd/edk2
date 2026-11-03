@@ -29,4 +29,5 @@
   gEdkiiWorkingBlockSignatureGuid
 
 [FeaturePcd]
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFtwProtectInvalidWorkspace
   gEfiMdeModulePkgTokenSpaceGuid.PcdFullFtwServiceEnable
