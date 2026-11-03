@@ -21,6 +21,8 @@
 
 [Sources]
   FmpDeviceSmmLib.c
+  FmpDeviceSmmFmap.c
+  FmpDeviceSmmFmap.h
   FmpDeviceSmmFlashRetry.c
   FmpDeviceSmmFlashRetry.h
   FmpDeviceSmmManifest.c
