@@ -1,0 +1,33 @@
+## @file
+# Host tests for Secure Boot signature-list validation.
+#
+# Copyright (c) 2026, Star Labs Systems. All rights reserved.<BR>
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION    = 0x00010006
+  BASE_NAME      = AuthServiceSignatureUnitTest
+  FILE_GUID      = 168B2BB0-39E8-4BAE-A57D-C338CD09670E
+  MODULE_TYPE    = HOST_APPLICATION
+  VERSION_STRING = 1.0
+
+[Sources]
+  AuthServiceSignatureUnitTest.c
+
+[Packages]
+  CryptoPkg/CryptoPkg.dec
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  SecurityPkg/SecurityPkg.dec
+  UnitTestFrameworkPkg/UnitTestFrameworkPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  UnitTestLib
+
+[Guids]
+  gEfiCertX509Guid
+  gEfiGlobalVariableGuid
+  gEfiImageSecurityDatabaseGuid

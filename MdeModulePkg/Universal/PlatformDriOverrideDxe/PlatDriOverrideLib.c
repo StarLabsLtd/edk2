@@ -6,6 +6,8 @@
 
 **/
 
+#include <Guid/EventGroup.h>
+
 #include "InternalPlatDriOverrideDxe.h"
 
 #define PLATFORM_OVERRIDE_ITEM_SIGNATURE  SIGNATURE_32('p','d','o','i')
@@ -1425,15 +1427,12 @@ GetDriverFromMapping (
                                   );
           ASSERT (DriverBinding != NULL);
           DriverImageInfo->ImageHandle = ImageHandleBuffer[Index];
-        } else if (GetCurrentTpl () <= TPL_CALLBACK) {
+        } else if (GetCurrentTpl () < TPL_CALLBACK) {
           //
           // The driver image has not been loaded and started. Try to load and start it now.
           // Try to connect all device in the driver image path.
           //
-          // Note: LoadImage() and  StartImage() should be called under CALLBACK TPL in theory, but
-          // since many device need to be connected in  CALLBACK level environment( e.g. Usb devices )
-          // and the Fat and Patition driver can endure executing in CALLBACK level in fact, so here permit
-          // to use LoadImage() and  StartImage() in CALLBACK TPL.
+          // The external-image notification runs at TPL_CALLBACK and must complete before StartImage().
           //
           Status = ConnectDevicePath (DriverImageInfo->DriverImagePath);
           //
@@ -1498,7 +1497,13 @@ GetDriverFromMapping (
               //
               // Try to start the driver
               //
-              Status = gBS->StartImage (ImageHandle, NULL, NULL);
+              Status = EfiEventGroupSignal (&gEfiEventExternalImageStartGuid);
+              if (!EFI_ERROR (Status)) {
+                Status = gBS->StartImage (ImageHandle, NULL, NULL);
+              } else {
+                gBS->UnloadImage (ImageHandle);
+              }
+
               if (EFI_ERROR (Status)) {
                 DriverImageInfo->UnStartable = TRUE;
                 DriverImageInfo->ImageHandle = NULL;

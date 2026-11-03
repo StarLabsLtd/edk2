@@ -23,6 +23,23 @@ typedef enum {
 } FLASH_REGION_TYPE;
 
 /**
+  Cache the SPI MMIO base before untrusted software can change its PCI BAR.
+
+  @param[in]  PchSpiBase  PCH SPI PCI configuration base.
+  @param[out] MmioBase    Cached SPI MMIO base.
+
+  @retval EFI_SUCCESS            The MMIO base was cached.
+  @retval EFI_INVALID_PARAMETER  MmioBase is NULL.
+  @retval EFI_DEVICE_ERROR       The PCI BAR is invalid.
+**/
+EFI_STATUS
+EFIAPI
+SpiFlashCacheMmioBase (
+  IN UINTN      PchSpiBase,
+  OUT UINT32    *MmioBase
+  );
+
+/**
   Read SFDP data from the flash part.
 
   @param[in] ComponentNumber      The Component Number for chip select

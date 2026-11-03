@@ -897,9 +897,13 @@ IsFvHeaderValid (
 {
   UINT16                      Sum;
   EFI_FIRMWARE_VOLUME_HEADER  *FwVolHeader;
+  EFI_PHYSICAL_ADDRESS        NvVariableAddress;
+  UINT64                      NvVariableLength;
+
+  GetVariableFlashNvStorageInfo (&NvVariableAddress, &NvVariableLength);
 
   FwVolHeader = (EFI_FIRMWARE_VOLUME_HEADER *)(UINTN)FvBase;
-  if (FvBase == PcdGet32 (PcdFlashNvStorageVariableBase)) {
+  if (FvBase == NvVariableAddress) {
     if (CompareMem (&FwVolHeader->FileSystemGuid, &gEfiSystemNvDataFvGuid, sizeof (EFI_GUID)) != 0 ) {
       DEBUG ((DEBUG_INFO, "  --FileSystemGuid not match: %g\n", &FwVolHeader->FileSystemGuid));
       return FALSE;
@@ -930,131 +934,156 @@ IsFvHeaderValid (
   return TRUE;
 }
 
-/**
-  Get intial variable data.
-
-  @param[out]  VarData          Valid variable data.
-  @param[out]  VarSize          Valid variable size.
-
-  @retval RETURN_SUCCESS        Successfully found initial variable data.
-  @retval RETURN_NOT_FOUND      Failed to find the variable data file from FV.
-  @retval EFI_INVALID_PARAMETER VarData or VarSize is null.
-
-**/
+STATIC
 EFI_STATUS
-GetInitialVariableData (
-  OUT VOID   **VarData,
-  OUT UINTN  *VarSize
+WriteInitialVariableData (
+  IN UINTN  WriteAddress
   )
 {
-  EFI_STATUS                     Status;
-  VOID                           *ImageData;
-  UINTN                          ImageSize;
-  EFI_FIRMWARE_VOLUME_HEADER     *FvHeader;
-  VARIABLE_STORE_HEADER          *VariableStore;
-  AUTHENTICATED_VARIABLE_HEADER  *Variable;
-  UINTN                          VariableSize;
-  UINTN                          VarEndAddr;
+  EFI_STATUS  Status;
+  UINTN       BufferSize;
+  UINTN       Length;
+  VOID        *Data;
 
-  if ((VarData == NULL) || (VarSize == NULL)) {
-    return EFI_INVALID_PARAMETER;
+  Status = GetInitialVariableData (&Data, &Length);
+  if ((Status == EFI_NOT_FOUND) || (!EFI_ERROR (Status) && (Length == 0))) {
+    return EFI_SUCCESS;
   }
 
-  Status = GetSectionFromAnyFv (PcdGetPtr (PcdNvsDataFile), EFI_SECTION_RAW, 0, &ImageData, &ImageSize);
   if (EFI_ERROR (Status)) {
     return Status;
   }
 
-  FvHeader      = (EFI_FIRMWARE_VOLUME_HEADER *)ImageData;
-  VariableStore = (VARIABLE_STORE_HEADER *)((UINT8 *)ImageData + FvHeader->HeaderLength);
-  VarEndAddr    = (UINTN)VariableStore + VariableStore->Size;
-  Variable      = (AUTHENTICATED_VARIABLE_HEADER *)HEADER_ALIGN (VariableStore + 1);
-  *VarData      = (VOID *)Variable;
-  while (((UINTN)Variable < VarEndAddr)) {
-    if (Variable->StartId != VARIABLE_DATA) {
-      break;
-    }
-
-    VariableSize = sizeof (AUTHENTICATED_VARIABLE_HEADER) + Variable->DataSize + Variable->NameSize;
-    Variable     = (AUTHENTICATED_VARIABLE_HEADER *)HEADER_ALIGN ((UINTN)Variable + VariableSize);
+  BufferSize = Length;
+  Status     = LibFvbFlashDeviceWrite (WriteAddress, &BufferSize, (UINT8 *)Data);
+  if (EFI_ERROR (Status)) {
+    return Status;
   }
 
-  *VarSize = (UINTN)Variable - HEADER_ALIGN (VariableStore + 1);
-
-  return EFI_SUCCESS;
+  return BufferSize == Length ? EFI_SUCCESS : EFI_DEVICE_ERROR;
 }
 
 /**
   The function does the necessary initialization work for
   Firmware Volume Block Driver.
 
-  @retval     EFI_SUCCESS       This function always return EFI_SUCCESS.
-                                It will ASSERT on errors.
+  @param[in]  ValidatedHeader   A previously validated store header, or NULL.
+  @param[in]  FormatInfo        The validated geometry to use when formatting.
+
+  @retval     EFI_SUCCESS       The firmware volume was initialized.
+  @retval     Others            The firmware volume could not be initialized.
 
 **/
 EFI_STATUS
 FvbInitialize (
-  VOID
+  IN EFI_FIRMWARE_VOLUME_HEADER  *ValidatedHeader OPTIONAL,
+  IN CONST VARIABLE_FLASH_INFO   *FormatInfo OPTIONAL
   )
 {
   EFI_FW_VOL_INSTANCE         *FwVolInstance;
   EFI_FIRMWARE_VOLUME_HEADER  *FvHeader;
   EFI_FV_BLOCK_MAP_ENTRY      *BlockMap;
   EFI_PHYSICAL_ADDRESS        BaseAddress;
+  UINT64                      NvVariableLength;
+  UINTN                       EraseLength;
   UINTN                       WriteAddr;
+  EFI_STATUS                  LockStatus;
   EFI_STATUS                  Status;
   UINTN                       BufferSize;
   UINTN                       Length;
   VARIABLE_STORE_HEADER       VariableStore;
-  VOID                        *VarData;
 
-  InitVariableStore ();
-  BaseAddress = PcdGet32 (PcdFlashNvStorageVariableBase);
-  FvHeader    = (EFI_FIRMWARE_VOLUME_HEADER *)(UINTN)BaseAddress;
+  Status = InitVariableStore ();
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  Status = GetVariableFlashNvStorageInfo (&BaseAddress, &NvVariableLength);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  FvHeader = ValidatedHeader != NULL ? ValidatedHeader : (VOID *)(UINTN)BaseAddress;
 
   //
   // Check FV header and variable store header
   //
-  if (!IsFvHeaderValid (BaseAddress)) {
+  if ((FormatInfo != NULL) || ((ValidatedHeader == NULL) && !IsFvHeaderValid (BaseAddress))) {
     //
     //  Write back a healthy FV header
     //
     DEBUG ((DEBUG_ERROR, "Fvb: Writing back a healthy FV header: 0x%lx\n", BaseAddress));
-    FvHeader = GetFvHeaderTemplate ();
-    LibFvbFlashDeviceBlockLock ((UINTN)BaseAddress, FvHeader->BlockMap->Length, FALSE);
+    FvHeader = GetFvHeaderTemplate (FormatInfo);
+    if (FvHeader == NULL) {
+      return EFI_INVALID_PARAMETER;
+    }
 
-    Status = LibFvbFlashDeviceBlockErase ((UINTN)BaseAddress, FvHeader->BlockMap->Length);
-    ASSERT_EFI_ERROR (Status);
+    EraseLength = FormatInfo == NULL ? FvHeader->BlockMap->Length : (UINTN)FvHeader->FvLength;
+    Status      = LibFvbFlashDeviceBlockLock ((UINTN)BaseAddress, EraseLength, FALSE);
+    if (EFI_ERROR (Status)) {
+      return Status;
+    }
 
-    Length     = FvHeader->HeaderLength;
-    WriteAddr  = (UINTN)BaseAddress;
-    Status     = LibFvbFlashDeviceWrite (WriteAddr, &Length, (UINT8 *)FvHeader);
+    Status = LibFvbFlashDeviceBlockErase ((UINTN)BaseAddress, EraseLength);
+    if (EFI_ERROR (Status)) {
+      goto Lock;
+    }
+
+    Length    = FvHeader->HeaderLength;
+    WriteAddr = (UINTN)BaseAddress;
+    Status    = LibFvbFlashDeviceWrite (WriteAddr, &Length, (UINT8 *)FvHeader);
+    if (EFI_ERROR (Status)) {
+      goto Lock;
+    }
+
+    if (Length != FvHeader->HeaderLength) {
+      Status = EFI_DEVICE_ERROR;
+      goto Lock;
+    }
+
     WriteAddr += Length;
-    ASSERT_EFI_ERROR (Status);
 
     //
     // Write back variable store header
     //
-    VariableStore.Size   = PcdGet32 (PcdFlashNvStorageVariableSize) - FvHeader->HeaderLength;
+    ZeroMem (&VariableStore, sizeof (VariableStore));
+    VariableStore.Size   = NvVariableLength - FvHeader->HeaderLength;
     VariableStore.Format = VARIABLE_STORE_FORMATTED;
     VariableStore.State  = VARIABLE_STORE_HEALTHY;
     CopyGuid (&VariableStore.Signature, &gEfiAuthenticatedVariableGuid);
     BufferSize = sizeof (VARIABLE_STORE_HEADER);
     Status     = LibFvbFlashDeviceWrite (WriteAddr, &BufferSize, (UINT8 *)&VariableStore);
+    if (EFI_ERROR (Status)) {
+      goto Lock;
+    }
+
+    if (BufferSize != sizeof (VARIABLE_STORE_HEADER)) {
+      Status = EFI_DEVICE_ERROR;
+      goto Lock;
+    }
+
     WriteAddr += BufferSize;
-    ASSERT_EFI_ERROR (Status);
 
     //
     // Write initial variable data if found
     //
-    Status = GetInitialVariableData (&VarData, &Length);
-    if (!EFI_ERROR (Status)) {
-      Status = LibFvbFlashDeviceWrite (WriteAddr, &Length, (UINT8 *)VarData);
-      ASSERT_EFI_ERROR (Status);
+    Status = WriteInitialVariableData (WriteAddr);
+    if (EFI_ERROR (Status)) {
+      goto Lock;
     }
 
-    LibFvbFlashDeviceBlockLock ((UINTN)BaseAddress, FvHeader->BlockMap->Length, TRUE);
-    WriteBackInvalidateDataCacheRange ((VOID *)(UINTN)BaseAddress, FvHeader->BlockMap->Length);
+    Status = EFI_SUCCESS;
+
+Lock:
+    LockStatus = LibFvbFlashDeviceBlockLock ((UINTN)BaseAddress, EraseLength, TRUE);
+    WriteBackInvalidateDataCacheRange ((VOID *)(UINTN)BaseAddress, EraseLength);
+    if (!EFI_ERROR (Status)) {
+      Status = LockStatus;
+    }
+
+    if (EFI_ERROR (Status)) {
+      return Status;
+    }
   }
 
   //
@@ -1081,9 +1110,15 @@ FvbInitialize (
   //
   // Add a FVB Protocol Instance
   //
-  Status = InstallFvbProtocol (FwVolInstance, mFvbModuleGlobal.NumFv);
-  mFvbModuleGlobal.NumFv++;
+  // Protocol installation can notify consumers synchronously.
   mFvbModuleGlobal.FvInstance = FwVolInstance;
+  mFvbModuleGlobal.NumFv++;
+  Status = InstallFvbProtocol (FwVolInstance, mFvbModuleGlobal.NumFv - 1);
+  if (EFI_ERROR (Status)) {
+    mFvbModuleGlobal.NumFv--;
+    mFvbModuleGlobal.FvInstance = NULL;
+    FreePool (FwVolInstance);
+  }
 
   return Status;
 }

@@ -47,3 +47,6 @@ extern EFI_GUID  gEfiEventDxeDispatchGuid;
   { 0x2ce967a, 0xdd7e, 0x4ffc, { 0x9e, 0xe7, 0x81, 0xc, 0xf0, 0x47, 0x8, 0x80 } }
 
 extern EFI_GUID  gEfiEndOfDxeEventGroupGuid;
+
+// Sent before an external preboot image starts so MM can revoke Setup presence.
+extern EFI_GUID  gEfiEventExternalImageStartGuid;

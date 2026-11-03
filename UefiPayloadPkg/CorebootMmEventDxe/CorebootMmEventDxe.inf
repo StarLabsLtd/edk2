@@ -1,0 +1,40 @@
+## @file
+# Forward DXE lifecycle events to the coreboot-owned MM service.
+#
+# Copyright (c) 2026, Star Labs Systems. All rights reserved.<BR>
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001B
+  BASE_NAME                      = CorebootMmEventDxe
+  FILE_GUID                      = 8CF1D7C4-2B1D-44C1-82E8-B37DC68B24C9
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = CorebootMmEventEntryPoint
+
+[Sources]
+  CorebootMmEventDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+
+[Guids]
+  gEfiEventExternalImageStartGuid
+  gEfiEndOfDxeEventGroupGuid
+  gEfiEventExitBootServicesGuid
+  gEfiEventReadyToBootGuid
+
+[Protocols]
+  gEfiDxeMmReadyToLockProtocolGuid               ## CONSUMES
+  gEfiMmCommunication2ProtocolGuid              ## CONSUMES
+
+[Depex]
+  gEfiMmCommunication2ProtocolGuid

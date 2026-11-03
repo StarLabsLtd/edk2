@@ -27,6 +27,7 @@
 [Sources]
   AuthVariableLib.c
   AuthService.c
+  AuthServiceSignature.c
   AuthServiceInternal.h
 
 [Packages]

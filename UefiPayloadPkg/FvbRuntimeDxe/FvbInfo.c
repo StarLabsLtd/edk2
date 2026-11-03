@@ -13,7 +13,9 @@
 #include <Guid/FirmwareFileSystem2.h>
 #include <Guid/SystemNvDataGuid.h>
 #include <Guid/NvVariableInfoGuid.h>
+#include <Guid/VariableFlashInfo.h>
 #include <Library/HobLib.h>
+#include <Library/VariableFlashInfoLib.h>
 
 #define FVB_MEDIA_BLOCK_SIZE  0x1000
 
@@ -74,6 +76,14 @@ InitVariableStore (
   NV_VARIABLE_INFO   *NvVariableInfo;
 
   //
+  // Exit early if this information is already known.
+  //
+  GuidHob = GetFirstGuidHob (&gVariableFlashInfoHobGuid);
+  if (GuidHob != NULL) {
+    return EFI_SUCCESS;
+  }
+
+  //
   // Find SPI flash variable hob
   //
   GuidHob = GetFirstGuidHob (&gNvVariableInfoGuid);
@@ -129,21 +139,60 @@ InitVariableStore (
 /**
   Get a heathy FV header used for variable store recovery
 
-  @retval     The FV header.
+  @param[in]  FlashInfo    The validated store geometry, or NULL to use the
+                           configured variable-store layout.
+
+  @retval     The FV header, or NULL if the geometry is invalid.
 
 **/
 EFI_FIRMWARE_VOLUME_HEADER *
 GetFvHeaderTemplate (
-  VOID
+  IN CONST VARIABLE_FLASH_INFO  *FlashInfo OPTIONAL
   )
 {
   EFI_FIRMWARE_VOLUME_HEADER  *FvHeader;
-  UINTN                       FvSize;
+  UINT64                      BlockSize;
+  UINT64                      FvSize;
+  UINT64                      NumBlocks;
+  UINT32                      Remainder;
+  EFI_PHYSICAL_ADDRESS        FtwSpareAddress;
+  UINT64                      FtwSpareLength;
+  EFI_STATUS                  Status;
 
-  FvSize                          = PcdGet32 (PcdFlashNvStorageFtwSpareSize) * 2;
+  if (FlashInfo == NULL) {
+    Status = GetVariableFlashFtwSpareInfo (&FtwSpareAddress, &FtwSpareLength);
+    if (EFI_ERROR (Status) || (FtwSpareLength > MAX_UINT64 / 2)) {
+      return NULL;
+    }
+
+    BlockSize = FVB_MEDIA_BLOCK_SIZE;
+    FvSize    = FtwSpareLength * 2;
+  } else {
+    if ((FlashInfo->NvVariableLength > MAX_UINT64 - FlashInfo->FtwWorkingLength) ||
+        (FlashInfo->NvVariableLength + FlashInfo->FtwWorkingLength > MAX_UINT64 - FlashInfo->FtwSpareLength))
+    {
+      return NULL;
+    }
+
+    BlockSize = FlashInfo->FtwWorkingLength;
+    FvSize    = FlashInfo->NvVariableLength + FlashInfo->FtwWorkingLength + FlashInfo->FtwSpareLength;
+  }
+
+  if ((BlockSize == 0) || (BlockSize > MAX_UINT32) ||
+      (FvSize == 0) || (FvSize > MAX_UINTN))
+  {
+    return NULL;
+  }
+
+  NumBlocks = DivU64x32Remainder (FvSize, (UINT32)BlockSize, &Remainder);
+  if ((Remainder != 0) || (NumBlocks > MAX_UINT32)) {
+    return NULL;
+  }
+
   FvHeader                        = &mFvbMediaInfo.FvInfo;
   FvHeader->FvLength              = FvSize;
-  FvHeader->BlockMap[0].NumBlocks = (UINT32)(FvSize / FvHeader->BlockMap[0].Length);
+  FvHeader->BlockMap[0].Length    = (UINT32)BlockSize;
+  FvHeader->BlockMap[0].NumBlocks = (UINT32)NumBlocks;
   FvHeader->Checksum              = 0;
   FvHeader->Checksum              = CalculateCheckSum16 ((UINT16 *)FvHeader, FvHeader->HeaderLength);
 

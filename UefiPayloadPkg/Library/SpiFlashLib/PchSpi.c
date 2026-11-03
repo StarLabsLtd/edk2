@@ -6,6 +6,36 @@
 **/
 #include "SpiCommon.h"
 
+STATIC UINT32  mSpiMmioBase;
+
+EFI_STATUS
+EFIAPI
+SpiFlashCacheMmioBase (
+  IN UINTN    PchSpiBase,
+  OUT UINT32  *MmioBase
+  )
+{
+  UINT32  Bar;
+
+  if (MmioBase == NULL) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  Bar = MmioRead32 (PchSpiBase + R_SPI_BASE);
+  if ((Bar == MAX_UINT32) || ((Bar & B_SPI_BAR0_MASK) != 0)) {
+    return EFI_DEVICE_ERROR;
+  }
+
+  Bar &= ~B_SPI_BAR0_MASK;
+  if (Bar == 0) {
+    return EFI_DEVICE_ERROR;
+  }
+
+  mSpiMmioBase = Bar;
+  *MmioBase    = Bar;
+  return EFI_SUCCESS;
+}
+
 /**
   Acquire SPI MMIO BAR.
 
@@ -19,7 +49,11 @@ AcquireSpiBar0 (
   IN  UINTN  PchSpiBase
   )
 {
-  return MmioRead32 (PchSpiBase + R_SPI_BASE) & ~(B_SPI_BAR0_MASK);
+  if (mSpiMmioBase != 0) {
+    return mSpiMmioBase;
+  }
+
+  return MmioRead32 (PchSpiBase + R_SPI_BASE) & ~B_SPI_BAR0_MASK;
 }
 
 /**
@@ -97,6 +131,11 @@ DisableBiosWriteProtect (
 
   if (CpuSmmBwp != 0) {
     CpuSmmDisableBiosWriteProtect (TRUE);
+  }
+
+  if ((MmioRead8 (PchSpiBase + R_SPI_BCR) & B_SPI_BCR_BIOSWE) == 0) {
+    DEBUG ((DEBUG_ERROR, "SPI BIOS write enable rejected: BCR=0x%04x\n", MmioRead16 (PchSpiBase + R_SPI_BCR)));
+    return EFI_ACCESS_DENIED;
   }
 
   return EFI_SUCCESS;

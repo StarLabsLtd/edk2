@@ -44,6 +44,8 @@
 [Sources]
   Reclaim.c
   Variable.c
+  VariableWriteService.c
+  VariableWriteServiceSmm.c
   VariableTraditionalMm.c
   VariableSmm.c
   VariableNonVolatile.c
@@ -142,6 +144,7 @@
   gEfiMdeModulePkgTokenSpaceGuid.PcdEmuVariableNvStoreReserved       ## SOMETIMES_CONSUMES
 
 [FeaturePcd]
+  gEfiMdeModulePkgTokenSpaceGuid.PcdEnableVariableRuntimeCache        ## CONSUMES
   gEfiMdeModulePkgTokenSpaceGuid.PcdVariableCollectStatistics        ## CONSUMES  # statistic the information of variable.
   gEfiMdePkgTokenSpaceGuid.PcdUefiVariableDefaultLangDeprecate       ## CONSUMES  # Auto update PlatformLang/Lang
 

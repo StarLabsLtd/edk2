@@ -67,6 +67,7 @@
   PrintLib
 
 [Guids]
+  gEfiEventExternalImageStartGuid
   #
   # This GUID C Name is not required for build since it is from UefiLib and not directly used by this module source.
   #  gEfiGlobalVariableGuid                     ## SOMETIMES_CONSUMES   ## Variable:L"PlatformLang" # this variable specifies the platform supported language string (RFC 4646 format)

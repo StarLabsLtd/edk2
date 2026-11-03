@@ -43,6 +43,12 @@
       gEfiMdeModulePkgTokenSpaceGuid.PcdAllowVariablePolicyEnforcementDisable|TRUE
   }
 
+  MdeModulePkg/Universal/Variable/RuntimeDxe/VariableReclaimUnitTestHost.inf {
+    <BuildOptions>
+      GCC:*_*_*_CC_FLAGS = -fsanitize=address,undefined -fno-omit-frame-pointer
+      GCC:*_*_*_DLINK_FLAGS = -Wl,--gc-sections -Wl,--wrap=FindVariable -Wl,--wrap=GetVariableStoreEndPointer -Wl,--wrap=UpdateVariable -fsanitize=address,undefined
+  }
+
   MdeModulePkg/Library/UefiSortLib/UnitTest/UefiSortLibUnitTest.inf {
     <LibraryClasses>
       UefiSortLib|MdeModulePkg/Library/UefiSortLib/UefiSortLib.inf

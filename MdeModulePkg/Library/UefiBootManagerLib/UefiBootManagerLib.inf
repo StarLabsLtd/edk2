@@ -65,6 +65,7 @@
   VariablePolicyHelperLib
 
 [Guids]
+  gEfiEventExternalImageStartGuid
   ## SOMETIMES_CONSUMES ## SystemTable (The identifier of memory type information type in system table)
   ## SOMETIMES_CONSUMES ## HOB (The hob holding memory type information)
   ## SOMETIMES_CONSUMES ## Variable:L"MemoryTypeInformation."

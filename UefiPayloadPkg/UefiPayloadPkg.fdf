@@ -242,9 +242,14 @@ INF MdeModulePkg/Universal/ResetSystemRuntimeDxe/ResetSystemRuntimeDxe.inf
   INF MdeModulePkg/Universal/FaultTolerantWriteDxe/FaultTolerantWriteDxe.inf
   INF MdeModulePkg/Universal/Variable/RuntimeDxe/VariableRuntimeDxe.inf
 !elseif $(VARIABLE_SUPPORT) == "SPI"
+!if $(FIXED_MM_SERVICE) == TRUE
+  INF UefiPayloadPkg/CorebootMmCommunicationDxe/CorebootMmCommunicationDxe.inf
+  INF UefiPayloadPkg/CorebootMmEventDxe/CorebootMmEventDxe.inf
+!else
   INF UefiPayloadPkg/FvbRuntimeDxe/FvbSmm.inf
   INF MdeModulePkg/Universal/FaultTolerantWriteDxe/FaultTolerantWriteSmm.inf
   INF MdeModulePkg/Universal/Variable/RuntimeDxe/VariableSmm.inf
+!endif
   INF MdeModulePkg/Universal/Variable/RuntimeDxe/VariableSmmRuntimeDxe.inf
 !endif
 
@@ -549,7 +554,6 @@ FILE FREEFORM = 701649dd-8739-40b9-bbdb-9ca434fdcd3b {
 
 !endif
 !endif
-
 
 ################################################################################
 #

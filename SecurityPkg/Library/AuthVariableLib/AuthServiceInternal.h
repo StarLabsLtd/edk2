@@ -97,6 +97,14 @@ extern VOID  *mHashSha512Ctx;
 
 extern AUTH_VAR_LIB_CONTEXT_IN  *mAuthVarLibContextIn;
 
+EFI_STATUS
+CheckSignatureListFormat (
+  IN CHAR16    *VariableName,
+  IN EFI_GUID  *VendorGuid,
+  IN VOID      *Data,
+  IN UINTN     DataSize
+  );
+
 /**
   Process variable with EFI_VARIABLE_TIME_BASED_AUTHENTICATED_WRITE_ACCESS set
 

@@ -9,6 +9,19 @@
 #pragma once
 
 /**
+  Initialize the flash device.
+
+  @retval EFI_SUCCESS      The flash device was initialized.
+  @retval EFI_UNSUPPORTED  The flash device is not supported.
+
+**/
+EFI_STATUS
+EFIAPI
+LibFvbFlashDeviceInit (
+  VOID
+  );
+
+/**
   Read NumBytes bytes of data from the address specified by
   PAddress into Buffer.
 

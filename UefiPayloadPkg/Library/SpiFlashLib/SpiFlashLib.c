@@ -45,6 +45,8 @@ SpiConstructor (
 {
   UINT32             ScSpiBar0;
   UINT8              Comp0Density;
+  UINT8              Comp1Density;
+  UINT32             FlashComponents;
   SPI_INSTANCE       *SpiInstance;
   EFI_HOB_GUID_TYPE  *GuidHob;
   SPI_FLASH_INFO     *SpiFlashInfo;
@@ -53,8 +55,7 @@ SpiConstructor (
   // Find SPI flash hob
   //
   GuidHob = GetFirstGuidHob (&gSpiFlashInfoGuid);
-  if (GuidHob == NULL) {
-    ASSERT (FALSE);
+  if ((GuidHob == NULL) || (GET_GUID_HOB_DATA_SIZE (GuidHob) != sizeof (*SpiFlashInfo))) {
     return EFI_NOT_FOUND;
   }
 
@@ -65,12 +66,12 @@ SpiConstructor (
   //
   SpiInstance = GetSpiInstance ();
   if (SpiInstance == NULL) {
-    return EFI_NOT_FOUND;
+    return EFI_OUT_OF_RESOURCES;
   }
 
   DEBUG ((DEBUG_INFO, "SpiInstance = %08X\n", SpiInstance));
 
-  SpiInstance->Signature = SC_SPI_PRIVATE_DATA_SIGNATURE;
+  SpiInstance->Signature = 0;
   SpiInstance->Handle    = NULL;
 
   //
@@ -79,9 +80,13 @@ SpiConstructor (
   if ((SpiFlashInfo->SpiAddress.AddressSpaceId !=  EFI_ACPI_3_0_PCI_CONFIGURATION_SPACE) ||
       (SpiFlashInfo->SpiAddress.RegisterBitWidth !=  32) ||
       (SpiFlashInfo->SpiAddress.RegisterBitOffset !=  0) ||
-      (SpiFlashInfo->SpiAddress.AccessSize !=  EFI_ACPI_3_0_DWORD))
+      (SpiFlashInfo->SpiAddress.AccessSize !=  EFI_ACPI_3_0_DWORD) ||
+      (SpiFlashInfo->SpiAddress.Address == 0) ||
+      (SpiFlashInfo->SpiAddress.Address > MAX_UINT32 - EFI_PAGE_MASK) ||
+      ((SpiFlashInfo->SpiAddress.Address & EFI_PAGE_MASK) != 0))
   {
     DEBUG ((DEBUG_ERROR, "SPI FLASH HOB is not expected. need check the hob or enhance SPI flash driver.\n"));
+    return EFI_UNSUPPORTED;
   }
 
   SpiInstance->PchSpiBase = (UINTN)SpiFlashInfo->SpiAddress.Address;
@@ -89,15 +94,21 @@ SpiConstructor (
   DEBUG ((DEBUG_INFO, "PchSpiBase at 0x%Lx\n", (UINT64)SpiInstance->PchSpiBase));
 
   ScSpiBar0 = AcquireSpiBar0 (SpiInstance->PchSpiBase);
+  if (ScSpiBar0 == 0) {
+    return EFI_DEVICE_ERROR;
+  }
+
   DEBUG ((DEBUG_INFO, "ScSpiBar0 at 0x%08X\n", ScSpiBar0));
 
-  if (ScSpiBar0 == 0) {
-    ASSERT (FALSE);
+  if ((ScSpiBar0 == 0) || ((ScSpiBar0 & EFI_PAGE_MASK) != 0) ||
+      (MmioRead32 (SpiInstance->PchSpiBase + R_SPI_BASE) == MAX_UINT32))
+  {
+    return EFI_DEVICE_ERROR;
   }
 
   if ((MmioRead32 (ScSpiBar0 + R_SPI_HSFS) & B_SPI_HSFS_FDV) == 0) {
     DEBUG ((DEBUG_ERROR, "SPI Flash descriptor invalid, cannot use Hardware Sequencing registers!\n"));
-    ASSERT (FALSE);
+    return EFI_DEVICE_ERROR;
   }
 
   MmioOr32 (SpiInstance->PchSpiBase + PCI_COMMAND_OFFSET, EFI_PCI_COMMAND_MEMORY_SPACE);
@@ -118,6 +129,9 @@ SpiConstructor (
   // Copy Zero based Number Of Components
   //
   SpiInstance->NumberOfComponents = (UINT8)((MmioRead16 (ScSpiBar0 + R_SPI_FDOD) & B_SPI_FDBAR_NC) >> N_SPI_FDBAR_NC);
+  if (SpiInstance->NumberOfComponents > FlashComponent1) {
+    return EFI_UNSUPPORTED;
+  }
 
   MmioAndThenOr32 (
     ScSpiBar0 + R_SPI_FDOC,
@@ -128,8 +142,24 @@ SpiConstructor (
   //
   // Copy Component 0 Density
   //
-  Comp0Density                     = (UINT8)MmioRead32 (ScSpiBar0 + R_SPI_FDOD) & B_SPI_FLCOMP_COMP1_MASK;
+  FlashComponents = MmioRead32 (ScSpiBar0 + R_SPI_FDOD);
+  Comp0Density    = (UINT8)(FlashComponents & B_SPI_FLCOMP_COMP1_MASK);
+  Comp1Density    = (UINT8)((FlashComponents >> 4) & B_SPI_FLCOMP_COMP1_MASK);
+  if ((Comp0Density > 7) ||
+      ((SpiInstance->NumberOfComponents == FlashComponent1) && (Comp1Density > 7)))
+  {
+    return EFI_UNSUPPORTED;
+  }
+
   SpiInstance->Component1StartAddr = (UINT32)(SIZE_512KB << Comp0Density);
+  SpiInstance->FlashSize           = SpiInstance->Component1StartAddr;
+  if (SpiInstance->NumberOfComponents == FlashComponent1) {
+    SpiInstance->FlashSize += (UINT32)(SIZE_512KB << Comp1Density);
+  }
+
+  if (SpiInstance->FlashSize > B_SPI_FADDR_MASK + 1) {
+    return EFI_UNSUPPORTED;
+  }
 
   //
   // Select FLASH_MAP1 to get Flash SC Strap Base Address
@@ -147,6 +177,7 @@ SpiConstructor (
   //
   SpiInstance->StrapBaseAddress &= B_SPI_FDBAR_FPSBA;
 
+  SpiInstance->Signature = SC_SPI_PRIVATE_DATA_SIGNATURE;
   return EFI_SUCCESS;
 }
 
@@ -436,15 +467,37 @@ SendSpiCmd (
   UINT8         BiosCtlSave;
   SPI_INSTANCE  *SpiInstance;
   UINT32        Data32;
+  UINT32        RegionSize;
 
   SpiInstance = GetSpiInstance ();
-  if (SpiInstance == NULL) {
+  if ((SpiInstance == NULL) || (SpiInstance->Signature != SC_SPI_PRIVATE_DATA_SIGNATURE)) {
+    DEBUG ((DEBUG_ERROR, "SPI instance is not initialized\n"));
     return EFI_DEVICE_ERROR;
+  }
+
+  // Validate the complete transfer before temporarily enabling flash writes.
+  if ((FlashCycleType == FlashCycleRead) || (FlashCycleType == FlashCycleWrite) ||
+      (FlashCycleType == FlashCycleErase))
+  {
+    Status = SpiGetRegionAddress (FlashRegionType, NULL, &RegionSize);
+    if (EFI_ERROR (Status)) {
+      return Status;
+    }
+
+    if ((ByteCount == 0) || (Address >= RegionSize) || (ByteCount > RegionSize - Address) ||
+        ((FlashCycleType != FlashCycleErase) && (Buffer == NULL)))
+    {
+      return EFI_INVALID_PARAMETER;
+    }
   }
 
   Status                        = EFI_SUCCESS;
   SpiBaseAddress                = SpiInstance->PchSpiBase;
   ScSpiBar0                     = AcquireSpiBar0 (SpiBaseAddress);
+  if (ScSpiBar0 == 0) {
+    return EFI_DEVICE_ERROR;
+  }
+
   BiosCtlSave                   = 0;
   SpiInstance->RegionPermission = MmioRead16 (ScSpiBar0 + R_SPI_FRAP);
 
@@ -452,12 +505,11 @@ SendSpiCmd (
   // If it's write cycle, disable Prefetching, Caching and disable BIOS Write Protect
   //
   if ((FlashCycleType == FlashCycleWrite) || (FlashCycleType == FlashCycleErase)) {
+    BiosCtlSave = SaveAndDisableSpiPrefetchCache (SpiBaseAddress);
     Status = DisableBiosWriteProtect (SpiBaseAddress, mSpiInstance->Flags & FLAGS_SPI_DISABLE_SMM_WRITE_PROTECT);
     if (EFI_ERROR (Status)) {
       goto SendSpiCmdEnd;
     }
-
-    BiosCtlSave = SaveAndDisableSpiPrefetchCache (SpiBaseAddress);
   }
 
   //
@@ -747,6 +799,18 @@ SendSpiCmd (
   } while (ByteCount > 0);
 
 SendSpiCmdEnd:
+  if (EFI_ERROR (Status)) {
+    DEBUG ((
+      DEBUG_ERROR,
+      "SPI command %u failed: %r BCR=0x%04x FRAP=0x%04x FADDR=0x%08x\n",
+      FlashCycleType,
+      Status,
+      MmioRead16 (SpiBaseAddress + R_SPI_BCR),
+      SpiInstance->RegionPermission,
+      MmioRead32 (ScSpiBar0 + R_SPI_FADDR)
+      ));
+  }
+
   ///
   /// Restore the settings for SPI Prefetching and Caching and enable BIOS Write Protect
   ///
@@ -790,6 +854,10 @@ WaitForSpiCycleComplete (
   for (WaitTicks = 0; WaitTicks < WaitCount; WaitTicks++) {
     Data32 = MmioRead32 (ScSpiBar0 + R_SPI_HSFS);
     if ((Data32 & B_SPI_HSFS_SCIP) == 0) {
+      if (((Data32 & B_SPI_HSFS_FCERR) != 0) && ErrorCheck) {
+        DEBUG ((DEBUG_ERROR, "SPI cycle failed: HSFS=0x%08x FADDR=0x%08x\n", Data32, MmioRead32 (ScSpiBar0 + R_SPI_FADDR)));
+      }
+
       MmioWrite32 (ScSpiBar0 + R_SPI_HSFS, B_SPI_HSFS_FCERR | B_SPI_HSFS_FDONE);
       if (((Data32 & B_SPI_HSFS_FCERR) != 0) && ErrorCheck) {
         return FALSE;
@@ -801,6 +869,7 @@ WaitForSpiCycleComplete (
     MicroSecondDelay (WAIT_PERIOD);
   }
 
+  DEBUG ((DEBUG_ERROR, "SPI cycle timed out: HSFS=0x%08x FADDR=0x%08x\n", Data32, MmioRead32 (ScSpiBar0 + R_SPI_FADDR)));
   return FALSE;
 }
 
@@ -826,6 +895,7 @@ SpiGetRegionAddress (
   UINT32        ScSpiBar0;
   UINT32        ReadValue;
   UINT32        Base;
+  UINT32        Limit;
   SPI_INSTANCE  *SpiInstance;
 
   if (FlashRegionType >= FlashRegionMax) {
@@ -833,7 +903,7 @@ SpiGetRegionAddress (
   }
 
   SpiInstance = GetSpiInstance ();
-  if (SpiInstance == NULL) {
+  if ((SpiInstance == NULL) || (SpiInstance->Signature != SC_SPI_PRIVATE_DATA_SIGNATURE)) {
     return EFI_DEVICE_ERROR;
   }
 
@@ -843,13 +913,17 @@ SpiGetRegionAddress (
     }
 
     if (RegionSize != NULL) {
-      *RegionSize = SpiInstance->Component1StartAddr;
+      *RegionSize = SpiInstance->FlashSize;
     }
 
     return EFI_SUCCESS;
   }
 
   ScSpiBar0 = AcquireSpiBar0 (SpiInstance->PchSpiBase);
+  if (ScSpiBar0 == 0) {
+    return EFI_DEVICE_ERROR;
+  }
+
   ReadValue = MmioRead32 (ScSpiBar0 + R_SPI_FREG0_FLASHD + S_SPI_FREGX * (UINT32)FlashRegionType);
   ReleaseSpiBar0 (SpiInstance->PchSpiBase);
 
@@ -861,13 +935,16 @@ SpiGetRegionAddress (
   }
 
   Base = (ReadValue & B_SPI_FREG1_BASE_MASK) << N_SPI_FREG1_BASE;
+  Limit = (((ReadValue & B_SPI_FREGX_LIMIT_MASK) >> N_SPI_FREGX_LIMIT) + 1) << N_SPI_FREGX_LIMIT_REPR;
+  if (Base >= Limit) {
+    return EFI_DEVICE_ERROR;
+  }
   if (BaseAddress != NULL) {
     *BaseAddress = Base;
   }
 
   if (RegionSize != NULL) {
-    *RegionSize =  ((((ReadValue & B_SPI_FREGX_LIMIT_MASK) >> N_SPI_FREGX_LIMIT) + 1) <<
-                    N_SPI_FREGX_LIMIT_REPR) - Base;
+    *RegionSize = Limit - Base;
   }
 
   return EFI_SUCCESS;

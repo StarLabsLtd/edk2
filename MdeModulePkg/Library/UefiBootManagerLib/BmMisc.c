@@ -7,6 +7,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 
 **/
 
+#include <Guid/EventGroup.h>
 #include "InternalBm.h"
 
 #define PREVIOUS_MEMORY_TYPE_INFORMATION_VARIABLE_NAME  L"PreviousMemoryTypeInformation"
@@ -535,6 +536,14 @@ EfiBootManagerDispatchDeferredImages (
         // a 5 Minute period
         //
         gBS->SetWatchdogTimer (5 * 60, 0x0000, 0x00, NULL);
+        Status = EfiEventGroupSignal (&gEfiEventExternalImageStartGuid);
+        if (EFI_ERROR (Status)) {
+          gBS->SetWatchdogTimer (0x0000, 0x0000, 0x0000, NULL);
+          gBS->UnloadImage (ImageHandle);
+          FreePool (Handles);
+          return Status;
+        }
+
         gBS->StartImage (ImageHandle, NULL, NULL);
 
         //

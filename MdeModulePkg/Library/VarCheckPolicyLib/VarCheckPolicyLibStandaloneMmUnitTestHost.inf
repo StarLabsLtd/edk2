@@ -1,0 +1,36 @@
+## @file
+# Host checks for standalone MM variable-policy initialization.
+# Copyright (c) 2026, Star Labs Systems. All rights reserved.<BR>
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION    = 0x00010017
+  BASE_NAME      = VarCheckPolicyLibStandaloneMmUnitTest
+  FILE_GUID      = A438C2D0-4577-45AE-A9D4-56D7EF85049B
+  VERSION_STRING = 1.0
+  MODULE_TYPE    = HOST_APPLICATION
+
+[Sources]
+  VarCheckPolicyLibStandaloneMmUnitTest.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  StandaloneMmPkg/StandaloneMmPkg.dec
+  UnitTestFrameworkPkg/UnitTestFrameworkPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  MemoryAllocationLib
+  SafeIntLib
+  UnitTestLib
+
+[Guids]
+  gVarCheckPolicyLibMmiHandlerGuid
+
+[BuildOptions]
+  GCC:*_*_*_CC_FLAGS    = -fno-profile-arcs -fno-test-coverage
+  GCC:*_*_*_DLINK_FLAGS = -Wl,--gc-sections -Wl,--wrap=CpuDeadLoop

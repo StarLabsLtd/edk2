@@ -58,6 +58,35 @@ IsValidVariableContent (
   );
 
 /**
+  Validate and account for every record in a formatted variable store.
+
+  Committed records must contain a complete, terminated variable name. An
+  uncommitted append and everything following it are returned as an opaque
+  dirty tail for startup reclamation; its length fields are not inspected.
+  The unused tail following committed records must be fully erased.
+
+  @param[in]  VariableStore            Variable store header.
+  @param[in]  VariableStoreSize        Validated extent of the store.
+  @param[in]  AuthFormat               Authenticated-variable record format.
+  @param[out] LastVariableOffset       Offset of the first erased byte.
+  @param[out] CommonVariableTotalSize  Space consumed by ordinary records.
+  @param[out] HwErrVariableTotalSize   Space consumed by hardware-error records.
+
+  @retval EFI_SUCCESS           The complete store is valid.
+  @retval EFI_INVALID_PARAMETER An argument or store extent is invalid.
+  @retval EFI_VOLUME_CORRUPTED  A record or the unused tail is malformed.
+**/
+EFI_STATUS
+ValidateVariableStore (
+  IN VARIABLE_STORE_HEADER  *VariableStore,
+  IN UINTN                  VariableStoreSize,
+  IN BOOLEAN                AuthFormat,
+  OUT UINTN                 *LastVariableOffset,
+  OUT UINTN                 *CommonVariableTotalSize,
+  OUT UINTN                 *HwErrVariableTotalSize
+  );
+
+/**
 
   This code gets the current status of Variable Store.
 
@@ -268,6 +297,29 @@ GetEndPointer (
   );
 
 /**
+  Gets the readable end of a variable store.
+
+  The non-volatile store may contain an interrupted append after its validated
+  record prefix. Other stores retain their complete declared extent.
+
+  @param[in]  VarStoreHeader  Pointer to the variable store header.
+  @param[in]  StoreType       Type of variable store.
+  @param[in]  NvEndOffset     Validated non-volatile prefix length. Ignored for
+                              other store types.
+  @param[out] EndPtr          Pointer to the readable end of the store.
+
+  @retval EFI_SUCCESS           The readable boundary was returned.
+  @retval EFI_VOLUME_CORRUPTED  The non-volatile boundary is invalid.
+**/
+EFI_STATUS
+GetVariableStoreEndPointer (
+  IN  VARIABLE_STORE_HEADER  *VarStoreHeader,
+  IN  VARIABLE_STORE_TYPE    StoreType,
+  IN  UINTN                  NvEndOffset,
+  OUT VARIABLE_HEADER        **EndPtr
+  );
+
+/**
   Compare two EFI_TIME data.
 
 
@@ -320,6 +372,7 @@ FindVariableEx (
   @param[out] VariablePtr       Pointer to variable header address.
   @param[in]  AuthFormat        TRUE indicates authenticated variables are used.
                                 FALSE indicates authenticated variables are not used.
+  @param[in]  NvEndOffset       Validated non-volatile prefix length.
 
   @retval EFI_SUCCESS           The function completed successfully.
   @retval EFI_NOT_FOUND         The next variable was not found.
@@ -335,7 +388,8 @@ VariableServiceGetNextVariableInternal (
   IN  EFI_GUID               *VendorGuid,
   IN  VARIABLE_STORE_HEADER  **VariableStoreList,
   OUT VARIABLE_HEADER        **VariablePtr,
-  IN  BOOLEAN                AuthFormat
+  IN  BOOLEAN                AuthFormat,
+  IN  UINTN                  NvEndOffset
   );
 
 /**

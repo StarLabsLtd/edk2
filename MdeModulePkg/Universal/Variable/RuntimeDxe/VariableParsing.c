@@ -26,7 +26,11 @@ IsValidVariableHeader (
   IN  VARIABLE_HEADER  *VariableStoreEnd
   )
 {
-  if ((Variable == NULL) || (Variable >= VariableStoreEnd) || (Variable->StartId != VARIABLE_DATA)) {
+  if ((Variable == NULL) || (VariableStoreEnd == NULL) ||
+      ((UINTN)Variable >= (UINTN)VariableStoreEnd) ||
+      (((UINTN)VariableStoreEnd - (UINTN)Variable) < sizeof (*Variable)) ||
+      (Variable->StartId != VARIABLE_DATA))
+  {
     //
     // Variable is NULL or has reached the end of variable store,
     // or the StartId is not correct.
@@ -35,6 +39,117 @@ IsValidVariableHeader (
   }
 
   return TRUE;
+}
+
+EFI_STATUS
+ValidateVariableStore (
+  IN VARIABLE_STORE_HEADER  *VariableStore,
+  IN UINTN                  VariableStoreSize,
+  IN BOOLEAN                AuthFormat,
+  OUT UINTN                 *LastVariableOffset,
+  OUT UINTN                 *CommonVariableTotalSize,
+  OUT UINTN                 *HwErrVariableTotalSize
+  )
+{
+  VARIABLE_HEADER  *Variable;
+  VARIABLE_HEADER  *NextVariable;
+  VARIABLE_HEADER  *VariableStoreEnd;
+  UINT8            *Tail;
+  UINTN            VariableSize;
+  UINTN            CommonSize;
+  UINTN            HwErrSize;
+  UINTN            RemainingSize;
+
+  if ((VariableStore == NULL) || (LastVariableOffset == NULL) ||
+      (CommonVariableTotalSize == NULL) || (HwErrVariableTotalSize == NULL) ||
+      (VariableStoreSize < sizeof (*VariableStore)) ||
+      (VariableStore->Size != VariableStoreSize) ||
+      ((UINTN)VariableStore > (MAX_UINTN - VariableStoreSize)))
+  {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  VariableStoreEnd = (VARIABLE_HEADER *)((UINTN)VariableStore + VariableStoreSize);
+  Variable         = GetStartPointer (VariableStore);
+  if (Variable > VariableStoreEnd) {
+    return EFI_VOLUME_CORRUPTED;
+  }
+
+  CommonSize = 0;
+  HwErrSize  = 0;
+  while (Variable < VariableStoreEnd) {
+    RemainingSize = (UINTN)VariableStoreEnd - (UINTN)Variable;
+    if (RemainingSize < (OFFSET_OF (VARIABLE_HEADER, State) + sizeof (Variable->State))) {
+      //
+      // A short, non-erased tail can only be the beginning of the next
+      // append.  Do not inspect it as a variable record.
+      //
+      break;
+    }
+
+    //
+    // UpdateVariable() writes the complete record with an erased state and
+    // commits it with a separate State write.  A reset can therefore leave
+    // an arbitrary partial record, or a complete record, in this state.  A
+    // partially programmed state byte can also contain either intermediate
+    // value between MAX_UINT8 and VAR_ADDED.  Nothing after such a record can
+    // have been committed by the append-only writer, so preserve the bounded
+    // prefix and leave the complete remainder for startup reclamation.
+    //
+    if ((Variable->State == MAX_UINT8) ||
+        (Variable->State == VAR_HEADER_VALID_ONLY) ||
+        (Variable->State == (MAX_UINT8 & ~BIT6)))
+    {
+      break;
+    }
+
+    if ((RemainingSize < GetVariableHeaderSize (AuthFormat)) ||
+        (Variable->StartId == MAX_UINT16))
+    {
+      for (Tail = (UINT8 *)Variable; Tail < (UINT8 *)VariableStoreEnd; Tail++) {
+        if (*Tail != MAX_UINT8) {
+          return EFI_VOLUME_CORRUPTED;
+        }
+      }
+
+      break;
+    }
+
+    if ((Variable->State != VAR_ADDED) &&
+        (Variable->State != (VAR_IN_DELETED_TRANSITION & VAR_ADDED)) &&
+        (Variable->State != (VAR_DELETED & VAR_ADDED)) &&
+        (Variable->State != (VAR_DELETED & VAR_IN_DELETED_TRANSITION & VAR_ADDED)))
+    {
+      return EFI_VOLUME_CORRUPTED;
+    }
+
+    if (!IsValidVariableSize (Variable, VariableStoreEnd, AuthFormat) ||
+        !IsValidVariableContent (Variable, VariableStoreEnd, AuthFormat))
+    {
+      return EFI_VOLUME_CORRUPTED;
+    }
+
+    NextVariable = GetNextVariablePtr (Variable, AuthFormat);
+    if ((NextVariable <= Variable) || (NextVariable > VariableStoreEnd)) {
+      return EFI_VOLUME_CORRUPTED;
+    }
+
+    VariableSize = (UINTN)NextVariable - (UINTN)Variable;
+    if ((Variable->Attributes & (EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_HARDWARE_ERROR_RECORD)) ==
+        (EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_HARDWARE_ERROR_RECORD))
+    {
+      HwErrSize += VariableSize;
+    } else {
+      CommonSize += VariableSize;
+    }
+
+    Variable = NextVariable;
+  }
+
+  *LastVariableOffset      = (UINTN)Variable - (UINTN)VariableStore;
+  *CommonVariableTotalSize = CommonSize;
+  *HwErrVariableTotalSize  = HwErrSize;
+  return EFI_SUCCESS;
 }
 
 /**
@@ -500,6 +615,37 @@ GetEndPointer (
   return (VARIABLE_HEADER *)HEADER_ALIGN ((UINTN)VarStoreHeader + VarStoreHeader->Size);
 }
 
+EFI_STATUS
+GetVariableStoreEndPointer (
+  IN  VARIABLE_STORE_HEADER  *VarStoreHeader,
+  IN  VARIABLE_STORE_TYPE    StoreType,
+  IN  UINTN                  NvEndOffset,
+  OUT VARIABLE_HEADER        **EndPtr
+  )
+{
+  UINTN  StartOffset;
+
+  if ((VarStoreHeader == NULL) || (EndPtr == NULL)) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  if (StoreType != VariableStoreTypeNv) {
+    *EndPtr = GetEndPointer (VarStoreHeader);
+    return EFI_SUCCESS;
+  }
+
+  StartOffset = (UINTN)GetStartPointer (VarStoreHeader) - (UINTN)VarStoreHeader;
+  if ((NvEndOffset < StartOffset) ||
+      (NvEndOffset > VarStoreHeader->Size) ||
+      ((UINTN)VarStoreHeader > (MAX_UINTN - NvEndOffset)))
+  {
+    return EFI_VOLUME_CORRUPTED;
+  }
+
+  *EndPtr = (VARIABLE_HEADER *)((UINTN)VarStoreHeader + NvEndOffset);
+  return EFI_SUCCESS;
+}
+
 /**
   Compare two EFI_TIME data.
 
@@ -638,7 +784,8 @@ VariableServiceGetNextVariableInternal (
   IN  EFI_GUID               *VendorGuid,
   IN  VARIABLE_STORE_HEADER  **VariableStoreList,
   OUT VARIABLE_HEADER        **VariablePtr,
-  IN  BOOLEAN                AuthFormat
+  IN  BOOLEAN                AuthFormat,
+  IN  UINTN                  NvEndOffset
   )
 {
   EFI_STATUS              Status;
@@ -662,7 +809,16 @@ VariableServiceGetNextVariableInternal (
     }
 
     Variable.StartPtr = GetStartPointer (VariableStoreList[StoreType]);
-    Variable.EndPtr   = GetEndPointer (VariableStoreList[StoreType]);
+    Status = GetVariableStoreEndPointer (
+               VariableStoreList[StoreType],
+               StoreType,
+               NvEndOffset,
+               &Variable.EndPtr
+               );
+    if (EFI_ERROR (Status)) {
+      goto Done;
+    }
+
     Variable.Volatile = (BOOLEAN)(StoreType == VariableStoreTypeVolatile);
 
     Status = FindVariableEx (VariableName, VendorGuid, FALSE, &Variable, AuthFormat);
@@ -731,8 +887,17 @@ VariableServiceGetNextVariableInternal (
       }
 
       Variable.StartPtr = GetStartPointer (VariableStoreList[StoreType]);
-      Variable.EndPtr   = GetEndPointer (VariableStoreList[StoreType]);
-      Variable.CurrPtr  = Variable.StartPtr;
+      Status = GetVariableStoreEndPointer (
+                 VariableStoreList[StoreType],
+                 StoreType,
+                 NvEndOffset,
+                 &Variable.EndPtr
+                 );
+      if (EFI_ERROR (Status)) {
+        goto Done;
+      }
+
+      Variable.CurrPtr = Variable.StartPtr;
     }
 
     //

@@ -1,0 +1,52 @@
+## @file
+# Host checks for bounded recovery of interrupted variable appends.
+# Copyright (c) 2026, Star Labs Systems. All rights reserved.<BR>
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION    = 0x00010017
+  BASE_NAME      = VariableReclaimUnitTest
+  FILE_GUID      = B879318C-DF38-47F5-BF64-1266DF3ADB9C
+  VERSION_STRING = 1.0
+  MODULE_TYPE    = HOST_APPLICATION
+
+[Sources]
+  VariableReclaimUnitTest.c
+  Variable.c
+  VariableExLib.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  SecurityPkg/SecurityPkg.dec
+  UnitTestFrameworkPkg/UnitTestFrameworkPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  MemoryAllocationLib
+  PcdLib
+  UnitTestLib
+
+[Guids]
+  gEdkiiVarErrorFlagGuid
+  gEfiAuthenticatedVariableGuid
+  gEfiGlobalVariableGuid
+  gEfiVariableGuid
+
+[Pcd]
+  gEfiMdeModulePkgTokenSpaceGuid.PcdHwErrStorageSize
+  gEfiMdeModulePkgTokenSpaceGuid.PcdMaxHardwareErrorVariableSize
+  gEfiMdeModulePkgTokenSpaceGuid.PcdMaxUserNvVariableSpaceSize
+  gEfiMdeModulePkgTokenSpaceGuid.PcdMaxVariableSize
+  gEfiMdeModulePkgTokenSpaceGuid.PcdMaxAuthVariableSize
+  gEfiMdeModulePkgTokenSpaceGuid.PcdMaxVolatileVariableSize
+  gEfiMdeModulePkgTokenSpaceGuid.PcdVariableCollectStatistics
+  gEfiMdeModulePkgTokenSpaceGuid.PcdVariableStoreSize
+  gEfiMdeModulePkgTokenSpaceGuid.PcdEmuVariableNvModeEnable
+  gEfiMdeModulePkgTokenSpaceGuid.PcdEmuVariableNvStoreReserved
+
+[FeaturePcd]
+  gEfiMdePkgTokenSpaceGuid.PcdUefiVariableDefaultLangDeprecate

@@ -216,7 +216,12 @@ InitRealNonVolatileVariableStore (
   //
   // Check if the Firmware Volume is not corrupted
   //
-  if ((FvHeader->Signature != EFI_FVH_SIGNATURE) || (!CompareGuid (&gEfiSystemNvDataFvGuid, &FvHeader->FileSystemGuid))) {
+  if ((NvStorageSize < sizeof (*FvHeader)) ||
+      (FvHeader->Signature != EFI_FVH_SIGNATURE) ||
+      !CompareGuid (&gEfiSystemNvDataFvGuid, &FvHeader->FileSystemGuid) ||
+      (FvHeader->HeaderLength < sizeof (*FvHeader)) ||
+      (FvHeader->HeaderLength > (NvStorageSize - sizeof (*VariableStore))))
+  {
     FreePool (NvStorageData);
     DEBUG ((DEBUG_ERROR, "Firmware Volume for Variable Store is corrupted\n"));
     return EFI_VOLUME_CORRUPTED;
@@ -224,13 +229,13 @@ InitRealNonVolatileVariableStore (
 
   VariableStore       = (VARIABLE_STORE_HEADER *)((UINTN)FvHeader + FvHeader->HeaderLength);
   VariableStoreLength = NvStorageSize - FvHeader->HeaderLength;
-  ASSERT (sizeof (VARIABLE_STORE_HEADER) <= VariableStoreLength);
-  ASSERT (VariableStore->Size == VariableStoreLength);
 
   //
   // Check if the Variable Store header is not corrupted
   //
-  if (GetVariableStoreStatus (VariableStore) != EfiValid) {
+  if ((VariableStore->Size != VariableStoreLength) ||
+      (GetVariableStoreStatus (VariableStore) != EfiValid))
+  {
     FreePool (NvStorageData);
     DEBUG ((DEBUG_ERROR, "Variable Store header is corrupted\n"));
     return EFI_VOLUME_CORRUPTED;
@@ -295,11 +300,11 @@ InitNonVolatileVariableStore (
   VOID
   )
 {
-  VARIABLE_HEADER       *Variable;
-  VARIABLE_HEADER       *NextVariable;
   EFI_PHYSICAL_ADDRESS  VariableStoreBase;
-  UINTN                 VariableSize;
   EFI_STATUS            Status;
+  UINTN                 LastVariableOffset;
+  UINTN                 CommonVariableTotalSize;
+  UINTN                 HwErrVariableTotalSize;
 
   if (PcdGetBool (PcdEmuVariableNvModeEnable)) {
     Status = InitEmuNonVolatileVariableStore (&VariableStoreBase);
@@ -328,20 +333,21 @@ InitNonVolatileVariableStore (
   //
   // Parse non-volatile variable data and get last variable offset.
   //
-  Variable = GetStartPointer (mNvVariableCache);
-  while (IsValidVariableHeader (Variable, GetEndPointer (mNvVariableCache))) {
-    NextVariable = GetNextVariablePtr (Variable, mVariableModuleGlobal->VariableGlobal.AuthFormat);
-    VariableSize = (UINTN)NextVariable - (UINTN)Variable;
-    if ((Variable->Attributes & (EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_HARDWARE_ERROR_RECORD)) == (EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_HARDWARE_ERROR_RECORD)) {
-      mVariableModuleGlobal->HwErrVariableTotalSize += VariableSize;
-    } else {
-      mVariableModuleGlobal->CommonVariableTotalSize += VariableSize;
-    }
-
-    Variable = NextVariable;
+  Status = ValidateVariableStore (
+             mNvVariableCache,
+             mNvVariableCache->Size,
+             mVariableModuleGlobal->VariableGlobal.AuthFormat,
+             &LastVariableOffset,
+             &CommonVariableTotalSize,
+             &HwErrVariableTotalSize
+             );
+  if (EFI_ERROR (Status)) {
+    return Status;
   }
 
-  mVariableModuleGlobal->NonVolatileLastVariableOffset = (UINTN)Variable - (UINTN)mNvVariableCache;
+  mVariableModuleGlobal->NonVolatileLastVariableOffset = LastVariableOffset;
+  mVariableModuleGlobal->CommonVariableTotalSize       = CommonVariableTotalSize;
+  mVariableModuleGlobal->HwErrVariableTotalSize        = HwErrVariableTotalSize;
 
   return EFI_SUCCESS;
 }
