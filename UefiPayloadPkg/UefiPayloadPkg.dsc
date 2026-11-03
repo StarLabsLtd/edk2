@@ -36,6 +36,22 @@
   DEFINE SIO_BUS_ENABLE               = FALSE
   DEFINE SECURITY_STUB_ENABLE         = TRUE
   DEFINE SMM_SUPPORT                  = FALSE
+  # Authorised SMM Service, owned by coreboot.
+  DEFINE ASS                          = FALSE
+
+!if $(ASS) == TRUE
+!if $(SECURITY_STUB_ENABLE) != TRUE
+  !error "ASS requires SECURITY_STUB_ENABLE for image admission policy"
+!endif
+!if $(SMM_SUPPORT) == TRUE
+  !error "SMM_SUPPORT and ASS cannot both be TRUE"
+!endif
+!if $(BUILD_ARCH) != IA32
+!if $(BUILD_ARCH) != X64
+  !error "ASS requires an x86 build"
+!endif
+!endif
+!endif
   DEFINE PLATFORM_BOOT_TIMEOUT        = 3
   DEFINE BOOT_MANAGER_ESCAPE          = FALSE
   DEFINE ATA_ENABLE                   = TRUE
@@ -101,6 +117,10 @@
   #
   DEFINE   BOOTLOADER                 = SBL
 
+!if $(ASS) == TRUE && $(BOOTLOADER) != "COREBOOT"
+  !error "ASS requires BOOTLOADER=COREBOOT"
+!endif
+
   #
   # CPU options
   #
@@ -159,6 +179,10 @@
   # NONE:     UEFI payload with no variable modules
   #
   DEFINE VARIABLE_SUPPORT      = EMU
+
+!if $(ASS) == TRUE && $(VARIABLE_SUPPORT) != "SPI"
+  !error "ASS requires VARIABLE_SUPPORT=SPI"
+!endif
 
   DEFINE DISABLE_RESET_SYSTEM  = FALSE
   DEFINE NETWORK_DRIVER_ENABLE = FALSE
@@ -349,7 +373,13 @@
   DisplayUpdateProgressLib|MdeModulePkg/Library/DisplayUpdateProgressLibGraphics/DisplayUpdateProgressLibGraphics.inf
   # If there are no specific checks to do, null-library suffices
   CapsuleUpdatePolicyLib|FmpDevicePkg/Library/CapsuleUpdatePolicyLibNull/CapsuleUpdatePolicyLibNull.inf
+!if $(ASS) == TRUE
+  CorebootCapsuleLib|UefiPayloadPkg/Library/CorebootCapsuleLib/CorebootCapsuleLib.inf
+  FmpAuthenticationLib|UefiPayloadPkg/Library/CorebootFmpAuthenticationLib/CorebootFmpAuthenticationLib.inf
+!else
+  CorebootCapsuleLib|UefiPayloadPkg/Library/CorebootCapsuleLibNull/CorebootCapsuleLibNull.inf
   FmpAuthenticationLib|SecurityPkg/Library/FmpAuthenticationLibPkcs7/FmpAuthenticationLibPkcs7.inf
+!endif
   FmpDependencyCheckLib|FmpDevicePkg/Library/FmpDependencyCheckLib/FmpDependencyCheckLib.inf
   # No need to save/restore FMP dependencies unless they are utilized
   FmpDependencyDeviceLib|FmpDevicePkg/Library/FmpDependencyDeviceLibNull/FmpDependencyDeviceLibNull.inf
@@ -450,7 +480,11 @@
   MmUnblockMemoryLib|MdePkg/Library/MmUnblockMemoryLib/MmUnblockMemoryLibNull.inf
 !endif
 !if $(VARIABLE_SUPPORT) == "SMMSTORE" || ($(CAPSULE_SUPPORT) && $(BOOTLOADER) == "COREBOOT")
+!if $(ASS) == TRUE
+  SmmStoreLib|UefiPayloadPkg/Library/CorebootCapsuleStoreLib/CorebootCapsuleStoreLib.inf
+!else
   SmmStoreLib|UefiPayloadPkg/Library/SmmStoreLib/SmmStoreLib.inf
+!endif
 !endif
   VarCheckLib|MdeModulePkg/Library/VarCheckLib/VarCheckLib.inf
   SmmStoreGeometryLib|UefiPayloadPkg/Library/SmmStoreGeometryLib/SmmStoreGeometryLib.inf
@@ -1171,6 +1205,9 @@
 !if $(SECURITY_STUB_ENABLE) == TRUE
   MdeModulePkg/Universal/SecurityStubDxe/SecurityStubDxe.inf {
       <LibraryClasses>
+!if $(ASS) == TRUE
+      NULL|UefiPayloadPkg/Library/CorebootImagePolicyLib/CorebootImagePolicyLib.inf
+!endif
 !if $(SECURE_BOOT_ENABLE) == TRUE
       NULL|SecurityPkg/Library/DxeImageVerificationLib/DxeImageVerificationLib.inf
 !endif
@@ -1393,6 +1430,10 @@
       NULL|EmbeddedPkg/Library/NvVarStoreFormattedLib/NvVarStoreFormattedLib.inf
   }
 !elseif $(VARIABLE_SUPPORT) == "SPI"
+!if $(ASS) == TRUE
+  UefiPayloadPkg/CorebootMmCommunicationDxe/CorebootMmCommunicationDxe.inf
+  UefiPayloadPkg/CorebootMmEventDxe/CorebootMmEventDxe.inf
+!else
   MdeModulePkg/Universal/Variable/RuntimeDxe/VariableSmm.inf {
     <LibraryClasses>
       NULL|MdeModulePkg/Library/VarCheckUefiLib/VarCheckUefiLib.inf
@@ -1403,6 +1444,7 @@
 
   UefiPayloadPkg/FvbRuntimeDxe/FvbSmm.inf
   MdeModulePkg/Universal/FaultTolerantWriteDxe/FaultTolerantWriteSmm.inf
+!endif
   MdeModulePkg/Universal/Variable/RuntimeDxe/VariableSmmRuntimeDxe.inf
 !endif
 

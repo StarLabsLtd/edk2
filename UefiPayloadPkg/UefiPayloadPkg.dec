@@ -18,6 +18,7 @@
   Include
 
 [LibraryClasses]
+  CorebootCapsuleLib|Include/Library/CorebootCapsuleLib.h
   PayloadEntryHelperLib|Include/Library/PayloadEntryHelperLib.h
   CbMemLib|Include/Library/CbMemLib.h
   SmmStoreGeometryLib|Include/Library/SmmStoreGeometryLib.h
