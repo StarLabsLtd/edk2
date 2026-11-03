@@ -385,6 +385,10 @@ FtwReclaimWorkSpace (
   UINT8                                    *Ptr;
   EFI_LBA                                  WorkSpaceLbaOffset;
 
+  if (FeaturePcdGet (PcdFtwProtectInvalidWorkspace) && !FtwCanReclaimWorkspace ()) {
+    return EFI_VOLUME_CORRUPTED;
+  }
+
   DEBUG ((DEBUG_INFO, "Ftw: start to reclaim work space\n"));
 
   WorkSpaceLbaOffset = FtwDevice->FtwWorkSpaceLba - FtwDevice->FtwWorkBlockLba;

@@ -57,6 +57,7 @@
   gEdkiiWorkingBlockSignatureGuid
 
 [Protocols]
+  gEdkiiFtwStoreValidationProtocolGuid              ## SOMETIMES_CONSUMES
   gEfiSmmSwapAddressRangeProtocolGuid | gEfiMdeModulePkgTokenSpaceGuid.PcdFullFtwServiceEnable  ## SOMETIMES_CONSUMES
   ## NOTIFY
   ## CONSUMES
@@ -69,6 +70,7 @@
 [FeaturePcd]
   gEfiMdeModulePkgTokenSpaceGuid.PcdFullFtwServiceEnable    ## CONSUMES
   gEfiMdeModulePkgTokenSpaceGuid.PcdFtwExternalCommunication ## CONSUMES
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFtwProtectInvalidWorkspace ## CONSUMES
 
 [Depex]
   TRUE
