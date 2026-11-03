@@ -31,6 +31,7 @@
   FmpDeviceSmmUpdatePolicy.h
 
 [LibraryClasses]
+  CorebootCapsuleLib
   BaseMemoryLib
   DebugLib
   HobLib
