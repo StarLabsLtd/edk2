@@ -840,6 +840,16 @@ FtwGetLastWriteHeader (
       return Remaining >= sizeof (EFI_FAULT_TOLERANT_WRITE_RECORD) ? EFI_SUCCESS : EFI_BUFFER_TOO_SMALL;
     }
 
+    // An interrupted header write may leave its sizes incomplete. No data
+    // write can start until WritesAllocated is committed; reclaim without
+    // interpreting those sizes. The store owner must approve reclamation.
+    if ((Header.HeaderAllocated == FTW_VALID_STATE) &&
+        (Header.WritesAllocated != FTW_VALID_STATE) &&
+        (Header.Complete != FTW_VALID_STATE))
+    {
+      return EFI_BUFFER_TOO_SMALL;
+    }
+
     if ((Header.HeaderAllocated != FTW_VALID_STATE) ||
         (Header.NumberOfWrites == 0) ||
         (Remaining < sizeof (EFI_FAULT_TOLERANT_WRITE_RECORD)) ||
@@ -851,11 +861,6 @@ FtwGetLastWriteHeader (
     RecordSize = sizeof (EFI_FAULT_TOLERANT_WRITE_RECORD) + (UINTN)Header.PrivateDataSize;
     if (Header.NumberOfWrites > Remaining / RecordSize) {
       return EFI_VOLUME_CORRUPTED;
-    }
-
-    // Reclaim only a bounded header whose write allocation was not committed.
-    if ((Header.WritesAllocated != FTW_VALID_STATE) && (Header.Complete != FTW_VALID_STATE)) {
-      return EFI_BUFFER_TOO_SMALL;
     }
 
     if (Header.Complete != FTW_VALID_STATE) {
@@ -1300,6 +1305,7 @@ InitFtwProtocol (
   UINTN                               Offset;
   EFI_HANDLE                          FvbHandle;
   EFI_LBA                             WorkSpaceLbaOffset;
+  BOOLEAN                             WorkingErased;
 
   //
   // Find the right SMM Fvb protocol instance for FTW.
@@ -1368,6 +1374,13 @@ InitFtwProtocol (
   // If the working block workspace is not valid, try the spare block
   //
   if (!IsValidWorkSpace (FtwDevice->FtwWorkSpaceHeader)) {
+    WorkingErased = FALSE;
+    if (FeaturePcdGet (PcdFtwProtectInvalidWorkspace)) {
+      WorkingErased = IsErasedFlashBuffer (
+                        FtwDevice->FtwWorkSpace,
+                        FtwDevice->FtwWorkSpaceSize
+                        );
+    }
     //
     // Read from spare block
     //
@@ -1420,6 +1433,13 @@ InitFtwProtocol (
         return Status;
       }
     } else {
+      if (FeaturePcdGet (PcdFtwProtectInvalidWorkspace) &&
+          (!WorkingErased || !IsErasedFlashBuffer (FtwDevice->FtwWorkSpace,
+                                                   FtwDevice->FtwWorkSpaceSize)))
+      {
+        return EFI_VOLUME_CORRUPTED;
+      }
+
       DEBUG ((
         DEBUG_INFO,
         "Ftw: Both working and spare blocks are invalid, init workspace\n"
