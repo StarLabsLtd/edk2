@@ -20,6 +20,7 @@
 **/
 
 #include <PiDxe.h>
+#include <Library/CorebootCapsuleLib.h>
 #include <Guid/FirmwareInfoGuid.h>
 #include <Guid/SystemResourceTable.h>
 #include <Library/BaseLib.h>
@@ -1553,6 +1554,13 @@ FmpDeviceSetImageWithStatus (
   UINTN                        VariableStoreSize;
 
   *LastAttemptStatus = LAST_ATTEMPT_STATUS_ERROR_UNSUCCESSFUL;
+  if (CorebootCapsuleIsProtected ()) {
+    Status = CorebootCapsuleApply (Progress);
+    if (!EFI_ERROR (Status)) {
+      *LastAttemptStatus = LAST_ATTEMPT_STATUS_SUCCESS;
+    }
+    return Status;
+  }
   BlockCount         = 0;
   Block              = 0;
   ReadBuffer         = NULL;
