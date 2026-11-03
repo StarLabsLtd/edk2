@@ -147,9 +147,11 @@ MmExitBootServiceHandler (
                  EFI_NATIVE_INTERFACE,
                  NULL
                  );
+    if (!EFI_ERROR (Status)) {
+      mInExitBootServices = TRUE;
+    }
   }
 
-  mInExitBootServices = TRUE;
   return Status;
 }
 
@@ -187,9 +189,11 @@ MmReadyToBootHandler (
                  EFI_NATIVE_INTERFACE,
                  NULL
                  );
+    if (!EFI_ERROR (Status)) {
+      mInReadyToBoot = TRUE;
+    }
   }
 
-  mInReadyToBoot = TRUE;
   return Status;
 }
 
