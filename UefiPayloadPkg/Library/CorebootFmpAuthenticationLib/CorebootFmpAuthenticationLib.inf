@@ -1,0 +1,19 @@
+## @file
+# Use protected-owner authentication for fixed-MM capsule updates.
+# Copyright (c) 2026, Star Labs Systems. All rights reserved.<BR>
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+[Defines]
+  INF_VERSION = 0x0001001B
+  BASE_NAME = CorebootFmpAuthenticationLib
+  FILE_GUID = e1518f24-3fae-4242-8800-2e65b07d8991
+  MODULE_TYPE = BASE
+  LIBRARY_CLASS = FmpAuthenticationLib|DXE_DRIVER UEFI_DRIVER
+[Sources]
+  CorebootFmpAuthenticationLib.c
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  UefiPayloadPkg/UefiPayloadPkg.dec
+[LibraryClasses]
+  CorebootCapsuleLib

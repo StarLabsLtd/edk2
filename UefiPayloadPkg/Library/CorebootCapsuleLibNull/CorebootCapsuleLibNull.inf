@@ -1,0 +1,14 @@
+## @file
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+[Defines]
+  INF_VERSION = 0x0001001B
+  BASE_NAME = CorebootCapsuleLibNull
+  FILE_GUID = 66771b9d-cd78-4cb2-a346-332d54638585
+  MODULE_TYPE = BASE
+  LIBRARY_CLASS = CorebootCapsuleLib|DXE_DRIVER UEFI_DRIVER
+[Sources]
+  CorebootCapsuleLibNull.c
+[Packages]
+  MdePkg/MdePkg.dec
+  UefiPayloadPkg/UefiPayloadPkg.dec
