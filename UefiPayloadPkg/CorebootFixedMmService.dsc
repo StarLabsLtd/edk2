@@ -6,6 +6,7 @@
 ##
 
 [Defines]
+  DEFINE CAPSULE_SUPPORT = FALSE
   PLATFORM_NAME                  = CorebootFixedMmService
   PLATFORM_GUID                  = 41E48E5B-9C8F-4E63-8852-C70912C99055
   PLATFORM_VERSION               = 1.0
@@ -59,6 +60,7 @@
   StandaloneMmCoreEntryPoint|UefiPayloadPkg/Library/CorebootStandaloneMmCoreEntryPoint/CorebootStandaloneMmCoreEntryPoint.inf
 
 [LibraryClasses.common.MM_STANDALONE]
+  CapsuleVerifyLib|CryptoPkg/Library/CapsuleVerifyLib/CapsuleVerifyLib.inf
   AuthVariableLib|SecurityPkg/Library/AuthVariableLib/AuthVariableLib.inf
   BaseCryptLib|CryptoPkg/Library/BaseCryptLib/SmmCryptLib.inf
   HobLib|StandaloneMmPkg/Library/StandaloneMmHobLib/StandaloneMmHobLib.inf
@@ -78,6 +80,12 @@
 [PcdsFixedAtBuild]
   # Coreboot already retains this FV in allocated SMRAM for the service lifetime.
   gStandaloneMmPkgTokenSpaceGuid.PcdShadowBfv|FALSE
+!if $(CAPSULE_SUPPORT) == TRUE
+!ifndef FMP_DEVICE_PKCS7_PCD_INC
+  !error "Protected capsule updates require the configured signer trust data"
+!endif
+!include $(FMP_DEVICE_PKCS7_PCD_INC)
+!endif
   gEfiMdePkgTokenSpaceGuid.PcdDebugPrintErrorLevel|0x800000CF
   gEfiMdePkgTokenSpaceGuid.PcdDebugPropertyMask|0x00
   gEfiMdePkgTokenSpaceGuid.PcdPciExpressBaseAddress|0
@@ -108,6 +116,9 @@
   }
   MdeModulePkg/Universal/Variable/RuntimeDxe/VariableStandaloneMm.inf {
     <LibraryClasses>
+!if $(CAPSULE_SUPPORT) == TRUE
+      NULL|UefiPayloadPkg/CorebootCapsuleMm/OwnerMm.inf
+!endif
       NULL|MdeModulePkg/Library/VarCheckUefiLib/VarCheckUefiLib.inf
       NULL|MdeModulePkg/Library/VarCheckPolicyLib/VarCheckPolicyLibStandaloneMm.inf
   }
