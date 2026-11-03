@@ -12,6 +12,7 @@ FmpPayloadHeader
 '''
 
 import struct
+import uuid
 
 def _SIGNATURE_32 (A, B, C, D):
     return struct.unpack ('=I',bytearray (A + B + C + D, 'ascii'))[0]
@@ -42,8 +43,11 @@ class FmpPayloadHeaderClass (object):
         self.FwVersion              = 0x00000000
         self.LowestSupportedVersion = 0x00000000
         self.Payload                = b''
+        self.TargetGuid             = None
 
     def Encode (self):
+        Target = b'' if self.TargetGuid is None else self.TargetGuid.bytes_le
+        self.HeaderSize = self._StructSize + len (Target)
         FmpPayloadHeader = struct.pack (
                                      self._StructFormat,
                                      self.Signature,
@@ -52,7 +56,7 @@ class FmpPayloadHeaderClass (object):
                                      self.LowestSupportedVersion
                                      )
         self._Valid = True
-        return FmpPayloadHeader + self.Payload
+        return FmpPayloadHeader + Target + self.Payload
 
     def Decode (self, Buffer):
         if len (Buffer) < self._StructSize:
@@ -64,8 +68,9 @@ class FmpPayloadHeaderClass (object):
                      )
         if Signature != self._FMP_PAYLOAD_HEADER_SIGNATURE:
             raise ValueError
-        if HeaderSize < self._StructSize:
+        if HeaderSize < self._StructSize or HeaderSize > len (Buffer):
             raise ValueError
+        self.TargetGuid = uuid.UUID (bytes_le = Buffer[16:32]) if HeaderSize == 32 else None
         self.Signature              = Signature
         self.HeaderSize             = HeaderSize
         self.FwVersion              = FwVersion

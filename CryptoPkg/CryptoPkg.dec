@@ -36,6 +36,7 @@
   Library/MbedTlsLib/mbedtls/library
 
 [LibraryClasses]
+  CapsuleVerifyLib|Include/Library/CapsuleVerifyLib.h
   ##  @libraryclass  Provides basic library functions for cryptographic primitives.
   ##
   BaseCryptLib|Include/Library/BaseCryptLib.h
