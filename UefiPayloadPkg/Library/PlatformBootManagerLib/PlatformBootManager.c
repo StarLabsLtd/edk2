@@ -1270,6 +1270,7 @@ PlatformBootManagerAfterConsole (
     // a case when this doesn't happen which is possible on error.
     //
     gRT->ResetSystem (EfiResetCold, EFI_SUCCESS, 0, NULL);
+    CpuDeadLoop ();
   }
 
   SyncEsrtFmpInfo ();
