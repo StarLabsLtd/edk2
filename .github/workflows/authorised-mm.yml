@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+name: Authorised MM behavior
+on:
+  pull_request:
+  push:
+    branches: [starlabs]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  behavior:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install native crypto and IA32 compiler dependencies
+        run: sudo apt-get update && sudo apt-get install -y gcc-multilib libssl-dev openssl
+      - name: Exercise protected capsule verification and IA32 transport
+        run: UefiPayloadPkg/CorebootCapsuleMm/test-host.sh
+      - name: Exercise variable-store ownership and recovery
+        run: UefiPayloadPkg/CorebootVariableFvb/test-host.sh
+      - name: Exercise external-image admission boundary
+        run: UefiPayloadPkg/Library/CorebootImagePolicyLib/test-host.sh

@@ -1,0 +1,44 @@
+## @file
+# Protected update owner, linked with the variable service to share crypto.
+# Copyright (c) 2026, Star Labs Systems. All rights reserved.<BR>
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+[Defines]
+  INF_VERSION = 0x0001001B
+  BASE_NAME = CorebootCapsuleMm
+  FILE_GUID = 6116752b-827c-460c-8355-825e61cd9ebf
+  MODULE_TYPE = BASE
+  LIBRARY_CLASS = NULL|MM_STANDALONE
+  CONSTRUCTOR = CorebootCapsuleOwnerEntryPoint
+[Sources]
+  OwnerMm.c
+  Owner.c
+  Owner.h
+  Source.c
+  Source.h
+  ../Library/FmpDeviceSmmLib/FmpDeviceSmmManifest.c
+  ../Library/FmpDeviceSmmLib/FmpDeviceSmmFmap.c
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  UefiPayloadPkg/UefiPayloadPkg.dec
+  StandaloneMmPkg/StandaloneMmPkg.dec
+  CryptoPkg/CryptoPkg.dec
+  FmpDevicePkg/FmpDevicePkg.dec
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  CapsuleVerifyLib
+  HobLib
+  MemLib
+  MmServicesTableLib
+  PcdLib
+[Protocols]
+  gEfiSmmVariableProtocolGuid
+[Guids]
+  gEfiEventExitBootServicesGuid
+  gCorebootCapsuleInfoGuid
+  gCorebootCapsuleRamGuid
+  gCorebootCapsuleUpdateGuid
+[Pcd]
+  gFmpDevicePkgTokenSpaceGuid.PcdFmpDevicePkcs7CertBufferXdr
