@@ -35,41 +35,11 @@
 
 #include "FmpDeviceSmmFlashRetry.h"
 #include "FmpDeviceSmmManifest.h"
+#include "FmpDeviceSmmFmap.h"
 #include "FmpDeviceSmmUpdatePolicy.h"
 
-//
-// Minimal FMAP parsing to locate and compare the flash map before updating.
-//
-#define FMAP_SIGNATURE  "__FMAP__"
-#define FMAP_VER_MAJOR  1
-#define FMAP_NAME_LEN   32
-
-#pragma pack(1)
-typedef struct {
-  CHAR8     Signature[8];
-  UINT8     VerMajor;
-  UINT8     VerMinor;
-  UINT64    Base;
-  UINT32    Size;
-  CHAR8     Name[FMAP_NAME_LEN];
-  UINT16    AreaCount;
-} FMAP_HEADER;
-
-typedef struct {
-  UINT32    Offset;
-  UINT32    Size;
-  CHAR8     Name[FMAP_NAME_LEN];
-  UINT16    Flags;
-} FMAP_AREA;
-#pragma pack()
 
 #define SMMSTORE_FLASH_RETRY_STALL_US   500
-#define INTEL_DESCRIPTOR_SIGNATURE      0x0ff0a55a
-#define INTEL_DESCRIPTOR_SIGNATURE_OFF  0x10
-#define INTEL_DESCRIPTOR_FLMAP0_OFF     0x14
-#define INTEL_DESCRIPTOR_REGION_BIOS    1
-#define INTEL_DESCRIPTOR_REGION_MASK    0x7fff
-#define INTEL_DESCRIPTOR_REGION_SCALE   0x1000
 
 /**
   Delay between flash operation attempts.
@@ -208,78 +178,7 @@ ReadFlashRange (
   OUT UINT8  *Buffer
   );
 
-STATIC
-EFI_STATUS
-FindFmapRegion (
-  IN  CONST FMAP_HEADER  *FmapHeader,
-  IN  CONST FMAP_AREA    *Areas,
-  IN  UINTN              AreaCount,
-  IN  CONST CHAR8        Name[REGION_MANIFEST_NAME_LEN],
-  OUT UINTN              *RegionOffset,
-  OUT UINTN              *RegionSize
-  );
 
-/**
-  Calculate the byte size of a validated FMAP.
-
-  @param[in] FmapHeader  FMAP header.
-
-  @return Size of the FMAP header and area table.
-**/
-STATIC
-UINTN
-FmapSize (
-  IN CONST FMAP_HEADER  *FmapHeader
-  )
-{
-  return sizeof (*FmapHeader) + ((UINTN)FmapHeader->AreaCount * sizeof (FMAP_AREA));
-}
-
-/**
-  Check whether a character is printable in an FMAP name.
-
-  @param[in] Character  Character to check.
-
-  @retval TRUE   Character is printable.
-  @retval FALSE  Character is not printable.
-**/
-STATIC
-BOOLEAN
-FmapIsGraph (
-  IN CHAR8  Character
-  )
-{
-  return (Character > ' ') && (Character <= '~');
-}
-
-/**
-  Validate an FMAP name as a printable, NUL-terminated string.
-
-  @param[in] Name  FMAP name to validate.
-
-  @retval TRUE   The name is valid.
-  @retval FALSE  The name is invalid.
-**/
-STATIC
-BOOLEAN
-FmapNameIsValid (
-  IN CONST CHAR8  Name[FMAP_NAME_LEN]
-  )
-{
-  UINTN  Index;
-
-  for (Index = 0; Index < FMAP_NAME_LEN; ++Index) {
-    if (Name[Index] == '\0') {
-      return TRUE;
-    }
-
-    if (!FmapIsGraph (Name[Index])) {
-      return FALSE;
-    }
-  }
-
-  return FALSE;
-}
 
 /**
   This function requests firmware information on the first call, caches it and
@@ -318,71 +217,6 @@ GetFwInfo (
 
   *Info = &Storage;
   return EFI_SUCCESS;
-}
-
-/**
-  Locate an FMAP header within a memory buffer.
-
-  @param[in]  Image       Start of the buffer to scan.
-  @param[in]  ImageSize   Size of the buffer.
-  @param[out] FmapOffset  Offset of the FMAP header if found.
-  @param[out] FmapLength  Total length of the FMAP (header + areas).
-
-  @retval EFI_SUCCESS      FMAP was found and validated.
-  @retval EFI_NOT_FOUND    FMAP not present or malformed.
-**/
-STATIC
-EFI_STATUS
-LocateFmapInImage (
-  IN  CONST UINT8  *Image,
-  IN  UINTN        ImageSize,
-  OUT UINTN        *FmapOffset,
-  OUT UINTN        *FmapLength
-  )
-{
-  UINTN         Offset;
-  CONST UINTN   HeaderSize = sizeof (FMAP_HEADER);
-  CONST UINT32  MinAreas   = 1;
-  UINTN         MapSize;
-
-  if ((Image == NULL) || (FmapOffset == NULL) || (FmapLength == NULL)) {
-    return EFI_NOT_FOUND;
-  }
-
-  if (ImageSize < HeaderSize) {
-    return EFI_NOT_FOUND;
-  }
-
-  for (Offset = 0; Offset <= (ImageSize - HeaderSize); ++Offset) {
-    CONST FMAP_HEADER  *Hdr = (CONST FMAP_HEADER *)(Image + Offset);
-
-    if (CompareMem (Hdr->Signature, FMAP_SIGNATURE, sizeof (Hdr->Signature)) != 0) {
-      continue;
-    }
-
-    if (Hdr->VerMajor != FMAP_VER_MAJOR) {
-      continue;
-    }
-
-    MapSize = FmapSize (Hdr);
-    if ((Hdr->AreaCount < MinAreas) || (Hdr->Size < MapSize)) {
-      continue;
-    }
-
-    if (MapSize > (ImageSize - Offset)) {
-      continue;
-    }
-
-    if (!FmapNameIsValid (Hdr->Name)) {
-      continue;
-    }
-
-    *FmapOffset = Offset;
-    *FmapLength = MapSize;
-    return EFI_SUCCESS;
-  }
-
-  return EFI_NOT_FOUND;
 }
 
 /**
@@ -433,7 +267,7 @@ LoadFlashFmap (
   *FlashFmapAreas  = NULL;
   *FlashFmapBuffer = NULL;
 
-  Status = FindFmapRegion (
+  Status = FmpFindFmapRegion (
              CapsuleFmapHeader,
              CapsuleFmapAreas,
              CapsuleFmapHeader->AreaCount,
@@ -456,7 +290,7 @@ LoadFlashFmap (
     return EFI_DEVICE_ERROR;
   }
 
-  Status = LocateFmapInImage (Buffer, FmapAreaSize, &FoundOffset, &FoundLength);
+  Status = FmpLocateFmap (Buffer, FmapAreaSize, &FoundOffset, &FoundLength);
   if (EFI_ERROR (Status) || (FoundOffset > FmapAreaSize) || (FoundLength > (FmapAreaSize - FoundOffset))) {
     FreePool (Buffer);
     return EFI_NOT_FOUND;
@@ -465,161 +299,6 @@ LoadFlashFmap (
   *FlashFmapHeader = (FMAP_HEADER *)((UINT8 *)Buffer + FoundOffset);
   *FlashFmapAreas  = (FMAP_AREA *)((UINT8 *)(*FlashFmapHeader) + sizeof (FMAP_HEADER));
   *FlashFmapBuffer = Buffer;
-  return EFI_SUCCESS;
-}
-
-/**
-  Find an FMAP area by name.
-
-  @param[in]  FmapHeader     Pointer to FMAP header.
-  @param[in]  Areas          Pointer to the first FMAP area.
-  @param[in]  AreaCount      Number of FMAP areas.
-  @param[in]  Name           Region name to look for (16-byte, zero padded).
-  @param[out] RegionOffset   Flash offset of the region.
-  @param[out] RegionSize     Size of the region.
-
-  @retval EFI_SUCCESS     Region found.
-  @retval EFI_NOT_FOUND   Region not found.
-**/
-STATIC
-EFI_STATUS
-FindFmapRegion (
-  IN  CONST FMAP_HEADER  *FmapHeader,
-  IN  CONST FMAP_AREA    *Areas,
-  IN  UINTN              AreaCount,
-  IN  CONST CHAR8        Name[16],
-  OUT UINTN              *RegionOffset,
-  OUT UINTN              *RegionSize
-  )
-{
-  UINT64  Base;
-  UINTN   Index;
-  CHAR8   FmapName[33];
-  CHAR8   ManifestName[REGION_MANIFEST_NAME_LEN + 1];
-
-  if ((FmapHeader == NULL) || (Areas == NULL) || (Name == NULL) ||
-      (RegionOffset == NULL) || (RegionSize == NULL))
-  {
-    return EFI_INVALID_PARAMETER;
-  }
-
-  for (Index = 0; Index < AreaCount; ++Index) {
-    //
-    // Manifest names are 16-byte, zero-padded strings, while FMAP uses 32-byte
-    // names. Convert both to NUL-terminated strings and compare.
-    //
-    CopyMem (FmapName, Areas[Index].Name, 32);
-    FmapName[32] = '\0';
-    CopyMem (ManifestName, Name, REGION_MANIFEST_NAME_LEN);
-    ManifestName[REGION_MANIFEST_NAME_LEN] = '\0';
-
-    if (AsciiStrCmp (FmapName, ManifestName) != 0) {
-      continue;
-    }
-
-    Base = FmapHeader->Base;
-    if ((Base > MAX_UINTN) || (Areas[Index].Offset > (MAX_UINTN - (UINTN)Base))) {
-      return EFI_COMPROMISED_DATA;
-    }
-
-    *RegionOffset = (UINTN)Base + Areas[Index].Offset;
-    *RegionSize   = Areas[Index].Size;
-    return EFI_SUCCESS;
-  }
-
-  return EFI_NOT_FOUND;
-}
-
-/**
-  Read a little-endian 32-bit value from an unaligned byte buffer.
-
-  @param[in] Data  Four-byte input buffer.
-
-  @return Decoded value.
-**/
-STATIC
-UINT32
-ReadLe32 (
-  IN CONST UINT8  *Data
-  )
-{
-  return (UINT32)Data[0] |
-         ((UINT32)Data[1] << 8) |
-         ((UINT32)Data[2] << 16) |
-         ((UINT32)Data[3] << 24);
-}
-
-/**
-  Locate the BIOS region by parsing an Intel flash descriptor.
-
-  @param[in]  Image       Buffer containing at least the flash descriptor.
-  @param[in]  ImageSize   Size of Image, in bytes.
-  @param[in]  FlashSize   Total flash size to validate descriptor bounds.
-  @param[out] BiosOffset  Absolute flash offset of the BIOS region.
-  @param[out] BiosSize    Size of the BIOS region.
-
-  @retval EFI_SUCCESS     BIOS region found.
-  @retval EFI_NOT_FOUND   Descriptor or BIOS region is absent/invalid.
-**/
-STATIC
-EFI_STATUS
-FindIntelDescriptorBiosRegion (
-  IN  CONST UINT8  *Image,
-  IN  UINTN        ImageSize,
-  IN  UINTN        FlashSize,
-  OUT UINTN        *BiosOffset,
-  OUT UINTN        *BiosSize
-  )
-{
-  UINT32  Flmap0;
-  UINT32  Flreg;
-  UINTN   Frba;
-  UINTN   FlregOffset;
-  UINTN   BaseField;
-  UINTN   LimitField;
-  UINTN   RegionBase;
-  UINTN   RegionLimit;
-  UINTN   RegionSize;
-
-  if ((Image == NULL) || (BiosOffset == NULL) || (BiosSize == NULL)) {
-    return EFI_NOT_FOUND;
-  }
-
-  if (ImageSize < (INTEL_DESCRIPTOR_FLMAP0_OFF + sizeof (UINT32))) {
-    return EFI_NOT_FOUND;
-  }
-
-  if (ReadLe32 (Image + INTEL_DESCRIPTOR_SIGNATURE_OFF) != INTEL_DESCRIPTOR_SIGNATURE) {
-    return EFI_NOT_FOUND;
-  }
-
-  Flmap0      = ReadLe32 (Image + INTEL_DESCRIPTOR_FLMAP0_OFF);
-  Frba        = ((Flmap0 >> 16) & 0xff) << 4;
-  FlregOffset = Frba + (INTEL_DESCRIPTOR_REGION_BIOS * sizeof (UINT32));
-
-  if ((FlregOffset + sizeof (UINT32)) > ImageSize) {
-    return EFI_NOT_FOUND;
-  }
-
-  Flreg      = ReadLe32 (Image + FlregOffset);
-  BaseField  = Flreg & INTEL_DESCRIPTOR_REGION_MASK;
-  LimitField = (Flreg >> 16) & INTEL_DESCRIPTOR_REGION_MASK;
-
-  if ((BaseField == INTEL_DESCRIPTOR_REGION_MASK) || (LimitField == 0) || (LimitField < BaseField)) {
-    return EFI_NOT_FOUND;
-  }
-
-  RegionBase  = BaseField * INTEL_DESCRIPTOR_REGION_SCALE;
-  RegionLimit = (LimitField * INTEL_DESCRIPTOR_REGION_SCALE) |
-                (INTEL_DESCRIPTOR_REGION_SCALE - 1);
-  RegionSize = RegionLimit - RegionBase + 1;
-
-  if ((RegionBase >= FlashSize) || (RegionSize > (FlashSize - RegionBase))) {
-    return EFI_NOT_FOUND;
-  }
-
-  *BiosOffset = RegionBase;
-  *BiosSize   = RegionSize;
   return EFI_SUCCESS;
 }
 
@@ -683,7 +362,7 @@ FindBiosFallbackRegion (
   if (Descriptor != NULL) {
     Status = ReadFlashRange (BlockSize, FlashSize, 0, DescriptorSize, Descriptor);
     if (!EFI_ERROR (Status)) {
-      Status = FindIntelDescriptorBiosRegion (
+      Status = FmpFindIntelDescriptorBiosRegion (
                  Descriptor,
                  DescriptorSize,
                  FlashSize,
@@ -702,7 +381,7 @@ FindBiosFallbackRegion (
     FreePool (Descriptor);
   }
 
-  Status = FindIntelDescriptorBiosRegion (Image, ImageSize, FlashSize, &CapsuleBiosOffset, &CapsuleBiosSize);
+  Status = FmpFindIntelDescriptorBiosRegion (Image, ImageSize, FlashSize, &CapsuleBiosOffset, &CapsuleBiosSize);
   if (!EFI_ERROR (Status) &&
       (CapsuleBiosSize != 0) &&
       (CapsuleBiosOffset < ImageSize) &&
@@ -1946,7 +1625,7 @@ FmpDeviceSetImageWithStatus (
       ));
   }
 
-  Status = LocateFmapInImage (Image, BaseImageSize, &FmapOffset, &FmapLength);
+  Status = FmpLocateFmap (Image, BaseImageSize, &FmapOffset, &FmapLength);
   if (!EFI_ERROR (Status) && (FmapOffset <= BaseImageSize) && (FmapLength <= (BaseImageSize - FmapOffset))) {
     FmapHeader = (CONST FMAP_HEADER *)((CONST UINT8 *)Image + FmapOffset);
     FmapAreas  = (CONST FMAP_AREA *)((CONST UINT8 *)FmapHeader + sizeof (FMAP_HEADER));
@@ -2005,7 +1684,7 @@ FmpDeviceSetImageWithStatus (
       UINTN  RegionSize;
       CHAR8  RegionName[REGION_MANIFEST_NAME_LEN + 1];
 
-      Status = FindFmapRegion (
+      Status = FmpFindFmapRegion (
                  FmapHeader,
                  FmapAreas,
                  FmapHeader->AreaCount,
@@ -2085,7 +1764,7 @@ FmpDeviceSetImageWithStatus (
       LayoutMismatch = TRUE;
       DEBUG ((DEBUG_WARN, "%a(): failed to load flash FMAP: %r\n", __func__, FlashFmapStatus));
     } else {
-      Status = FindFmapRegion (
+      Status = FmpFindFmapRegion (
                  FlashFmapHeader,
                  FlashFmapAreas,
                  FlashFmapHeader->AreaCount,
@@ -2108,7 +1787,7 @@ FmpDeviceSetImageWithStatus (
       UINTN  RegionSize;
       CHAR8  RegionName[REGION_MANIFEST_NAME_LEN + 1];
 
-      Status = FindFmapRegion (
+      Status = FmpFindFmapRegion (
                  FmapHeader,
                  FmapAreas,
                  FmapHeader->AreaCount,
@@ -2136,7 +1815,7 @@ FmpDeviceSetImageWithStatus (
         ));
 
       if (!LayoutMismatch) {
-        Status = FindFmapRegion (
+        Status = FmpFindFmapRegion (
                    FlashFmapHeader,
                    FlashFmapAreas,
                    FlashFmapHeader->AreaCount,
@@ -2268,7 +1947,7 @@ FmpDeviceSetImageWithStatus (
       UINTN  RegionOffset;
       UINTN  RegionSize;
 
-      Status = FindFmapRegion (
+      Status = FmpFindFmapRegion (
                  FmapHeader,
                  FmapAreas,
                  FmapHeader->AreaCount,
