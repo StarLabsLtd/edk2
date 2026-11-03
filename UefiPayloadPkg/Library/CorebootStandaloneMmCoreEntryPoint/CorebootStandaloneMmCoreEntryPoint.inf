@@ -1,0 +1,24 @@
+## @file
+# Entry point library for a Standalone MM core owned by coreboot.
+#
+# Copyright (c) 2026, Star Labs Systems. All rights reserved.<BR>
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001B
+  BASE_NAME                      = CorebootStandaloneMmCoreEntryPoint
+  FILE_GUID                      = A61977E1-434F-40A3-80BF-35A3CC8606A1
+  MODULE_TYPE                    = MM_CORE_STANDALONE
+  VERSION_STRING                 = 1.0
+  PI_SPECIFICATION_VERSION       = 0x00010032
+  LIBRARY_CLASS                  = StandaloneMmCoreEntryPoint|MM_CORE_STANDALONE
+
+[Sources]
+  CorebootStandaloneMmCoreEntryPoint.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+
+[LibraryClasses]
+  StackCheckLib
