@@ -47,6 +47,14 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 
 #include <Library/UefiBootServicesTableLib.h>
 #include "FaultTolerantWrite.h"
+
+BOOLEAN
+FtwCanReclaimWorkspace (
+  VOID
+  )
+{
+  return !FeaturePcdGet (PcdFtwProtectInvalidWorkspace);
+}
 VOID  *mFvbRegistration = NULL;
 
 /**
