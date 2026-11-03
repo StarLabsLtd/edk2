@@ -1,0 +1,26 @@
+## @file
+# Boot-services transport for the protected capsule owner.
+# Copyright (c) 2026, Star Labs Systems. All rights reserved.<BR>
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+[Defines]
+  INF_VERSION = 0x0001001B
+  BASE_NAME = CorebootCapsuleLib
+  FILE_GUID = b5cfb1ca-aa66-4163-9e40-571f6085a902
+  MODULE_TYPE = BASE
+  LIBRARY_CLASS = CorebootCapsuleLib|DXE_DRIVER UEFI_DRIVER
+[Sources]
+  CorebootCapsuleLib.c
+[Packages]
+  MdePkg/MdePkg.dec
+  UefiPayloadPkg/UefiPayloadPkg.dec
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  MemoryAllocationLib
+  UefiBootServicesTableLib
+[Guids]
+  gCorebootCapsuleUpdateGuid
+  gEfiCertPkcs7Guid
+[Protocols]
+  gEfiMmCommunication2ProtocolGuid

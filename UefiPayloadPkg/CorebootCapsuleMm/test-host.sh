@@ -50,3 +50,10 @@ openssl cms -sign -binary -noattr -in "$test_dir/content" \
   -IStandaloneMmPkg/Include -IUefiPayloadPkg/Include -ICryptoPkg/Include -IFmpDevicePkg/Include \
   UefiPayloadPkg/CorebootCapsuleMm/DispatchTest.c -o "$test_dir/dispatch-test"
 "$test_dir/dispatch-test"
+
+"${CC:-cc}" -m32 -malign-double -std=gnu11 -fshort-wchar -DEFI32 \
+  -fno-pie -no-pie -ffunction-sections -fdata-sections -Wl,--gc-sections \
+  -Wall -Wextra -Werror -IMdePkg/Include -IMdePkg/Include/Ia32 \
+  -IUefiPayloadPkg/Include \
+  UefiPayloadPkg/Library/CorebootCapsuleLib/ClientTest.c -o "$test_dir/client-test"
+"$test_dir/client-test"
