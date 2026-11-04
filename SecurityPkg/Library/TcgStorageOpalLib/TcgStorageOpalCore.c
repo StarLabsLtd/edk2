@@ -1707,6 +1707,10 @@ OpalGetSupportedAttributesInfo (
     SupportedAttributes->SpIeee1667
     ));
 
+  if (!SupportedAttributes->Sp1) {
+    return TcgResultFailure;
+  }
+
   //
   // Perform level 0 discovery and assign desired feature info to Opal Disk structure
   //
