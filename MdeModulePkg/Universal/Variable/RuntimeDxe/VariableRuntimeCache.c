@@ -18,6 +18,21 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 extern VARIABLE_MODULE_GLOBAL  *mVariableModuleGlobal;
 extern VARIABLE_STORE_HEADER   *mNvVariableCache;
 
+STATIC
+BOOLEAN
+PendingCacheUpdateValid (
+  IN CONST VARIABLE_RUNTIME_CACHE  *Cache,
+  IN CONST VARIABLE_STORE_HEADER   *Store
+  )
+{
+  if ((Cache->PendingUpdateLength == 0) && (Cache->PendingUpdateOffset == 0)) {
+    return TRUE;
+  }
+  return (Store != NULL) && (Cache->Store != NULL) &&
+         (Cache->PendingUpdateOffset <= Store->Size) &&
+         (Cache->PendingUpdateLength <= Store->Size - Cache->PendingUpdateOffset);
+}
+
 /**
   Copies any pending updates to runtime variable caches.
 
@@ -39,6 +54,16 @@ FlushPendingRuntimeVariableCacheUpdates (
       (VariableRuntimeCacheContext->PendingUpdate == NULL))
   {
     return EFI_UNSUPPORTED;
+  }
+
+  if (((mVariableModuleGlobal->VariableGlobal.HobVariableBase != 0) &&
+       !PendingCacheUpdateValid (&VariableRuntimeCacheContext->VariableRuntimeHobCache,
+         (VOID *)(UINTN)mVariableModuleGlobal->VariableGlobal.HobVariableBase)) ||
+      !PendingCacheUpdateValid (&VariableRuntimeCacheContext->VariableRuntimeNvCache, mNvVariableCache) ||
+      !PendingCacheUpdateValid (&VariableRuntimeCacheContext->VariableRuntimeVolatileCache,
+         (VOID *)(UINTN)mVariableModuleGlobal->VariableGlobal.VolatileVariableBase))
+  {
+    return EFI_SECURITY_VIOLATION;
   }
 
   if (*(VariableRuntimeCacheContext->PendingUpdate)) {

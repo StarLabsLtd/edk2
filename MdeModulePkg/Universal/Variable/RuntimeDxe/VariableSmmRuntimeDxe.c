@@ -516,7 +516,7 @@ Done:
   Signals SMM to synchronize any pending variable updates with the runtime cache(s).
 
 **/
-VOID
+EFI_STATUS
 SyncRuntimeCache (
   VOID
   )
@@ -530,7 +530,7 @@ SyncRuntimeCache (
   //
   // Send data to SMM.
   //
-  SendCommunicateBuffer (0);
+  return SendCommunicateBuffer (0);
 }
 
 /**
@@ -844,7 +844,8 @@ RuntimeServiceGetVariable (
   }
 
   AcquireLockOnlyAtBootTime (&mVariableServicesLock);
-  if (mIsRuntimeCacheEnabled) {
+  // Boot-time policy consumers must read the private MM stores.
+  if (mIsRuntimeCacheEnabled && EfiAtRuntime ()) {
     Status = FindVariableInRuntimeCache (VariableName, VendorGuid, Attributes, DataSize, Data);
   } else {
     Status = FindVariableInSmm (VariableName, VendorGuid, Attributes, DataSize, Data);
@@ -1112,7 +1113,7 @@ RuntimeServiceGetNextVariableName (
   }
 
   AcquireLockOnlyAtBootTime (&mVariableServicesLock);
-  if (mIsRuntimeCacheEnabled) {
+  if (mIsRuntimeCacheEnabled && EfiAtRuntime ()) {
     Status = GetNextVariableNameInRuntimeCache (VariableNameSize, VariableName, VendorGuid);
   } else {
     Status = GetNextVariableNameInSmm (VariableNameSize, VariableName, VendorGuid);
@@ -1643,6 +1644,38 @@ InitVariableStoreHeader (
   }
 }
 
+/** Allocate runtime cache pages addressable by either IA32 or X64 MM. **/
+STATIC
+EFI_STATUS
+AllocateVariableCache (
+  IN UINTN                  Size,
+  OUT EFI_PHYSICAL_ADDRESS  *Buffer,
+  OUT UINT64                *Pages
+  )
+{
+  EFI_STATUS            Status;
+  EFI_PHYSICAL_ADDRESS  Address;
+
+  *Buffer = 0;
+  *Pages  = 0;
+  if (Size == 0) {
+    return EFI_SUCCESS;
+  }
+  if (Size > MAX_UINT32 - EFI_PAGE_MASK) {
+    return EFI_BAD_BUFFER_SIZE;
+  }
+
+  Address = MAX_UINT32;
+  Status = gBS->AllocatePages (AllocateMaxAddress, EfiRuntimeServicesData,
+                  EFI_SIZE_TO_PAGES (Size), &Address);
+  if (!EFI_ERROR (Status)) {
+    *Buffer = Address;
+    *Pages  = EFI_SIZE_TO_PAGES (Size);
+    ZeroMem ((VOID *)(UINTN)Address, EFI_PAGES_TO_SIZE ((UINTN)*Pages));
+  }
+  return Status;
+}
+
 /**
   Initialize the runtime variable cache related content.
 
@@ -1654,7 +1687,7 @@ InitVariableStoreHeader (
 **/
 EFI_STATUS
 InitVariableCache (
-  IN  EFI_HOB_GUID_TYPE  *RuntimeCacheInfoGuidHob
+  IN  EFI_HOB_GUID_TYPE  *RuntimeCacheInfoGuidHob OPTIONAL
   )
 {
   EFI_STATUS                   Status;
@@ -1665,6 +1698,8 @@ InitVariableCache (
   UINTN                        AllocatedNvCacheSize;
   UINTN                        AllocatedVolatileCacheSize;
   VARIABLE_RUNTIME_CACHE_INFO  *VariableRuntimeCacheInfo;
+  VARIABLE_RUNTIME_CACHE_INFO  AllocatedInfo;
+  UINT64                       FlagPages;
 
   //
   // Get needed runtime cache buffer size and check if auth variables are to be used from SMM
@@ -1676,7 +1711,39 @@ InitVariableCache (
               &mVariableAuthFormat
               );
   if (!EFI_ERROR (Status)) {
-    VariableRuntimeCacheInfo   = GET_GUID_HOB_DATA (RuntimeCacheInfoGuidHob);
+    if (RuntimeCacheInfoGuidHob != NULL) {
+      VariableRuntimeCacheInfo = GET_GUID_HOB_DATA (RuntimeCacheInfoGuidHob);
+    } else {
+      // Payloads which do not run Variable PEI obtain the geometry from MM.
+      ZeroMem (&AllocatedInfo, sizeof (AllocatedInfo));
+      Status = AllocateVariableCache (ExpectedHobCacheSize,
+                 &AllocatedInfo.RuntimeHobCacheBuffer, &AllocatedInfo.RuntimeHobCachePages);
+      if (!EFI_ERROR (Status)) {
+        Status = AllocateVariableCache (ExpectedNvCacheSize,
+                   &AllocatedInfo.RuntimeNvCacheBuffer, &AllocatedInfo.RuntimeNvCachePages);
+      }
+      if (!EFI_ERROR (Status)) {
+        Status = AllocateVariableCache (ExpectedVolatileCacheSize,
+                   &AllocatedInfo.RuntimeVolatileCacheBuffer, &AllocatedInfo.RuntimeVolatileCachePages);
+      }
+      if (!EFI_ERROR (Status)) {
+        Status = AllocateVariableCache (sizeof (CACHE_INFO_FLAG),
+                   &AllocatedInfo.CacheInfoFlagBuffer, &FlagPages);
+      }
+      if (EFI_ERROR (Status)) {
+        if (AllocatedInfo.RuntimeHobCachePages != 0) {
+          gBS->FreePages (AllocatedInfo.RuntimeHobCacheBuffer, (UINTN)AllocatedInfo.RuntimeHobCachePages);
+        }
+        if (AllocatedInfo.RuntimeNvCachePages != 0) {
+          gBS->FreePages (AllocatedInfo.RuntimeNvCacheBuffer, (UINTN)AllocatedInfo.RuntimeNvCachePages);
+        }
+        if (AllocatedInfo.RuntimeVolatileCachePages != 0) {
+          gBS->FreePages (AllocatedInfo.RuntimeVolatileCacheBuffer, (UINTN)AllocatedInfo.RuntimeVolatileCachePages);
+        }
+        return Status;
+      }
+      VariableRuntimeCacheInfo = &AllocatedInfo;
+    }
     AllocatedHobCacheSize      = EFI_PAGES_TO_SIZE ((UINTN)VariableRuntimeCacheInfo->RuntimeHobCachePages);
     AllocatedNvCacheSize       = EFI_PAGES_TO_SIZE ((UINTN)VariableRuntimeCacheInfo->RuntimeNvCachePages);
     AllocatedVolatileCacheSize = EFI_PAGES_TO_SIZE ((UINTN)VariableRuntimeCacheInfo->RuntimeVolatileCachePages);
@@ -1859,7 +1926,7 @@ SmmVariableReady (
   mVariableBufferPhysical = mVariableBuffer;
 
   GuidHob = GetFirstGuidHob (&gEdkiiVariableRuntimeCacheInfoHobGuid);
-  if (GuidHob != NULL) {
+  if ((GuidHob != NULL) || FeaturePcdGet (PcdEnableVariableRuntimeCache)) {
     mIsRuntimeCacheEnabled = TRUE;
     DEBUG ((DEBUG_INFO, "Variable driver runtime cache is enabled.\n"));
 
@@ -1867,15 +1934,23 @@ SmmVariableReady (
     if (!EFI_ERROR (Status)) {
       Status = SendRuntimeVariableCacheContextToSmm ();
       if (!EFI_ERROR (Status)) {
-        SyncRuntimeCache ();
+        Status = SyncRuntimeCache ();
       }
+    }
+    if (!EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_INFO, "Variable runtime cache filled: NV=0x%Lx/%Lu pages, volatile=0x%Lx/%Lu pages, flags=0x%Lx\n",
+        mVariableRtCacheInfo.RuntimeNvCacheBuffer, mVariableRtCacheInfo.RuntimeNvCachePages,
+        mVariableRtCacheInfo.RuntimeVolatileCacheBuffer, mVariableRtCacheInfo.RuntimeVolatileCachePages,
+        mVariableRtCacheInfo.CacheInfoFlagBuffer));
     }
 
     if (EFI_ERROR (Status)) {
-      ZeroMem (&mVariableRtCacheInfo, sizeof (VARIABLE_RUNTIME_CACHE_INFO));
+      DEBUG ((DEBUG_ERROR, "Variable runtime cache initialization failed: %r\n", Status));
+      mIsRuntimeCacheEnabled = FALSE;
+      // MM may already hold the registered addresses. Retain their allocation.
+      // Continue installing the uncached variable services.
     }
 
-    ASSERT_EFI_ERROR (Status);
   } else {
     DEBUG ((DEBUG_INFO, "Variable driver runtime cache is disabled.\n"));
   }

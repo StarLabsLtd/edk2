@@ -3397,7 +3397,7 @@ FlushHobVariableToFlash (
       Status =  SynchronizeRuntimeVariableCache (
                   &mVariableModuleGlobal->VariableGlobal.VariableRuntimeCacheContext.VariableRuntimeHobCache,
                   0,
-                  mVariableModuleGlobal->VariableGlobal.VariableRuntimeCacheContext.VariableRuntimeHobCache.Store->Size
+                  VariableStoreHeader->Size
                   );
       ASSERT_EFI_ERROR (Status);
     }
