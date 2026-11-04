@@ -146,6 +146,7 @@ typedef struct {
   OPAL_OWNER_SHIP                          Owner;
   OPAL_DISK_SUPPORT_ATTRIBUTE              SupportedAttributes;
   TCG_LOCKING_FEATURE_DESCRIPTOR           LockingFeature;                // Locking Feature Descriptor retrieved from performing a Level 0 Discovery
+  BOOLEAN                                  S3HandoffPending;
   UINT8                                    PasswordLength;
   UINT8                                    Password[OPAL_MAX_PASSWORD_SIZE];
 

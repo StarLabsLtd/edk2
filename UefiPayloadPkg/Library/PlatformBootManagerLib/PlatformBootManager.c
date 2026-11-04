@@ -19,6 +19,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Protocol/EsrtManagement.h>
 #include <Protocol/FirmwareVolume2.h>
 #include <Protocol/PciIo.h>
+#include <Protocol/MmCommunication2.h>
 
 #define PLATFORM_USB_MASS_STORAGE_CLASS  0x08
 
@@ -1055,6 +1056,64 @@ PlatformSelectedBootOptionUsesInternalDisk (
   return UsesInternalDisk;
 }
 
+#ifdef OPAL_PASSWORD_ENABLE
+STATIC
+VOID
+PlatformConnectNvmeForS3 (
+  IN OUT BOOLEAN *ConsoleInitialized
+  )
+{
+  EFI_HANDLE           *Handles;
+  EFI_PCI_IO_PROTOCOL  *PciIo;
+  VOID                 *Communication;
+  UINTN                Count;
+  UINTN                Index;
+  UINT8                ClassCode[3];
+  EFI_STATUS           Status;
+
+  // Only the fixed-MM composition seals enrollment at external image admission.
+  Status = gBS->LocateProtocol (&gEfiMmCommunication2ProtocolGuid, NULL, &Communication);
+  if (EFI_ERROR (Status)) {
+    return;
+  }
+  if (!*ConsoleInitialized) {
+    PlatformConsoleInit ();
+    *ConsoleInitialized = TRUE;
+  }
+  // Password prompts need connected ConIn/ConOut, not just their device paths.
+  Status = EfiBootManagerConnectAllDefaultConsoles ();
+  // ConnectAll updates the system table but succeeds with only one console.
+  // The password popup needs both an output and a waitable input interface.
+  if (EFI_ERROR (Status) ||
+      EFI_ERROR (EfiBootManagerConnectConsoleVariable (ConOut)) ||
+      EFI_ERROR (EfiBootManagerConnectConsoleVariable (ConIn)) ||
+      (gST == NULL) || (gST->ConOut == NULL) || (gST->ConIn == NULL) ||
+      (gST->ConIn->ReadKeyStroke == NULL) || (gST->ConIn->WaitForKey == NULL))
+  {
+    DEBUG ((DEBUG_ERROR, "ConIn/ConOut unavailable for OPAL enrollment\n"));
+    return;
+  }
+  Status = gBS->LocateHandleBuffer (ByProtocol, &gEfiPciIoProtocolGuid, NULL, &Count, &Handles);
+  if (EFI_ERROR (Status)) {
+    return;
+  }
+  for (Index = 0; Index < Count; Index++) {
+    Status = gBS->HandleProtocol (Handles[Index], &gEfiPciIoProtocolGuid, (VOID **)&PciIo);
+    if (EFI_ERROR (Status)) {
+      continue;
+    }
+    Status = PciIo->Pci.Read (PciIo, EfiPciIoWidthUint8, 0x09, sizeof (ClassCode), ClassCode);
+    if (!EFI_ERROR (Status) && (ClassCode[2] == PCI_CLASS_MASS_STORAGE) &&
+        (ClassCode[1] == PCI_CLASS_MASS_STORAGE_SOLID_STATE) &&
+        (ClassCode[0] == PCI_IF_MASS_STORAGE_SOLID_STATE_ENTERPRISE_NVMHCI))
+    {
+      gBS->ConnectController (Handles[Index], NULL, NULL, TRUE);
+    }
+  }
+  FreePool (Handles);
+}
+#endif
+
 STATIC
 VOID
 PlatformConnectRemovableMedia (
@@ -1191,6 +1250,10 @@ PlatformBootManagerBeforeConsole (
   //
   // Dispatch deferred images after EndOfDxe event and ReadyToLock installation.
   //
+#ifdef OPAL_PASSWORD_ENABLE
+  // Complete native NVMe password handoffs before an option ROM can seal MM.
+  PlatformConnectNvmeForS3 (&ConsoleInitialized);
+#endif
   EfiBootManagerDispatchDeferredImages ();
 
   if (!ConsoleInitialized) {

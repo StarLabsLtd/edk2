@@ -849,6 +849,24 @@ OpalSupportEnableOpalFeature (
   return Ret;
 }
 
+// coreboot's LockBox library forwards credentials incrementally and deliberately
+// does not implement the PEI storage-init list. Other owners need full snapshots.
+STATIC
+EFI_STATUS
+GetOpalS3Transport (
+  OUT BOOLEAN *Incremental
+  )
+{
+  EFI_STATUS Status;
+
+  Status = SetLockBoxAttributes (&gS3StorageDeviceInitListGuid, LOCK_BOX_ATTRIBUTE_RESTORE_IN_S3_ONLY);
+  *Incremental = (Status == EFI_UNSUPPORTED);
+  if (EFI_ERROR (Status) && (Status != EFI_UNSUPPORTED) && (Status != EFI_NOT_FOUND)) {
+    return Status;
+  }
+  return EFI_SUCCESS;
+}
+
 /**
   Update password for the Opal disk.
 
@@ -865,13 +883,20 @@ OpalSupportUpdatePassword (
   )
 {
   EFI_STATUS  Status;
+  EFI_STATUS  TransportStatus;
+  BOOLEAN     Incremental;
 
   CopyMem (OpalDisk->Password, Password, PasswordLength);
   OpalDisk->PasswordLength = (UINT8)PasswordLength;
 
+  OpalDisk->S3HandoffPending = TRUE;
   Status = BuildOpalDeviceInfo ();
   if (EFI_ERROR (Status)) {
-    if (mOpalS3LockBoxBuilt) {
+    TransportStatus = GetOpalS3Transport (&Incremental);
+    if (mOpalS3LockBoxBuilt || EFI_ERROR (TransportStatus) || Incremental) {
+      // Never dispatch an external image with an unpreserved plaintext password.
+      ZeroMem (OpalDisk->Password, sizeof (OpalDisk->Password));
+      OpalDisk->PasswordLength = 0;
       gRT->ResetSystem (EfiResetShutdown, Status, 0, NULL);
       CpuDeadLoop ();
     }
@@ -985,16 +1010,23 @@ BuildOpalDeviceInfo (
   UINTN                     S3InitDevicesLength;
   EFI_DEVICE_PATH_PROTOCOL  *S3InitDevices;
   EFI_DEVICE_PATH_PROTOCOL  *S3InitDevicesBak;
+  BOOLEAN                   CorebootTransport;
 
   //
   // Build OPAL device info and save them to LockBox.
   //
+  Status = GetOpalS3Transport (&CorebootTransport);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
   DevInfo            = NULL;
   S3InitDevices      = NULL;
   TotalDevInfoLength = 0;
   TmpDev             = mOpalDriver.DeviceList;
   while (TmpDev != NULL) {
-    if (TmpDev->OpalDisk.PasswordLength != 0) {
+    if ((TmpDev->OpalDisk.PasswordLength != 0) &&
+        (!CorebootTransport || TmpDev->OpalDisk.S3HandoffPending))
+    {
       ExtractDeviceInfoFromDevicePath (
         TmpDev->OpalDisk.OpalDevicePath,
         &DevInfoLength,
@@ -1024,7 +1056,9 @@ BuildOpalDeviceInfo (
   TempDevInfo = DevInfo;
   TmpDev      = mOpalDriver.DeviceList;
   while (TmpDev != NULL) {
-    if (TmpDev->OpalDisk.PasswordLength == 0) {
+    if ((TmpDev->OpalDisk.PasswordLength == 0) ||
+        (CorebootTransport && !TmpDev->OpalDisk.S3HandoffPending))
+    {
       TmpDev = TmpDev->Next;
       continue;
     }
@@ -1138,6 +1172,16 @@ BuildOpalDeviceInfo (
   }
 
 Cleanup:
+  if (!EFI_ERROR (Status)) {
+    for (TmpDev = mOpalDriver.DeviceList; TmpDev != NULL; TmpDev = TmpDev->Next) {
+      if (CorebootTransport && TmpDev->OpalDisk.S3HandoffPending) {
+        // MM owns successful handoffs now; external DXE must not inherit copies.
+        ZeroMem (TmpDev->OpalDisk.Password, sizeof (TmpDev->OpalDisk.Password));
+        TmpDev->OpalDisk.PasswordLength = 0;
+      }
+      TmpDev->OpalDisk.S3HandoffPending = FALSE;
+    }
+  }
   if (DevInfo != NULL) {
     ZeroMem (DevInfo, TotalDevInfoLength);
     FreePool (DevInfo);
@@ -1268,6 +1312,8 @@ OpalReadyToBootEventNotify (
     return;
   }
 
+  // The builder skips completed coreboot handoffs and retains full snapshots
+  // for other LockBox owners.
   Status = BuildOpalDeviceInfo ();
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "Cannot preserve OPAL credentials for S3: %r\n", Status));

@@ -24,6 +24,7 @@
 
 #define OPAL_S3_APM_CNT_SVC            0xEE
 #define OPAL_S3_SMM_SUBCMD_SET_SECRET  0x01
+#define OPAL_S3_SMM_UNSUPPORTED_DEVICE  9
 
 #define OPAL_S3_SMM_CTX_SIGNATURE  SIGNATURE_32 ('O', 'P', 'S', '3')
 #define OPAL_S3_SMM_CTX_VERSION    0x0001
@@ -124,6 +125,9 @@ SendSmmSvc (
     return EFI_DEVICE_ERROR;
   }
 
+  if (Result == OPAL_S3_SMM_UNSUPPORTED_DEVICE) {
+    return EFI_UNSUPPORTED;
+  }
   if (Result != 0) {
     DEBUG ((DEBUG_VERBOSE, "%a(): SMM returned error: 0x%lx\n", __func__, (UINT64)Result));
     return EFI_DEVICE_ERROR;
@@ -210,8 +214,9 @@ ForwardOpalDeviceLockBoxToSmm (
 
       Status = SendSmmSvc (OPAL_S3_SMM_SUBCMD_SET_SECRET, CtxPhys);
       if (EFI_ERROR (Status)) {
-        DEBUG ((DEBUG_VERBOSE, "%a(): OPAL SMI handoff failed: %r\n", __func__, Status));
-        ReturnStatus = RETURN_DEVICE_ERROR;
+        // A rejected credential was not preserved for resume.
+        DEBUG ((DEBUG_ERROR, "%a(): OPAL SMI handoff failed: %r\n", __func__, Status));
+        ReturnStatus = Status;
       }
 
       ZeroMem (Ctx->Password, sizeof (Ctx->Password));
