@@ -30,6 +30,8 @@
 [Guids]
   gCorebootVariableServiceInfoGuid
   gCorebootVariableServiceReadyGuid
+  gEfiEventReadyToBootGuid
+  gEfiEventExitBootServicesGuid
   gSmmVariableWriteGuid
 
 [Protocols]
