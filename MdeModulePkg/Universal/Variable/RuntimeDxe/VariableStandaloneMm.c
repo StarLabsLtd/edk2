@@ -10,6 +10,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 
 #include <Library/MmServicesTableLib.h>
 #include <Library/StandaloneMmMemLib.h>
+#include <Library/HobLib.h>
 #include "Variable.h"
 
 /**
@@ -48,7 +49,33 @@ VariableSmmIsNonPrimaryBufferValid (
   IN UINT64                Length
   )
 {
-  return MmIsBufferOutsideMmValid (Buffer, Length);
+  EFI_PEI_HOB_POINTERS  Hob;
+  BOOLEAN              InSystemMemory = FALSE;
+
+  if ((Length == 0) || !MmIsBufferOutsideMmValid (Buffer, Length)) {
+    return FALSE;
+  }
+  Hob.Raw = GetHobList ();
+  while ((Hob.Raw = GetNextHob (EFI_HOB_TYPE_RESOURCE_DESCRIPTOR, Hob.Raw)) != NULL) {
+    // Explicit reserved/MMIO allocations take precedence over a broad RAM HOB.
+    if ((Hob.ResourceDescriptor->ResourceType != EFI_RESOURCE_SYSTEM_MEMORY) &&
+        (Hob.ResourceDescriptor->ResourceLength != 0) &&
+        ((Buffer < Hob.ResourceDescriptor->PhysicalStart) ?
+         (Length > Hob.ResourceDescriptor->PhysicalStart - Buffer) :
+         (Buffer - Hob.ResourceDescriptor->PhysicalStart < Hob.ResourceDescriptor->ResourceLength)))
+    {
+      return FALSE;
+    }
+    if ((Hob.ResourceDescriptor->ResourceType == EFI_RESOURCE_SYSTEM_MEMORY) &&
+        (Buffer >= Hob.ResourceDescriptor->PhysicalStart) &&
+        (Buffer - Hob.ResourceDescriptor->PhysicalStart < Hob.ResourceDescriptor->ResourceLength) &&
+        (Length <= Hob.ResourceDescriptor->ResourceLength - (Buffer - Hob.ResourceDescriptor->PhysicalStart)))
+    {
+      InSystemMemory = TRUE;
+    }
+    Hob.Raw = GET_NEXT_HOB (Hob);
+  }
+  return InSystemMemory;
 }
 
 /**
