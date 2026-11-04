@@ -126,3 +126,18 @@ openssl cms -sign -binary -noattr -in "$test_dir/malformed" \
   -IUefiPayloadPkg/Include \
   UefiPayloadPkg/Library/CorebootCapsuleLib/ClientTest.c -o "$test_dir/client-test"
 "$test_dir/client-test"
+
+"${CC:-cc}" -m32 -malign-double -std=gnu11 -fshort-wchar -DEFI32 \
+  -fno-pie -no-pie -ffunction-sections -fdata-sections -Wl,--gc-sections \
+  -Wall -Werror -IMdePkg/Include -IMdePkg/Include/Ia32 \
+  -IMdeModulePkg/Include -IUefiPayloadPkg/Include \
+  UefiPayloadPkg/CorebootMmBridge/BridgeTest.c -o "$test_dir/bridge-test"
+"$test_dir/bridge-test"
+
+"${CC:-cc}" -std=gnu11 -fshort-wchar -ffunction-sections -fdata-sections \
+  -Wl,--gc-sections -Wall -Werror -D_PCD_GET_MODE_32_PcdMaximumDevicePathNodeCount=1000 \
+  -IMdePkg/Include -IMdePkg/Include/X64 -IMdeModulePkg/Include -ISecurityPkg/Include \
+  UefiPayloadPkg/Library/LockBoxLibApmsmi/HandoffTest.c \
+  MdePkg/Library/UefiDevicePathLib/DevicePathUtilities.c \
+  MdePkg/Library/UefiDevicePathLib/UefiDevicePathLib.c -o "$test_dir/handoff-test"
+"$test_dir/handoff-test"

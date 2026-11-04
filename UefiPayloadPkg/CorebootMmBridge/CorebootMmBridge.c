@@ -8,6 +8,7 @@
 #include <PiMm.h>
 
 #include <Guid/CorebootVariableService.h>
+#include <Guid/EventGroup.h>
 #include <Guid/SmmVariableCommon.h>
 #include <Library/HobLib.h>
 #include <Library/MmServicesTableLib.h>
@@ -28,11 +29,24 @@ VariableServiceReady (
 {
   EFI_STATUS  Status;
   VOID        *Protocol;
+  BOOLEAN     BootAccess;
 
   if ((CommBuffer == NULL) || (CommBufferSize == NULL) ||
-      (*CommBufferSize != sizeof (UINT8)) || (*(UINT8 *)CommBuffer != 0))
+      (*CommBufferSize != sizeof (UINT8)) || (*(UINT8 *)CommBuffer > 1))
   {
     return EFI_INVALID_PARAMETER;
+  }
+
+  // The native owner queries this with an SMRAM-owned byte. External image
+  // admission also installs ReadyToBoot, so neither OS nor later DXE can enroll.
+  BootAccess = (*(UINT8 *)CommBuffer == 1);
+  if (BootAccess) {
+    *(UINT8 *)CommBuffer = 0;
+    if ((gMmst->MmLocateProtocol (&gEfiEventReadyToBootGuid, NULL, &Protocol) != EFI_NOT_FOUND) ||
+        (gMmst->MmLocateProtocol (&gEfiEventExitBootServicesGuid, NULL, &Protocol) != EFI_NOT_FOUND))
+    {
+      return EFI_SUCCESS;
+    }
   }
 
   Status = gMmst->MmLocateProtocol (
@@ -44,11 +58,15 @@ VariableServiceReady (
     return Status;
   }
 
-  return gMmst->MmLocateProtocol (
-                  &gSmmVariableWriteGuid,
-                  NULL,
-                  &Protocol
-                  );
+  Status = gMmst->MmLocateProtocol (
+                    &gSmmVariableWriteGuid,
+                    NULL,
+                    &Protocol
+                    );
+  if (!EFI_ERROR (Status) && BootAccess) {
+    *(UINT8 *)CommBuffer = 1;
+  }
+  return Status;
 }
 
 STATIC
