@@ -76,6 +76,7 @@
   gEdkiiVariablePolicyProtocolGuid              ## PRODUCES
 
 [FeaturePcd]
+  gEfiMdeModulePkgTokenSpaceGuid.PcdEnableVariableRuntimeCache             ## CONSUMES
   gEfiMdeModulePkgTokenSpaceGuid.PcdVariableCollectStatistics            ## CONSUMES
 
 [Pcd]
