@@ -150,6 +150,7 @@ CapsuleOwnerBegin(CAPSULE_OWNER *Owner, CONST UINT8 *Signature, UINTN Size)
     UINT32 HeaderSize;
     UINT32 Version;
     UINT32 LowestSupportedVersion;
+    EFI_GUID ImageGuid;
   } Header;
   CONST REGION_MANIFEST_ENTRY *Entries;
   CONST FMAP_HEADER *ImageMap;
@@ -178,8 +179,13 @@ CapsuleOwnerBegin(CAPSULE_OWNER *Owner, CONST UINT8 *Signature, UINTN Size)
   }
   CopyMem(&Header, Owner->Verifier.Metadata, sizeof(Header));
   if (Header.Signature != SIGNATURE_32('M', 'S', 'S', '1') ||
-      Header.HeaderSize < sizeof(Header) || Header.HeaderSize != Owner->Verifier.ImageOffset ||
+      Header.HeaderSize != sizeof(Header) || Header.HeaderSize != Owner->Verifier.ImageOffset ||
       Header.HeaderSize > Owner->Verifier.MetadataSize - sizeof(UINT64)) {
+    goto Failed;
+  }
+  /* Only authenticated metadata identifies the target; the outer FMP GUID is public. */
+  if (CompareMem(&Header.ImageGuid, &Owner->Policy->ImageGuid, sizeof(EFI_GUID))) {
+    Status = EFI_SECURITY_VIOLATION;
     goto Failed;
   }
   if (Header.Version < Owner->Policy->LowestSupportedVersion ||

@@ -122,6 +122,24 @@ StreamControl (BIO *Bio, int Command, long Number, VOID *Pointer)
   return 0;
 }
 
+BOOLEAN
+CapsuleTrustValid (CONST UINT8 *Root, UINTN RootSize)
+{
+  CONST unsigned char *Cursor;
+  X509 *Certificate;
+  BOOLEAN Valid;
+
+  if ((Root == NULL) || (RootSize == 0) || (RootSize > INT_MAX)) {
+    return FALSE;
+  }
+  Cursor = Root;
+  Certificate = d2i_X509 (NULL, &Cursor, (long)RootSize);
+  Valid = (Certificate != NULL) && (Cursor == Root + RootSize) &&
+          (X509_get0_pubkey (Certificate) != NULL);
+  X509_free (Certificate);
+  return Valid;
+}
+
 STATIC
 PKCS7 *
 DecodeSignature (CONST UINT8 *Signature, UINTN Size)

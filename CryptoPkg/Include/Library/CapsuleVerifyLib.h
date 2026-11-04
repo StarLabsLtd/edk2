@@ -32,6 +32,9 @@ typedef struct {
   VOID         *BlockDigest;
 } CAPSULE_VERIFIER;
 
+/* Validate a complete DER trust certificate before publishing owner readiness. */
+BOOLEAN CapsuleTrustValid (CONST UINT8 *Root, UINTN RootSize);
+
 /* All parameters and the complete verifier must reside in protected memory. */
 BOOLEAN CapsuleVerify (CAPSULE_VERIFIER *State, CONST UINT8 *Signature,
                        UINTN SignatureSize, CONST UINT8 *Root, UINTN RootSize);

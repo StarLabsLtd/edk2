@@ -14,7 +14,6 @@
 #include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
 #include <Library/HobLib.h>
-#include <Library/MemoryAllocationLib.h>
 #include <Library/MmServicesTableLib.h>
 #include <Library/PcdLib.h>
 
@@ -114,12 +113,48 @@ RefreshFloor(VOID)
 }
 
 STATIC
+BOOLEAN
+TrustDataValid (VOID)
+{
+  CONST UINT8 *Keys = PcdGetPtr (PcdFmpDevicePkcs7CertBufferXdr);
+  UINTN KeysSize = PcdGetSize (PcdFmpDevicePkcs7CertBufferXdr);
+  UINTN Position = 0;
+  UINTN Size;
+  UINTN Padded;
+
+  if ((Keys == NULL) || (KeysSize == 0)) {
+    return FALSE;
+  }
+  while (Position < KeysSize) {
+    if (KeysSize - Position < sizeof (UINT32)) {
+      return FALSE;
+    }
+    Size = SwapBytes32 (ReadUnaligned32 ((CONST UINT32 *)(Keys + Position)));
+    Position += sizeof (UINT32);
+    if ((Size == 0) || (Size > MAX_UINTN - 3)) {
+      return FALSE;
+    }
+    Padded = ALIGN_VALUE (Size, 4);
+    if ((Padded > KeysSize - Position) || !CapsuleTrustValid (Keys + Position, Size)) {
+      return FALSE;
+    }
+    for (UINTN Index = Size; Index < Padded; Index++) {
+      if (Keys[Position + Index] != 0) {
+        return FALSE;
+      }
+    }
+    Position += Padded;
+  }
+  return TRUE;
+}
+
+STATIC
 EFI_STATUS
 EFIAPI
 VariableReady(CONST EFI_GUID *Protocol, VOID *Interface, EFI_HANDLE Handle)
 {
   mVariables = Interface;
-  mFloorReady = mVariables && !EFI_ERROR(RefreshFloor());
+  mFloorReady = mVariables && TrustDataValid () && !EFI_ERROR (RefreshFloor ());
   return mFloorReady ? EFI_SUCCESS : EFI_DEVICE_ERROR;
 }
 
@@ -150,6 +185,8 @@ Begin(CONST COREBOOT_CAPSULE_START *Request, CONST UINT8 *Signature)
   if (EFI_ERROR(Status)) {
     return Status;
   }
+  /* No verification attempt means authorization failed, even after RefreshFloor succeeded. */
+  Status = EFI_SECURITY_VIOLATION;
   mOwner.Verifier.Read = CapsuleSourceRead;
   mOwner.Verifier.Context = &mSource;
   mOwner.Verifier.SignedSize = Request->SignedSize;
@@ -168,13 +205,16 @@ Begin(CONST COREBOOT_CAPSULE_START *Request, CONST UINT8 *Signature)
     mPolicy.Root = Keys + Position;
     mPolicy.RootSize = Size;
     Status = CapsuleOwnerBegin(&mOwner, Signature, Request->SignatureSize);
-    if (!EFI_ERROR(Status)) {
+    if (!EFI_ERROR(Status) && mOwner.Active) {
       mGeneration++;
       if (!mGeneration) {
         mGeneration++;
       }
       mTransaction = mGeneration;
       return EFI_SUCCESS;
+    }
+    if (!EFI_ERROR (Status)) {
+      Status = EFI_SECURITY_VIOLATION;
     }
     Position += Padded;
   }
@@ -192,7 +232,7 @@ Dispatch(IN EFI_HANDLE Handle, IN CONST VOID *Context OPTIONAL,
   COREBOOT_CAPSULE_START Request;
   COREBOOT_CAPSULE_BLOCK Block;
   COREBOOT_CAPSULE_GEOMETRY Geometry;
-  UINT8 *Signature;
+  CONST UINT8 *Signature;
   UINTN InputSize;
   EFI_STATUS Status;
 
@@ -230,13 +270,10 @@ Dispatch(IN EFI_HANDLE Handle, IN CONST VOID *Context OPTIONAL,
         Request.SignatureSize != InputSize - sizeof(Request)) {
       return EFI_INVALID_PARAMETER;
     }
-    Signature = AllocatePool(Request.SignatureSize);
-    if (!Signature) {
-      return EFI_OUT_OF_RESOURCES;
-    }
-    CopyMem(Signature, (UINT8 *)CommBuffer + sizeof(Request), Request.SignatureSize);
-    Status = Begin(&Request, Signature);
-    FreePool(Signature);
+    /* The MM core already owns this bounded private shadow until dispatch returns.
+       Verification does not dispatch a nested MM request or retain this pointer. */
+    Signature = (CONST UINT8 *)CommBuffer + sizeof (Request);
+    Status = Begin (&Request, Signature);
     Request.Header.Transaction = mTransaction;
     CopyMem(CommBuffer, &Request, sizeof(Request));
     *CommSize = sizeof(Request);
@@ -283,6 +320,9 @@ CorebootCapsuleOwnerEntryPoint(VOID)
   VOID *Registration;
   EFI_STATUS Status;
 
+  if (!TrustDataValid ()) {
+    return EFI_SECURITY_VIOLATION;
+  }
   Hob = GetFirstGuidHob(&gCorebootCapsuleInfoGuid);
   if (!Hob || GET_GUID_HOB_DATA_SIZE(Hob) != sizeof(*mInfo)) {
     return EFI_NOT_FOUND;
@@ -323,6 +363,7 @@ CorebootCapsuleOwnerEntryPoint(VOID)
       mPolicy.VariableStore.Size > mInfo->FlashSize - mPolicy.VariableStore.Offset) {
     return EFI_COMPROMISED_DATA;
   }
+  mPolicy.ImageGuid = mInfo->ImageGuid;
   mPolicy.FlashSize = mInfo->FlashSize;
   mPolicy.LowestSupportedVersion = mInfo->LowestSupportedVersion;
   mPolicy.Resolve = Resolve;

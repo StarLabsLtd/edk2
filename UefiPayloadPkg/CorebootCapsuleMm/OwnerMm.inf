@@ -31,7 +31,6 @@
   CapsuleVerifyLib
   HobLib
   MemLib
-  MemoryAllocationLib
   MmServicesTableLib
   PcdLib
 [Protocols]

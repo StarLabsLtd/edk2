@@ -102,6 +102,9 @@ main(int argc, char **argv)
   v->ImageSize--;
   if (!CapsuleVerify(v, s, ns, r, nr))
     return 12;
+  if (!CapsuleTrustValid(r, nr) || CapsuleTrustValid(r, 0) ||
+      CapsuleTrustValid(r, nr - 1) || CapsuleTrustValid((CONST UINT8 *)"invalid", 7))
+    return 14;
   r[nr / 2] ^= 1;
   if (CapsuleVerify(v, s, ns, r, nr) || v->Verified)
     return 13;

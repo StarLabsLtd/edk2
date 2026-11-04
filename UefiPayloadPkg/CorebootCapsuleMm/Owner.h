@@ -22,6 +22,7 @@ typedef struct {
   CONST UINT8 *Root;
   UINTN RootSize;
   UINTN FlashSize;
+  EFI_GUID ImageGuid;
   UINT32 LowestSupportedVersion;
   CAPSULE_RESOLVE Resolve;
   CAPSULE_PROGRAM Program;

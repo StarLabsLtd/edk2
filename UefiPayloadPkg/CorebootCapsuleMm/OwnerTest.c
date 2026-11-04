@@ -89,7 +89,7 @@ Program(VOID *C, UINTN Block, CONST CAPSULE_RANGE *R, UINTN Count, UINT8 *Image,
 int
 main(int argc, char **argv)
 {
-  if (argc != 4)
+  if (argc != 4 && argc != 5)
     return 2;
   UINTN          SignatureSize, RootSize;
   UINT8         *Signature = Load(argv[2], &SignatureSize), *Root = Load(argv[3], &RootSize);
@@ -99,6 +99,8 @@ main(int argc, char **argv)
   CAPSULE_POLICY Policy       = {.Root                   = Root,
                                  .RootSize               = RootSize,
                                  .FlashSize              = 2 * CAPSULE_BLOCK_SIZE,
+                                 .ImageGuid              = {0x00112233, 0x4455, 0x6677,
+                                                          {0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff}},
                                  .LowestSupportedVersion = 10,
                                  .Resolve                = Resolve,
                                  .Program                = Program,
@@ -106,12 +108,24 @@ main(int argc, char **argv)
   Owner->Policy               = &Policy;
   Owner->Verifier.Read        = Read;
   Owner->Verifier.Context     = f;
-  Owner->Verifier.ImageOffset = 16;
+  Owner->Verifier.ImageOffset = argc == 5 ? strtoul(argv[4], NULL, 0) : 32;
   Owner->Verifier.ImageSize   = Policy.FlashSize;
   fseek(f, 0, SEEK_END);
   Owner->Verifier.SignedSize = ftell(f);
   rewind(f);
   CHECK(CapsuleOwnerProgram(Owner, 0) == EFI_ACCESS_DENIED && Programs == 0);
+  if (argc == 5) {
+    CHECK(EFI_ERROR(CapsuleOwnerBegin(Owner, Signature, SignatureSize)) && !Owner->Active);
+    fclose(f);
+    free(Owner);
+    free(Signature);
+    free(Root);
+    return 0;
+  }
+  Policy.ImageGuid.Data1 ^= 1;
+  CHECK(CapsuleOwnerBegin(Owner, Signature, SignatureSize) == EFI_SECURITY_VIOLATION &&
+        !Owner->Active && Programs == 0);
+  Policy.ImageGuid.Data1 ^= 1;
   FailPreflight = TRUE;
   CHECK(CapsuleOwnerBegin(Owner, Signature, SignatureSize) == EFI_WRITE_PROTECTED &&
         !Owner->Active && Programs == 0);

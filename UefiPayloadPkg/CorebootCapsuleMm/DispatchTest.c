@@ -10,7 +10,8 @@
 #undef NULL
 static unsigned char KeyData[] = {0, 0, 0, 1, 0x5a, 0, 0, 0};
 #define _PCD_GET_MODE_PTR_PcdFmpDevicePkcs7CertBufferXdr KeyData
-#define _PCD_GET_MODE_SIZE_PcdFmpDevicePkcs7CertBufferXdr sizeof(KeyData)
+static unsigned KeySize = sizeof(KeyData);
+#define _PCD_GET_MODE_SIZE_PcdFmpDevicePkcs7CertBufferXdr KeySize
 #include "OwnerMm.c"
 EFI_GUID gEfiEventExitBootServicesGuid;
 EFI_GUID gCorebootCapsuleUpdateGuid;
@@ -23,17 +24,15 @@ EFI_MM_SYSTEM_TABLE *gMmst = &SystemTable;
 static BOOLEAN Exited, SourceAllowed = TRUE;
 static unsigned Begins, Programs;
 static EFI_STATUS VerifyStatus;
+static BOOLEAN Activate = TRUE;
 static VOID *PacketAddress;
 VOID *EFIAPI CopyMem(VOID *d, CONST VOID *s, UINTN n) { return memcpy(d, s, n); }
 VOID *EFIAPI ZeroMem(VOID *d, UINTN n) { return memset(d, 0, n); }
 INTN EFIAPI CompareMem(CONST VOID *a, CONST VOID *b, UINTN n) { return memcmp(a, b, n); }
 UINT32 EFIAPI ReadUnaligned32(CONST VOID *p) { UINT32 v; memcpy(&v, p, sizeof(v)); return v; }
 UINT32 EFIAPI SwapBytes32(UINT32 v) { return __builtin_bswap32(v); }
-VOID *EFIAPI AllocatePool(UINTN n) { return malloc(n); }
-VOID EFIAPI FreePool(VOID *p) { free(p); }
-/* Primary packets are MM-owned shadows. External sources have a separate fixture. */
-BOOLEAN EFIAPI MmIsBufferOutsideMmValid(EFI_PHYSICAL_ADDRESS Address, UINT64 Length)
-{ (void)Address; (void)Length; return FALSE; }
+BOOLEAN CapsuleTrustValid(CONST UINT8 *Root, UINTN Size)
+{ return Size == 1 && *Root == 0x5a; }
 BOOLEAN CapsuleSourceInit(CAPSULE_SOURCE *s, EFI_PHYSICAL_ADDRESS a, UINTN n)
 { s->Address = a; s->Size = n; return SourceAllowed; }
 BOOLEAN CapsuleSourceRead(VOID *c, UINTN o, VOID *b, UINTN n)
@@ -42,9 +41,9 @@ VOID CapsuleOwnerClose(CAPSULE_OWNER *o) { o->Active = FALSE; }
 EFI_STATUS CapsuleOwnerBegin(CAPSULE_OWNER *o, CONST UINT8 *s, UINTN n)
 {
   Begins++;
-  /* The request signature must have been copied out of untrusted memory. */
-  if ((CONST VOID *)s == PacketAddress || n != 1 || *s != 0xa5) abort();
-  o->Active = !EFI_ERROR(VerifyStatus);
+  /* Dispatch receives the MM core's private shadow, including its signature. */
+  if ((CONST VOID *)s != PacketAddress || n != 1 || *s != 0xa5) abort();
+  o->Active = Activate && !EFI_ERROR(VerifyStatus);
   return VerifyStatus;
 }
 EFI_STATUS CapsuleOwnerProgram(CAPSULE_OWNER *o, UINTN b)
@@ -82,6 +81,22 @@ int main(void)
   mPolicy.LowestSupportedVersion = 10;
   Size = sizeof(Geometry);
   CHECK(Dispatch(NULL, NULL, &Geometry, &Size) == EFI_NOT_READY);
+  KeySize = 0;
+  CHECK(VariableReady(NULL, &Variables, NULL) == EFI_DEVICE_ERROR && !mFloorReady);
+  KeySize = 3;
+  CHECK(VariableReady(NULL, &Variables, NULL) == EFI_DEVICE_ERROR && !mFloorReady);
+  KeySize = sizeof(KeyData);
+  KeyData[3] = 0;
+  CHECK(VariableReady(NULL, &Variables, NULL) == EFI_DEVICE_ERROR && !mFloorReady);
+  KeyData[3] = 5;
+  CHECK(VariableReady(NULL, &Variables, NULL) == EFI_DEVICE_ERROR && !mFloorReady);
+  KeyData[3] = 1;
+  KeyData[4] = 0;
+  CHECK(VariableReady(NULL, &Variables, NULL) == EFI_DEVICE_ERROR && !mFloorReady);
+  KeyData[4] = 0x5a;
+  KeyData[7] = 1;
+  CHECK(VariableReady(NULL, &Variables, NULL) == EFI_DEVICE_ERROR && !mFloorReady);
+  KeyData[7] = 0;
   CHECK(VariableReady(NULL, &Variables, NULL) == EFI_SUCCESS && mFloorReady);
   FloorMode = 1; StoredFloor = 42;
   CHECK(RefreshFloor() == EFI_SUCCESS && mPolicy.LowestSupportedVersion == 42);
@@ -120,7 +135,15 @@ int main(void)
   VerifyStatus = EFI_SECURITY_VIOLATION;
   CHECK(Dispatch(NULL, NULL, Bytes, &Size) == EFI_SECURITY_VIOLATION && !mTransaction);
   Size = sizeof(Bytes);
+  KeySize = 0;
   VerifyStatus = EFI_SUCCESS;
+  CHECK(Dispatch(NULL, NULL, Bytes, &Size) == EFI_SECURITY_VIOLATION && !mTransaction);
+  KeySize = sizeof(KeyData);
+  Size = sizeof(Bytes);
+  Activate = FALSE;
+  CHECK(Dispatch(NULL, NULL, Bytes, &Size) == EFI_SECURITY_VIOLATION && !mTransaction);
+  Activate = TRUE;
+  Size = sizeof(Bytes);
   CHECK(Dispatch(NULL, NULL, Bytes, &Size) == EFI_SUCCESS && Size == sizeof(*Start));
   Transaction = Start->Header.Transaction;
   CHECK(Transaction && mOwner.Active);
