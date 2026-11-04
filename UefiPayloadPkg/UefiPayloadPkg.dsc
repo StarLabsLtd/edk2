@@ -773,6 +773,9 @@
 #
 ################################################################################
 [PcdsFeatureFlag]
+!if $(ASS) == TRUE
+  gEfiMdeModulePkgTokenSpaceGuid.PcdEnableVariableRuntimeCache|TRUE
+!endif
   gEfiMdeModulePkgTokenSpaceGuid.PcdConOutGopSupport|TRUE
   gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiWideAspectCapSupport|$(PAYLOAD_FB_HIDPI_WIDE_ASPECT_CAP_SUPPORT)
   gUefiPayloadPkgTokenSpaceGuid.PcdConnectAllDevices|$(CONNECT_ALL_DEVICES)

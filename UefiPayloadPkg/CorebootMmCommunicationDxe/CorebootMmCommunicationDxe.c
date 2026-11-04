@@ -101,6 +101,23 @@ typedef struct {
 } SMM_VARIABLE_PROPERTY32;
 
 typedef struct {
+  UINT32    ReadLock;
+  UINT32    PendingUpdate;
+  UINT32    HobFlushComplete;
+  UINT32    RuntimeHobCache;
+  UINT32    RuntimeNvCache;
+  UINT32    RuntimeVolatileCache;
+} SMM_VARIABLE_CACHE_CONTEXT32;
+
+typedef struct {
+  UINT32     TotalHobStorageSize;
+  UINT32     TotalNvStorageSize;
+  UINT32     TotalVolatileStorageSize;
+  BOOLEAN    AuthenticatedVariableUsage;
+  UINT8      Reserved[3];
+} SMM_VARIABLE_CACHE_INFO32;
+
+typedef struct {
   UINT32    Signature;
   UINT32    Revision;
   UINT32    Command;
@@ -114,6 +131,8 @@ STATIC_ASSERT (OFFSET_OF (SMM_VARIABLE_ACCESS32, Name) == 28, "IA32 variable acc
 STATIC_ASSERT (OFFSET_OF (SMM_VARIABLE_GET_NEXT32, Name) == 20, "IA32 get-next ABI");
 STATIC_ASSERT (OFFSET_OF (SMM_VARIABLE_PROPERTY32, Name) == 36, "IA32 variable property ABI");
 STATIC_ASSERT (sizeof (VAR_CHECK_POLICY_HEADER32) == 16, "IA32 variable policy ABI");
+STATIC_ASSERT (sizeof (SMM_VARIABLE_CACHE_CONTEXT32) == 24, "IA32 cache context ABI");
+STATIC_ASSERT (sizeof (SMM_VARIABLE_CACHE_INFO32) == 16, "IA32 cache info ABI");
 
 #if defined (MDE_CPU_X64)
 STATIC_ASSERT (SMM_VARIABLE_COMMUNICATE_HEADER_SIZE == 16, "X64 variable header ABI");
@@ -361,6 +380,44 @@ CopyVariablePayloadTo32 (
       *ResultSize = Size;
       return EFI_SUCCESS;
 
+    case SMM_VARIABLE_FUNCTION_INIT_RUNTIME_VARIABLE_CACHE_CONTEXT:
+      if ((SourceSize < sizeof (SMM_VARIABLE_COMMUNICATE_RUNTIME_VARIABLE_CACHE_CONTEXT)) ||
+          (DestinationSize < sizeof (SMM_VARIABLE_CACHE_CONTEXT32)))
+      {
+        return EFI_BAD_BUFFER_SIZE;
+      }
+
+      {
+        SMM_VARIABLE_COMMUNICATE_RUNTIME_VARIABLE_CACHE_CONTEXT  *Cache = (VOID *)Source;
+        SMM_VARIABLE_CACHE_CONTEXT32                            *Cache32 = (VOID *)Destination;
+
+        if (!UintnToUint32 ((UINTN)Cache->ReadLock, &Cache32->ReadLock) ||
+            !UintnToUint32 ((UINTN)Cache->PendingUpdate, &Cache32->PendingUpdate) ||
+            !UintnToUint32 ((UINTN)Cache->HobFlushComplete, &Cache32->HobFlushComplete) ||
+            !UintnToUint32 ((UINTN)Cache->RuntimeHobCache, &Cache32->RuntimeHobCache) ||
+            !UintnToUint32 ((UINTN)Cache->RuntimeNvCache, &Cache32->RuntimeNvCache) ||
+            !UintnToUint32 ((UINTN)Cache->RuntimeVolatileCache, &Cache32->RuntimeVolatileCache))
+        {
+          return EFI_BAD_BUFFER_SIZE;
+        }
+      }
+      *ResultSize = sizeof (SMM_VARIABLE_CACHE_CONTEXT32);
+      return EFI_SUCCESS;
+
+    case SMM_VARIABLE_FUNCTION_GET_RUNTIME_CACHE_INFO:
+      if ((SourceSize < sizeof (SMM_VARIABLE_COMMUNICATE_GET_RUNTIME_CACHE_INFO)) ||
+          (DestinationSize < sizeof (SMM_VARIABLE_CACHE_INFO32)))
+      {
+        return EFI_BAD_BUFFER_SIZE;
+      }
+      ZeroMem (Destination, sizeof (SMM_VARIABLE_CACHE_INFO32));
+      *ResultSize = sizeof (SMM_VARIABLE_CACHE_INFO32);
+      return EFI_SUCCESS;
+
+    case SMM_VARIABLE_FUNCTION_SYNC_RUNTIME_CACHE:
+      *ResultSize = 0;
+      return EFI_SUCCESS;
+
     case SMM_VARIABLE_FUNCTION_GET_PAYLOAD_SIZE:
       if ((SourceSize < sizeof (SMM_VARIABLE_COMMUNICATE_GET_PAYLOAD_SIZE)) ||
           (DestinationSize < sizeof (UINT32)))
@@ -510,6 +567,31 @@ CopyVariablePayloadFrom32 (
       CopyMem (Property->Name, Property32->Name, Property32->NameSize);
       return EFI_SUCCESS;
 
+    case SMM_VARIABLE_FUNCTION_INIT_RUNTIME_VARIABLE_CACHE_CONTEXT:
+    case SMM_VARIABLE_FUNCTION_SYNC_RUNTIME_CACHE:
+      // Neither operation returns a payload. Do not expose IA32 pointer bytes.
+      return EFI_SUCCESS;
+
+    case SMM_VARIABLE_FUNCTION_GET_RUNTIME_CACHE_INFO:
+      if (!Success) {
+        return EFI_SUCCESS;
+      }
+      if ((SourceSize < sizeof (SMM_VARIABLE_CACHE_INFO32)) ||
+          (DestinationSize < sizeof (SMM_VARIABLE_COMMUNICATE_GET_RUNTIME_CACHE_INFO)))
+      {
+        return EFI_BAD_BUFFER_SIZE;
+      }
+      {
+        CONST SMM_VARIABLE_CACHE_INFO32                    *Info32 = (CONST VOID *)Source;
+        SMM_VARIABLE_COMMUNICATE_GET_RUNTIME_CACHE_INFO    *Info = (VOID *)Destination;
+
+        Info->TotalHobStorageSize         = Info32->TotalHobStorageSize;
+        Info->TotalNvStorageSize          = Info32->TotalNvStorageSize;
+        Info->TotalVolatileStorageSize    = Info32->TotalVolatileStorageSize;
+        Info->AuthenticatedVariableUsage  = Info32->AuthenticatedVariableUsage;
+      }
+      return EFI_SUCCESS;
+
     case SMM_VARIABLE_FUNCTION_GET_PAYLOAD_SIZE:
       if (!Success) {
         return EFI_SUCCESS;
@@ -546,6 +628,9 @@ VariableFunctionSupported (
     case SMM_VARIABLE_FUNCTION_LOCK_VARIABLE:
     case SMM_VARIABLE_FUNCTION_VAR_CHECK_VARIABLE_PROPERTY_SET:
     case SMM_VARIABLE_FUNCTION_VAR_CHECK_VARIABLE_PROPERTY_GET:
+    case SMM_VARIABLE_FUNCTION_INIT_RUNTIME_VARIABLE_CACHE_CONTEXT:
+    case SMM_VARIABLE_FUNCTION_SYNC_RUNTIME_CACHE:
+    case SMM_VARIABLE_FUNCTION_GET_RUNTIME_CACHE_INFO:
     case SMM_VARIABLE_FUNCTION_GET_PAYLOAD_SIZE:
       return TRUE;
     default:
@@ -587,6 +672,12 @@ NativeMessageExpansion (
     case SMM_VARIABLE_FUNCTION_VAR_CHECK_VARIABLE_PROPERTY_GET:
       return Expansion + OFFSET_OF (SMM_VARIABLE_COMMUNICATE_VAR_CHECK_VARIABLE_PROPERTY, Name) -
              OFFSET_OF (SMM_VARIABLE_PROPERTY32, Name);
+    case SMM_VARIABLE_FUNCTION_INIT_RUNTIME_VARIABLE_CACHE_CONTEXT:
+      return Expansion + sizeof (SMM_VARIABLE_COMMUNICATE_RUNTIME_VARIABLE_CACHE_CONTEXT) -
+             sizeof (SMM_VARIABLE_CACHE_CONTEXT32);
+    case SMM_VARIABLE_FUNCTION_GET_RUNTIME_CACHE_INFO:
+      return Expansion + sizeof (SMM_VARIABLE_COMMUNICATE_GET_RUNTIME_CACHE_INFO) -
+             sizeof (SMM_VARIABLE_CACHE_INFO32);
     case SMM_VARIABLE_FUNCTION_GET_PAYLOAD_SIZE:
       return Expansion + sizeof (SMM_VARIABLE_COMMUNICATE_GET_PAYLOAD_SIZE) - sizeof (UINT32);
     default:
