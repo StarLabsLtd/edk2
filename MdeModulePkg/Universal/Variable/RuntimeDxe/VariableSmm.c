@@ -425,6 +425,69 @@ SmmVariableGetStatistics (
   return EFI_SUCCESS;
 }
 
+/** Validate shared cache destinations using the private stores' extents. **/
+STATIC
+BOOLEAN
+RuntimeCacheContextValid (
+  IN CONST SMM_VARIABLE_COMMUNICATE_RUNTIME_VARIABLE_CACHE_CONTEXT  *Context
+  )
+{
+  UINTN                  Base[6];
+  UINTN                  Size[6];
+  UINTN                  Index;
+  UINTN                  Other;
+  VARIABLE_STORE_HEADER  Header;
+
+  Base[0] = (UINTN)Context->RuntimeHobCache;
+  Base[1] = (UINTN)Context->RuntimeNvCache;
+  Base[2] = (UINTN)Context->RuntimeVolatileCache;
+  Base[3] = (UINTN)Context->ReadLock;
+  Base[4] = (UINTN)Context->PendingUpdate;
+  Base[5] = (UINTN)Context->HobFlushComplete;
+  Size[0] = 0;
+  if (mVariableModuleGlobal->VariableGlobal.HobVariableBase != 0) {
+    Size[0] = ((VARIABLE_STORE_HEADER *)(UINTN)mVariableModuleGlobal->VariableGlobal.HobVariableBase)->Size;
+  }
+  Size[1] = mNvVariableCache->Size;
+  Size[2] = ((VARIABLE_STORE_HEADER *)(UINTN)mVariableModuleGlobal->VariableGlobal.VolatileVariableBase)->Size;
+  Size[3] = sizeof (BOOLEAN);
+  Size[4] = sizeof (BOOLEAN);
+  Size[5] = sizeof (BOOLEAN);
+
+  for (Index = 0; Index < ARRAY_SIZE (Base); Index++) {
+    if (Size[Index] == 0) {
+      if (Base[Index] != 0) {
+        return FALSE;
+      }
+      continue;
+    }
+    if ((Base[Index] == 0) || (Size[Index] - 1 > MAX_UINTN - Base[Index]) ||
+        !VariableSmmIsNonPrimaryBufferValid (Base[Index], Size[Index]))
+    {
+      return FALSE;
+    }
+    for (Other = 0; Other < Index; Other++) {
+      if ((Size[Other] != 0) &&
+          (Base[Index] <= Base[Other] + Size[Other] - 1) &&
+          (Base[Other] <= Base[Index] + Size[Index] - 1))
+      {
+        return FALSE;
+      }
+    }
+    // Validate the complete trusted extent before even reading its header.
+    if (Index < 3) {
+      if (Size[Index] < sizeof (Header)) {
+        return FALSE;
+      }
+      CopyMem (&Header, (VOID *)Base[Index], sizeof (Header));
+      if (Header.Size < Size[Index]) {
+        return FALSE;
+      }
+    }
+  }
+  return TRUE;
+}
+
 /**
   Communication service SMI Handler entry.
 
@@ -833,7 +896,9 @@ SmmVariableHandler (
         goto EXIT;
       }
 
-      if (mEndOfDxe) {
+      if (mEndOfDxe ||
+          (mVariableModuleGlobal->VariableGlobal.VariableRuntimeCacheContext.PendingUpdate != NULL))
+      {
         DEBUG ((DEBUG_ERROR, "InitRuntimeVariableCacheContext: Cannot init context after end of DXE!\n"));
         Status = EFI_ACCESS_DENIED;
         goto EXIT;
@@ -845,93 +910,7 @@ SmmVariableHandler (
       CopyMem (mVariableBufferPayload, SmmVariableFunctionHeader->Data, CommBufferPayloadSize);
       RuntimeVariableCacheContext = (SMM_VARIABLE_COMMUNICATE_RUNTIME_VARIABLE_CACHE_CONTEXT *)mVariableBufferPayload;
 
-      //
-      // Verify required runtime cache buffers are provided.
-      //
-      if ((RuntimeVariableCacheContext->RuntimeVolatileCache == NULL) ||
-          (RuntimeVariableCacheContext->RuntimeNvCache == NULL) ||
-          (RuntimeVariableCacheContext->PendingUpdate == NULL) ||
-          (RuntimeVariableCacheContext->ReadLock == NULL) ||
-          (RuntimeVariableCacheContext->HobFlushComplete == NULL))
-      {
-        DEBUG ((DEBUG_ERROR, "InitRuntimeVariableCacheContext: Required runtime cache buffer is NULL!\n"));
-        Status = EFI_ACCESS_DENIED;
-        goto EXIT;
-      }
-
-      //
-      // Verify minimum size requirements for the runtime variable store buffers.
-      //
-      if (((RuntimeVariableCacheContext->RuntimeHobCache != NULL) &&
-           (RuntimeVariableCacheContext->RuntimeHobCache->Size < sizeof (VARIABLE_STORE_HEADER))) ||
-          (RuntimeVariableCacheContext->RuntimeVolatileCache->Size < sizeof (VARIABLE_STORE_HEADER)) ||
-          (RuntimeVariableCacheContext->RuntimeNvCache->Size < sizeof (VARIABLE_STORE_HEADER)))
-      {
-        DEBUG ((DEBUG_ERROR, "InitRuntimeVariableCacheContext: A runtime cache buffer size is invalid!\n"));
-        Status = EFI_ACCESS_DENIED;
-        goto EXIT;
-      }
-
-      //
-      // Verify runtime buffers do not overlap with SMRAM ranges.
-      //
-      if ((RuntimeVariableCacheContext->RuntimeHobCache != NULL) &&
-          !VariableSmmIsNonPrimaryBufferValid (
-             (UINTN)RuntimeVariableCacheContext->RuntimeHobCache,
-             (UINTN)RuntimeVariableCacheContext->RuntimeHobCache->Size
-             ))
-      {
-        DEBUG ((DEBUG_ERROR, "InitRuntimeVariableCacheContext: Runtime HOB cache buffer in SMRAM or overflow!\n"));
-        Status = EFI_ACCESS_DENIED;
-        goto EXIT;
-      }
-
-      if (!VariableSmmIsNonPrimaryBufferValid (
-             (UINTN)RuntimeVariableCacheContext->RuntimeVolatileCache,
-             (UINTN)RuntimeVariableCacheContext->RuntimeVolatileCache->Size
-             ))
-      {
-        DEBUG ((DEBUG_ERROR, "InitRuntimeVariableCacheContext: Runtime volatile cache buffer in SMRAM or overflow!\n"));
-        Status = EFI_ACCESS_DENIED;
-        goto EXIT;
-      }
-
-      if (!VariableSmmIsNonPrimaryBufferValid (
-             (UINTN)RuntimeVariableCacheContext->RuntimeNvCache,
-             (UINTN)RuntimeVariableCacheContext->RuntimeNvCache->Size
-             ))
-      {
-        DEBUG ((DEBUG_ERROR, "InitRuntimeVariableCacheContext: Runtime non-volatile cache buffer in SMRAM or overflow!\n"));
-        Status = EFI_ACCESS_DENIED;
-        goto EXIT;
-      }
-
-      if (!VariableSmmIsNonPrimaryBufferValid (
-             (UINTN)RuntimeVariableCacheContext->PendingUpdate,
-             sizeof (*(RuntimeVariableCacheContext->PendingUpdate))
-             ))
-      {
-        DEBUG ((DEBUG_ERROR, "InitRuntimeVariableCacheContext: Runtime cache pending update buffer in SMRAM or overflow!\n"));
-        Status = EFI_ACCESS_DENIED;
-        goto EXIT;
-      }
-
-      if (!VariableSmmIsNonPrimaryBufferValid (
-             (UINTN)RuntimeVariableCacheContext->ReadLock,
-             sizeof (*(RuntimeVariableCacheContext->ReadLock))
-             ))
-      {
-        DEBUG ((DEBUG_ERROR, "InitRuntimeVariableCacheContext: Runtime cache read lock buffer in SMRAM or overflow!\n"));
-        Status = EFI_ACCESS_DENIED;
-        goto EXIT;
-      }
-
-      if (!VariableSmmIsNonPrimaryBufferValid (
-             (UINTN)RuntimeVariableCacheContext->HobFlushComplete,
-             sizeof (*(RuntimeVariableCacheContext->HobFlushComplete))
-             ))
-      {
-        DEBUG ((DEBUG_ERROR, "InitRuntimeVariableCacheContext: Runtime cache HOB flush complete buffer in SMRAM or overflow!\n"));
+      if (!RuntimeCacheContextValid (RuntimeVariableCacheContext)) {
         Status = EFI_ACCESS_DENIED;
         goto EXIT;
       }
