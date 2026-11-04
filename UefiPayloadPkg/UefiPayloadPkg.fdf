@@ -244,7 +244,7 @@ INF MdeModulePkg/Universal/ResetSystemRuntimeDxe/ResetSystemRuntimeDxe.inf
   INF MdeModulePkg/Universal/FaultTolerantWriteDxe/FaultTolerantWriteDxe.inf
   INF MdeModulePkg/Universal/Variable/RuntimeDxe/VariableRuntimeDxe.inf
 !elseif $(VARIABLE_SUPPORT) == "SPI"
-!if $(FIXED_MM_SERVICE) == TRUE
+!if $(ASS) == TRUE
   INF UefiPayloadPkg/CorebootMmCommunicationDxe/CorebootMmCommunicationDxe.inf
   INF UefiPayloadPkg/CorebootMmEventDxe/CorebootMmEventDxe.inf
 !else

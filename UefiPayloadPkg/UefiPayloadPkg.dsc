@@ -36,18 +36,19 @@
   DEFINE SIO_BUS_ENABLE               = FALSE
   DEFINE SECURITY_STUB_ENABLE         = TRUE
   DEFINE SMM_SUPPORT                  = FALSE
-  DEFINE FIXED_MM_SERVICE             = FALSE
+  # Authorised SMM Service, owned by coreboot.
+  DEFINE ASS                          = FALSE
 
-!if $(FIXED_MM_SERVICE) == TRUE
+!if $(ASS) == TRUE
 !if $(SECURITY_STUB_ENABLE) != TRUE
-  !error "FIXED_MM_SERVICE requires SECURITY_STUB_ENABLE for image admission policy"
+  !error "ASS requires SECURITY_STUB_ENABLE for image admission policy"
 !endif
 !if $(SMM_SUPPORT) == TRUE
-  !error "SMM_SUPPORT and FIXED_MM_SERVICE cannot both be TRUE"
+  !error "SMM_SUPPORT and ASS cannot both be TRUE"
 !endif
 !if $(BUILD_ARCH) != IA32
 !if $(BUILD_ARCH) != X64
-  !error "FIXED_MM_SERVICE requires an x86 build"
+  !error "ASS requires an x86 build"
 !endif
 !endif
 !endif
@@ -116,8 +117,8 @@
   #
   DEFINE   BOOTLOADER                 = SBL
 
-!if $(FIXED_MM_SERVICE) == TRUE && $(BOOTLOADER) != "COREBOOT"
-  !error "FIXED_MM_SERVICE requires BOOTLOADER=COREBOOT"
+!if $(ASS) == TRUE && $(BOOTLOADER) != "COREBOOT"
+  !error "ASS requires BOOTLOADER=COREBOOT"
 !endif
 
   #
@@ -179,8 +180,8 @@
   #
   DEFINE VARIABLE_SUPPORT      = EMU
 
-!if $(FIXED_MM_SERVICE) == TRUE && $(VARIABLE_SUPPORT) != "SPI"
-  !error "FIXED_MM_SERVICE requires VARIABLE_SUPPORT=SPI"
+!if $(ASS) == TRUE && $(VARIABLE_SUPPORT) != "SPI"
+  !error "ASS requires VARIABLE_SUPPORT=SPI"
 !endif
 
   DEFINE DISABLE_RESET_SYSTEM  = FALSE
@@ -375,7 +376,7 @@
   DisplayUpdateProgressLib|MdeModulePkg/Library/DisplayUpdateProgressLibGraphics/DisplayUpdateProgressLibGraphics.inf
   # If there are no specific checks to do, null-library suffices
   CapsuleUpdatePolicyLib|FmpDevicePkg/Library/CapsuleUpdatePolicyLibNull/CapsuleUpdatePolicyLibNull.inf
-!if $(FIXED_MM_SERVICE) == TRUE
+!if $(ASS) == TRUE
   CorebootCapsuleLib|UefiPayloadPkg/Library/CorebootCapsuleLib/CorebootCapsuleLib.inf
   FmpAuthenticationLib|UefiPayloadPkg/Library/CorebootFmpAuthenticationLib/CorebootFmpAuthenticationLib.inf
 !else
@@ -482,7 +483,7 @@
   MmUnblockMemoryLib|MdePkg/Library/MmUnblockMemoryLib/MmUnblockMemoryLibNull.inf
 !endif
 !if $(VARIABLE_SUPPORT) == "SMMSTORE" || ($(CAPSULE_SUPPORT) && $(BOOTLOADER) == "COREBOOT")
-!if $(FIXED_MM_SERVICE) == TRUE
+!if $(ASS) == TRUE
   SmmStoreLib|UefiPayloadPkg/Library/CorebootCapsuleStoreLib/CorebootCapsuleStoreLib.inf
 !else
   SmmStoreLib|UefiPayloadPkg/Library/SmmStoreLib/SmmStoreLib.inf
@@ -1207,7 +1208,7 @@
 !if $(SECURITY_STUB_ENABLE) == TRUE
   MdeModulePkg/Universal/SecurityStubDxe/SecurityStubDxe.inf {
       <LibraryClasses>
-!if $(FIXED_MM_SERVICE) == TRUE
+!if $(ASS) == TRUE
       NULL|UefiPayloadPkg/Library/CorebootImagePolicyLib/CorebootImagePolicyLib.inf
 !endif
 !if $(SECURE_BOOT_ENABLE) == TRUE
@@ -1432,7 +1433,7 @@
       NULL|EmbeddedPkg/Library/NvVarStoreFormattedLib/NvVarStoreFormattedLib.inf
   }
 !elseif $(VARIABLE_SUPPORT) == "SPI"
-!if $(FIXED_MM_SERVICE) == TRUE
+!if $(ASS) == TRUE
   UefiPayloadPkg/CorebootMmCommunicationDxe/CorebootMmCommunicationDxe.inf
   UefiPayloadPkg/CorebootMmEventDxe/CorebootMmEventDxe.inf
 !else
