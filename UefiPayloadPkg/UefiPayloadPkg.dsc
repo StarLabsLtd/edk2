@@ -233,6 +233,9 @@
   DEFINE TCG_STORAGE_SIMPLE_UI          = FALSE
 
 [BuildOptions]
+!if $(OPAL_PASSWORD_ENABLE) == TRUE
+  *_*_*_CC_FLAGS                 = -D OPAL_PASSWORD_ENABLE
+!endif
   *_*_*_CC_FLAGS                 = -D DISABLE_NEW_DEPRECATED_INTERFACES
 !if $(USE_CBMEM_FOR_CONSOLE) == FALSE
   GCC:RELEASE_*_*_CC_FLAGS       = -DMDEPKG_NDEBUG
