@@ -691,6 +691,10 @@
 !endif
 
 [LibraryClasses.common.DXE_RUNTIME_DRIVER]
+!if ($(TARGET) == DEBUG || $(USE_CBMEM_FOR_CONSOLE) == TRUE)
+  # Debug output depends on boot-time state; stop it at ExitBootServices.
+  DebugLib|MdePkg/Library/DxeRuntimeDebugLibSerialPort/DxeRuntimeDebugLibSerialPort.inf
+!endif
 !if $(SECURE_BOOT_ENABLE) == TRUE
   BaseCryptLib|CryptoPkg/Library/BaseCryptLib/RuntimeCryptLib.inf
 !endif
