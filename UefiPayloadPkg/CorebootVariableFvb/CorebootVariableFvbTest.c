@@ -29,6 +29,9 @@ INTN EFIAPI CompareMem (CONST VOID *First, CONST VOID *Second, UINTN Length)
 static unsigned char Flash[256];
 static unsigned char Staging[64];
 static unsigned int Erases;
+static unsigned int ReadCalls;
+static unsigned int ReadBytes;
+static unsigned int FailReadAt;
 static unsigned int ReadyInstalls;
 static int Fail;
 static int FailValidation;
@@ -96,7 +99,9 @@ EFI_STATUS EFIAPI SmmStoreGetFlashInfo (
 
 static UINT32 EFIAPI ReadOp (UINT32 Offset, UINT32 Size)
 {
-  if (Fail) {
+  ReadCalls++;
+  ReadBytes += Size;
+  if (Fail || ((FailReadAt != 0) && (ReadCalls == FailReadAt))) {
     return 1;
   }
 
@@ -210,6 +215,7 @@ int main (void)
   EFI_FVB_ATTRIBUTES_2 Attributes;
   EFI_PHYSICAL_ADDRESS Address;
   VARIABLE_FLASH_INFO FlashInfo = {0};
+  BOOLEAN Erased;
 
   memset (Flash, 0x33, sizeof (Flash));
   Info.StoreBuffer = (UINT32)(UINTN)Staging;
@@ -255,6 +261,30 @@ int main (void)
   CHECK (CorebootVariableFvbEntryPoint (NULL, NULL) == EFI_SUCCESS);
   CHECK (ValidationInstalls == 3 && NotifyRegistrations == 2 && FvbInstalls == 1);
   mService = &Info;
+
+  // A non-erased prefix avoids a full-block read.
+  memset (Flash + 64, 0xff, 64);
+  Flash[64] = 0;
+  ReadCalls = ReadBytes = 0;
+  CHECK (WorkspaceErased (64, &Erased) == EFI_SUCCESS && !Erased);
+  CHECK (ReadCalls == 1 && ReadBytes == 1);
+
+  // An erased prefix still requires checking the rest of the workspace.
+  Flash[64] = 0xff;
+  Flash[127] = 0;
+  ReadCalls = ReadBytes = 0;
+  CHECK (WorkspaceErased (64, &Erased) == EFI_SUCCESS && !Erased);
+  CHECK (ReadCalls == 2 && ReadBytes == 65);
+  Flash[127] = 0xff;
+  ReadCalls = ReadBytes = 0;
+  CHECK (WorkspaceErased (64, &Erased) == EFI_SUCCESS && Erased);
+  CHECK (ReadCalls == 2 && ReadBytes == 65);
+
+  ReadCalls = 0;
+  FailReadAt = 2;
+  CHECK (WorkspaceErased (64, &Erased) == EFI_DEVICE_ERROR);
+  FailReadAt = 0;
+  memset (Flash + 64, 0x33, 64);
 
   mStore.StoreBase = 0x10000;
   FlashInfo.FtwWorkingBaseAddress = mStore.StoreBase + 64;
