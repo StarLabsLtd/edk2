@@ -69,8 +69,18 @@ WorkspaceErased (
   Read   = (STORE_TRANSFER)(UINTN)mService->StoreRead;
   Buffer = (UINT8 *)(UINTN)mService->StoreBuffer;
   if ((Read == NULL) || (Buffer == NULL) ||
-      (Read (Offset, mStore.BlockSize) != COREBOOT_VARIABLE_REGISTER_SUCCESS))
+      (Read (Offset, 1) != COREBOOT_VARIABLE_REGISTER_SUCCESS))
   {
+    return EFI_DEVICE_ERROR;
+  }
+
+  // One programmed byte proves the workspace is not erased.
+  if (Buffer[0] != MAX_UINT8) {
+    *Erased = FALSE;
+    return EFI_SUCCESS;
+  }
+
+  if (Read (Offset, mStore.BlockSize) != COREBOOT_VARIABLE_REGISTER_SUCCESS) {
     return EFI_DEVICE_ERROR;
   }
 
