@@ -1185,10 +1185,13 @@ UsbRootHubResetPort (
   }
 
   //
-  // Drive the reset signal for at least 50ms. Check USB 2.0 Spec
-  // section 7.1.7.5 for timing requirements.
+  // Legacy host controllers require software to drive reset for at least
+  // 50 ms (USB 2.0 section 7.1.7.5). xHCI drives reset itself and waits for
+  // completion in SetRootHubPortFeature; do not wait another 50 ms.
   //
-  gBS->Stall (USB_SET_ROOT_PORT_RESET_STALL);
+  if ((Bus->Usb2Hc == NULL) || (Bus->Usb2Hc->MajorRevision < 0x3)) {
+    gBS->Stall (USB_SET_ROOT_PORT_RESET_STALL);
+  }
 
   for (Index = 0; Index < Bus->MaxDevices; Index++) {
     if (  (Bus->Devices[Index] != NULL)
