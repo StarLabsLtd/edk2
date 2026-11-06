@@ -32,6 +32,8 @@ extern "C" {
 
 static EFI_BOOT_SERVICES       mBootServices;
 static UINTN                   mFreePoolCount;
+static UINTN                   mStallMicroseconds;
+static EFI_STATUS              mResetStatus;
 static UINTN                   mControlTransferCount;
 static EFI_STATUS              mControlTransferStatus;
 static EFI_USB_PORT_STATUS     mRootHubPortStatus;
@@ -71,6 +73,7 @@ extern "C" {
     IN UINTN  Microseconds
     )
   {
+    mStallMicroseconds += Microseconds;
     return EFI_SUCCESS;
   }
 
@@ -151,7 +154,7 @@ extern "C" {
     IN EFI_USB_PORT_FEATURE  Feature
     )
   {
-    return EFI_SUCCESS;
+    return mResetStatus;
   }
 
   /**
@@ -238,12 +241,36 @@ protected:
     mBootServices.FreePool = TestFreePool;
     mBootServices.Stall    = TestStall;
 
+    mStallMicroseconds     = 0;
+    mResetStatus           = EFI_SUCCESS;
     mFreePoolCount         = 0;
     mControlTransferCount  = 0;
     mControlTransferStatus = EFI_DEVICE_ERROR;
     ZeroMem (&mBosDescriptor, sizeof (mBosDescriptor));
     mRootHubPortStatus.PortStatus       = USB_PORT_STAT_ENABLE;
     mRootHubPortStatus.PortChangeStatus = 0;
+  }
+
+  EFI_STATUS
+  ResetRootPort (
+    UINT8  MajorRevision
+    )
+  {
+    USB_BUS               Bus;
+    USB_DEVICE            RootDevice;
+    USB_INTERFACE         RootIf;
+    EFI_USB2_HC_PROTOCOL  Usb2Hc;
+
+    ZeroMem (&Bus, sizeof (Bus));
+    ZeroMem (&RootDevice, sizeof (RootDevice));
+    ZeroMem (&RootIf, sizeof (RootIf));
+    ZeroMem (&Usb2Hc, sizeof (Usb2Hc));
+
+    Usb2Hc.MajorRevision = MajorRevision;
+    Bus.Usb2Hc           = (MajorRevision == 0) ? nullptr : &Usb2Hc;
+    RootDevice.Bus       = &Bus;
+    RootIf.Device        = &RootDevice;
+    return UsbRootHubResetPort (&RootIf, 0);
   }
 };
 
@@ -401,6 +428,34 @@ TEST_F (UsbBusDxeTest, AvoidsNullDereferenceDuringRootHubReset) {
 
   ASSERT_EQ (Child.DevDesc, nullptr);
   EXPECT_EQ (UsbRootHubResetPort (&RootIf, Port), EFI_SUCCESS);
+}
+
+/**
+  xHCI completes reset in hardware; retain the post-reset recovery delay.
+**/
+TEST_F (UsbBusDxeTest, DoesNotRepeatCompletedXhciResetDelay) {
+  EXPECT_EQ (ResetRootPort (3), EFI_SUCCESS);
+  EXPECT_EQ (mStallMicroseconds, (UINTN)USB_CLR_ROOT_PORT_RESET_STALL);
+}
+
+/**
+  Legacy controllers still need software to hold reset for at least 50 ms.
+**/
+TEST_F (UsbBusDxeTest, PreservesLegacyRootResetTiming) {
+  EXPECT_EQ (ResetRootPort (2), EFI_SUCCESS);
+  EXPECT_EQ (mStallMicroseconds, (UINTN)(USB_SET_ROOT_PORT_RESET_STALL + USB_CLR_ROOT_PORT_RESET_STALL));
+  mStallMicroseconds = 0;
+  EXPECT_EQ (ResetRootPort (0), EFI_SUCCESS);
+  EXPECT_EQ (mStallMicroseconds, (UINTN)(USB_SET_ROOT_PORT_RESET_STALL + USB_CLR_ROOT_PORT_RESET_STALL));
+}
+
+/**
+  A failed reset stops before recovery or port enumeration.
+**/
+TEST_F (UsbBusDxeTest, PropagatesRootResetFailureWithoutWaiting) {
+  mResetStatus = EFI_TIMEOUT;
+  EXPECT_EQ (ResetRootPort (3), EFI_TIMEOUT);
+  EXPECT_EQ (mStallMicroseconds, (UINTN)0);
 }
 
 /**
