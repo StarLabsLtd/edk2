@@ -38,6 +38,8 @@
   BaseMemoryLib
   DebugLib
   PrintLib
+  HobLib
+  BmpSupportLib
 
 [Protocols]
   gEfiGraphicsOutputProtocolGuid                ## SOMETIMES_CONSUMES
@@ -45,3 +47,6 @@
   gEdkiiBootLogo2ProtocolGuid                   ## SOMETIMES_CONSUMES
   gEfiUserManagerProtocolGuid                   ## CONSUMES
   gEdkiiPlatformLogoProtocolGuid                ## CONSUMES
+
+[Guids]
+  gEdkiiBootLogoHobGuid
