@@ -61,7 +61,8 @@ EFI_STATUS
   @param[in]  This          The pointer to the Boot Logo Protocol 2 instance
   @param[out] BltBuffer     Returns pointer to the GOP BLT buffer that was
                             previously registered with SetBootLogo2(). The
-                            buffer returned must not be modified or freed.
+                            buffer returned must not be modified or freed. If
+                            NULL, only query the displayed logo's location.
   @param[out] DestinationX  Returns the X start position of the GOP BLT buffer
                             that was previously registered with SetBootLogo2().
   @param[out] DestinationY  Returns the Y start position of the GOP BLT buffer
@@ -73,7 +74,6 @@ EFI_STATUS
 
   @retval EFI_SUCCESS            The location of the boot logo was returned.
   @retval EFI_NOT_READY          The boot logo has not been set.
-  @retval EFI_INVALID_PARAMETER  BltBuffer is NULL.
   @retval EFI_INVALID_PARAMETER  DestinationX is NULL.
   @retval EFI_INVALID_PARAMETER  DestinationY is NULL.
   @retval EFI_INVALID_PARAMETER  Width is NULL.
@@ -83,7 +83,7 @@ typedef
 EFI_STATUS
 (EFIAPI *EDKII_GET_BOOT_LOGO2)(
   IN  EDKII_BOOT_LOGO2_PROTOCOL      *This,
-  OUT EFI_GRAPHICS_OUTPUT_BLT_PIXEL  **BltBuffer,
+  OUT EFI_GRAPHICS_OUTPUT_BLT_PIXEL  **BltBuffer OPTIONAL,
   OUT UINTN                          *DestinationX,
   OUT UINTN                          *DestinationY,
   OUT UINTN                          *Width,
