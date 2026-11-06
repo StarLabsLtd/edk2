@@ -8,7 +8,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 
 **/
 
-#include <Uefi.h>
+#include <PiDxe.h>
 #include <Protocol/GraphicsOutput.h>
 #include <Protocol/SimpleTextOut.h>
 #include <Protocol/PlatformLogo.h>
@@ -20,6 +20,9 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/MemoryAllocationLib.h>
 #include <Library/DebugLib.h>
+#include <Library/HobLib.h>
+#include <Library/BmpSupportLib.h>
+#include <Guid/BootLogo.h>
 
 #define BOOT_LOGO_HIDPI_HORIZONTAL_RESOLUTION  1920
 #define BOOT_LOGO_HIDPI_VERTICAL_RESOLUTION    1080
@@ -106,6 +109,86 @@ ScaleLogoBlt2x (
 }
 
 /**
+  Reuse the physical logo already drawn by the bootloader, restoring it only
+  after a real UI operation invalidates it. Other GOP modes retain their usual
+  platform-logo path.
+**/
+STATIC
+EFI_STATUS
+EnableHandedOffBootLogo (
+  VOID
+  )
+{
+  EFI_HOB_GUID_TYPE               *GuidHob;
+  EDKII_BOOT_LOGO_HOB             *Logo;
+  EDKII_BOOT_LOGO2_PROTOCOL       *BootLogo;
+  EFI_GRAPHICS_OUTPUT_PROTOCOL   *GraphicsOutput;
+  EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *Blt;
+  EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *Current;
+  EFI_STATUS                     Status;
+  UINTN                          BltSize;
+  UINTN                          Width;
+  UINTN                          Height;
+  UINTN                          CurrentX;
+  UINTN                          CurrentY;
+  UINTN                          CurrentWidth;
+  UINTN                          CurrentHeight;
+
+  GuidHob = GetFirstGuidHob (&gEdkiiBootLogoHobGuid);
+  if ((GuidHob == NULL) || (GET_GUID_HOB_DATA_SIZE (GuidHob) < sizeof (*Logo))) {
+    return EFI_NOT_FOUND;
+  }
+
+  Logo   = GET_GUID_HOB_DATA (GuidHob);
+  Status = gBS->HandleProtocol (gST->ConsoleOutHandle, &gEfiGraphicsOutputProtocolGuid, (VOID **)&GraphicsOutput);
+  if (EFI_ERROR (Status) || (GraphicsOutput->Mode->FrameBufferBase != Logo->FrameBufferBase)) {
+    return EFI_UNSUPPORTED;
+  }
+
+  Status = gBS->LocateProtocol (&gEdkiiBootLogo2ProtocolGuid, NULL, (VOID **)&BootLogo);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  Status = BootLogo->GetBootLogo (BootLogo, NULL, &CurrentX, &CurrentY, &CurrentWidth, &CurrentHeight);
+  if (Status == EFI_INVALID_PARAMETER) {
+    // Support providers predating the optional location-only query.
+    Status = BootLogo->GetBootLogo (BootLogo, &Current, &CurrentX, &CurrentY, &CurrentWidth, &CurrentHeight);
+  }
+
+  if (!EFI_ERROR (Status)) {
+    // The owner still reports a displayed logo; do not clear or repaint it.
+    return EFI_SUCCESS;
+  }
+
+  Blt     = NULL;
+  BltSize = 0;
+  Status  = TranslateBmpToGopBlt ((VOID *)(UINTN)Logo->ImageAddress, Logo->ImageSize, &Blt, &BltSize, &Height, &Width);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  Status = GraphicsOutput->Blt (
+                             GraphicsOutput,
+                             Blt,
+                             EfiBltBufferToVideo,
+                             0,
+                             0,
+                             Logo->DestinationX,
+                             Logo->DestinationY,
+                             Width,
+                             Height,
+                             0
+                             );
+  if (!EFI_ERROR (Status)) {
+    Status = BootLogo->SetBootLogo (BootLogo, Blt, Logo->DestinationX, Logo->DestinationY, Width, Height);
+  }
+
+  FreePool (Blt);
+  return Status;
+}
+
+/**
   Show LOGO returned from Edkii Platform Logo protocol on all consoles.
 
   @retval EFI_SUCCESS     Logo was displayed.
@@ -141,6 +224,12 @@ BootLogoEnableLogo (
   UINTN                                  NewDestX;
   UINTN                                  NewDestY;
   UINTN                                  BufferSize;
+
+  Status = EnableHandedOffBootLogo ();
+  if (!EFI_ERROR (Status)) {
+    gST->ConOut->EnableCursor (gST->ConOut, FALSE);
+    return EFI_SUCCESS;
+  }
 
   Status = gBS->LocateProtocol (&gEdkiiPlatformLogoProtocolGuid, NULL, (VOID **)&PlatformLogo);
   if (EFI_ERROR (Status)) {

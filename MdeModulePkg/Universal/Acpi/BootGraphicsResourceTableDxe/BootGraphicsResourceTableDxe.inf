@@ -40,6 +40,7 @@
   PcdLib
   SafeIntLib
   BmpSupportLib
+  HobLib
 
 [Protocols]
   gEfiAcpiTableProtocolGuid                     ## CONSUMES
@@ -54,6 +55,7 @@
   gEfiMdeModulePkgTokenSpaceGuid.PcdAcpiDefaultCreatorRevision  ## CONSUMES
 
 [Guids]
+  gEdkiiBootLogoHobGuid
   gEfiEventReadyToBootGuid                      ## CONSUMES ## Event
 
 [UserExtensions.TianoCore."ExtraFiles"]
