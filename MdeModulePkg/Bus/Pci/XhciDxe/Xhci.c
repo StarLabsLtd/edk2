@@ -577,9 +577,10 @@ XhcSetRootHubPortFeature (
       // 4.3.1 Resetting a Root Hub Port
       // 1) Write the PORTSC register with the Port Reset (PR) bit set to '1'.
       //
-      State |= XHC_PORTSC_RESET;
+      // Acknowledge any previous reset completion before starting this reset.
+      State |= XHC_PORTSC_RESET | XHC_PORTSC_PRC;
       XhcWriteOpReg (Xhc, Offset, State);
-      XhcWaitOpRegBit (Xhc, Offset, XHC_PORTSC_PRC, TRUE, XHC_GENERIC_TIMEOUT);
+      Status = XhcWaitOpRegBit (Xhc, Offset, XHC_PORTSC_PRC, TRUE, XHC_GENERIC_TIMEOUT);
       break;
 
     case EfiUsbPortPower:
