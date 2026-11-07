@@ -9,6 +9,8 @@
 #include <Uefi.h>
 #include <Protocol/Security.h>
 #include <Protocol/Security2.h>
+#include <Protocol/Tcg2Protocol.h>
+#include <Library/PcdLib.h>
 #include <Library/DebugLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/UefiDriverEntryPoint.h>
@@ -141,6 +143,24 @@ Security2StubAuthenticate (
     Status = Defer3rdPartyImageLoad (File, BootPolicy);
     if (EFI_ERROR (Status)) {
       return Status;
+    }
+  }
+
+  if (FixedPcdGetBool (PcdTpm2MeasurementRequired) && (FileBuffer != NULL) &&
+      ((File == NULL) || !FileFromFv (File))) {
+    EFI_TCG2_PROTOCOL                *Tcg2;
+    EFI_TCG2_BOOT_SERVICE_CAPABILITY Capability = { 0 };
+
+    Status = gBS->LocateProtocol (&gEfiTcg2ProtocolGuid, NULL, (VOID **)&Tcg2);
+    if (EFI_ERROR (Status)) {
+      return EFI_SECURITY_VIOLATION;
+    }
+
+    Capability.Size = sizeof (Capability);
+    Status = Tcg2->GetCapability (Tcg2, &Capability);
+    if (EFI_ERROR (Status) || !Capability.TPMPresentFlag ||
+        !(Capability.ActivePcrBanks & EFI_TCG2_BOOT_HASH_ALG_SHA256)) {
+      return EFI_SECURITY_VIOLATION;
     }
   }
 

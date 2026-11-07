@@ -1000,6 +1000,7 @@ AppendTruncationMarker (
 
   @retval EFI_SUCCESS           The new event log entry was added.
   @retval EFI_OUT_OF_RESOURCES  No enough memory to log the new event.
+  @retval EFI_VOLUME_FULL       A required event log has been truncated.
 
 **/
 EFI_STATUS
@@ -1102,21 +1103,23 @@ TcgDxeLogEvent (
     return EFI_SUCCESS;
   }
 
-  if (!EventLogAreaStruct->EventLogTruncated) {
-    Status = TcgCommLogEvent (
-               EventLogAreaStruct,
-               NewEventHdr,
-               NewEventHdrSize,
-               NewEventData,
-               NewEventSize
-               );
-    if (Status == EFI_OUT_OF_RESOURCES) {
-      AppendTruncationMarker (EventLogAreaStruct);
-      EventLogAreaStruct->EventLogTruncated = TRUE;
-      Status                                = EFI_SUCCESS;
-    } else if (Status == EFI_SUCCESS) {
-      EventLogAreaStruct->EventLogStarted = TRUE;
-    }
+  if (EventLogAreaStruct->EventLogTruncated) {
+    return FixedPcdGetBool (PcdTpm2MeasurementRequired) ? EFI_VOLUME_FULL : Status;
+  }
+
+  Status = TcgCommLogEvent (
+             EventLogAreaStruct,
+             NewEventHdr,
+             NewEventHdrSize,
+             NewEventData,
+             NewEventSize
+             );
+  if (Status == EFI_OUT_OF_RESOURCES) {
+    AppendTruncationMarker (EventLogAreaStruct);
+    EventLogAreaStruct->EventLogTruncated = TRUE;
+    Status = FixedPcdGetBool (PcdTpm2MeasurementRequired) ? EFI_VOLUME_FULL : EFI_SUCCESS;
+  } else if (Status == EFI_SUCCESS) {
+    EventLogAreaStruct->EventLogStarted = TRUE;
   }
 
   return Status;
@@ -1436,6 +1439,18 @@ TcgDxeLogHashEvent (
   return RetStatus;
 }
 
+STATIC
+VOID
+RequireTpmSuccess (
+  IN EFI_STATUS Status
+  )
+{
+  if (FixedPcdGetBool (PcdTpm2MeasurementRequired) && EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "Required TPM measurement failed: %r\n", Status));
+    CpuDeadLoop ();
+  }
+}
+
 /**
   Do a hash operation on a data buffer, extend a specific TPM PCR with the hash result,
   and add an entry to the Event Log.
@@ -1466,6 +1481,7 @@ TcgDxeHashLogExtendEvent (
   TCG_PCR_EVENT2_HDR  NoActionEvent;
 
   if (!mTcgDxeData.BsCap.TPMPresentFlag) {
+    RequireTpmSuccess (EFI_DEVICE_ERROR);
     return EFI_DEVICE_ERROR;
   }
 
@@ -1494,6 +1510,7 @@ TcgDxeHashLogExtendEvent (
       }
     }
 
+    RequireTpmSuccess (Status);
     return Status;
   }
 
@@ -1518,6 +1535,8 @@ TcgDxeHashLogExtendEvent (
       );
   }
 
+  // A late failure can follow LoadImage, so admission checks cannot catch it.
+  RequireTpmSuccess (Status);
   return Status;
 }
 
@@ -1811,6 +1830,36 @@ EFI_TCG2_PROTOCOL  mTcg2Protocol = {
   Tcg2GetResultOfSetActivePcrBanks,
 };
 
+// Include marker headroom in the published size, outside usable log capacity.
+STATIC
+EFI_STATUS
+GetAcpiLogAreaSize (
+  OUT UINT32  *Size
+  )
+{
+  UINT64  Length;
+  UINTN   MarkerSize;
+
+  Length     = PcdGet32 (PcdTcgLogAreaMinLen);
+  MarkerSize = GetTruncationEventSize ();
+  if (Length < MarkerSize) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  if (FixedPcdGetBool (PcdTpm2MeasurementRequired)) {
+    // The published address must remain fixed while the main log can grow.
+    Length = LShiftU64 (Length, TCG_EVENT_LOG_MAX_SCALE_COUNT) + MarkerSize;
+  }
+
+  if ((Length > MAX_UINT32) || (Length > MAX_UINTN - EFI_PAGE_MASK))
+  {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  *Size = (UINT32)Length;
+  return EFI_SUCCESS;
+}
+
 /**
   Initialize the Event Log and log events passed from the PEI phase.
 
@@ -1827,6 +1876,7 @@ SetupEventLog (
   VOID                             *TcgEvent;
   EFI_PEI_HOB_POINTERS             GuidHob;
   EFI_PHYSICAL_ADDRESS             Lasa;
+  UINT32                           AcpiLogAreaSize;
   UINTN                            Index;
   VOID                             *DigestListBin;
   TPML_DIGEST_VALUES               TempDigestListBin;
@@ -1852,20 +1902,19 @@ SetupEventLog (
   //
   for (Index = 0; Index < sizeof (mTcg2EventInfo)/sizeof (mTcg2EventInfo[0]); Index++) {
     if ((mTcgDxeData.BsCap.SupportedEventLogs & mTcg2EventInfo[Index].LogFormat) != 0) {
-      if ((PcdGet8 (PcdTpm2AcpiTableRev) >= 4) &&
+      if (((PcdGet8 (PcdTpm2AcpiTableRev) >= 4) ||
+           FixedPcdGetBool (PcdTpm2MeasurementRequired)) &&
           (mTcg2EventInfo[Index].LogFormat == EFI_TCG2_EVENT_LOG_FORMAT_TCG_2))
       {
-        // PcdTcgLogAreaMinLen is platform-configurable; ensure it has room for the
-        // EV_NO_ACTION truncation marker event.
-        if (PcdGet32 (PcdTcgLogAreaMinLen) < GetTruncationEventSize ()) {
-          DEBUG ((DEBUG_ERROR, "Insufficient AcpiEventLogArea length\n"));
-          return EFI_INVALID_PARAMETER;
+        Status = GetAcpiLogAreaSize (&AcpiLogAreaSize);
+        if (EFI_ERROR (Status)) {
+          return Status;
         }
 
         Status = gBS->AllocatePages (
                         AllocateAnyPages,
                         EfiACPIMemoryNVS,
-                        EFI_SIZE_TO_PAGES (PcdGet32 (PcdTcgLogAreaMinLen)),
+                        EFI_SIZE_TO_PAGES (AcpiLogAreaSize),
                         &Lasa
                         );
 
@@ -1873,21 +1922,23 @@ SetupEventLog (
           return Status;
         }
 
-        SetMem ((VOID *)(UINTN)Lasa, PcdGet32 (PcdTcgLogAreaMinLen), 0xFF);
+        SetMem ((VOID *)(UINTN)Lasa, AcpiLogAreaSize, 0xFF);
 
         mTcgDxeData.AcpiEventLogAreaStruct[Index].EventLogFormat        = mTcg2EventInfo[Index].LogFormat;
         mTcgDxeData.AcpiEventLogAreaStruct[Index].Lasa                  = Lasa;
-        mTcgDxeData.AcpiEventLogAreaStruct[Index].Laml                  = PcdGet32 (PcdTcgLogAreaMinLen) - GetTruncationEventSize ();
+        mTcgDxeData.AcpiEventLogAreaStruct[Index].Laml                  = AcpiLogAreaSize - GetTruncationEventSize ();
         mTcgDxeData.AcpiEventLogAreaStruct[Index].EventLogSize          = 0;
         mTcgDxeData.AcpiEventLogAreaStruct[Index].LastEvent             = (VOID *)(UINTN)Lasa;
         mTcgDxeData.AcpiEventLogAreaStruct[Index].EventLogStarted       = FALSE;
         mTcgDxeData.AcpiEventLogAreaStruct[Index].EventLogTruncated     = FALSE;
         mTcgDxeData.AcpiEventLogAreaStruct[Index].Next800155EventOffset = 0;
 
-        PcdSet32S (PcdTpm2AcpiTableLaml, PcdGet32 (PcdTcgLogAreaMinLen));
-        PcdSet64S (PcdTpm2AcpiTableLasa, mTcgDxeData.AcpiEventLogAreaStruct[Index].Lasa);
+        Status = PcdSet32S (PcdTpm2AcpiTableLaml, AcpiLogAreaSize);
+        RequireTpmSuccess (Status);
+        Status = PcdSet64S (PcdTpm2AcpiTableLasa, mTcgDxeData.AcpiEventLogAreaStruct[Index].Lasa);
+        RequireTpmSuccess (Status);
       } else {
-        // No need to handle EFI_TCG2_EVENT_LOG_FORMAT_TCG_1_2 or if PcdTpm2AcpiTableRev < 4
+        // Legacy logs do not need this region; revision < 4 skips it only outside strict mode.
         mTcgDxeData.AcpiEventLogAreaStruct[Index].EventLogFormat        = mTcg2EventInfo[Index].LogFormat;
         mTcgDxeData.AcpiEventLogAreaStruct[Index].Lasa                  = 0;
         mTcgDxeData.AcpiEventLogAreaStruct[Index].Laml                  = 0;
@@ -2007,6 +2058,7 @@ SetupEventLog (
                    (UINT8 *)TcgEfiSpecIdEventStruct,
                    SpecIdEvent.EventSize
                    );
+        RequireTpmSuccess (Status);
         //
         // record the offset at the end of 800-155 event.
         // the future 800-155 event can be inserted here.
@@ -2031,6 +2083,7 @@ SetupEventLog (
                      GET_GUID_HOB_DATA (GuidHob.Guid),
                      GET_GUID_HOB_DATA_SIZE (GuidHob.Guid)
                      );
+          RequireTpmSuccess (Status);
 
           GuidHob.Guid = GET_NEXT_HOB (GuidHob);
           GuidHob.Guid = GetNextGuidHob (&gTcg800155PlatformIdEventHobGuid, GuidHob.Guid);
@@ -2064,6 +2117,7 @@ SetupEventLog (
                      (UINT8 *)&StartupLocalityEvent,
                      sizeof (StartupLocalityEvent)
                      );
+          RequireTpmSuccess (Status);
         }
       }
     }
@@ -2147,6 +2201,9 @@ SetupEventLog (
       {
         TcgEvent = AllocateCopyPool (GET_GUID_HOB_DATA_SIZE (GuidHob.Guid), GET_GUID_HOB_DATA (GuidHob.Guid));
         ASSERT (TcgEvent != NULL);
+        if (TcgEvent == NULL) {
+          RequireTpmSuccess (EFI_OUT_OF_RESOURCES);
+        }
         GuidHob.Raw = GET_NEXT_HOB (GuidHob);
         switch (mTcg2EventInfo[Index].LogFormat) {
           case EFI_TCG2_EVENT_LOG_FORMAT_TCG_1_2:
@@ -2157,6 +2214,7 @@ SetupEventLog (
                        ((TCG_PCR_EVENT *)TcgEvent)->Event,
                        ((TCG_PCR_EVENT_HDR *)TcgEvent)->EventSize
                        );
+            RequireTpmSuccess (Status);
             break;
           case EFI_TCG2_EVENT_LOG_FORMAT_TCG_2:
             DigestListBin     = (UINT8 *)TcgEvent + sizeof (TCG_PCRINDEX) + sizeof (TCG_EVENTTYPE);
@@ -2198,6 +2256,7 @@ SetupEventLog (
                        Event,
                        EventSize
                        );
+            RequireTpmSuccess (Status);
             break;
         }
 
@@ -2438,6 +2497,10 @@ ReadAndMeasureVariable (
   EFI_STATUS  Status;
 
   Status = GetVariable2 (VarName, VendorGuid, VarData, VarSize);
+  if (FixedPcdGetBool (PcdTpm2MeasurementRequired) && EFI_ERROR (Status) &&
+      (Status != EFI_NOT_FOUND)) {
+    return Status;
+  }
   if (EventType == EV_EFI_VARIABLE_DRIVER_CONFIG) {
     if (EFI_ERROR (Status)) {
       //
@@ -2557,6 +2620,10 @@ MeasureAllBootVariables (
              &BootCount,
              (VOID **)&BootOrder
              );
+  if (FixedPcdGetBool (PcdTpm2MeasurementRequired) && EFI_ERROR (Status) &&
+      (Status != EFI_NOT_FOUND)) {
+    return Status;
+  }
   if ((Status == EFI_NOT_FOUND) || (BootOrder == NULL)) {
     return EFI_SUCCESS;
   }
@@ -2580,6 +2647,9 @@ MeasureAllBootVariables (
                );
     if (!EFI_ERROR (Status)) {
       FreePool (BootVarData);
+    } else if (FixedPcdGetBool (PcdTpm2MeasurementRequired) && (Status != EFI_NOT_FOUND)) {
+      FreePool (BootOrder);
+      return Status;
     }
   }
 
@@ -2620,6 +2690,9 @@ MeasureAllSecureVariables (
         FreePool (Data);
       }
     }
+    if (FixedPcdGetBool (PcdTpm2MeasurementRequired) && EFI_ERROR (Status)) {
+      return Status;
+    }
   }
 
   //
@@ -2636,7 +2709,13 @@ MeasureAllSecureVariables (
                DataSize
                );
     FreePool (Data);
+    if (FixedPcdGetBool (PcdTpm2MeasurementRequired) && EFI_ERROR (Status)) {
+      return Status;
+    }
   } else {
+    if (FixedPcdGetBool (PcdTpm2MeasurementRequired) && (Status != EFI_NOT_FOUND)) {
+      return Status;
+    }
     DEBUG ((DEBUG_INFO, "Skip measuring variable %s since it's deleted\n", EFI_IMAGE_SECURITY_DATABASE2));
   }
 
@@ -2668,6 +2747,9 @@ MeasureAllSecureVariables (
                    Data,
                    DataSize
                    );
+    }
+    if (FixedPcdGetBool (PcdTpm2MeasurementRequired) && EFI_ERROR (Status)) {
+      return Status;
     }
   }
 
@@ -2741,6 +2823,7 @@ MeasureSecureBootPolicy (
 
   Status = MeasureAllSecureVariables ();
   DEBUG ((DEBUG_INFO, "MeasureAllSecureVariables - %r\n", Status));
+  RequireTpmSuccess (Status);
 
   //
   // We need measure Separator(7) here, because this event must be between SecureBootPolicy (Configure)
@@ -2783,6 +2866,7 @@ OnReadyToBoot (
     Status = MeasureHandoffTables ();
     if (EFI_ERROR (Status)) {
       DEBUG ((DEBUG_ERROR, "HOBs not Measured. Error!\n"));
+      RequireTpmSuccess (Status);
     }
 
     //
@@ -2791,6 +2875,7 @@ OnReadyToBoot (
     Status = MeasureAllBootVariables ();
     if (EFI_ERROR (Status)) {
       DEBUG ((DEBUG_ERROR, "Boot Variables not Measured. Error!\n"));
+      RequireTpmSuccess (Status);
     }
 
     //
@@ -2995,6 +3080,7 @@ OnResetNotificationInstall (
   if (!EFI_ERROR (Status)) {
     Status = ResetNotify->RegisterResetNotify (ResetNotify, ShutdownTpmOnReset);
     ASSERT_EFI_ERROR (Status);
+    RequireTpmSuccess (Status);
     DEBUG ((DEBUG_VERBOSE, "TCG2: Hook system reset to properly shutdown TPM.\n"));
 
     gBS->CloseEvent (Event);
@@ -3023,6 +3109,25 @@ InstallTcg2 (
                   NULL
                   );
   return Status;
+}
+
+STATIC
+VOID
+RegisterRequiredTpmNotification (
+  IN EFI_GUID *Protocol,
+  IN EFI_EVENT_NOTIFY Notify
+  )
+{
+  EFI_STATUS Status;
+  EFI_EVENT Event;
+  VOID *Registration;
+
+  Status = gBS->CreateEvent (EVT_NOTIFY_SIGNAL, TPL_CALLBACK, Notify, NULL, &Event);
+  RequireTpmSuccess (Status);
+  Status = gBS->RegisterProtocolNotify (Protocol, Event, &Registration);
+  RequireTpmSuccess (Status);
+  Status = gBS->SignalEvent (Event);
+  RequireTpmSuccess (Status);
 }
 
 /**
@@ -3109,6 +3214,7 @@ DriverEntry (
   Status = Tpm2GetCapabilityMaxCommandResponseSize (&MaxCommandSize, &MaxResponseSize);
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "Tpm2GetCapabilityMaxCommandResponseSize fail!\n"));
+    RequireTpmSuccess (Status);
   } else {
     mTcgDxeData.BsCap.MaxCommandSize  = (UINT16)MaxCommandSize;
     mTcgDxeData.BsCap.MaxResponseSize = (UINT16)MaxResponseSize;
@@ -3121,6 +3227,7 @@ DriverEntry (
   Status = Tpm2GetCapabilitySupportedAndActivePcrs (&TpmHashAlgorithmBitmap, &ActivePCRBanks);
   DEBUG ((DEBUG_INFO, "TpmHashAlgorithmBitmap = 0x%X, ActivePCRBanks = 0x%X\n", TpmHashAlgorithmBitmap, ActivePCRBanks));
   ASSERT_EFI_ERROR (Status);
+  RequireTpmSuccess (Status);
 
   mTcgDxeData.BsCap.HashAlgorithmBitmap = TpmHashAlgorithmBitmap & PcdGet32 (PcdTcg2HashAlgorithmBitmap);
   mTcgDxeData.BsCap.ActivePcrBanks      = ActivePCRBanks & PcdGet32 (PcdTcg2HashAlgorithmBitmap);
@@ -3177,6 +3284,7 @@ DriverEntry (
   if (Tpm2PcrMask != PcdGet32 (PcdTpm2HashMask)) {
     Status = PcdSet32S (PcdTpm2HashMask, Tpm2PcrMask);
     ASSERT_EFI_ERROR (Status);
+    RequireTpmSuccess (Status);
   }
 
   if (mTcgDxeData.BsCap.TPMPresentFlag) {
@@ -3185,6 +3293,7 @@ DriverEntry (
     //
     Status = SetupEventLog ();
     ASSERT_EFI_ERROR (Status);
+    RequireTpmSuccess (Status);
 
     //
     // Measure handoff tables, Boot#### variables etc.
@@ -3195,6 +3304,7 @@ DriverEntry (
                NULL,
                &Event
                );
+    RequireTpmSuccess (Status);
 
     Status = gBS->CreateEventEx (
                     EVT_NOTIFY_SIGNAL,
@@ -3204,6 +3314,7 @@ DriverEntry (
                     &gEfiEventExitBootServicesGuid,
                     &Event
                     );
+    RequireTpmSuccess (Status);
 
     //
     // Measure Exit Boot Service failed
@@ -3216,18 +3327,20 @@ DriverEntry (
                     &gEventExitBootServicesFailedGuid,
                     &Event
                     );
+    RequireTpmSuccess (Status);
 
     //
     // Create event callback, because we need access variable on SecureBootPolicyVariable
     // We should use VariableWriteArch instead of VariableArch, because Variable driver
     // may update SecureBoot value based on last setting.
     //
-    EfiCreateProtocolNotifyEvent (&gEfiVariableWriteArchProtocolGuid, TPL_CALLBACK, MeasureSecureBootPolicy, NULL, &Registration);
-
-    //
-    // Hook the system reset to properly shutdown TPM.
-    //
-    EfiCreateProtocolNotifyEvent (&gEfiResetNotificationProtocolGuid, TPL_CALLBACK, OnResetNotificationInstall, NULL, &Registration);
+    if (FixedPcdGetBool (PcdTpm2MeasurementRequired)) {
+      RegisterRequiredTpmNotification (&gEfiVariableWriteArchProtocolGuid, MeasureSecureBootPolicy);
+      RegisterRequiredTpmNotification (&gEfiResetNotificationProtocolGuid, OnResetNotificationInstall);
+    } else {
+      EfiCreateProtocolNotifyEvent (&gEfiVariableWriteArchProtocolGuid, TPL_CALLBACK, MeasureSecureBootPolicy, NULL, &Registration);
+      EfiCreateProtocolNotifyEvent (&gEfiResetNotificationProtocolGuid, TPL_CALLBACK, OnResetNotificationInstall, NULL, &Registration);
+    }
   }
 
   //

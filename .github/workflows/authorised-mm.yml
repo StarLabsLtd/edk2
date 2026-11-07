@@ -20,3 +20,5 @@ jobs:
         run: UefiPayloadPkg/CorebootVariableFvb/test-host.sh
       - name: Exercise external-image admission boundary
         run: UefiPayloadPkg/Library/CorebootImagePolicyLib/test-host.sh
+      - name: Exercise strict measurement regressions
+        run: UefiPayloadPkg/UefiPayloadEntry/test-host.sh
