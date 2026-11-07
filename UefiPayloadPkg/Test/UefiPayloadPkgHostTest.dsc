@@ -33,6 +33,7 @@
   UefiPayloadPkg/Library/SmmStoreGeometryLib/SmmStoreGeometryLibUnitTestHost.inf
 
 [PcdsPatchableInModule]
+  gEfiMdeModulePkgTokenSpaceGuid.PcdBootLogoSourceScale|1
   gEfiMdeModulePkgTokenSpaceGuid.PcdConOutColumn|80
   gEfiMdeModulePkgTokenSpaceGuid.PcdConOutRow|25
   gEfiMdeModulePkgTokenSpaceGuid.PcdVideoHorizontalResolution|800
