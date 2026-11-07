@@ -54,6 +54,10 @@ RemoveTpm2AcpiTables (
   while (TRUE) {
     Status = AcpiSdt->GetAcpiTable (Index, &Table, &Version, &TableKey);
     if (EFI_ERROR (Status)) {
+      if (FixedPcdGetBool (PcdTpm2MeasurementRequired) && (Status != EFI_NOT_FOUND)) {
+        return Status;
+      }
+
       break;
     }
 
@@ -65,6 +69,10 @@ RemoveTpm2AcpiTables (
     Status = AcpiTable->UninstallAcpiTable (AcpiTable, TableKey);
     if (EFI_ERROR (Status)) {
       DEBUG ((DEBUG_ERROR, "%a: failed to remove inherited TPM2 ACPI table: %r\n", __func__, Status));
+      if (FixedPcdGetBool (PcdTpm2MeasurementRequired)) {
+        return Status;
+      }
+
       Index++;
     }
   }
@@ -115,11 +123,10 @@ BuildTpm2AcpiTable (
   Table->Lasa = PcdGet64 (PcdTpm2AcpiTableLasa);
 }
 
+STATIC
 EFI_STATUS
-EFIAPI
-Tpm2AcpiTableDxeEntryPoint (
-  IN EFI_HANDLE        ImageHandle,
-  IN EFI_SYSTEM_TABLE  *SystemTable
+PublishTpm2AcpiTable (
+  VOID
   )
 {
   EFI_ACPI_SDT_PROTOCOL        *AcpiSdt;
@@ -144,7 +151,10 @@ Tpm2AcpiTableDxeEntryPoint (
     return EFI_NOT_READY;
   }
 
-  RemoveTpm2AcpiTables (AcpiSdt, AcpiTable);
+  Status = RemoveTpm2AcpiTables (AcpiSdt, AcpiTable);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
 
   TableKey = 0;
   Status   = AcpiTable->InstallAcpiTable (
@@ -155,6 +165,24 @@ Tpm2AcpiTableDxeEntryPoint (
                           );
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "%a: failed to install TPM2 ACPI table: %r\n", __func__, Status));
+  }
+
+  return Status;
+}
+
+EFI_STATUS
+EFIAPI
+Tpm2AcpiTableDxeEntryPoint (
+  IN EFI_HANDLE        ImageHandle,
+  IN EFI_SYSTEM_TABLE  *SystemTable
+  )
+{
+  EFI_STATUS  Status;
+
+  Status = PublishTpm2AcpiTable ();
+  if (FixedPcdGetBool (PcdTpm2MeasurementRequired) && EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "Required TPM2 ACPI publication failed: %r\n", Status));
+    CpuDeadLoop ();
   }
 
   return Status;
