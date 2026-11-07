@@ -57,12 +57,14 @@
   Tcg2PhysicalPresenceLib
 
 [Guids]
+  gEdkiiBootLogoHobGuid
   gEfiEndOfDxeEventGroupGuid
   gEfiEventReadyToBootGuid
   gEfiGlobalVariableGuid
   gUefiShellFileGuid
 
 [Protocols]
+  gEdkiiBootLogo2ProtocolGuid
   gEsrtManagementProtocolGuid      ## CONSUMES
   gEfiGenericMemTestProtocolGuid  ## CONSUMES
   gEfiGraphicsOutputProtocolGuid  ## CONSUMES

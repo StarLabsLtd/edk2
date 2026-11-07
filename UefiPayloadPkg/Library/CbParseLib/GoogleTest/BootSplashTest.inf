@@ -1,0 +1,110 @@
+## @file
+# Production coreboot splash import and BGRT publication tests.
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION    = 0x00010017
+  BASE_NAME      = BootSplashTest
+  FILE_GUID      = 5831E761-7803-484C-847D-04DD3C218B67
+  MODULE_TYPE    = HOST_APPLICATION
+  VERSION_STRING = 1.0
+
+[Sources]
+  BootSplashTest.cpp
+  BootSplashGraphics.c
+  BootSplashPrompt.c
+  BootSplashConsole.c
+  BootSplashSplitter.c
+  ../../../../MdeModulePkg/Universal/Console/ConSplitterDxe/ConSplitterGraphics.c
+  ../../../GraphicsOutputDxe/ComponentName.c
+  ../CbParseLib.c
+  ../../CfrHelpersLib/CfrHelpersLib.c
+  ../../../../MdeModulePkg/Library/BootLogoLib/BootLogoLib.c
+  ../../../../MdeModulePkg/Universal/Acpi/BootGraphicsResourceTableDxe/BootGraphicsResourceTableDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  UefiPayloadPkg/UefiPayloadPkg.dec
+  UnitTestFrameworkPkg/UnitTestFrameworkPkg.dec
+  SecurityPkg/SecurityPkg.dec
+  ShellPkg/ShellPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  GoogleTestLib
+  MemoryAllocationLib
+  SafeIntLib
+  BmpSupportLib
+  FrameBufferBltLib
+  DevicePathLib
+
+[Guids]
+  gUefiShellFileGuid
+  gEdkiiBootLogoHobGuid
+  gEfiCfrSetupMenuFormGuid
+  gEfiEventReadyToBootGuid
+  gEfiGraphicsInfoHobGuid
+  gEfiGraphicsDeviceInfoHobGuid
+
+[Protocols]
+  gEfiSimpleTextOutProtocolGuid
+  gEfiHiiFontProtocolGuid
+  gEfiHiiDatabaseProtocolGuid
+  gEfiDxeSmmReadyToLockProtocolGuid
+  gEfiAcpiTableProtocolGuid
+  gEfiBootLogoProtocolGuid
+  gEdkiiBootLogo2ProtocolGuid
+  gEfiGraphicsOutputProtocolGuid
+  gEdkiiPlatformLogoProtocolGuid
+  gEfiDevicePathProtocolGuid
+  gEfiPciIoProtocolGuid
+
+[PatchPcd]
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootloaderParameter
+
+[Pcd]
+  gEfiMdeModulePkgTokenSpaceGuid.PcdAcpiDefaultOemId
+  gEfiMdeModulePkgTokenSpaceGuid.PcdAcpiDefaultOemTableId
+  gEfiMdeModulePkgTokenSpaceGuid.PcdAcpiDefaultOemRevision
+  gEfiMdeModulePkgTokenSpaceGuid.PcdAcpiDefaultCreatorId
+  gEfiMdeModulePkgTokenSpaceGuid.PcdAcpiDefaultCreatorRevision
+  gEfiMdeModulePkgTokenSpaceGuid.PcdVideoHorizontalResolution
+  gEfiMdeModulePkgTokenSpaceGuid.PcdVideoVerticalResolution
+  gEfiMdeModulePkgTokenSpaceGuid.PcdSetupVideoHorizontalResolution
+  gEfiMdeModulePkgTokenSpaceGuid.PcdSetupVideoVerticalResolution
+  gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiWideAspectCapSupport
+  gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiWideAspectCapWidth
+  gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiWideAspectCapHeight
+
+[Pcd]
+  gEfiMdePkgTokenSpaceGuid.PcdPlatformBootTimeOut
+  gEfiMdeModulePkgTokenSpaceGuid.PcdConOutRow
+  gEfiMdeModulePkgTokenSpaceGuid.PcdConOutColumn
+  gEfiMdeModulePkgTokenSpaceGuid.PcdConInConnectOnDemand
+  gEfiMdePkgTokenSpaceGuid.PcdUartDefaultBaudRate
+  gEfiMdePkgTokenSpaceGuid.PcdUartDefaultDataBits
+  gEfiMdePkgTokenSpaceGuid.PcdUartDefaultParity
+  gEfiMdePkgTokenSpaceGuid.PcdUartDefaultStopBits
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootManagerEscape
+
+[FeaturePcd]
+  gUefiPayloadPkgTokenSpaceGuid.PcdConnectAllDevices
+
+[Guids]
+  gEfiConsoleInDeviceGuid                       ## SOMETIMES_CONSUMES ## UNDEFINED # protocol GUID installed on device handle
+  gEfiStandardErrorDeviceGuid                   ## SOMETIMES_CONSUMES ## UNDEFINED # protocol GUID installed on device handle
+  gEfiConsoleOutDeviceGuid                      ## SOMETIMES_CONSUMES ## UNDEFINED # protocol GUID installed on device handle
+  gConnectConInEventGuid
+
+[Protocols]
+  gEfiSimplePointerProtocolGuid
+  gEfiAbsolutePointerProtocolGuid
+  gEfiSimpleTextInProtocolGuid
+  gEfiSimpleTextInputExProtocolGuid
+
+[FeaturePcd]
+  gEfiMdeModulePkgTokenSpaceGuid.PcdConOutGopSupport   ## CONSUMES

@@ -1322,7 +1322,7 @@
   # ACPI Support
   #
   MdeModulePkg/Universal/Acpi/AcpiTableDxe/AcpiTableDxe.inf
-!if $(BOOTSPLASH_IMAGE)
+!if $(BOOTSPLASH_IMAGE) || $(BOOTLOADER) == "COREBOOT"
   MdeModulePkg/Universal/Acpi/BootGraphicsResourceTableDxe/BootGraphicsResourceTableDxe.inf
 !endif
 
