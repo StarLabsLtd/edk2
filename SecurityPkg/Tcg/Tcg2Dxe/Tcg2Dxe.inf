@@ -124,3 +124,6 @@
 
 [UserExtensions.TianoCore."ExtraFiles"]
   Tcg2DxeExtra.uni
+
+[FixedPcd]
+  gEfiMdeModulePkgTokenSpaceGuid.PcdTpm2MeasurementRequired

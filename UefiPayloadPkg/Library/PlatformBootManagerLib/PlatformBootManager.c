@@ -22,6 +22,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Protocol/FirmwareVolume2.h>
 #include <Protocol/PciIo.h>
 #include <Protocol/MmCommunication2.h>
+#include <Protocol/Tcg2Protocol.h>
 
 #define PLATFORM_USB_MASS_STORAGE_CLASS  0x08
 
@@ -1296,6 +1297,22 @@ PlatformBootManagerBeforeConsole (
   EFI_BOOT_MANAGER_LOAD_OPTION  BootOption;
   EDKII_PLATFORM_LOGO_PROTOCOL  *PlatformLogo;
   BOOLEAN                       ConsoleInitialized;
+
+  if (FixedPcdGetBool (PcdTpm2MeasurementRequired)) {
+    EFI_TCG2_PROTOCOL                *Tcg2;
+    EFI_TCG2_BOOT_SERVICE_CAPABILITY Capability = { 0 };
+
+    Status = gBS->LocateProtocol (&gEfiTcg2ProtocolGuid, NULL, (VOID **)&Tcg2);
+    if (!EFI_ERROR (Status)) {
+      Capability.Size = sizeof (Capability);
+      Status = Tcg2->GetCapability (Tcg2, &Capability);
+    }
+    if (EFI_ERROR (Status) || !Capability.TPMPresentFlag ||
+        !(Capability.ActivePcrBanks & EFI_TCG2_BOOT_HASH_ALG_SHA256)) {
+      DEBUG ((DEBUG_ERROR, "Required TPM2 SHA256 measurement service is unavailable\n"));
+      CpuDeadLoop ();
+    }
+  }
 
   //
   // Register ENTER as CONTINUE key

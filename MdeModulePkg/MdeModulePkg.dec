@@ -1064,6 +1064,10 @@
   gEfiMdeModulePkgTokenSpaceGuid.PcdDxeIplBuildPageTables|TRUE|BOOLEAN|0x0001003c
 
 [PcdsFixedAtBuild]
+  ## Require complete TPM2 SHA256 measurements before external images run.
+  # Platforms enabling this must provide a measured native handoff and TCG2.
+  gEfiMdeModulePkgTokenSpaceGuid.PcdTpm2MeasurementRequired|FALSE|BOOLEAN|0x10000031
+
   ## Flag of enabling/disabling the feature of Loading Module at Fixed Address.<BR><BR>
   #  0xFFFFFFFFFFFFFFFF: Enable the feature as fixed offset to TOLM.<BR>
   #  0:                  Disable the feature.<BR>

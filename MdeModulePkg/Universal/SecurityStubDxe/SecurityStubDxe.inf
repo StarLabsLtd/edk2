@@ -35,13 +35,18 @@
   UefiBootServicesTableLib
   DebugLib
   SecurityManagementLib
+  PcdLib
   ReportStatusCodeLib
   UefiLib
 
 [Guids]
   gEfiEndOfDxeEventGroupGuid                    ## CONSUMES ## Event
 
+[FixedPcd]
+  gEfiMdeModulePkgTokenSpaceGuid.PcdTpm2MeasurementRequired
+
 [Protocols]
+  gEfiTcg2ProtocolGuid                         ## SOMETIMES_CONSUMES
   gEfiSecurityArchProtocolGuid                  ## PRODUCES
   gEfiSecurity2ArchProtocolGuid                 ## PRODUCES
   gEfiDeferredImageLoadProtocolGuid             ## PRODUCES
