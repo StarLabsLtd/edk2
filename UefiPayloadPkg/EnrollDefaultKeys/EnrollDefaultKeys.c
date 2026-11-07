@@ -19,6 +19,7 @@
 #include <Library/BaseMemoryLib.h>
 #include <Library/DebugLib.h>
 #include <Library/MemoryAllocationLib.h>
+#include <Library/PcdLib.h>
 #include <Library/UefiRuntimeServicesTableLib.h>
 #include <Library/DxeServicesLib.h>
 #include <Library/UefiBootServicesTableLib.h>
@@ -931,7 +932,9 @@ FreeKeys:
   // Keep automatic provisioning separate from the user enable/disable policy.
   // Attempt both policy writes even if enrollment or mode restoration failed.
   //
-  Settings.SecureBootEnable = SECURE_BOOT_DISABLE;
+  Settings.SecureBootEnable = !EFI_ERROR (EnrollmentStatus) &&
+                              FixedPcdGetBool (PcdDefaultSecureBootEnable) ?
+                              SECURE_BOOT_ENABLE : SECURE_BOOT_DISABLE;
   Status = gRT->SetVariable (EFI_SECURE_BOOT_ENABLE_NAME, &gEfiSecureBootEnableDisableGuid,
            EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_BOOTSERVICE_ACCESS,
            sizeof Settings.SecureBootEnable, &Settings.SecureBootEnable);
@@ -943,7 +946,7 @@ FreeKeys:
     }
   }
 
-  Settings.SecureBoot = SECURE_BOOT_DISABLE;
+  Settings.SecureBoot = Settings.SecureBootEnable;
   Status = gRT->SetVariable (EFI_SECURE_BOOT_MODE_NAME, &gEfiGlobalVariableGuid,
            EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS,
            sizeof Settings.SecureBoot, &Settings.SecureBoot);
@@ -998,14 +1001,22 @@ FreeKeys:
 
   PrintSettings (&Settings);
 
-  if (Settings.SetupMode != 0 || Settings.SecureBoot != SECURE_BOOT_DISABLE ||
-      Settings.SecureBootEnable != SECURE_BOOT_DISABLE || Settings.CustomMode != 0) {
+  if (Settings.SetupMode != 0 ||
+      Settings.SecureBoot != FixedPcdGetBool (PcdDefaultSecureBootEnable) ||
+      Settings.SecureBootEnable != FixedPcdGetBool (PcdDefaultSecureBootEnable) ||
+      Settings.CustomMode != 0) {
     DEBUG ((DEBUG_ERROR, "EnrollDefaultKeys: unexpected provisioning state\n"));
     EnrollmentStatus = EFI_DEVICE_ERROR;
     goto EnrollmentFailed;
   }
 
-  DEBUG ((DEBUG_INFO, "EnrollDefaultKeys: keys provisioned, SecureBoot disabled\n"));
+  DEBUG ((DEBUG_INFO, "EnrollDefaultKeys: keys provisioned, SecureBoot=%u\n", Settings.SecureBoot));
+  if (FixedPcdGetBool (PcdDefaultSecureBootEnable)) {
+    // Restart before loading external images so PCR7 measures the enrolled policy.
+    gRT->ResetSystem (EfiResetCold, EFI_SUCCESS, 0, NULL);
+    CpuDeadLoop ();
+  }
+
   return;
 
 EnrollmentFailed:
