@@ -174,3 +174,6 @@ gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFbHiDpiWideAspectCapHeight|9|UINT32|0x00
 
 ## Hardware S5 sleep type written to PM1_CNT by ResetShutdown().
 gUefiPayloadPkgTokenSpaceGuid.PcdResetShutdownSleepType|7|UINT16|0x00000039
+
+## Policy for first-time automatic Secure Boot key provisioning.
+gUefiPayloadPkgTokenSpaceGuid.PcdDefaultSecureBootEnable|FALSE|BOOLEAN|0x0000003A
