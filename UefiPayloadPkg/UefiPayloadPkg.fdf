@@ -281,6 +281,11 @@ INF MdeModulePkg/Universal/ResetSystemRuntimeDxe/ResetSystemRuntimeDxe.inf
       SECTION UI = "Microsoft Corporation DB Windows 2011"
     }
 
+    FILE FREEFORM = 6a76978c-2130-4a5d-9ba7-ced94ee1e947 {
+      SECTION RAW = UefiPayloadPkg/EnrollDefaultKeys/keys/db_vale.der
+      SECTION UI = "Vale Secure Boot"
+    }
+
     FILE FREEFORM = c7769261-fe8d-4e15-b334-cadf4364ad92 {
       SECTION RAW = UefiPayloadPkg/EnrollDefaultKeys/keys/db_microsoft_uefi_2023.der
       SECTION UI = "Microsoft Corporation DB UEFI 2023"
@@ -522,6 +527,11 @@ FILE FREEFORM = 73282f84-7909-4e87-adf0-845d5da335ab {
 FILE FREEFORM = 9b29f606-5102-4de1-a88a-ff6210bd8b65 {
   SECTION RAW = UefiPayloadPkg/EnrollDefaultKeys/keys/db_microsoft_win_2011.der
   SECTION UI = "Microsoft Corporation DB Windows 2011"
+}
+
+FILE FREEFORM = 6a76978c-2130-4a5d-9ba7-ced94ee1e947 {
+  SECTION RAW = UefiPayloadPkg/EnrollDefaultKeys/keys/db_vale.der
+  SECTION UI = "Vale Secure Boot"
 }
 
 FILE FREEFORM = c7769261-fe8d-4e15-b334-cadf4364ad92 {
