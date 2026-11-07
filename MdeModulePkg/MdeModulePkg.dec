@@ -1292,6 +1292,12 @@
   gEfiMdeModulePkgTokenSpaceGuid.PcdUsbNetworkPeriodicTimerInterval|16|UINT8|0x30001063
 
 [PcdsFixedAtBuild, PcdsPatchableInModule]
+  ## Pixel density of the platform boot logo source, independent of UI scaling.
+  #  Set to 2 for even-sized artwork rendered at twice its normal display size.
+  # @Prompt Boot logo source pixel density
+  # @ValidRange 0x80000001 | 1 - 2
+  gEfiMdeModulePkgTokenSpaceGuid.PcdBootLogoSourceScale|1|UINT8|0x30001064
+
   ## Dynamic type PCD can be registered callback function for Pcd setting action.
   #  PcdMaxPeiPcdCallBackNumberPerPcdEntry indicates the maximum number of callback function
   #  for a dynamic PCD used in PEI phase.

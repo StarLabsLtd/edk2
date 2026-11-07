@@ -22,6 +22,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Library/DebugLib.h>
 #include <Library/HobLib.h>
 #include <Library/BmpSupportLib.h>
+#include <Library/PcdLib.h>
 #include <Guid/BootLogo.h>
 
 #define BOOT_LOGO_HIDPI_HORIZONTAL_RESOLUTION  1920
@@ -106,6 +107,35 @@ ScaleLogoBlt2x (
 
   *Destination = ScaledBitmap;
   return EFI_SUCCESS;
+}
+
+STATIC
+VOID
+HalveLogoBlt (
+  IN OUT EFI_IMAGE_INPUT  *Image
+  )
+{
+  UINTN  Row;
+  UINTN  Column;
+
+  for (Row = 0; Row < Image->Height / 2; Row++) {
+    for (Column = 0; Column < Image->Width / 2; Column++) {
+      EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *Top;
+      EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *Bottom;
+      EFI_GRAPHICS_OUTPUT_BLT_PIXEL  Pixel;
+
+      Top            = Image->Bitmap + Row * 2 * Image->Width + Column * 2;
+      Bottom         = Top + Image->Width;
+      Pixel.Blue     = (Top[0].Blue + Top[1].Blue + Bottom[0].Blue + Bottom[1].Blue) / 4;
+      Pixel.Green    = (Top[0].Green + Top[1].Green + Bottom[0].Green + Bottom[1].Green) / 4;
+      Pixel.Red      = (Top[0].Red + Top[1].Red + Bottom[0].Red + Bottom[1].Red) / 4;
+      Pixel.Reserved = 0;
+      Image->Bitmap[Row * (Image->Width / 2) + Column] = Pixel;
+    }
+  }
+
+  Image->Width  /= 2;
+  Image->Height /= 2;
 }
 
 /**
@@ -231,6 +261,10 @@ BootLogoEnableLogo (
     return EFI_SUCCESS;
   }
 
+  if ((PcdGet8 (PcdBootLogoSourceScale) != 1) && (PcdGet8 (PcdBootLogoSourceScale) != 2)) {
+    return EFI_UNSUPPORTED;
+  }
+
   Status = gBS->LocateProtocol (&gEdkiiPlatformLogoProtocolGuid, NULL, (VOID **)&PlatformLogo);
   if (EFI_ERROR (Status)) {
     return EFI_UNSUPPORTED;
@@ -301,7 +335,18 @@ BootLogoEnableLogo (
 
     Blt = Image.Bitmap;
 
-    if (ShouldScaleBootLogoForHiDpi (GraphicsOutput)) {
+    if (PcdGet8 (PcdBootLogoSourceScale) == 2) {
+      if ((Image.Width < 2) || (Image.Height < 2) || (Image.Width % 2 != 0) || (Image.Height % 2 != 0)) {
+        FreePool (Blt);
+        return EFI_UNSUPPORTED;
+      }
+
+      if (!ShouldScaleBootLogoForHiDpi (GraphicsOutput)) {
+        HalveLogoBlt (&Image);
+        OffsetX /= 2;
+        OffsetY /= 2;
+      }
+    } else if (ShouldScaleBootLogoForHiDpi (GraphicsOutput)) {
       EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *ScaledBlt;
 
       ScaledBlt = NULL;
