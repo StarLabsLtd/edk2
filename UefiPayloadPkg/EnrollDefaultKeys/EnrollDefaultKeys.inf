@@ -41,6 +41,7 @@
   gMicrosoftDbxBaselineGuid
   gMicrosoftDbUefi2011Guid
   gMicrosoftDbWin2011Guid
+  gValeDbGuid
   gMicrosoftDbUefi2023Guid
   gMicrosoftDbWinUefi2023Guid
   gMicrosoftKek2011Guid
