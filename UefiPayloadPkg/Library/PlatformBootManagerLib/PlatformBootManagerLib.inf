@@ -65,6 +65,7 @@
 
 [Protocols]
   gEdkiiBootLogo2ProtocolGuid
+  gEfiTcg2ProtocolGuid
   gEsrtManagementProtocolGuid      ## CONSUMES
   gEfiGenericMemTestProtocolGuid  ## CONSUMES
   gEfiGraphicsOutputProtocolGuid  ## CONSUMES
@@ -91,3 +92,6 @@
 
 [FeaturePcd]
   gUefiPayloadPkgTokenSpaceGuid.PcdConnectAllDevices
+
+[FixedPcd]
+  gEfiMdeModulePkgTokenSpaceGuid.PcdTpm2MeasurementRequired
