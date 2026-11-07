@@ -93,6 +93,8 @@ CapsuleOwnerClose(CAPSULE_OWNER *Owner)
   Owner->Active = FALSE;
   Owner->Verifier.Verified = FALSE;
   Owner->RangeCount = 0;
+  Owner->NextBlock = 0;
+  Owner->ArmTrial = FALSE;
 }
 
 STATIC
@@ -167,7 +169,10 @@ CapsuleOwnerBegin(CAPSULE_OWNER *Owner, CONST UINT8 *Signature, UINTN Size)
   }
   CapsuleOwnerClose(Owner);
   if (Owner->Policy == NULL || Owner->Policy->Resolve == NULL ||
-      Owner->Policy->Program == NULL || Owner->Verifier.ImageSize != Owner->Policy->FlashSize ||
+      Owner->Policy->Program == NULL ||
+      (Owner->Policy->UpdateSlot &&
+       (Owner->Policy->UpdateSlot > 2 || Owner->Policy->Commit == NULL)) ||
+      Owner->Verifier.ImageSize != Owner->Policy->FlashSize ||
       !CapsuleVerify(&Owner->Verifier, Signature, Size, Owner->Policy->Root,
                      Owner->Policy->RootSize)) {
     return EFI_SECURITY_VIOLATION;
@@ -219,7 +224,7 @@ CapsuleOwnerBegin(CAPSULE_OWNER *Owner, CONST UINT8 *Signature, UINTN Size)
              Owner->Verifier.MetadataSize - sizeof(UINT64), &Count, &Entries, &PrefixSize);
   if (Status == EFI_NOT_FOUND &&
       Owner->Verifier.MetadataSize == Header.HeaderSize + sizeof(UINT64)) {
-    Status = SelectBios(Owner);
+    Status = Owner->Policy->UpdateSlot ? EFI_INCOMPATIBLE_VERSION : SelectBios(Owner);
   } else if (!EFI_ERROR(Status)) {
     if (PrefixSize != Header.HeaderSize || Count > CAPSULE_MAX_REGIONS) {
       Status = EFI_COMPROMISED_DATA;
@@ -254,8 +259,30 @@ CapsuleOwnerBegin(CAPSULE_OWNER *Owner, CONST UINT8 *Signature, UINTN Size)
         LayoutMismatch = TRUE;
       }
     }
-    if (LayoutMismatch) {
-      Status = SelectBios(Owner);
+    CONST CHAR8 EcName[16] = "EC";
+    BOOLEAN EcOnly = Count == 1 &&
+                     !CompareMem(Entries[0].RegionName, EcName, sizeof(EcName));
+    if (Owner->Policy->UpdateSlot && !EcOnly) {
+      CONST CHAR8 Names[6][16] = {
+        "FW_MAIN_A", "RW_FWID_A", "VBLOCK_A", "FW_MAIN_B", "RW_FWID_B", "VBLOCK_B"
+      };
+      if (LayoutMismatch || Count != ARRAY_SIZE(Names)) {
+        Status = EFI_INCOMPATIBLE_VERSION;
+        goto Failed;
+      }
+      for (Index = 0; Index < Count; Index++) {
+        if (CompareMem(Entries[Index].RegionName, Names[Index], sizeof(Names[Index]))) {
+          Status = EFI_INCOMPATIBLE_VERSION;
+          goto Failed;
+        }
+      }
+      /* The signed image carries both slots; only firmware selects the destination. */
+      CopyMem(Owner->Ranges, Owner->Ranges + (Owner->Policy->UpdateSlot - 1) * 3,
+              3 * sizeof(Owner->Ranges[0]));
+      Owner->RangeCount = 3;
+      Owner->ArmTrial = TRUE;
+    } else if (LayoutMismatch) {
+      Status = Owner->Policy->UpdateSlot ? EFI_INCOMPATIBLE_VERSION : SelectBios(Owner);
     }
   }
   if (EFI_ERROR(Status) || !Owner->RangeCount) {
@@ -300,11 +327,15 @@ CapsuleOwnerProgram(CAPSULE_OWNER *Owner, UINTN Block)
   if (Owner == NULL || !Owner->Active || Block >= Owner->Verifier.BlockCount) {
     return EFI_ACCESS_DENIED;
   }
+  if (Owner->Policy->UpdateSlot && Block != Owner->NextBlock) {
+    CapsuleOwnerClose(Owner);
+    return EFI_INVALID_PARAMETER;
+  }
   Start = Block * CAPSULE_BLOCK_SIZE;
   if (Owner->Policy->VariableStore.Size &&
       Start < Owner->Policy->VariableStore.Offset + Owner->Policy->VariableStore.Size &&
       Owner->Policy->VariableStore.Offset < Start + CAPSULE_BLOCK_SIZE) {
-    return EFI_SUCCESS;
+    goto Complete;
   }
   for (Index = 0; Index < Owner->RangeCount; Index++) {
     if (Start < Owner->Ranges[Index].Offset + Owner->Ranges[Index].Size &&
@@ -315,7 +346,7 @@ CapsuleOwnerProgram(CAPSULE_OWNER *Owner, UINTN Block)
   }
   /* A full-chip walk is harmless outside the authenticated update plan. */
   if (!Selected) {
-    return EFI_SUCCESS;
+    goto Complete;
   }
   if (!CapsuleReadVerifiedBlock(&Owner->Verifier, Block)) {
     CapsuleOwnerClose(Owner);
@@ -327,6 +358,17 @@ CapsuleOwnerProgram(CAPSULE_OWNER *Owner, UINTN Block)
               Owner->Ranges, Owner->RangeCount, Owner->Verifier.Buffer, FALSE);
   if (EFI_ERROR(Status)) {
     CapsuleOwnerClose(Owner);
+    return Status;
   }
-  return Status;
+Complete:
+  if (Owner->Policy->UpdateSlot && ++Owner->NextBlock == Owner->Verifier.BlockCount &&
+      Owner->ArmTrial) {
+    /* Arm a trial only after the complete, ordered programming pass succeeded. */
+    Status = Owner->Policy->Commit(Owner->Policy->Context, Owner->Policy->UpdateSlot);
+    if (EFI_ERROR(Status)) {
+      CapsuleOwnerClose(Owner);
+      return Status;
+    }
+  }
+  return EFI_SUCCESS;
 }

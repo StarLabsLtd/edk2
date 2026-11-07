@@ -20,6 +20,11 @@ typedef struct {
   EFI_GUID ImageGuid;
 } COREBOOT_CAPSULE_PRIVATE_INFO;
 typedef struct {
+  COREBOOT_CAPSULE_PRIVATE_INFO Base;
+  UINT32 BootSlot; /* Zero for RO recovery, one for RW A, two for RW B. */
+  UINT32 Commit;
+} COREBOOT_CAPSULE_VBOOT_INFO;
+typedef struct {
   UINT32 Revision, Command, Transaction;
 } COREBOOT_CAPSULE_HEADER;
 typedef struct {
@@ -38,6 +43,7 @@ typedef struct {
 } COREBOOT_CAPSULE_BLOCK;
 #pragma pack()
 STATIC_ASSERT(sizeof(COREBOOT_CAPSULE_PRIVATE_INFO) == 56, "Capsule private handoff ABI");
+STATIC_ASSERT(sizeof(COREBOOT_CAPSULE_VBOOT_INFO) == 64, "Vboot private handoff ABI");
 STATIC_ASSERT(OFFSET_OF(COREBOOT_CAPSULE_PRIVATE_INFO, ImageGuid) == 40, "Capsule namespace ABI");
 STATIC_ASSERT(sizeof(COREBOOT_CAPSULE_HEADER) == 12, "Capsule wire header ABI");
 STATIC_ASSERT(OFFSET_OF(COREBOOT_CAPSULE_START, Signature) == 32, "Capsule begin ABI");
