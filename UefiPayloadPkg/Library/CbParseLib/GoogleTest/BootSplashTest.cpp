@@ -13,6 +13,7 @@ extern "C" {
   #include <Coreboot.h>
   #include <Guid/BootLogo.h>
   #include <Library/BaseLib.h>
+  #include <Library/BmpSupportLib.h>
   #include <Library/BaseMemoryLib.h>
   #include <Library/MemoryAllocationLib.h>
   #include <Library/PcdLib.h>
@@ -116,6 +117,17 @@ static BOOLEAN                                    mCursorVisible;
 static BOOLEAN                                    mFailCopy;
 static BOOLEAN                                    mFailBmp;
 static BOOLEAN                                    mFailInstall;
+static BOOLEAN                                    mUsePlatformLogo;
+static EDKII_PLATFORM_LOGO_PROTOCOL                mPlatformLogo;
+static UINT16                                     mFallbackWidth;
+static UINT16                                     mFallbackHeight;
+static UINTN                                      mDrawWidth;
+static UINTN                                      mDrawHeight;
+static UINTN                                      mDrawX;
+static UINTN                                      mDrawY;
+static std::vector<EFI_GRAPHICS_OUTPUT_BLT_PIXEL>   mFallbackPixels;
+static std::vector<EFI_GRAPHICS_OUTPUT_BLT_PIXEL>   mDrawnPixels;
+
 extern "C" {
   VOID *EFIAPI
   __real_AllocateCopyPool (
@@ -289,6 +301,8 @@ extern "C" {
       *Interface = &mBootLogoProtocolTemplate;
     } else if (CompareGuid (Guid, &gEdkiiBootLogo2ProtocolGuid)) {
       *Interface = &mBootLogo2ProtocolTemplate;
+    } else if (mUsePlatformLogo && CompareGuid (Guid, &gEdkiiPlatformLogoProtocolGuid)) {
+      *Interface = &mPlatformLogo;
     } else {
       return EFI_NOT_FOUND;
     }
@@ -411,6 +425,60 @@ extern "C" {
   }
 }
 
+static EFI_STATUS EFIAPI
+GetFallbackImage (
+  EDKII_PLATFORM_LOGO_PROTOCOL            *This,
+  UINT32                                  *Instance,
+  EFI_IMAGE_INPUT                         *Image,
+  EDKII_PLATFORM_LOGO_DISPLAY_ATTRIBUTE    *Attribute,
+  INTN                                    *OffsetX,
+  INTN                                    *OffsetY
+  )
+{
+  if ((*Instance)++ != 0) {
+    return EFI_NOT_FOUND;
+  }
+
+  Image->Flags  = 0;
+  Image->Width  = mFallbackWidth;
+  Image->Height = mFallbackHeight;
+  Image->Bitmap = (EFI_GRAPHICS_OUTPUT_BLT_PIXEL *)AllocateCopyPool (
+                                                    mFallbackPixels.size () * sizeof (mFallbackPixels[0]),
+                                                    mFallbackPixels.data ()
+                                                    );
+  *Attribute = EdkiiPlatformLogoDisplayAttributeCenter;
+  *OffsetX   = 0;
+  *OffsetY   = 0;
+  return Image->Bitmap != nullptr ? EFI_SUCCESS : EFI_OUT_OF_RESOURCES;
+}
+
+static EFI_STATUS EFIAPI
+RecordFallbackBlt (
+  EFI_GRAPHICS_OUTPUT_PROTOCOL       *This,
+  EFI_GRAPHICS_OUTPUT_BLT_PIXEL      *Buffer,
+  EFI_GRAPHICS_OUTPUT_BLT_OPERATION  Operation,
+  UINTN                             SourceX,
+  UINTN                             SourceY,
+  UINTN                             X,
+  UINTN                             Y,
+  UINTN                             Width,
+  UINTN                             Height,
+  UINTN                             Delta
+  )
+{
+  EXPECT_EQ (Operation, EfiBltBufferToVideo);
+  EXPECT_EQ (SourceX, (UINTN)0);
+  EXPECT_EQ (SourceY, (UINTN)0);
+  EXPECT_EQ (Delta, Width * sizeof (*Buffer));
+  mDrawWidth = Width;
+  mDrawHeight = Height;
+  mDrawX = X;
+  mDrawY = Y;
+  mDrawnPixels.assign (Buffer, Buffer + Width * Height);
+  mWrites++;
+  return EFI_SUCCESS;
+}
+
 class BootSplashTest : public ::testing::Test {
 protected:
   struct {
@@ -427,6 +495,11 @@ protected:
   {
     mFailInstall    = FALSE;
     mStartedConsole = nullptr;
+    PatchPcdSet8 (PcdBootLogoSourceScale, 1);
+    mUsePlatformLogo = FALSE;
+    mFallbackPixels.clear ();
+    mDrawnPixels.clear ();
+    mPlatformLogo.GetImage = GetFallbackImage;
     PatchPcdSet32 (PcdConOutColumn, 80);
     PatchPcdSet32 (PcdConOutRow, 25);
     PatchPcdSet32 (PcdVideoHorizontalResolution, 800);
@@ -991,4 +1064,106 @@ TEST_F (BootSplashTest, DriverStartReportsSameAddressFramebufferClear) {
   }
 
   TestFreeGraphics (Gop);
+}
+
+TEST_F (BootSplashTest, FallbackLogoDensityMatchesPublishedPixels) {
+  static const struct {
+    UINT8   SourceScale;
+    UINT32  ScreenWidth;
+    UINT32  ScreenHeight;
+    UINT16  InputSize;
+    UINTN   OutputSize;
+  } Cases[] = {
+    { 1, 1920, 1080, 4, 4 }, { 1, 3840, 2160, 4, 8 },
+    { 2, 1920, 1080, 4, 2 }, { 2, 2160, 1440, 4, 4 }, { 2, 3840, 2160, 468, 468 }
+  };
+
+  for (UINTN Index = 0; Index < ARRAY_SIZE (Cases); Index++) {
+    if (Index != 0) {
+      TearDown ();
+      SetUp ();
+    }
+
+    PatchPcdSet8 (PcdBootLogoSourceScale, Cases[Index].SourceScale);
+    mUsePlatformLogo = TRUE;
+    mFallbackWidth = Cases[Index].InputSize;
+    mFallbackHeight = Cases[Index].InputSize;
+    mFallbackPixels.resize (mFallbackWidth * mFallbackHeight);
+    for (UINTN Pixel = 0; Pixel < mFallbackPixels.size (); Pixel++) {
+      mFallbackPixels[Pixel].Blue = (UINT8)(Pixel + 1);
+      mFallbackPixels[Pixel].Green = (UINT8)((Pixel + 1) * 2);
+      mFallbackPixels[Pixel].Red = (UINT8)((Pixel + 1) * 3 + 1);
+    }
+
+    mGop.Blt = RecordFallbackBlt;
+    mGopInfo.HorizontalResolution = Cases[Index].ScreenWidth;
+    mGopInfo.VerticalResolution = Cases[Index].ScreenHeight;
+    ASSERT_EQ (BootGraphicsDxeEntryPoint (nullptr, nullptr), EFI_SUCCESS);
+    ASSERT_EQ (BootLogoEnableLogo (), EFI_SUCCESS);
+    EXPECT_EQ (mWrites, (UINTN)1);
+    ASSERT_EQ (mDrawWidth, Cases[Index].OutputSize);
+    ASSERT_EQ (mDrawHeight, Cases[Index].OutputSize);
+    EXPECT_EQ (mDrawX, (Cases[Index].ScreenWidth - mDrawWidth) / 2);
+    EXPECT_EQ (mDrawY, (Cases[Index].ScreenHeight - mDrawHeight) / 2);
+    if (mDrawWidth == 2) {
+      static const UINT8 Blue[] = { 3, 5, 11, 13 };
+      static const UINT8 Green[] = { 7, 11, 23, 27 };
+      static const UINT8 Red[] = { 11, 17, 35, 41 };
+      for (UINTN Pixel = 0; Pixel < 4; Pixel++) {
+        EXPECT_EQ (mDrawnPixels[Pixel].Blue, Blue[Pixel]);
+        EXPECT_EQ (mDrawnPixels[Pixel].Green, Green[Pixel]);
+        EXPECT_EQ (mDrawnPixels[Pixel].Red, Red[Pixel]);
+      }
+    } else {
+      for (UINTN Y = 0; Y < mDrawHeight; Y++) {
+        for (UINTN X = 0; X < mDrawWidth; X++) {
+          UINTN Source = mDrawWidth == 8 ? (Y / 2) * 4 + X / 2 : Y * mFallbackWidth + X;
+          EXPECT_EQ (CompareMem (&mDrawnPixels[Y * mDrawWidth + X],
+                                 &mFallbackPixels[Source], sizeof (mFallbackPixels[Source])), (INTN)0);
+        }
+      }
+    }
+
+    BgrtReadyToBootEventNotify (nullptr, nullptr);
+    EXPECT_EQ (mPublished.Status, EFI_ACPI_5_0_BGRT_STATUS_VALID);
+    EXPECT_EQ (mPublished.ImageOffsetX, mDrawX);
+    EXPECT_EQ (mPublished.ImageOffsetY, mDrawY);
+    EFI_GRAPHICS_OUTPUT_BLT_PIXEL *Decoded = nullptr;
+    UINTN Size = 0, Height = 0, Width = 0;
+    auto Header = (UINT8 *)(UINTN)mPublished.ImageAddress;
+    ASSERT_EQ (TranslateBmpToGopBlt (Header, ReadUnaligned32 ((UINT32 *)(Header + 2)),
+                                   &Decoded, &Size, &Height, &Width), RETURN_SUCCESS);
+    EXPECT_EQ (Width, mDrawWidth);
+    EXPECT_EQ (Height, mDrawHeight);
+    ASSERT_EQ (Size, mDrawnPixels.size () * sizeof (*Decoded));
+    for (UINTN Pixel = 0; Pixel < mDrawnPixels.size (); Pixel++) {
+      // A 24-bit BMP does not preserve the BLT reserved byte.
+      EXPECT_EQ (Decoded[Pixel].Blue, mDrawnPixels[Pixel].Blue);
+      EXPECT_EQ (Decoded[Pixel].Green, mDrawnPixels[Pixel].Green);
+      EXPECT_EQ (Decoded[Pixel].Red, mDrawnPixels[Pixel].Red);
+    }
+    FreePool (Decoded);
+  }
+}
+
+TEST_F (BootSplashTest, SourceDensityDoesNotResizeRetainedImage) {
+  PatchPcdSet8 (PcdBootLogoSourceScale, 2);
+  Parse ();
+  ASSERT_EQ (BootGraphicsDxeEntryPoint (nullptr, nullptr), EFI_SUCCESS);
+  EXPECT_EQ (BootLogoEnableLogo (), EFI_SUCCESS);
+  EXPECT_EQ (mWrites, (UINTN)0);
+  BgrtReadyToBootEventNotify (nullptr, nullptr);
+  EXPECT_EQ (CompareMem ((VOID *)(UINTN)mPublished.ImageAddress, Bmp.data (), Bmp.size ()), (INTN)0);
+}
+
+TEST_F (BootSplashTest, RejectsIncompleteDoubleDensityImageBeforeDrawing) {
+  PatchPcdSet8 (PcdBootLogoSourceScale, 2);
+  mUsePlatformLogo = TRUE;
+  mFallbackWidth = 3;
+  mFallbackHeight = 4;
+  mFallbackPixels.resize (12);
+  mGop.Blt = RecordFallbackBlt;
+  EXPECT_EQ (BootLogoEnableLogo (), EFI_UNSUPPORTED);
+  EXPECT_EQ (mWrites, (UINTN)0);
+  EXPECT_FALSE (mIsLogoValid);
 }

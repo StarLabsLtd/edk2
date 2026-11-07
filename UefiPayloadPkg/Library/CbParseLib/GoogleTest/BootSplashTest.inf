@@ -39,6 +39,7 @@
   MemoryAllocationLib
   SafeIntLib
   BmpSupportLib
+  PcdLib
   FrameBufferBltLib
   DevicePathLib
 
@@ -64,6 +65,7 @@
   gEfiPciIoProtocolGuid
 
 [PatchPcd]
+  gEfiMdeModulePkgTokenSpaceGuid.PcdBootLogoSourceScale
   gUefiPayloadPkgTokenSpaceGuid.PcdBootloaderParameter
 
 [Pcd]
