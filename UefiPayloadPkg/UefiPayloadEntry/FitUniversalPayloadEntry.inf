@@ -130,3 +130,6 @@
 [BuildOptions]
   MSFT:*_*_*_CC_FLAGS = /wd4244 /wd4305
   GCC:*_*_*_CC_FLAGS  = -Wno-error=pointer-to-int-cast -Wno-error=int-to-pointer-cast
+
+[FixedPcd]
+  gEfiMdeModulePkgTokenSpaceGuid.PcdTpm2MeasurementRequired

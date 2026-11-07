@@ -114,3 +114,6 @@
   gEfiMdeModulePkgTokenSpaceGuid.PcdImageProtectionPolicy       ## SOMETIMES_CONSUMES
 
   gEfiMdeModulePkgTokenSpaceGuid.PcdSerialClockRate             ## PRODUCES
+
+[FixedPcd]
+  gEfiMdeModulePkgTokenSpaceGuid.PcdTpm2MeasurementRequired

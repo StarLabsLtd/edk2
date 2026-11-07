@@ -60,6 +60,11 @@ GetDefferedImageInfo (
   OUT BOOLEAN                              *BootOption
   );
 
+BOOLEAN
+FileFromFv (
+  IN CONST EFI_DEVICE_PATH_PROTOCOL *File
+  );
+
 /**
   Defer the 3rd party image load and installs Deferred Image Load Protocol.
 

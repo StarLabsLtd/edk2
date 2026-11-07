@@ -78,7 +78,8 @@ GetTcgPcrEvent2Size (
   IN  UINTN        Remaining,
   OUT UINTN        *EventSize,
   OUT UINTN        *EventDataOffset,
-  OUT UINT32       *EventDataSize
+  OUT UINT32       *EventDataSize,
+  IN  UINT32       Algorithms
   )
 {
   UINT32         Count;
@@ -87,6 +88,7 @@ GetTcgPcrEvent2Size (
   UINTN          Index;
   UINTN          Offset;
   UINT32         PcrIndex;
+  UINT32         Seen = 0;
 
   if ((Event == NULL) ||
       (EventSize == NULL) ||
@@ -113,28 +115,39 @@ GetTcgPcrEvent2Size (
   }
 
   for (Index = 0; Index < Count; Index++) {
-    if (Remaining < Offset + sizeof (HashAlg)) {
+    if (Remaining - Offset < sizeof (HashAlg)) {
       return FALSE;
     }
 
     HashAlg = ReadUnaligned16 ((UINT16 *)(Event + Offset));
     Offset += sizeof (HashAlg);
 
+    if (FixedPcdGetBool (PcdTpm2MeasurementRequired)) {
+      if ((HashAlg >= 32) || !(Algorithms & (1U << HashAlg)) || (Seen & (1U << HashAlg))) {
+        return FALSE;
+      }
+      Seen |= 1U << HashAlg;
+    }
+
     DigestSize = GetDigestSizeFromAlgo (HashAlg);
-    if ((DigestSize == 0) || (Remaining < Offset + DigestSize)) {
+    if ((DigestSize == 0) || (Remaining - Offset < DigestSize)) {
       return FALSE;
     }
 
     Offset += DigestSize;
   }
 
-  if (Remaining < Offset + sizeof (*EventDataSize)) {
+  if (Remaining - Offset < sizeof (*EventDataSize)) {
     return FALSE;
   }
 
   *EventDataSize = ReadUnaligned32 ((UINT32 *)(Event + Offset));
   Offset        += sizeof (*EventDataSize);
-  if (Remaining < Offset + *EventDataSize) {
+  if (Remaining - Offset < *EventDataSize) {
+    return FALSE;
+  }
+
+  if (FixedPcdGetBool (PcdTpm2MeasurementRequired) && !(Seen & (1U << TPM_ALG_SHA256))) {
     return FALSE;
   }
 
@@ -166,7 +179,8 @@ STATIC
 UINTN
 GetFirstTcgPcrEvent2Offset (
   IN CONST UINT8  *EventLog,
-  IN UINTN        EventLogSize
+  IN UINTN        EventLogSize,
+  OUT UINT32      *Algorithms
   )
 {
   UINT32  EventDataSize;
@@ -183,18 +197,57 @@ GetFirstTcgPcrEvent2Offset (
 
   EventSizeOffset = sizeof (TCG_PCRINDEX) + sizeof (TCG_EVENTTYPE) + sizeof (TCG_DIGEST);
   EventDataSize   = ReadUnaligned32 ((UINT32 *)(EventLog + EventSizeOffset));
+  if (EventDataSize > EventLogSize - sizeof (TCG_PCR_EVENT_HDR)) {
+    return 0;
+  }
   FirstEventOffset = sizeof (TCG_PCR_EVENT_HDR) + EventDataSize;
-  if ((EventLogSize < FirstEventOffset) ||
-      !IsSpecIdEvent (EventLog + sizeof (TCG_PCR_EVENT_HDR), EventDataSize))
+  if (!IsSpecIdEvent (EventLog + sizeof (TCG_PCR_EVENT_HDR), EventDataSize))
   {
     return 0;
+  }
+
+  if (FixedPcdGetBool (PcdTpm2MeasurementRequired)) {
+    CONST UINT8 *Spec = EventLog + sizeof (TCG_PCR_EVENT_HDR);
+    UINT32 Count, Seen = 0;
+    UINTN Index, Offset;
+    UINT16 Algorithm, DigestSize;
+
+    if ((ReadUnaligned32 ((CONST UINT32 *)EventLog) != 0) ||
+        !IsZeroBuffer (EventLog + 8, sizeof (TCG_DIGEST)) ||
+        (EventDataSize < 29) || (CompareMem (Spec, "Spec ID Event03", 16) != 0) ||
+        (Spec[21] != 2) || ((Spec[23] != 1) && (Spec[23] != 2))) {
+      return 0;
+    }
+
+    Count = ReadUnaligned32 ((CONST UINT32 *)(Spec + 24));
+    if ((Count == 0) || (Count > (EventDataSize - 29) / 4)) {
+      return 0;
+    }
+
+    for (Index = 0; Index < Count; Index++) {
+      Offset = 28 + Index * 4;
+      Algorithm = ReadUnaligned16 ((CONST UINT16 *)(Spec + Offset));
+      DigestSize = ReadUnaligned16 ((CONST UINT16 *)(Spec + Offset + 2));
+      if ((Algorithm >= 32) || (Seen & (1U << Algorithm)) ||
+          (DigestSize == 0) || (DigestSize != GetDigestSizeFromAlgo (Algorithm))) {
+        return 0;
+      }
+      Seen |= 1U << Algorithm;
+    }
+
+    Offset = 28 + Count * 4;
+    if (!(Seen & (1U << TPM_ALG_SHA256)) ||
+        (Offset + 1 + Spec[Offset] != EventDataSize)) {
+      return 0;
+    }
+    *Algorithms = Seen;
   }
 
   return FirstEventOffset;
 }
 
 STATIC
-VOID
+RETURN_STATUS
 BuildTpmEventHobsFromAcpi (
   IN EFI_ACPI_DESCRIPTION_HEADER  *Tpm2Table
   )
@@ -209,13 +262,22 @@ BuildTpmEventHobsFromAcpi (
   UINT32                EventType;
   UINTN                 Offset;
   UINTN                 TpmEventCount;
+  UINT32                Algorithms = MAX_UINT32;
 
   if (!GetTpm2AcpiEventLog (Tpm2Table, &Laml, &Lasa)) {
-    return;
+    return RETURN_NOT_FOUND;
+  }
+
+  if ((Lasa > MAX_UINTN) || (Laml - 1 > MAX_UINTN - (UINTN)Lasa)) {
+    return RETURN_BAD_BUFFER_SIZE;
   }
 
   EventLog      = (UINT8 *)(UINTN)Lasa;
-  Offset        = GetFirstTcgPcrEvent2Offset (EventLog, Laml);
+  Offset        = GetFirstTcgPcrEvent2Offset (EventLog, Laml, &Algorithms);
+  if (FixedPcdGetBool (PcdTpm2MeasurementRequired) && (Offset == 0)) {
+    return RETURN_COMPROMISED_DATA;
+  }
+
   TpmEventCount = 0;
   while (Offset < Laml) {
     if (!GetTcgPcrEvent2Size (
@@ -223,10 +285,17 @@ BuildTpmEventHobsFromAcpi (
            Laml - Offset,
            &EventSize,
            &EventDataOffset,
-           &EventDataSize
+           &EventDataSize,
+           Algorithms
            ))
     {
-      break;
+      // LAML is capacity; an unused all-zero tail is not an event.
+      while ((Offset < Laml) && (EventLog[Offset] == 0)) {
+        Offset++;
+      }
+      return ((Offset == Laml) && (!FixedPcdGetBool (PcdTpm2MeasurementRequired) ||
+                                  (TpmEventCount != 0))) ?
+               RETURN_SUCCESS : RETURN_COMPROMISED_DATA;
     }
 
     EventType = ReadUnaligned32 ((UINT32 *)(EventLog + Offset + sizeof (TCG_PCRINDEX)));
@@ -235,13 +304,13 @@ BuildTpmEventHobsFromAcpi (
     {
       if (EventSize > UEFI_PAYLOAD_MAX_TPM_EVENT_SIZE) {
         DEBUG ((DEBUG_ERROR, "%a: TPM event is too large for a HOB\n", __func__));
-        break;
+        return RETURN_BAD_BUFFER_SIZE;
       }
 
       HobData = BuildGuidHob (&gTcgEvent2EntryHobGuid, EventSize);
       if (HobData == NULL) {
         DEBUG ((DEBUG_ERROR, "%a: failed to build TPM event HOB\n", __func__));
-        break;
+        return RETURN_OUT_OF_RESOURCES;
       }
 
       CopyMem (HobData, EventLog + Offset, EventSize);
@@ -252,6 +321,8 @@ BuildTpmEventHobsFromAcpi (
   }
 
   DEBUG ((DEBUG_INFO, "%a: imported %u TPM2 event log entries\n", __func__, TpmEventCount));
+  return (FixedPcdGetBool (PcdTpm2MeasurementRequired) && (TpmEventCount == 0)) ?
+           RETURN_COMPROMISED_DATA : RETURN_SUCCESS;
 }
 
 /**
@@ -404,7 +475,11 @@ TpmDectectDone:
   DEBUG ((DEBUG_INFO, "TPM 2.0 present %x\n", AcpiBoardInfo->TPM20Present));
   DEBUG ((DEBUG_INFO, "TPM 1.2 present %x\n", AcpiBoardInfo->TPM12Present));
 
-  BuildTpmEventHobsFromAcpi (Tpm2Table);
+  if (RETURN_ERROR (BuildTpmEventHobsFromAcpi (Tpm2Table)) &&
+      FixedPcdGetBool (PcdTpm2MeasurementRequired)) {
+    DEBUG ((DEBUG_ERROR, "Incomplete native TPM event log\n"));
+    CpuDeadLoop ();
+  }
 
   return RETURN_SUCCESS;
 }

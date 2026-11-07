@@ -35,6 +35,9 @@
   gEfiAcpiTableProtocolGuid                     ## CONSUMES
   gEfiTcg2ProtocolGuid                          ## CONSUMES
 
+[FixedPcd]
+  gEfiMdeModulePkgTokenSpaceGuid.PcdTpm2MeasurementRequired     ## CONSUMES
+
 [Pcd]
   gEfiMdeModulePkgTokenSpaceGuid.PcdAcpiDefaultCreatorId        ## CONSUMES
   gEfiMdeModulePkgTokenSpaceGuid.PcdAcpiDefaultCreatorRevision  ## CONSUMES
