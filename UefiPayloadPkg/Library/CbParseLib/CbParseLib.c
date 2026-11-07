@@ -21,6 +21,7 @@
 #include <Library/SmmStoreParseLib.h>
 #include <IndustryStandard/Acpi.h>
 #include <Coreboot.h>
+#include <Guid/BootLogo.h>
 #include <Guid/CfrSetupMenuGuid.h>
 
 /**
@@ -625,6 +626,131 @@ ParseSerialInfo (
 }
 
 /**
+  Preserve the displayed coreboot splash without loading a second logo.
+
+  @param[in] FrameBuffer  The physical framebuffer supplied by coreboot.
+**/
+STATIC
+VOID
+BuildBootLogoHob (
+  IN struct cb_framebuffer  *FrameBuffer
+  )
+{
+  struct cb_header       *Header;
+  struct cb_record       *Record;
+  struct cb_boot_splash  *Splash;
+  struct cb_cbmem_entry  *Owner;
+  UINT8                  *Cursor;
+  UINTN                  Remaining;
+  UINTN                  Index;
+  UINT64                 ImageAddress;
+  UINT64                 OwnerAddress;
+  UINT64                 RowSize;
+  UINT32                 ImageOffset;
+  UINT16                 BitsPerPixel;
+  UINT8                  *Bmp;
+  EDKII_BOOT_LOGO_HOB     Logo;
+
+  Header = (struct cb_header *)GetParameterBase ();
+  if ((Header == NULL) || (Header->header_bytes < sizeof (*Header)) ||
+      (Header->header_bytes > MAX_UINTN - (UINTN)Header) ||
+      (Header->table_bytes > MAX_UINTN - (UINTN)Header - Header->header_bytes))
+  {
+    return;
+  }
+
+  Splash    = NULL;
+  Owner     = NULL;
+  Cursor    = (UINT8 *)Header + Header->header_bytes;
+  Remaining = Header->table_bytes;
+  for (Index = 0; Index < Header->table_entries; Index++) {
+    if (Remaining < sizeof (*Record)) {
+      return;
+    }
+
+    Record = (struct cb_record *)Cursor;
+    if ((Record->size < sizeof (*Record)) || (Record->size > Remaining)) {
+      return;
+    }
+
+    if (Record->tag == CB_TAG_BOOT_SPLASH) {
+      if ((Splash != NULL) || (Record->size != sizeof (*Splash))) {
+        return;
+      }
+
+      Splash = (struct cb_boot_splash *)Record;
+    } else if ((Record->tag == CB_TAG_CBMEM_ENTRY) &&
+               (Record->size == sizeof (*Owner)) &&
+               (((struct cb_cbmem_entry *)Record)->id == CBMEM_ID_BOOT_SPLASH))
+    {
+      if (Owner != NULL) {
+        return;
+      }
+
+      Owner = (struct cb_cbmem_entry *)Record;
+    }
+
+    Cursor    += Record->size;
+    Remaining -= Record->size;
+  }
+
+  if ((Splash == NULL) || (Owner == NULL) ||
+      (Splash->revision != CB_BOOT_SPLASH_REVISION) ||
+      (Splash->flags != (CB_BOOT_SPLASH_DISPLAYED | CB_BOOT_SPLASH_BMP)) ||
+      (cb_unpack64 (Splash->framebuffer_address) != FrameBuffer->physical_address) ||
+      (Splash->image_width == 0) || (Splash->image_height == 0) ||
+      (Splash->image_offset_x > FrameBuffer->x_resolution) ||
+      (Splash->image_width > FrameBuffer->x_resolution - Splash->image_offset_x) ||
+      (Splash->image_offset_y > FrameBuffer->y_resolution) ||
+      (Splash->image_height > FrameBuffer->y_resolution - Splash->image_offset_y))
+  {
+    return;
+  }
+
+  ImageAddress = cb_unpack64 (Splash->bmp_address);
+  OwnerAddress = cb_unpack64 (Owner->address);
+  if ((Splash->bmp_size < 54) || (Splash->bmp_size > Owner->entry_size) ||
+      (ImageAddress < OwnerAddress) ||
+      (ImageAddress - OwnerAddress > Owner->entry_size - Splash->bmp_size) ||
+      (ImageAddress > MAX_UINTN) || (Splash->bmp_size > MAX_UINTN - (UINTN)ImageAddress))
+  {
+    return;
+  }
+
+  Bmp          = (UINT8 *)(UINTN)ImageAddress;
+  ImageOffset  = ReadUnaligned32 ((UINT32 *)(Bmp + 10));
+  BitsPerPixel = ReadUnaligned16 ((UINT16 *)(Bmp + 28));
+  if ((Bmp[0] != 'B') || (Bmp[1] != 'M') ||
+      (ReadUnaligned32 ((UINT32 *)(Bmp + 2)) != Splash->bmp_size) ||
+      (ReadUnaligned32 ((UINT32 *)(Bmp + 14)) != 40) ||
+      (ReadUnaligned32 ((UINT32 *)(Bmp + 18)) != Splash->image_width) ||
+      (ReadUnaligned32 ((UINT32 *)(Bmp + 22)) != Splash->image_height) ||
+      (ReadUnaligned16 ((UINT16 *)(Bmp + 26)) != 1) ||
+      ((BitsPerPixel != 24) && (BitsPerPixel != 32)) ||
+      (ReadUnaligned32 ((UINT32 *)(Bmp + 30)) != 0) ||
+      (ImageOffset < 54) || (ImageOffset > Splash->bmp_size))
+  {
+    return;
+  }
+
+  RowSize = (((UINT64)Splash->image_width * BitsPerPixel + 31) / 32) * 4;
+  if ((RowSize != (Splash->bmp_size - ImageOffset) / Splash->image_height) ||
+      ((Splash->bmp_size - ImageOffset) % Splash->image_height != 0)) {
+    return;
+  }
+
+  ZeroMem (&Logo, sizeof (Logo));
+  Logo.FrameBufferBase = FrameBuffer->physical_address;
+  Logo.ImageAddress   = ImageAddress;
+  Logo.ImageSize      = Splash->bmp_size;
+  Logo.DestinationX   = Splash->image_offset_x;
+  Logo.DestinationY   = Splash->image_offset_y;
+  Logo.Width          = Splash->image_width;
+  Logo.Height         = Splash->image_height;
+  BuildGuidDataHob (&gEdkiiBootLogoHobGuid, &Logo, sizeof (Logo));
+}
+
+/**
   Find the video frame buffer information
 
   @param  GfxInfo             Pointer to the EFI_PEI_GRAPHICS_INFO_HOB structure
@@ -685,6 +811,8 @@ ParseGfxInfo (
 
   GfxInfo->FrameBufferBase = CbFbRec->physical_address;
   GfxInfo->FrameBufferSize = CbFbRec->bytes_per_line *  CbFbRec->y_resolution;
+
+  BuildBootLogoHob (CbFbRec);
 
   return RETURN_SUCCESS;
 }
