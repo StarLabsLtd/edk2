@@ -40,6 +40,7 @@
   PrintLib
   HobLib
   BmpSupportLib
+  PcdLib
 
 [Protocols]
   gEfiGraphicsOutputProtocolGuid                ## SOMETIMES_CONSUMES
@@ -50,3 +51,6 @@
 
 [Guids]
   gEdkiiBootLogoHobGuid
+
+[Pcd]
+  gEfiMdeModulePkgTokenSpaceGuid.PcdBootLogoSourceScale  ## CONSUMES
