@@ -150,6 +150,7 @@ EnableHandedOffBootLogo (
     return Status;
   }
 
+  gST->ConOut->EnableCursor (gST->ConOut, FALSE);
   Status = BootLogo->GetBootLogo (BootLogo, NULL, &CurrentX, &CurrentY, &CurrentWidth, &CurrentHeight);
   if (Status == EFI_INVALID_PARAMETER) {
     // Support providers predating the optional location-only query.
@@ -227,7 +228,6 @@ BootLogoEnableLogo (
 
   Status = EnableHandedOffBootLogo ();
   if (!EFI_ERROR (Status)) {
-    gST->ConOut->EnableCursor (gST->ConOut, FALSE);
     return EFI_SUCCESS;
   }
 

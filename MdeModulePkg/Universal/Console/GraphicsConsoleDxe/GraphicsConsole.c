@@ -7,7 +7,60 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 
 **/
 
+#include <PiDxe.h>
 #include "GraphicsConsole.h"
+#include <Guid/BootLogo.h>
+#include <Library/HobLib.h>
+#include <Protocol/BootLogo.h>
+#include <Protocol/BootLogo2.h>
+
+/** Report destructive text-console operations to the existing logo owner. **/
+STATIC
+VOID
+InvalidateBootLogo (
+  VOID
+  )
+{
+  EFI_BOOT_LOGO_PROTOCOL  *BootLogo;
+
+  if (!EFI_ERROR (gBS->LocateProtocol (&gEfiBootLogoProtocolGuid, NULL, (VOID **)&BootLogo))) {
+    BootLogo->SetBootLogo (BootLogo, NULL, 0, 0, 0, 0);
+  }
+}
+
+/** A new text console may adopt pixels only in the unchanged physical mode. **/
+STATIC
+BOOLEAN
+CanPreserveBootLogo (
+  IN EFI_GRAPHICS_OUTPUT_PROTOCOL  *GraphicsOutput
+  )
+{
+  VOID                      *GuidHob;
+  EDKII_BOOT_LOGO_HOB        *Logo;
+  EDKII_BOOT_LOGO2_PROTOCOL  *BootLogo;
+  UINTN                     X;
+  UINTN                     Y;
+  UINTN                     Width;
+  UINTN                     Height;
+
+  GuidHob = GetFirstGuidHob (&gEdkiiBootLogoHobGuid);
+  if ((GuidHob == NULL) || (GET_GUID_HOB_DATA_SIZE (GuidHob) < sizeof (*Logo)) ||
+      (GraphicsOutput == NULL) || (GraphicsOutput->Mode == NULL))
+  {
+    return FALSE;
+  }
+
+  Logo = GET_GUID_HOB_DATA (GuidHob);
+  if (Logo->FrameBufferBase != GraphicsOutput->Mode->FrameBufferBase) {
+    return FALSE;
+  }
+
+  if (EFI_ERROR (gBS->LocateProtocol (&gEdkiiBootLogo2ProtocolGuid, NULL, (VOID **)&BootLogo))) {
+    return FALSE;
+  }
+
+  return !EFI_ERROR (BootLogo->GetBootLogo (BootLogo, NULL, &X, &Y, &Width, &Height));
+}
 
 //
 // Graphics Console Device Private Data template
@@ -655,6 +708,7 @@ GraphicsConsoleControllerDriverStart (
       // Current graphics mode is not set or is not set to the mode which we have found,
       // set the new graphic mode.
       //
+      InvalidateBootLogo ();
       Status = Private->GraphicsOutput->SetMode (Private->GraphicsOutput, ModeNumber);
       if (EFI_ERROR (Status)) {
         //
@@ -715,6 +769,21 @@ GraphicsConsoleControllerDriverStart (
   }
 
   Private->SimpleTextOutput.Mode->Mode = (INT32)PreferMode;
+  if (CanPreserveBootLogo (Private->GraphicsOutput)) {
+    if (PreferMode < 0) {
+      PreferMode = 0;
+    }
+
+    // Complete adoption before publishing SimpleTextOut. Public mode requests
+    // must never be mistaken for this initial connection.
+    Private->SimpleTextOutput.Mode->Mode          = -1;
+    Private->SimpleTextOutput.Mode->CursorVisible = FALSE;
+    Status = GraphicsConsoleConOutSetMode (&Private->SimpleTextOutput, (UINTN)PreferMode);
+    if (EFI_ERROR (Status)) {
+      goto Error;
+    }
+  }
+
   DEBUG ((DEBUG_INFO, "Graphics Console Started, Mode: %d\n", PreferMode));
 
   //
@@ -893,6 +962,7 @@ CheckModeSupported (
           FreePool (Info);
           break;
         } else {
+          InvalidateBootLogo ();
           Status = GraphicsOutput->SetMode (GraphicsOutput, ModeNumber);
           if (!EFI_ERROR (Status)) {
             FreePool (Info);
@@ -1039,6 +1109,9 @@ GraphicsConsoleConOutOutputString (
   Status = EFI_SUCCESS;
 
   OldTpl = gBS->RaiseTPL (TPL_NOTIFY);
+  if (*WString != L'\0') {
+    InvalidateBootLogo ();
+  }
   //
   // Current mode
   //
@@ -1379,6 +1452,7 @@ GraphicsConsoleConOutSetMode (
   EFI_GRAPHICS_OUTPUT_PROTOCOL   *GraphicsOutput;
   EFI_TPL                        OldTpl;
   UINTN                          LineBufferSize;
+  BOOLEAN                        PreserveLogo;
 
   OldTpl = gBS->RaiseTPL (TPL_NOTIFY);
 
@@ -1399,6 +1473,12 @@ GraphicsConsoleConOutSetMode (
     Status = EFI_UNSUPPORTED;
     goto Done;
   }
+
+  PreserveLogo = (This->Mode->Mode < 0) &&
+                 (Private->LineBuffer == NULL) &&
+                 (GraphicsOutput != NULL) &&
+                 (ModeData->GopModeNumber == GraphicsOutput->Mode->Mode) &&
+                 CanPreserveBootLogo (GraphicsOutput);
 
   //
   // If the mode has been set at least one other time, then LineBuffer will not be NULL
@@ -1457,6 +1537,10 @@ GraphicsConsoleConOutSetMode (
   //
   Private->LineBuffer = NewLineBuffer;
 
+  if (!PreserveLogo) {
+    InvalidateBootLogo ();
+  }
+
   if (GraphicsOutput != NULL) {
     if (ModeData->GopModeNumber != GraphicsOutput->Mode->Mode) {
       //
@@ -1469,7 +1553,7 @@ GraphicsConsoleConOutSetMode (
         //
         goto Done;
       }
-    } else {
+    } else if (!PreserveLogo) {
       //
       // The current graphics mode is correct, so simply clear the entire display
       //
@@ -1589,6 +1673,7 @@ GraphicsConsoleConOutClearScreen (
   }
 
   OldTpl = gBS->RaiseTPL (TPL_NOTIFY);
+  InvalidateBootLogo ();
 
   Private        = GRAPHICS_CONSOLE_CON_OUT_DEV_FROM_THIS (This);
   GraphicsOutput = Private->GraphicsOutput;
@@ -2015,6 +2100,8 @@ FlushCursor (
   if ((TextScale < GRAPHICS_CONSOLE_MIN_TEXT_SCALE) || (TextScale > GRAPHICS_CONSOLE_MAX_TEXT_SCALE)) {
     return EFI_DEVICE_ERROR;
   }
+
+  InvalidateBootLogo ();
 
   //
   // In this driver, only narrow character was supported.

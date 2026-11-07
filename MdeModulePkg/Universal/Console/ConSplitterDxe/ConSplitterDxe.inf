@@ -53,6 +53,7 @@
   MdeModulePkg/MdeModulePkg.dec
 
 [LibraryClasses]
+  HobLib
   UefiBootServicesTableLib
   MemoryAllocationLib
   BaseMemoryLib
@@ -63,6 +64,7 @@
   PcdLib
 
 [Guids]
+  gEdkiiBootLogoHobGuid
   gEfiConsoleInDeviceGuid                       ## SOMETIMES_CONSUMES ## UNDEFINED # protocol GUID installed on device handle
   gEfiStandardErrorDeviceGuid                   ## SOMETIMES_CONSUMES ## UNDEFINED # protocol GUID installed on device handle
   gEfiConsoleOutDeviceGuid                      ## SOMETIMES_CONSUMES ## UNDEFINED # protocol GUID installed on device handle
@@ -71,6 +73,7 @@
   gConnectConInEventGuid
 
 [Protocols]
+  gEdkiiBootLogo2ProtocolGuid
   ## PRODUCES
   ## TO_START
   gEfiSimplePointerProtocolGuid

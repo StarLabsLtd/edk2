@@ -40,6 +40,7 @@
   MdeModulePkg/MdeModulePkg.dec
 
 [LibraryClasses]
+  HobLib
   UefiBootServicesTableLib
   MemoryAllocationLib
   BaseMemoryLib
@@ -50,6 +51,8 @@
   PcdLib
 
 [Protocols]
+  gEfiBootLogoProtocolGuid
+  gEdkiiBootLogo2ProtocolGuid
   gEfiDevicePathProtocolGuid                    ## TO_START
   gEfiSimpleTextOutProtocolGuid                 ## BY_START
   gEfiGraphicsOutputProtocolGuid                ## TO_START
@@ -66,3 +69,6 @@
 
 [UserExtensions.TianoCore."ExtraFiles"]
   GraphicsConsoleDxeExtra.uni
+
+[Guids]
+  gEdkiiBootLogoHobGuid

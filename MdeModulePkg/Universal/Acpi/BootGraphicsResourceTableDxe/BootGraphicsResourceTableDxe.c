@@ -249,9 +249,10 @@ SetBootLogo2 (
   IN UINTN                          Height
   )
 {
-  EFI_STATUS  Status;
-  UINTN       BufferSize;
-  UINT32      Result32;
+  EFI_STATUS                     Status;
+  UINTN                          BufferSize;
+  UINT32                         Result32;
+  EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *NewLogoBltBuffer;
 
   if (BltBuffer == NULL) {
     mIsLogoValid           = FALSE;
@@ -312,26 +313,18 @@ SetBootLogo2 (
     return EFI_UNSUPPORTED;
   }
 
-  //
-  // Update state
-  //
-  mAcpiBgrtBufferChanged = TRUE;
-
-  //
-  // Free old logo buffer
-  //
-  if (mLogoBltBuffer != NULL) {
-    FreePool (mLogoBltBuffer);
-    mLogoBltBuffer = NULL;
-  }
-
-  //
-  // Allocate new logo buffer
-  //
-  mLogoBltBuffer = AllocateCopyPool (BufferSize, BltBuffer);
-  if (mLogoBltBuffer == NULL) {
+  // Allocate before releasing the current image or changing its state.
+  NewLogoBltBuffer = AllocateCopyPool (BufferSize, BltBuffer);
+  if (NewLogoBltBuffer == NULL) {
     return EFI_OUT_OF_RESOURCES;
   }
+
+  if (mLogoBltBuffer != NULL) {
+    FreePool (mLogoBltBuffer);
+  }
+
+  mLogoBltBuffer         = NewLogoBltBuffer;
+  mAcpiBgrtBufferChanged = TRUE;
 
   mLogoDestX   = DestinationX;
   mLogoDestY   = DestinationY;
@@ -476,6 +469,7 @@ BgrtReadyToBootEventNotify (
         return;
       }
     }
+    mAcpiBgrtInstalled = FALSE;
   } else {
     //
     // Check whether Logo exists
@@ -486,14 +480,6 @@ BgrtReadyToBootEventNotify (
   }
 
   if (mAcpiBgrtBufferChanged) {
-    //
-    // Free the old BMP image buffer
-    //
-    ImageBuffer = (UINT8 *)(UINTN)mBootGraphicsResourceTableTemplate.ImageAddress;
-    if (ImageBuffer != NULL) {
-      FreePool (ImageBuffer);
-    }
-
     //
     // Convert GOP Blt buffer to BMP image.  Pass in ImageBuffer set to NULL
     // so the BMP image is allocated by TranslateGopBltToBmp().
@@ -510,6 +496,11 @@ BgrtReadyToBootEventNotify (
       return;
     }
 
+    // The conversion succeeded; replace the old owned BMP only now.
+    if (mBootGraphicsResourceTableTemplate.ImageAddress != 0) {
+      FreePool ((VOID *)(UINTN)mBootGraphicsResourceTableTemplate.ImageAddress);
+    }
+
     //
     // Free the logo buffer
     //
@@ -523,6 +514,7 @@ BgrtReadyToBootEventNotify (
     mBootGraphicsResourceTableTemplate.ImageAddress = (UINT64)(UINTN)ImageBuffer;
     mBootGraphicsResourceTableTemplate.ImageOffsetX = (UINT32)mLogoDestX;
     mBootGraphicsResourceTableTemplate.ImageOffsetY = (UINT32)mLogoDestY;
+    mAcpiBgrtBufferChanged = FALSE;
   }
 
   //
