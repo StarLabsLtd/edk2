@@ -46,6 +46,54 @@ openssl cms -sign -binary -noattr -in "$test_dir/content" \
   UefiPayloadPkg/Library/FmpDeviceSmmLib/FmpDeviceSmmFmap.c \
   CryptoPkg/Library/CapsuleVerifyLib/CapsuleVerifyLib.c -lcrypto -o "$test_dir/owner-test"
 "$test_dir/owner-test" "$test_dir/content" "$test_dir/signature.der" "$test_dir/root.der"
+# Both signed slot images are present; firmware alone chooses the inactive one.
+python3 - "$test_dir/ab-content" <<'PYAB'
+import sys, struct, uuid
+sys.path.insert(0, 'BaseTools/Source/Python')
+from Common.Edk2.Capsule.FmpPayloadHeader import FmpPayloadHeaderClass
+image = bytearray(bytes(range(256)) * 1024)
+areas = [(196608, 4096, b'FMAP'), (0, 65536, b'SMMSTORE')]
+names = []
+for slot, base in [(b'A', 65536), (b'B', 131072)]:
+    for name, offset, size in [(b'FW_MAIN_', 4096, 61376),
+                               (b'RW_FWID_', 65472, 64), (b'VBLOCK_', 0, 4096)]:
+        names.append(name + slot)
+        areas.append((base + offset, size, name + slot))
+fmap = struct.pack('<8sBBQI32sH', b'__FMAP__', 1, 1, 0, len(image), b'AB', len(areas))
+for offset, size, name in areas:
+    fmap += struct.pack('<II32sH', offset, size, name, 0)
+image[196608:196608 + len(fmap)] = fmap
+header = FmpPayloadHeaderClass()
+header.FwVersion = 42
+header.LowestSupportedVersion = 10
+header.TargetGuid = uuid.UUID('00112233-4455-6677-8899-aabbccddeeff')
+header.Payload = image + b''.join(n.ljust(16, b'\0') for n in names)
+header.Payload += struct.pack('<4sHH', b'RMAP', 1, len(names)) + bytes(8)
+with open(sys.argv[1], 'wb') as f:
+    f.write(header.Encode())
+PYAB
+openssl cms -sign -binary -noattr -in "$test_dir/ab-content" \
+  -signer "$test_dir/cert.pem" -inkey "$test_dir/key.pem" -outform DER \
+  -out "$test_dir/ab.der"
+"$test_dir/owner-test" "$test_dir/ab-content" "$test_dir/ab.der" "$test_dir/root.der" ab 1
+"$test_dir/owner-test" "$test_dir/ab-content" "$test_dir/ab.der" "$test_dir/root.der" ab 2
+# EC updates retain signature/target authorization without arming a firmware trial.
+python3 - "$test_dir/content" "$test_dir/ec-content" <<'PYEC'
+import sys, struct
+sys.path.insert(0, 'BaseTools/Source/Python')
+from Common.Edk2.Capsule.FmpPayloadHeader import FmpPayloadHeaderClass
+header = FmpPayloadHeaderClass()
+header.Decode(open(sys.argv[1], 'rb').read())
+header.Payload = header.Payload[:131072] + b'EC'.ljust(16, b'\0')
+header.Payload += struct.pack('<4sHH', b'RMAP', 1, 1) + bytes(8)
+open(sys.argv[2], 'wb').write(header.Encode())
+PYEC
+openssl cms -sign -binary -noattr -in "$test_dir/ec-content" \
+  -signer "$test_dir/cert.pem" -inkey "$test_dir/key.pem" -outform DER \
+  -out "$test_dir/ec.der"
+"$test_dir/owner-test" "$test_dir/ec-content" "$test_dir/ec.der" "$test_dir/root.der" ec 1
+"$test_dir/owner-test" "$test_dir/ec-content" "$test_dir/ec.der" "$test_dir/root.der" ec 2
+"$test_dir/owner-test" "$test_dir/content" "$test_dir/signature.der" "$test_dir/root.der" ec-reject 1
 # A valid signature cannot authorize legacy metadata without a target identity.
 openssl cms -sign -binary -noattr -in "$test_dir/content.legacy" \
   -signer "$test_dir/cert.pem" -inkey "$test_dir/key.pem" -outform DER \

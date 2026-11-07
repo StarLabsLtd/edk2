@@ -13,11 +13,13 @@
 #include <Protocol/SmmVariable.h>
 #include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
+#include <Library/DebugLib.h>
 #include <Library/HobLib.h>
 #include <Library/MmServicesTableLib.h>
 #include <Library/PcdLib.h>
 
 STATIC COREBOOT_CAPSULE_PRIVATE_INFO *mInfo;
+STATIC COREBOOT_CAPSULE_VBOOT_INFO *mVboot;
 STATIC CAPSULE_OWNER mOwner;
 STATIC CAPSULE_SOURCE mSource;
 STATIC CAPSULE_POLICY mPolicy;
@@ -34,6 +36,7 @@ typedef UINT32 (EFIAPI *PRIVATE_READ)(UINT32 Offset, UINT32 Size);
 typedef UINT32 (EFIAPI *PRIVATE_RESOLVE)(CONST CHAR8 Name[16], CAPSULE_RANGE *Range);
 typedef UINT32 (EFIAPI *PRIVATE_PROGRAM)(UINT32 Offset, CONST CAPSULE_RANGE *Ranges,
                                        UINT32 Count, UINT8 *Image, UINT32 CheckOnly);
+typedef UINT32 (EFIAPI *PRIVATE_COMMIT)(UINT32 Slot);
 STATIC_ASSERT(sizeof(CAPSULE_RANGE) == 8, "Capsule native range ABI requires IA32");
 
 STATIC
@@ -59,6 +62,14 @@ Program(VOID *Context, UINTN Block, CONST CAPSULE_RANGE *Ranges, UINTN Count, UI
 }
 
 STATIC
+EFI_STATUS
+Commit(VOID *Context, UINT32 Slot)
+{
+  PRIVATE_COMMIT Arm = (PRIVATE_COMMIT)(UINTN)mVboot->Commit;
+  return Arm(Slot) == 0 ? EFI_SUCCESS : EFI_DEVICE_ERROR;
+}
+
+STATIC
 VOID
 Close(VOID)
 {
@@ -74,6 +85,10 @@ EFI_STATUS
 EFIAPI
 ExitBootServices(CONST EFI_GUID *Protocol, VOID *Interface, EFI_HANDLE Handle)
 {
+  if (mVboot && mVboot->BootSlot && EFI_ERROR(Commit(NULL, 0))) {
+    /* Notify return values cannot stop ExitBootServices. */
+    DEBUG((DEBUG_ERROR, "VBOOT: could not confirm firmware boot acknowledgement\n"));
+  }
   Close();
   return EFI_SUCCESS;
 }
@@ -304,6 +319,41 @@ Dispatch(IN EFI_HANDLE Handle, IN CONST VOID *Context OPTIONAL,
   }
 }
 
+STATIC
+EFI_STATUS
+ReadPrivateHandoff(EFI_HOB_GUID_TYPE *Hob)
+{
+  if (!Hob || Hob->Header.HobLength < sizeof(*Hob) ||
+      GET_GUID_HOB_DATA_SIZE(Hob) < sizeof(*mInfo)) {
+    return EFI_NOT_FOUND;
+  }
+  mInfo = GET_GUID_HOB_DATA(Hob);
+  mVboot = NULL;
+  mPolicy.UpdateSlot = 0;
+  mPolicy.Commit = NULL;
+  if (mInfo->Revision == 2 && GET_GUID_HOB_DATA_SIZE(Hob) == sizeof(*mVboot) &&
+      mInfo->Size == sizeof(*mVboot)) {
+    mVboot = (VOID *)mInfo;
+    if (mVboot->BootSlot > 2 || !mVboot->Commit) {
+      return EFI_INVALID_PARAMETER;
+    }
+    mPolicy.UpdateSlot = mVboot->BootSlot == 1 ? 2 : 1;
+    mPolicy.Commit = Commit;
+  } else if (mInfo->Revision != 1 || GET_GUID_HOB_DATA_SIZE(Hob) != sizeof(*mInfo) ||
+             mInfo->Size != sizeof(*mInfo)) {
+    return EFI_INVALID_PARAMETER;
+  }
+  if (mInfo->BlockSize != CAPSULE_BLOCK_SIZE || !mInfo->FlashSize ||
+      mInfo->FlashSize % CAPSULE_BLOCK_SIZE ||
+      mInfo->FlashSize / CAPSULE_BLOCK_SIZE > CAPSULE_MAX_BLOCKS ||
+      !mInfo->Read || !mInfo->Resolve || !mInfo->Program ||
+      !mInfo->Buffer || mInfo->BufferSize != CAPSULE_BLOCK_SIZE ||
+      mInfo->BufferSize - 1 > MAX_UINT32 - mInfo->Buffer) {
+    return EFI_INVALID_PARAMETER;
+  }
+  return EFI_SUCCESS;
+}
+
 EFI_STATUS
 EFIAPI
 CorebootCapsuleOwnerEntryPoint(VOID)
@@ -324,18 +374,9 @@ CorebootCapsuleOwnerEntryPoint(VOID)
     return EFI_SECURITY_VIOLATION;
   }
   Hob = GetFirstGuidHob(&gCorebootCapsuleInfoGuid);
-  if (!Hob || GET_GUID_HOB_DATA_SIZE(Hob) != sizeof(*mInfo)) {
-    return EFI_NOT_FOUND;
-  }
-  mInfo = GET_GUID_HOB_DATA(Hob);
-  if (mInfo->Revision != 1 || mInfo->Size != sizeof(*mInfo) ||
-      mInfo->BlockSize != CAPSULE_BLOCK_SIZE || !mInfo->FlashSize ||
-      mInfo->FlashSize % CAPSULE_BLOCK_SIZE ||
-      mInfo->FlashSize / CAPSULE_BLOCK_SIZE > CAPSULE_MAX_BLOCKS ||
-      !mInfo->Read || !mInfo->Resolve || !mInfo->Program ||
-      !mInfo->Buffer || mInfo->BufferSize != CAPSULE_BLOCK_SIZE ||
-      mInfo->BufferSize - 1 > MAX_UINT32 - mInfo->Buffer) {
-    return EFI_INVALID_PARAMETER;
+  Status = ReadPrivateHandoff(Hob);
+  if (EFI_ERROR(Status)) {
+    return Status;
   }
   Locate = (PRIVATE_RESOLVE)(UINTN)mInfo->Resolve;
   Read = (PRIVATE_READ)(UINTN)mInfo->Read;

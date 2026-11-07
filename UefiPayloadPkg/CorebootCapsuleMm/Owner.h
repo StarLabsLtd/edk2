@@ -28,6 +28,8 @@ typedef struct {
   CAPSULE_PROGRAM Program;
   VOID *Context;
   CAPSULE_RANGE VariableStore;
+  UINT32 UpdateSlot; /* Zero for the normal updater, one for A, two for B. */
+  EFI_STATUS (*Commit)(VOID *Context, UINT32 Slot);
 } CAPSULE_POLICY;
 
 typedef struct {
@@ -37,6 +39,8 @@ typedef struct {
   UINT8 ImageFmap[CAPSULE_BLOCK_SIZE];
   UINTN RangeCount;
   BOOLEAN Active;
+  BOOLEAN ArmTrial;
+  UINTN NextBlock;
 } CAPSULE_OWNER;
 
 VOID CapsuleOwnerClose(CAPSULE_OWNER *Owner);

@@ -23,6 +23,20 @@ static EFI_MM_SYSTEM_TABLE SystemTable;
 EFI_MM_SYSTEM_TABLE *gMmst = &SystemTable;
 static BOOLEAN Exited, SourceAllowed = TRUE;
 static unsigned Begins, Programs;
+static unsigned Acknowledgements;
+static UINT32 AcknowledgeStatus;
+static UINT32 EFIAPI Acknowledge(UINT32 Slot)
+{
+  if (Slot != 0) {
+    abort();
+  }
+  Acknowledgements++;
+  return AcknowledgeStatus;
+}
+BOOLEAN EFIAPI DebugPrintEnabled(VOID) { return TRUE; }
+BOOLEAN EFIAPI DebugPrintLevelEnabled(CONST UINTN Level) { return TRUE; }
+VOID EFIAPI DebugPrint(UINTN Level, CONST CHAR8 *Format, ...) { }
+
 static EFI_STATUS VerifyStatus;
 static BOOLEAN Activate = TRUE;
 static VOID *PacketAddress;
@@ -66,6 +80,34 @@ static EFI_STATUS EFIAPI Locate(EFI_GUID *g, VOID *r, VOID **i)
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "dispatch %u: %s\n", __LINE__, #x); return 1; } } while (0)
 int main(void)
 {
+  struct {
+    EFI_HOB_GUID_TYPE Header;
+    COREBOOT_CAPSULE_VBOOT_INFO Info;
+  } Handoff = {0};
+  Handoff.Header.Header.HobLength = sizeof(Handoff);
+  Handoff.Info.Base = (COREBOOT_CAPSULE_PRIVATE_INFO) {
+    .Revision = 2, .Size = sizeof(Handoff.Info), .FlashSize = 4 * CAPSULE_BLOCK_SIZE,
+    .BlockSize = CAPSULE_BLOCK_SIZE, .Read = 1, .Resolve = 1, .Program = 1,
+    .Buffer = 0x100000, .BufferSize = CAPSULE_BLOCK_SIZE
+  };
+  Handoff.Info.BootSlot = 2;
+  Handoff.Info.Commit = 1;
+  CHECK(ReadPrivateHandoff(&Handoff.Header) == EFI_SUCCESS && mPolicy.UpdateSlot == 1 && mPolicy.Commit);
+  Handoff.Info.BootSlot = 0;
+  CHECK(ReadPrivateHandoff(&Handoff.Header) == EFI_SUCCESS && mPolicy.UpdateSlot == 1);
+  Handoff.Info.BootSlot = 3;
+  CHECK(ReadPrivateHandoff(&Handoff.Header) == EFI_INVALID_PARAMETER);
+  Handoff.Info.BootSlot = 1;
+  Handoff.Info.Commit = 0;
+  CHECK(ReadPrivateHandoff(&Handoff.Header) == EFI_INVALID_PARAMETER);
+  Handoff.Info.Commit = 1;
+  Handoff.Header.Header.HobLength--;
+  CHECK(ReadPrivateHandoff(&Handoff.Header) == EFI_INVALID_PARAMETER);
+  Handoff.Info.Base.Revision = 1;
+  Handoff.Info.Base.Size = sizeof(COREBOOT_CAPSULE_PRIVATE_INFO);
+  Handoff.Header.Header.HobLength = sizeof(Handoff.Header) + sizeof(COREBOOT_CAPSULE_PRIVATE_INFO);
+  CHECK(ReadPrivateHandoff(&Handoff.Header) == EFI_SUCCESS && !mPolicy.UpdateSlot && !mPolicy.Commit);
+
   static COREBOOT_CAPSULE_PRIVATE_INFO Info = {.FlashSize = CAPSULE_BLOCK_SIZE,
     .BlockSize = CAPSULE_BLOCK_SIZE, .LowestSupportedVersion = 10};
   UINT8 Bytes[sizeof(COREBOOT_CAPSULE_START) + 1] = {0};
@@ -156,6 +198,18 @@ int main(void)
   Size = sizeof(Block);
   CHECK(Dispatch(NULL, NULL, &Block, &Size) == EFI_SUCCESS && Programs == 1);
   CHECK(ExitBootServices(NULL, NULL, NULL) == EFI_SUCCESS && !mTransaction && !mOwner.Active);
+  Handoff.Info.BootSlot = 1;
+  Handoff.Info.Commit = (UINT32)(UINTN)Acknowledge;
+  mVboot = &Handoff.Info;
+  CHECK(ExitBootServices(NULL, NULL, NULL) == EFI_SUCCESS && Acknowledgements == 1);
+  Handoff.Info.BootSlot = 0;
+  CHECK(ExitBootServices(NULL, NULL, NULL) == EFI_SUCCESS && Acknowledgements == 1);
+  Handoff.Info.BootSlot = 2;
+  AcknowledgeStatus = 1;
+  mTransaction = 1;
+  mOwner.Active = TRUE;
+  CHECK(ExitBootServices(NULL, NULL, NULL) == EFI_SUCCESS && Acknowledgements == 2 &&
+        !mTransaction && !mOwner.Active);
   Exited = TRUE;
   Size = sizeof(Bytes);
   CHECK(Dispatch(NULL, NULL, Bytes, &Size) == EFI_ACCESS_DENIED && !mTransaction);
