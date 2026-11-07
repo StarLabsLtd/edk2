@@ -22,7 +22,11 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 
 **/
 
+#include <PiDxe.h>
 #include "ConSplitter.h"
+#include <Guid/BootLogo.h>
+#include <Library/HobLib.h>
+#include <Protocol/BootLogo2.h>
 
 //
 // Identify if ConIn is connected in PcdConInConnectOnDemand enabled mode.
@@ -4626,6 +4630,11 @@ ConSplitterTextOutSetMode (
   UINTN                           Index;
   INT32                           *TextOutModeMap;
   EFI_STATUS                      ReturnStatus;
+  EDKII_BOOT_LOGO2_PROTOCOL        *BootLogo;
+  UINTN                           LogoX;
+  UINTN                           LogoY;
+  UINTN                           LogoWidth;
+  UINTN                           LogoHeight;
 
   Private = TEXT_OUT_SPLITTER_PRIVATE_DATA_FROM_THIS (This);
 
@@ -4645,7 +4654,20 @@ ConSplitterTextOutSetMode (
   // If the mode is being set to the curent mode, then just clear the screen and return.
   //
   if (Private->TextOutMode.Mode == (INT32)ModeNumber) {
-    return ConSplitterTextOutClearScreen (This);
+    // Adding an already configured console does not need to erase a live
+    // bootloader splash. Explicit caller requests retain the clear contract.
+    if (!Private->AddingConOutDevice ||
+        (GetFirstGuidHob (&gEdkiiBootLogoHobGuid) == NULL) ||
+        EFI_ERROR (gBS->LocateProtocol (&gEdkiiBootLogo2ProtocolGuid, NULL, (VOID **)&BootLogo)) ||
+        EFI_ERROR (BootLogo->GetBootLogo (BootLogo, NULL, &LogoX, &LogoY, &LogoWidth, &LogoHeight)))
+    {
+      return ConSplitterTextOutClearScreen (This);
+    }
+
+    Status = ConSplitterTextOutSetCursorPosition (This, 0, 0);
+    if (EFI_ERROR (Status)) {
+      return Status;
+    }
   }
 
   //
