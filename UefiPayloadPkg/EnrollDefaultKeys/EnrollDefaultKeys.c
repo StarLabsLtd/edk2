@@ -369,6 +369,8 @@ ProvisionKeyDefaults (
   )
 {
   EFI_STATUS  Status;
+  UINT8       *DbVale;
+  UINTN       DbValeSize;
   UINT8       *DbMicrosoftUefi2011;
   UINTN       DbMicrosoftUefi2011Size;
   UINT8       *DbMicrosoftUefi2023;
@@ -390,6 +392,7 @@ ProvisionKeyDefaults (
   UINT8       *PkMicrosoftOem2023;
   UINTN       PkMicrosoftOem2023Size;
 
+  DbVale                  = NULL;
   DbMicrosoftUefi2011      = NULL;
   DbMicrosoftUefi2023      = NULL;
   DbMicrosoftWin2011       = NULL;
@@ -449,7 +452,8 @@ ProvisionKeyDefaults (
     FreePool (KekMicrosoftUefi2023);
   }
 
-  Status  = GetSectionFromAnyFv (&gMicrosoftDbUefi2011Guid, EFI_SECTION_RAW, 0, (VOID **)&DbMicrosoftUefi2011, &DbMicrosoftUefi2011Size);
+  Status  = GetSectionFromAnyFv (&gValeDbGuid, EFI_SECTION_RAW, 0, (VOID **)&DbVale, &DbValeSize);
+  Status |= GetSectionFromAnyFv (&gMicrosoftDbUefi2011Guid, EFI_SECTION_RAW, 0, (VOID **)&DbMicrosoftUefi2011, &DbMicrosoftUefi2011Size);
   Status |= GetSectionFromAnyFv (&gMicrosoftDbUefi2023Guid, EFI_SECTION_RAW, 0, (VOID **)&DbMicrosoftUefi2023, &DbMicrosoftUefi2023Size);
   Status |= GetSectionFromAnyFv (&gMicrosoftDbWin2011Guid, EFI_SECTION_RAW, 0, (VOID **)&DbMicrosoftWin2011, &DbMicrosoftWin2011Size);
   Status |= GetSectionFromAnyFv (&gMicrosoftDbWinUefi2023Guid, EFI_SECTION_RAW, 0, (VOID **)&DbMicrosoftWinuefi2023, &DbMicrosoftWinuefi2023Size);
@@ -457,6 +461,9 @@ ProvisionKeyDefaults (
     ProvisionSigListDefault (
       EFI_DB_DEFAULT_VARIABLE_NAME,
       &gEfiCertX509Guid,
+      DbVale,
+      DbValeSize,
+      &gValeDbGuid,
       DbMicrosoftUefi2011,
       DbMicrosoftUefi2011Size,
       &gMicrosoftVendorGuid,
@@ -471,6 +478,10 @@ ProvisionKeyDefaults (
       &gMicrosoftVendorGuid,
       NULL
       );
+  }
+
+  if (DbVale != NULL) {
+    FreePool (DbVale);
   }
 
   if (DbMicrosoftUefi2011 != NULL) {
@@ -694,6 +705,8 @@ EnrollDefaultKeys (
   VOID        *Protocol;
   SETTINGS Settings;
 
+  UINT8 *DbVale = NULL;
+  UINTN DbValeSize;
   UINT8 *DbMicrosoftUefi2011 = 0;
   UINTN DbMicrosoftUefi2011Size;
   UINT8 *DbMicrosoftUefi2023 = 0;
@@ -754,6 +767,10 @@ EnrollDefaultKeys (
     }
   }
 
+  Status = GetSectionFromAnyFv (&gValeDbGuid, EFI_SECTION_RAW, 0, (VOID **)&DbVale, &DbValeSize);
+  if (EFI_ERROR (Status)) {
+    goto FreeKeys;
+  }
   Status = GetSectionFromAnyFv(&gMicrosoftDbUefi2011Guid, EFI_SECTION_RAW, 0, (void **)&DbMicrosoftUefi2011, &DbMicrosoftUefi2011Size);
   if (EFI_ERROR (Status)) {
     goto FreeKeys;
@@ -822,6 +839,7 @@ EnrollDefaultKeys (
     EFI_IMAGE_SECURITY_DATABASE,
     &gEfiImageSecurityDatabaseGuid,
     &gEfiCertX509Guid,
+    DbVale,                 DbValeSize,                 &gValeDbGuid,
     DbMicrosoftUefi2011,    DbMicrosoftUefi2011Size,    &gMicrosoftVendorGuid,
     DbMicrosoftUefi2023,    DbMicrosoftUefi2023Size,    &gMicrosoftVendorGuid,
     DbMicrosoftWin2011,     DbMicrosoftWin2011Size,     &gMicrosoftVendorGuid,
@@ -855,6 +873,9 @@ EnrollDefaultKeys (
   }
 
 FreeKeys:
+  if (DbVale != NULL) {
+    FreePool (DbVale);
+  }
   EnrollmentStatus = Status;
   if (DbMicrosoftUefi2011 != NULL) {
     FreePool (DbMicrosoftUefi2011);
