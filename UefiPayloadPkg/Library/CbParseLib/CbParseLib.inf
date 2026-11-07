@@ -39,6 +39,7 @@
   HobLib
 
 [Guids]
+  gEdkiiBootLogoHobGuid
   gEfiCfrSetupMenuFormGuid
 
 [Pcd]

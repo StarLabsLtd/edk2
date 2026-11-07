@@ -8,6 +8,8 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 **/
 
 #include "PlatformBootManager.h"
+#include <Guid/BootLogo.h>
+#include <Protocol/BootLogo2.h>
 #include "PlatformConsole.h"
 #include <Guid/EventGroup.h>
 #include <Guid/GlobalVariable.h>
@@ -61,6 +63,14 @@ STATIC EFI_GUID  mLowBatteryLogoFileGuid = {
 
 STATIC BOOLEAN  mLowBatteryBootGuardActive;
 STATIC BOOLEAN  mLowBatteryBootLogoShown;
+STATIC BOOLEAN  mBootPromptTextShown;
+STATIC struct {
+  UINTN  X;
+  UINTN  Y;
+  UINTN  Width;
+  UINTN  Height;
+} mBootPrompt;
+
 
 STATIC
 VOID
@@ -362,6 +372,16 @@ DrawBootPromptLine (
                              BltHeight,
                              BltDelta
                              );
+  if (!EFI_ERROR (Status)) {
+    if (mBootPrompt.Width == 0) {
+      mBootPrompt.X = PointX;
+      mBootPrompt.Y = PointY;
+    }
+
+    mBootPrompt.Width  = MAX (mBootPrompt.Width, PointX + BltWidth - mBootPrompt.X);
+    mBootPrompt.Height = MAX (mBootPrompt.Height, PointY + BltHeight - mBootPrompt.Y);
+  }
+
   if (ScaledBlt != NULL) {
     FreePool (ScaledBlt->Image.Bitmap);
     FreePool (ScaledBlt);
@@ -644,6 +664,13 @@ DisplayPlatformBootLogo (
 {
   EFI_STATUS                    Status;
   EDKII_PLATFORM_LOGO_PROTOCOL  *PlatformLogo;
+  EDKII_BOOT_LOGO2_PROTOCOL     *BootLogo;
+  EFI_GRAPHICS_OUTPUT_BLT_PIXEL *Blt;
+  UINTN                         X;
+  UINTN                         Y;
+  UINTN                         Width;
+  UINTN                         Height;
+  BOOLEAN                       Displayed;
 
   if (mLowBatteryBootGuardActive) {
     DisplayLowBatteryBootLogo ();
@@ -651,15 +678,97 @@ DisplayPlatformBootLogo (
   }
 
   Status = gBS->LocateProtocol (&gEdkiiPlatformLogoProtocolGuid, NULL, (VOID **)&PlatformLogo);
-  if (EFI_ERROR (Status)) {
+  if (EFI_ERROR (Status) && (GetFirstGuidHob (&gEdkiiBootLogoHobGuid) == NULL)) {
     return;
   }
 
-  if ((gST != NULL) && (gST->ConOut != NULL)) {
+  Displayed = FALSE;
+  if (GetFirstGuidHob (&gEdkiiBootLogoHobGuid) != NULL) {
+    Status = gBS->LocateProtocol (&gEdkiiBootLogo2ProtocolGuid, NULL, (VOID **)&BootLogo);
+    if (EFI_ERROR (Status)) {
+      // Keep the existing pixels if no provider can restore them.
+      return;
+    }
+
+    Status = BootLogo->GetBootLogo (BootLogo, NULL, &X, &Y, &Width, &Height);
+    if (Status == EFI_INVALID_PARAMETER) {
+      Status = BootLogo->GetBootLogo (BootLogo, &Blt, &X, &Y, &Width, &Height);
+    }
+
+    Displayed = !EFI_ERROR (Status);
+  }
+
+  if (!Displayed && (gST != NULL) && (gST->ConOut != NULL)) {
     gST->ConOut->ClearScreen (gST->ConOut);
   }
 
   BootLogoEnableLogo ();
+}
+
+/** Remove countdown text without blanking the logo underneath. **/
+STATIC
+VOID
+ClearBootManagerPrompt (
+  VOID
+  )
+{
+  EFI_GRAPHICS_OUTPUT_PROTOCOL   *GraphicsOutput;
+  EFI_GRAPHICS_OUTPUT_BLT_PIXEL  Black = { 0, 0, 0, 0 };
+  EFI_STATUS                     Status;
+  EDKII_BOOT_LOGO2_PROTOCOL       *BootLogo;
+  EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *LogoBlt;
+  UINTN                          LogoX;
+  UINTN                          LogoY;
+  UINTN                          LogoWidth;
+  UINTN                          LogoHeight;
+
+  if (mBootPromptTextShown) {
+    gST->ConOut->ClearScreen (gST->ConOut);
+    BootLogoEnableLogo ();
+  } else if (mBootPrompt.Width != 0) {
+    // Prompt pixels can overlap a large or custom logo. Force restoration
+    // only for that intersection, retaining quiet boot for ordinary layouts.
+    Status = gBS->LocateProtocol (&gEdkiiBootLogo2ProtocolGuid, NULL, (VOID **)&BootLogo);
+    if (!EFI_ERROR (Status)) {
+      Status = BootLogo->GetBootLogo (BootLogo, NULL, &LogoX, &LogoY, &LogoWidth, &LogoHeight);
+      if (Status == EFI_INVALID_PARAMETER) {
+        Status = BootLogo->GetBootLogo (BootLogo, &LogoBlt, &LogoX, &LogoY, &LogoWidth, &LogoHeight);
+      }
+      if (!EFI_ERROR (Status) &&
+          (mBootPrompt.X < (UINT64)LogoX + LogoWidth) &&
+          (LogoX < (UINT64)mBootPrompt.X + mBootPrompt.Width) &&
+          (mBootPrompt.Y < (UINT64)LogoY + LogoHeight) &&
+          (LogoY < (UINT64)mBootPrompt.Y + mBootPrompt.Height))
+      {
+        BootLogo->SetBootLogo (BootLogo, NULL, 0, 0, 0, 0);
+      }
+    }
+
+    Status = GetBootPromptGraphicsOutput (&GraphicsOutput);
+    if (!EFI_ERROR (Status)) {
+      Status = GraphicsOutput->Blt (
+                                 GraphicsOutput,
+                                 &Black,
+                                 EfiBltVideoFill,
+                                 0,
+                                 0,
+                                 mBootPrompt.X,
+                                 mBootPrompt.Y,
+                                 mBootPrompt.Width,
+                                 mBootPrompt.Height,
+                                 0
+                                 );
+    }
+
+    if (EFI_ERROR (Status)) {
+      gST->ConOut->ClearScreen (gST->ConOut);
+    }
+
+    BootLogoEnableLogo ();
+  }
+
+  ZeroMem (&mBootPrompt, sizeof (mBootPrompt));
+  mBootPromptTextShown = FALSE;
 }
 
 STATIC
@@ -1360,6 +1469,7 @@ PlatformBootManagerAfterConsole (
 
   if (FixedPcdGetBool (PcdBootManagerEscape)) {
     if (!DisplayBootManagerPrompt (TRUE, BootTimeOut)) {
+      mBootPromptTextShown = TRUE;
       if (mLowBatteryBootGuardActive) {
         Print (
           L"\n"
@@ -1380,6 +1490,7 @@ PlatformBootManagerAfterConsole (
     }
   } else {
     if (!DisplayBootManagerPrompt (FALSE, BootTimeOut)) {
+      mBootPromptTextShown = TRUE;
       if (mLowBatteryBootGuardActive) {
         Print (
           L"\n"
@@ -1433,8 +1544,7 @@ PlatformBootManagerWaitCallback (
 
   /* Clear text from screen once timeout expires */
   if (TimeoutRemain == 0) {
-    gST->ConOut->ClearScreen (gST->ConOut);
-    BootLogoEnableLogo ();
+    ClearBootManagerPrompt ();
   }
   return;
 }
@@ -1450,8 +1560,12 @@ PlatformBootManagerAfterBootWait (
   )
 {
   if (!mLowBatteryBootGuardActive) {
+    ClearBootManagerPrompt ();
     return;
   }
+
+  ZeroMem (&mBootPrompt, sizeof (mBootPrompt));
+  mBootPromptTextShown = FALSE;
 
   DEBUG ((DEBUG_INFO, "%a: restoring boot logo after low-battery override\n", __func__));
 

@@ -18,9 +18,22 @@
 !include UnitTestFrameworkPkg/UnitTestFrameworkPkgHost.dsc.inc
 
 [LibraryClasses]
+  DevicePathLib|MdePkg/Library/UefiDevicePathLib/UefiDevicePathLibBase.inf
+  FrameBufferBltLib|MdeModulePkg/Library/FrameBufferBltLib/FrameBufferBltLib.inf
+  BmpSupportLib|MdeModulePkg/Library/BaseBmpSupportLib/BaseBmpSupportLib.inf
   SmmStoreGeometryLib|UefiPayloadPkg/Library/SmmStoreGeometryLib/SmmStoreGeometryLib.inf
 
 [Components]
+  UefiPayloadPkg/Library/CbParseLib/GoogleTest/BootSplashTest.inf {
+    <BuildOptions>
+      GCC:*_*_*_DLINK_FLAGS = -Wl,--gc-sections,--wrap=AllocateCopyPool,--wrap=AllocateZeroPool
+  }
   UefiPayloadPkg/Library/FmpDeviceSmmLib/FmpDeviceSmmLibUnitTestHost.inf
   UefiPayloadPkg/Library/PlatformSecureLib/PlatformSecureLibMmUnitTestHost.inf
   UefiPayloadPkg/Library/SmmStoreGeometryLib/SmmStoreGeometryLibUnitTestHost.inf
+
+[PcdsPatchableInModule]
+  gEfiMdeModulePkgTokenSpaceGuid.PcdConOutColumn|80
+  gEfiMdeModulePkgTokenSpaceGuid.PcdConOutRow|25
+  gEfiMdeModulePkgTokenSpaceGuid.PcdVideoHorizontalResolution|800
+  gEfiMdeModulePkgTokenSpaceGuid.PcdVideoVerticalResolution|600

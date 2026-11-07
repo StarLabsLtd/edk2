@@ -237,6 +237,28 @@ struct cb_vdat {
 #define CB_TAG_TIMESTAMPS     0x0016
 #define CB_TAG_CBMEM_CONSOLE  0x0017
 
+#define CB_TAG_BOOT_SPLASH        0x0051
+#define CB_BOOT_SPLASH_REVISION   2
+#define CB_BOOT_SPLASH_DISPLAYED  BIT0
+#define CB_BOOT_SPLASH_BMP        BIT1
+#define CBMEM_ID_BOOT_SPLASH  0x42534c48
+
+struct cb_boot_splash {
+  UINT32              tag;
+  UINT32              size;
+  UINT16              revision;
+  UINT16              flags;
+  struct cbuint64     framebuffer_address;
+  UINT32              image_offset_x;
+  UINT32              image_offset_y;
+  UINT32              image_width;
+  UINT32              image_height;
+  struct cbuint64     bmp_address;
+  UINT32              bmp_size;
+} __attribute__ ((packed));
+
+STATIC_ASSERT (sizeof (struct cb_boot_splash) == 48, "coreboot splash ABI");
+
 #define CB_TAG_CBMEM_ENTRY    0x0031
 #define CB_TAG_TSC_INFO       0x0032
 
