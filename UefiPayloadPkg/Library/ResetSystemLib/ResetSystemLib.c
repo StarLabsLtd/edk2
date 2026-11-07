@@ -12,7 +12,16 @@
 #include <Library/IoLib.h>
 #include <Library/HobLib.h>
 #include <Library/BaseMemoryLib.h>
+#include <Library/PcdLib.h>
 #include <Guid/AcpiBoardInfoGuid.h>
+
+#define ACPI_PM1_CNT_SLP_TYP_MASK   0x3c00
+#define ACPI_PM1_CNT_SLP_TYP_SHIFT  10
+#define ACPI_PM1_CNT_SLP_EN         BIT13
+#define LEGACY_RESET_CONTROL_REG    0xcf9
+#define LEGACY_RESET_FULL           BIT3
+#define LEGACY_RESET_CPU            BIT2
+#define LEGACY_RESET_SYSTEM         BIT1
 
 ACPI_BOARD_INFO  mAcpiBoardInfo;
 
@@ -64,7 +73,21 @@ ResetCold (
   VOID
   )
 {
-  IoWrite8 ((UINTN)mAcpiBoardInfo.ResetRegAddress, mAcpiBoardInfo.ResetValue);
+  //
+  // Capsule updates may leave flash writes pending in cache-backed paths.
+  // Flush before asserting reset so the platform does not hang mid-reboot.
+  //
+  AsmWbinvd ();
+  if (mAcpiBoardInfo.ResetRegAddress == LEGACY_RESET_CONTROL_REG) {
+    IoWrite8 (LEGACY_RESET_CONTROL_REG, LEGACY_RESET_FULL | LEGACY_RESET_SYSTEM);
+    IoWrite8 (
+      LEGACY_RESET_CONTROL_REG,
+      LEGACY_RESET_FULL | LEGACY_RESET_CPU | LEGACY_RESET_SYSTEM
+      );
+  } else {
+    IoWrite8 ((UINTN)mAcpiBoardInfo.ResetRegAddress, mAcpiBoardInfo.ResetValue);
+  }
+
   CpuDeadLoop ();
 }
 
@@ -81,6 +104,10 @@ ResetWarm (
   VOID
   )
 {
+  //
+  // Keep the warm reset path consistent with cold reset for capsule updates.
+  //
+  AsmWbinvd ();
   IoWrite8 ((UINTN)mAcpiBoardInfo.ResetRegAddress, mAcpiBoardInfo.ResetValue);
   CpuDeadLoop ();
 }
@@ -114,8 +141,12 @@ ResetShutdown (
   // Transform system into S5 sleep state
   //
   PmCtrlReg = (UINTN)mAcpiBoardInfo.PmCtrlRegBase;
-  IoAndThenOr16 (PmCtrlReg, (UINT16) ~0x3c00, (UINT16)(7 << 10));
-  IoOr16 (PmCtrlReg, BIT13);
+  IoAndThenOr16 (
+    PmCtrlReg,
+    (UINT16) ~ACPI_PM1_CNT_SLP_TYP_MASK,
+    (UINT16)(FixedPcdGet16 (PcdResetShutdownSleepType) << ACPI_PM1_CNT_SLP_TYP_SHIFT)
+    );
+  IoOr16 (PmCtrlReg, ACPI_PM1_CNT_SLP_EN);
   CpuDeadLoop ();
 
   ASSERT (FALSE);

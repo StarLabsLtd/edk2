@@ -31,6 +31,7 @@
   DebugLib
   HobLib
   SmmStoreLib
+  SmmStoreGeometryLib
   UefiLib
   UefiDriverEntryPoint
   UefiBootServicesTableLib
@@ -45,6 +46,7 @@
   gEdkiiNvVarStoreFormattedGuid     ## PRODUCES ## PROTOCOL
 
 [Protocols]
+  gEdkiiVariableStoreSyncProtocolGuid            ## SOMETIMES_PRODUCES
   gEfiDevicePathProtocolGuid          ## BY_START
   gEfiFirmwareVolumeBlockProtocolGuid ## BY_START
 

@@ -13,6 +13,7 @@
 
   InitCommunicateBuffer() is really function to check the variable data size.
 
+Copyright (c) 2026, ARM Ltd. All rights reserved.<BR>
 Copyright (c) 2010 - 2024, Intel Corporation. All rights reserved.<BR>
 Copyright (c) Microsoft Corporation.<BR>
 SPDX-License-Identifier: BSD-2-Clause-Patent
@@ -81,6 +82,13 @@ VOID
 EFIAPI
 RecordSecureBootPolicyVarData (
   VOID
+  );
+
+VOID
+EFIAPI
+SmmVariableWriteReady (
+  IN EFI_EVENT  Event,
+  IN VOID       *Context
   );
 
 /**
@@ -192,7 +200,8 @@ InitCommunicateBuffer (
     SmmVariableFunctionHeader           = (SMM_VARIABLE_COMMUNICATE_HEADER *)SmmCommunicateHeader->Data;
   }
 
-  SmmVariableFunctionHeader->Function = Function;
+  SmmVariableFunctionHeader->Function     = Function;
+  SmmVariableFunctionHeader->ReturnStatus = EFI_DEVICE_ERROR;
   if (DataPtr != NULL) {
     *DataPtr = SmmVariableFunctionHeader->Data;
   }
@@ -206,7 +215,7 @@ InitCommunicateBuffer (
   @param[in]   DataSize               This size of the function header and the data.
 
   @retval      EFI_SUCCESS            Success is returned from the function in SMM.
-  @retval      Others                 Failure is returned from the function in SMM.
+  @retval      Others                 MM communication or SMM function failure.
 
 **/
 EFI_STATUS
@@ -226,7 +235,10 @@ SendCommunicateBuffer (
                                   mVariableBufferPhysical,
                                   mVariableBuffer
                                   );
-    ASSERT_EFI_ERROR (Status);
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_ERROR, "Variable MM communication failed: %r\n", Status));
+      return Status;
+    }
 
     SmmCommunicateHeaderV3    = (EFI_MM_COMMUNICATE_HEADER_V3 *)mVariableBuffer;
     SmmVariableFunctionHeader = (SMM_VARIABLE_COMMUNICATE_HEADER *)SmmCommunicateHeaderV3->MessageData;
@@ -240,7 +252,10 @@ SendCommunicateBuffer (
                                     mVariableBuffer,
                                     &CommSize
                                     );
-    ASSERT_EFI_ERROR (Status);
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_ERROR, "Variable MM communication failed: %r\n", Status));
+      return Status;
+    }
 
     SmmCommunicateHeader      = (EFI_MM_COMMUNICATE_HEADER *)mVariableBuffer;
     SmmVariableFunctionHeader = (SMM_VARIABLE_COMMUNICATE_HEADER *)SmmCommunicateHeader->Data;
@@ -501,7 +516,7 @@ Done:
   Signals SMM to synchronize any pending variable updates with the runtime cache(s).
 
 **/
-VOID
+EFI_STATUS
 SyncRuntimeCache (
   VOID
   )
@@ -515,7 +530,7 @@ SyncRuntimeCache (
   //
   // Send data to SMM.
   //
-  SendCommunicateBuffer (0);
+  return SendCommunicateBuffer (0);
 }
 
 /**
@@ -760,10 +775,10 @@ FindVariableInSmm (
     // Only update DataSize when needed
     //
     *DataSize = SmmVariableHeader->DataSize;
-  }
 
-  if (Attributes != NULL) {
-    *Attributes = SmmVariableHeader->Attributes;
+    if (Attributes != NULL) {
+      *Attributes = SmmVariableHeader->Attributes;
+    }
   }
 
   if (EFI_ERROR (Status)) {
@@ -829,7 +844,8 @@ RuntimeServiceGetVariable (
   }
 
   AcquireLockOnlyAtBootTime (&mVariableServicesLock);
-  if (mIsRuntimeCacheEnabled) {
+  // Boot-time policy consumers must read the private MM stores.
+  if (mIsRuntimeCacheEnabled && EfiAtRuntime ()) {
     Status = FindVariableInRuntimeCache (VariableName, VendorGuid, Attributes, DataSize, Data);
   } else {
     Status = FindVariableInSmm (VariableName, VendorGuid, Attributes, DataSize, Data);
@@ -1097,7 +1113,7 @@ RuntimeServiceGetNextVariableName (
   }
 
   AcquireLockOnlyAtBootTime (&mVariableServicesLock);
-  if (mIsRuntimeCacheEnabled) {
+  if (mIsRuntimeCacheEnabled && EfiAtRuntime ()) {
     Status = GetNextVariableNameInRuntimeCache (VariableNameSize, VariableName, VendorGuid);
   } else {
     Status = GetNextVariableNameInSmm (VariableNameSize, VariableName, VendorGuid);
@@ -1442,14 +1458,17 @@ GetVariablePayloadSize (
     SmmCommunicateHeaderV3->MessageSize = SMM_VARIABLE_COMMUNICATE_HEADER_SIZE + sizeof (SMM_VARIABLE_COMMUNICATE_GET_PAYLOAD_SIZE);
     SmmVariableFunctionHeader           = (SMM_VARIABLE_COMMUNICATE_HEADER *)SmmCommunicateHeaderV3->MessageData;
 
-    SmmVariableFunctionHeader->Function = SMM_VARIABLE_FUNCTION_GET_PAYLOAD_SIZE;
+    SmmVariableFunctionHeader->Function     = SMM_VARIABLE_FUNCTION_GET_PAYLOAD_SIZE;
+    SmmVariableFunctionHeader->ReturnStatus = EFI_DEVICE_ERROR;
     SmmGetPayloadSize                   = (SMM_VARIABLE_COMMUNICATE_GET_PAYLOAD_SIZE *)SmmVariableFunctionHeader->Data;
 
     //
     // Send data to SMM.
     //
     Status = mMmCommunication3->Communicate (mMmCommunication3, CommBuffer, CommBuffer);
-    ASSERT_EFI_ERROR (Status);
+    if (EFI_ERROR (Status)) {
+      goto Done;
+    }
   } else {
     CommSize   = SMM_COMMUNICATE_HEADER_SIZE + SMM_VARIABLE_COMMUNICATE_HEADER_SIZE + sizeof (SMM_VARIABLE_COMMUNICATE_GET_PAYLOAD_SIZE);
     CommBuffer = AllocateZeroPool (CommSize);
@@ -1463,14 +1482,17 @@ GetVariablePayloadSize (
     SmmCommunicateHeader->MessageLength = SMM_VARIABLE_COMMUNICATE_HEADER_SIZE + sizeof (SMM_VARIABLE_COMMUNICATE_GET_PAYLOAD_SIZE);
     SmmVariableFunctionHeader           = (SMM_VARIABLE_COMMUNICATE_HEADER *)SmmCommunicateHeader->Data;
 
-    SmmVariableFunctionHeader->Function = SMM_VARIABLE_FUNCTION_GET_PAYLOAD_SIZE;
+    SmmVariableFunctionHeader->Function     = SMM_VARIABLE_FUNCTION_GET_PAYLOAD_SIZE;
+    SmmVariableFunctionHeader->ReturnStatus = EFI_DEVICE_ERROR;
     SmmGetPayloadSize                   = (SMM_VARIABLE_COMMUNICATE_GET_PAYLOAD_SIZE *)SmmVariableFunctionHeader->Data;
 
     //
     // Send data to SMM.
     //
     Status = mMmCommunication2->Communicate (mMmCommunication2, CommBuffer, CommBuffer, &CommSize);
-    ASSERT_EFI_ERROR (Status);
+    if (EFI_ERROR (Status)) {
+      goto Done;
+    }
   }
 
   Status = SmmVariableFunctionHeader->ReturnStatus;
@@ -1546,7 +1568,8 @@ GetRuntimeCacheInfo (
     SmmCommunicateHeaderV3->MessageSize = SMM_VARIABLE_COMMUNICATE_HEADER_SIZE + sizeof (SMM_VARIABLE_COMMUNICATE_GET_RUNTIME_CACHE_INFO);
 
     SmmVariableFunctionHeader           = (SMM_VARIABLE_COMMUNICATE_HEADER *)SmmCommunicateHeaderV3->MessageData;
-    SmmVariableFunctionHeader->Function = SMM_VARIABLE_FUNCTION_GET_RUNTIME_CACHE_INFO;
+    SmmVariableFunctionHeader->Function     = SMM_VARIABLE_FUNCTION_GET_RUNTIME_CACHE_INFO;
+    SmmVariableFunctionHeader->ReturnStatus = EFI_DEVICE_ERROR;
     SmmGetRuntimeCacheInfo              = (SMM_VARIABLE_COMMUNICATE_GET_RUNTIME_CACHE_INFO *)SmmVariableFunctionHeader->Data;
 
     //
@@ -1563,7 +1586,8 @@ GetRuntimeCacheInfo (
     SmmCommunicateHeader->MessageLength = SMM_VARIABLE_COMMUNICATE_HEADER_SIZE + sizeof (SMM_VARIABLE_COMMUNICATE_GET_RUNTIME_CACHE_INFO);
 
     SmmVariableFunctionHeader           = (SMM_VARIABLE_COMMUNICATE_HEADER *)SmmCommunicateHeader->Data;
-    SmmVariableFunctionHeader->Function = SMM_VARIABLE_FUNCTION_GET_RUNTIME_CACHE_INFO;
+    SmmVariableFunctionHeader->Function     = SMM_VARIABLE_FUNCTION_GET_RUNTIME_CACHE_INFO;
+    SmmVariableFunctionHeader->ReturnStatus = EFI_DEVICE_ERROR;
     SmmGetRuntimeCacheInfo              = (SMM_VARIABLE_COMMUNICATE_GET_RUNTIME_CACHE_INFO *)SmmVariableFunctionHeader->Data;
 
     //
@@ -1620,6 +1644,38 @@ InitVariableStoreHeader (
   }
 }
 
+/** Allocate runtime cache pages addressable by either IA32 or X64 MM. **/
+STATIC
+EFI_STATUS
+AllocateVariableCache (
+  IN UINTN                  Size,
+  OUT EFI_PHYSICAL_ADDRESS  *Buffer,
+  OUT UINT64                *Pages
+  )
+{
+  EFI_STATUS            Status;
+  EFI_PHYSICAL_ADDRESS  Address;
+
+  *Buffer = 0;
+  *Pages  = 0;
+  if (Size == 0) {
+    return EFI_SUCCESS;
+  }
+  if (Size > MAX_UINT32 - EFI_PAGE_MASK) {
+    return EFI_BAD_BUFFER_SIZE;
+  }
+
+  Address = MAX_UINT32;
+  Status = gBS->AllocatePages (AllocateMaxAddress, EfiRuntimeServicesData,
+                  EFI_SIZE_TO_PAGES (Size), &Address);
+  if (!EFI_ERROR (Status)) {
+    *Buffer = Address;
+    *Pages  = EFI_SIZE_TO_PAGES (Size);
+    ZeroMem ((VOID *)(UINTN)Address, EFI_PAGES_TO_SIZE ((UINTN)*Pages));
+  }
+  return Status;
+}
+
 /**
   Initialize the runtime variable cache related content.
 
@@ -1631,7 +1687,7 @@ InitVariableStoreHeader (
 **/
 EFI_STATUS
 InitVariableCache (
-  IN  EFI_HOB_GUID_TYPE  *RuntimeCacheInfoGuidHob
+  IN  EFI_HOB_GUID_TYPE  *RuntimeCacheInfoGuidHob OPTIONAL
   )
 {
   EFI_STATUS                   Status;
@@ -1642,6 +1698,8 @@ InitVariableCache (
   UINTN                        AllocatedNvCacheSize;
   UINTN                        AllocatedVolatileCacheSize;
   VARIABLE_RUNTIME_CACHE_INFO  *VariableRuntimeCacheInfo;
+  VARIABLE_RUNTIME_CACHE_INFO  AllocatedInfo;
+  UINT64                       FlagPages;
 
   //
   // Get needed runtime cache buffer size and check if auth variables are to be used from SMM
@@ -1653,7 +1711,39 @@ InitVariableCache (
               &mVariableAuthFormat
               );
   if (!EFI_ERROR (Status)) {
-    VariableRuntimeCacheInfo   = GET_GUID_HOB_DATA (RuntimeCacheInfoGuidHob);
+    if (RuntimeCacheInfoGuidHob != NULL) {
+      VariableRuntimeCacheInfo = GET_GUID_HOB_DATA (RuntimeCacheInfoGuidHob);
+    } else {
+      // Payloads which do not run Variable PEI obtain the geometry from MM.
+      ZeroMem (&AllocatedInfo, sizeof (AllocatedInfo));
+      Status = AllocateVariableCache (ExpectedHobCacheSize,
+                 &AllocatedInfo.RuntimeHobCacheBuffer, &AllocatedInfo.RuntimeHobCachePages);
+      if (!EFI_ERROR (Status)) {
+        Status = AllocateVariableCache (ExpectedNvCacheSize,
+                   &AllocatedInfo.RuntimeNvCacheBuffer, &AllocatedInfo.RuntimeNvCachePages);
+      }
+      if (!EFI_ERROR (Status)) {
+        Status = AllocateVariableCache (ExpectedVolatileCacheSize,
+                   &AllocatedInfo.RuntimeVolatileCacheBuffer, &AllocatedInfo.RuntimeVolatileCachePages);
+      }
+      if (!EFI_ERROR (Status)) {
+        Status = AllocateVariableCache (sizeof (CACHE_INFO_FLAG),
+                   &AllocatedInfo.CacheInfoFlagBuffer, &FlagPages);
+      }
+      if (EFI_ERROR (Status)) {
+        if (AllocatedInfo.RuntimeHobCachePages != 0) {
+          gBS->FreePages (AllocatedInfo.RuntimeHobCacheBuffer, (UINTN)AllocatedInfo.RuntimeHobCachePages);
+        }
+        if (AllocatedInfo.RuntimeNvCachePages != 0) {
+          gBS->FreePages (AllocatedInfo.RuntimeNvCacheBuffer, (UINTN)AllocatedInfo.RuntimeNvCachePages);
+        }
+        if (AllocatedInfo.RuntimeVolatileCachePages != 0) {
+          gBS->FreePages (AllocatedInfo.RuntimeVolatileCacheBuffer, (UINTN)AllocatedInfo.RuntimeVolatileCachePages);
+        }
+        return Status;
+      }
+      VariableRuntimeCacheInfo = &AllocatedInfo;
+    }
     AllocatedHobCacheSize      = EFI_PAGES_TO_SIZE ((UINTN)VariableRuntimeCacheInfo->RuntimeHobCachePages);
     AllocatedNvCacheSize       = EFI_PAGES_TO_SIZE ((UINTN)VariableRuntimeCacheInfo->RuntimeNvCachePages);
     AllocatedVolatileCacheSize = EFI_PAGES_TO_SIZE ((UINTN)VariableRuntimeCacheInfo->RuntimeVolatileCachePages);
@@ -1719,7 +1809,8 @@ SendRuntimeVariableCacheContextToSmm (
     SmmCommunicateHeaderV3->MessageSize = SMM_VARIABLE_COMMUNICATE_HEADER_SIZE + sizeof (SMM_VARIABLE_COMMUNICATE_RUNTIME_VARIABLE_CACHE_CONTEXT);
 
     SmmVariableFunctionHeader           = (SMM_VARIABLE_COMMUNICATE_HEADER *)SmmCommunicateHeaderV3->MessageData;
-    SmmVariableFunctionHeader->Function = SMM_VARIABLE_FUNCTION_INIT_RUNTIME_VARIABLE_CACHE_CONTEXT;
+    SmmVariableFunctionHeader->Function     = SMM_VARIABLE_FUNCTION_INIT_RUNTIME_VARIABLE_CACHE_CONTEXT;
+    SmmVariableFunctionHeader->ReturnStatus = EFI_DEVICE_ERROR;
     SmmRuntimeVarCacheContext           = (SMM_VARIABLE_COMMUNICATE_RUNTIME_VARIABLE_CACHE_CONTEXT *)SmmVariableFunctionHeader->Data;
 
     SmmRuntimeVarCacheContext->RuntimeHobCache      = (VARIABLE_STORE_HEADER *)(UINTN)mVariableRtCacheInfo.RuntimeHobCacheBuffer;
@@ -1747,7 +1838,8 @@ SendRuntimeVariableCacheContextToSmm (
     SmmCommunicateHeader->MessageLength = SMM_VARIABLE_COMMUNICATE_HEADER_SIZE + sizeof (SMM_VARIABLE_COMMUNICATE_RUNTIME_VARIABLE_CACHE_CONTEXT);
 
     SmmVariableFunctionHeader           = (SMM_VARIABLE_COMMUNICATE_HEADER *)SmmCommunicateHeader->Data;
-    SmmVariableFunctionHeader->Function = SMM_VARIABLE_FUNCTION_INIT_RUNTIME_VARIABLE_CACHE_CONTEXT;
+    SmmVariableFunctionHeader->Function     = SMM_VARIABLE_FUNCTION_INIT_RUNTIME_VARIABLE_CACHE_CONTEXT;
+    SmmVariableFunctionHeader->ReturnStatus = EFI_DEVICE_ERROR;
     SmmRuntimeVarCacheContext           = (SMM_VARIABLE_COMMUNICATE_RUNTIME_VARIABLE_CACHE_CONTEXT *)SmmVariableFunctionHeader->Data;
 
     SmmRuntimeVarCacheContext->RuntimeHobCache      = (VARIABLE_STORE_HEADER *)(UINTN)mVariableRtCacheInfo.RuntimeHobCacheBuffer;
@@ -1796,6 +1888,7 @@ SmmVariableReady (
   EFI_STATUS         Status;
   EFI_HANDLE         VariablePolicyHandle;
   EFI_HOB_GUID_TYPE  *GuidHob;
+  VOID              *SmmVariableWriteRegistration;
 
   Status = gBS->LocateProtocol (&gEfiSmmVariableProtocolGuid, NULL, (VOID **)&mSmmVariable);
   if (EFI_ERROR (Status)) {
@@ -1814,7 +1907,10 @@ SmmVariableReady (
   // Allocate memory for variable communicate buffer.
   //
   Status = GetVariablePayloadSize (&mVariableBufferPayloadSize);
-  ASSERT_EFI_ERROR (Status);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "Unable to get variable payload size: %r\n", Status));
+    return;
+  }
   if (mMmCommunication3 != NULL) {
     mVariableBufferSize = SMM_COMMUNICATE_HEADER_SIZE_V3 + SMM_VARIABLE_COMMUNICATE_HEADER_SIZE + mVariableBufferPayloadSize;
   } else {
@@ -1830,7 +1926,7 @@ SmmVariableReady (
   mVariableBufferPhysical = mVariableBuffer;
 
   GuidHob = GetFirstGuidHob (&gEdkiiVariableRuntimeCacheInfoHobGuid);
-  if (GuidHob != NULL) {
+  if ((GuidHob != NULL) || FeaturePcdGet (PcdEnableVariableRuntimeCache)) {
     mIsRuntimeCacheEnabled = TRUE;
     DEBUG ((DEBUG_INFO, "Variable driver runtime cache is enabled.\n"));
 
@@ -1838,15 +1934,23 @@ SmmVariableReady (
     if (!EFI_ERROR (Status)) {
       Status = SendRuntimeVariableCacheContextToSmm ();
       if (!EFI_ERROR (Status)) {
-        SyncRuntimeCache ();
+        Status = SyncRuntimeCache ();
       }
+    }
+    if (!EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_INFO, "Variable runtime cache filled: NV=0x%Lx/%Lu pages, volatile=0x%Lx/%Lu pages, flags=0x%Lx\n",
+        mVariableRtCacheInfo.RuntimeNvCacheBuffer, mVariableRtCacheInfo.RuntimeNvCachePages,
+        mVariableRtCacheInfo.RuntimeVolatileCacheBuffer, mVariableRtCacheInfo.RuntimeVolatileCachePages,
+        mVariableRtCacheInfo.CacheInfoFlagBuffer));
     }
 
     if (EFI_ERROR (Status)) {
-      ZeroMem (&mVariableRtCacheInfo, sizeof (VARIABLE_RUNTIME_CACHE_INFO));
+      DEBUG ((DEBUG_ERROR, "Variable runtime cache initialization failed: %r\n", Status));
+      mIsRuntimeCacheEnabled = FALSE;
+      // MM may already hold the registered addresses. Retain their allocation.
+      // Continue installing the uncached variable services.
     }
 
-    ASSERT_EFI_ERROR (Status);
   } else {
     DEBUG ((DEBUG_INFO, "Variable driver runtime cache is disabled.\n"));
   }
@@ -1896,6 +2000,14 @@ SmmVariableReady (
                                                      NULL
                                                      );
   ASSERT_EFI_ERROR (Status);
+
+  EfiCreateProtocolNotifyEvent (
+    &gSmmVariableWriteGuid,
+    TPL_CALLBACK,
+    SmmVariableWriteReady,
+    NULL,
+    &SmmVariableWriteRegistration
+    );
 
   gBS->CloseEvent (Event);
 }
@@ -1962,7 +2074,6 @@ VariableSmmRuntimeInitialize (
   )
 {
   VOID       *SmmVariableRegistration;
-  VOID       *SmmVariableWriteRegistration;
   EFI_EVENT  OnReadyToBootEvent;
   EFI_EVENT  ExitBootServiceEvent;
   EFI_EVENT  LegacyBootEvent;
@@ -1978,17 +2089,6 @@ VariableSmmRuntimeInitialize (
     SmmVariableReady,
     ImageHandle,
     &SmmVariableRegistration
-    );
-
-  //
-  // Smm Non-Volatile variable write service is ready
-  //
-  EfiCreateProtocolNotifyEvent (
-    &gSmmVariableWriteGuid,
-    TPL_CALLBACK,
-    SmmVariableWriteReady,
-    NULL,
-    &SmmVariableWriteRegistration
     );
 
   //

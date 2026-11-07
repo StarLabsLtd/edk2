@@ -64,6 +64,7 @@
   gEdkiiWorkingBlockSignatureGuid
 
 [Protocols]
+  gEdkiiFtwStoreValidationProtocolGuid              ## SOMETIMES_CONSUMES
   gEfiSmmSwapAddressRangeProtocolGuid | gEfiMdeModulePkgTokenSpaceGuid.PcdFullFtwServiceEnable  ## SOMETIMES_CONSUMES
   ## NOTIFY
   ## CONSUMES
@@ -74,7 +75,9 @@
   gEfiMmEndOfDxeProtocolGuid                      ## CONSUMES
 
 [FeaturePcd]
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFtwProtectInvalidWorkspace ## CONSUMES
   gEfiMdeModulePkgTokenSpaceGuid.PcdFullFtwServiceEnable    ## CONSUMES
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFtwExternalCommunication ## CONSUMES
 
 #
 # gBS->CalculateCrc32() is consumed in EntryPoint.

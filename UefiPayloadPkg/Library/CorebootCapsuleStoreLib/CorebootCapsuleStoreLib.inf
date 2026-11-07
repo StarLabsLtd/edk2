@@ -1,0 +1,18 @@
+## @file
+# Map FMP block operations to the protected owner.
+# Copyright (c) 2026, Star Labs Systems. All rights reserved.<BR>
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+[Defines]
+  INF_VERSION = 0x0001001B
+  BASE_NAME = CorebootCapsuleStoreLib
+  FILE_GUID = 01376e5b-3349-4f7c-a458-f583fa3bbbd7
+  MODULE_TYPE = BASE
+  LIBRARY_CLASS = SmmStoreLib|DXE_DRIVER UEFI_DRIVER
+[Sources]
+  CorebootCapsuleStoreLib.c
+[Packages]
+  MdePkg/MdePkg.dec
+  UefiPayloadPkg/UefiPayloadPkg.dec
+[LibraryClasses]
+  CorebootCapsuleLib

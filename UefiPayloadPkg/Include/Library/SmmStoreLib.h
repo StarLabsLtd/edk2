@@ -13,6 +13,20 @@
 #include <Uefi/UefiBaseType.h>
 #include <Guid/SmmStoreInfoGuid.h>
 
+/** Acquire cooperative exclusion and return the external-write generation. */
+EFI_STATUS
+EFIAPI
+SmmStoreLibVariableBegin (
+  OUT UINT64  *Generation
+  );
+
+/** Release a successful SmmStoreLibVariableBegin operation. */
+EFI_STATUS
+EFIAPI
+SmmStoreLibVariableEnd (
+  VOID
+  );
+
 #define SMMSTORE_COMBUF_SIZE  16
 
 /**
@@ -158,8 +172,8 @@ typedef EFI_STATUS EFIAPI (*CONVERT_POINTER_CALLBACK) (
 /**
   Initializes SmmStore support
 
-  @retval EFI_WRITE_PROTECTED   The SmmStore is not present.
-  @retval EFI_UNSUPPORTED       The SmmStoreInfo HOB wasn't found.
+  @retval EFI_UNSUPPORTED       SmmStore is missing or unusable.
+  @retval EFI_DEVICE_ERROR      The SmmStore backend failed.
   @retval EFI_SUCCESS           The SmmStore is supported.
 
 **/

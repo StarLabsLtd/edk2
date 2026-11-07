@@ -7,17 +7,61 @@
 
 **/
 
+#include <PiPei.h>
 #include <Uefi/UefiBaseType.h>
+#include <Library/HobLib.h>
 #include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
 #include <Library/DebugLib.h>
 #include <Library/PcdLib.h>
 #include <Library/IoLib.h>
 #include <Library/BlParseLib.h>
+#include <Library/CfrHelpersLib.h>
 #include <Library/PrintLib.h>
 #include <Library/SmmStoreParseLib.h>
 #include <IndustryStandard/Acpi.h>
 #include <Coreboot.h>
+#include <Guid/BootLogo.h>
+#include <Guid/CfrSetupMenuGuid.h>
+
+/**
+  Map a coreboot memory type to the E820-style encoding used by UefiPayloadEntry.
+
+  The numeric values must stay in sync with the E820_* definitions in UefiPayloadEntry.h.
+
+**/
+STATIC
+UINT8
+CbMemTypeToE820Type (
+  IN UINT32  CbType
+  )
+{
+  switch (CbType) {
+    case CB_MEM_RAM:
+      return 1;  // E820_RAM
+    case CB_MEM_RESERVED:
+      return 2;  // E820_RESERVED
+    case CB_MEM_ACPI:
+      return 3;  // E820_ACPI
+    case CB_MEM_NVS:
+      return 4;  // E820_NVS
+    case CB_MEM_UNUSABLE:
+      return 5;  // E820_UNUSABLE
+    //
+    // Vendor-reserved and table ranges are still DRAM from coreboot's point of
+    // view and must not be treated as "disabled" memory. Describe them as
+    // reserved memory to the E820 consumer.
+    //
+    case CB_MEM_VENDOR_RSVD:
+    case CB_MEM_TABLE:
+      return 2;  // E820_RESERVED
+    default:
+      //
+      // Anything unknown should not be given to the OS as usable.
+      //
+      return 8;  // E820_UNDEFINED
+  }
+}
 
 /**
   Convert a packed value from cbuint64 to a UINT64 value.
@@ -73,6 +117,43 @@ CbCheckSum16 (
   }
 
   return (UINT16)((~Sum) & 0xFFFF);
+}
+
+/**
+  Coreboot implements a CRC32 checksum which differs from the one in EDK2. This function
+  calculates the CRC32 checksum of a given buffer with the coreboot implementation.
+
+  @param  Buffer      The pointer to the buffer of which to calculate the CRC32.
+  @param  Length      The size, in bytes, of Buffer.
+
+  @return Crc         The CRC32 checksum of Buffer.
+
+**/
+UINT32
+CbCalculateCrc32 (
+  IN  VOID   *Buffer,
+  IN  UINTN  Length
+  )
+{
+  UINT32  Crc;
+  UINT8   *Ptr;
+  UINTN   Idx;
+  UINTN   BitIdx;
+
+  Crc = 0;
+  for (Idx = 0, Ptr = Buffer; Idx < Length; Idx++, Ptr++) {
+    Crc ^= (UINT32)*Ptr << 24;
+
+    for (BitIdx = 0; BitIdx < 8; BitIdx++) {
+      if ((Crc & 0x80000000UL) != 0) {
+        Crc = ((Crc << 1) ^ 0x04C11DB7UL);
+      } else {
+        Crc <<= 1;
+      }
+    }
+  }
+
+  return Crc;
 }
 
 /**
@@ -400,7 +481,7 @@ ParseMemoryInfo (
     Range          = MEM_RANGE_PTR (Rec, Index);
     MemoryMap.Base = cb_unpack64 (Range->start);
     MemoryMap.Size = cb_unpack64 (Range->size);
-    MemoryMap.Type = (UINT8)Range->type;
+    MemoryMap.Type = CbMemTypeToE820Type (Range->type);
     MemoryMap.Flag = 0;
     MemInfoCallback (&MemoryMap, Params);
   }
@@ -545,6 +626,131 @@ ParseSerialInfo (
 }
 
 /**
+  Preserve the displayed coreboot splash without loading a second logo.
+
+  @param[in] FrameBuffer  The physical framebuffer supplied by coreboot.
+**/
+STATIC
+VOID
+BuildBootLogoHob (
+  IN struct cb_framebuffer  *FrameBuffer
+  )
+{
+  struct cb_header       *Header;
+  struct cb_record       *Record;
+  struct cb_boot_splash  *Splash;
+  struct cb_cbmem_entry  *Owner;
+  UINT8                  *Cursor;
+  UINTN                  Remaining;
+  UINTN                  Index;
+  UINT64                 ImageAddress;
+  UINT64                 OwnerAddress;
+  UINT64                 RowSize;
+  UINT32                 ImageOffset;
+  UINT16                 BitsPerPixel;
+  UINT8                  *Bmp;
+  EDKII_BOOT_LOGO_HOB     Logo;
+
+  Header = (struct cb_header *)GetParameterBase ();
+  if ((Header == NULL) || (Header->header_bytes < sizeof (*Header)) ||
+      (Header->header_bytes > MAX_UINTN - (UINTN)Header) ||
+      (Header->table_bytes > MAX_UINTN - (UINTN)Header - Header->header_bytes))
+  {
+    return;
+  }
+
+  Splash    = NULL;
+  Owner     = NULL;
+  Cursor    = (UINT8 *)Header + Header->header_bytes;
+  Remaining = Header->table_bytes;
+  for (Index = 0; Index < Header->table_entries; Index++) {
+    if (Remaining < sizeof (*Record)) {
+      return;
+    }
+
+    Record = (struct cb_record *)Cursor;
+    if ((Record->size < sizeof (*Record)) || (Record->size > Remaining)) {
+      return;
+    }
+
+    if (Record->tag == CB_TAG_BOOT_SPLASH) {
+      if ((Splash != NULL) || (Record->size != sizeof (*Splash))) {
+        return;
+      }
+
+      Splash = (struct cb_boot_splash *)Record;
+    } else if ((Record->tag == CB_TAG_CBMEM_ENTRY) &&
+               (Record->size == sizeof (*Owner)) &&
+               (((struct cb_cbmem_entry *)Record)->id == CBMEM_ID_BOOT_SPLASH))
+    {
+      if (Owner != NULL) {
+        return;
+      }
+
+      Owner = (struct cb_cbmem_entry *)Record;
+    }
+
+    Cursor    += Record->size;
+    Remaining -= Record->size;
+  }
+
+  if ((Splash == NULL) || (Owner == NULL) ||
+      (Splash->revision != CB_BOOT_SPLASH_REVISION) ||
+      (Splash->flags != (CB_BOOT_SPLASH_DISPLAYED | CB_BOOT_SPLASH_BMP)) ||
+      (cb_unpack64 (Splash->framebuffer_address) != FrameBuffer->physical_address) ||
+      (Splash->image_width == 0) || (Splash->image_height == 0) ||
+      (Splash->image_offset_x > FrameBuffer->x_resolution) ||
+      (Splash->image_width > FrameBuffer->x_resolution - Splash->image_offset_x) ||
+      (Splash->image_offset_y > FrameBuffer->y_resolution) ||
+      (Splash->image_height > FrameBuffer->y_resolution - Splash->image_offset_y))
+  {
+    return;
+  }
+
+  ImageAddress = cb_unpack64 (Splash->bmp_address);
+  OwnerAddress = cb_unpack64 (Owner->address);
+  if ((Splash->bmp_size < 54) || (Splash->bmp_size > Owner->entry_size) ||
+      (ImageAddress < OwnerAddress) ||
+      (ImageAddress - OwnerAddress > Owner->entry_size - Splash->bmp_size) ||
+      (ImageAddress > MAX_UINTN) || (Splash->bmp_size > MAX_UINTN - (UINTN)ImageAddress))
+  {
+    return;
+  }
+
+  Bmp          = (UINT8 *)(UINTN)ImageAddress;
+  ImageOffset  = ReadUnaligned32 ((UINT32 *)(Bmp + 10));
+  BitsPerPixel = ReadUnaligned16 ((UINT16 *)(Bmp + 28));
+  if ((Bmp[0] != 'B') || (Bmp[1] != 'M') ||
+      (ReadUnaligned32 ((UINT32 *)(Bmp + 2)) != Splash->bmp_size) ||
+      (ReadUnaligned32 ((UINT32 *)(Bmp + 14)) != 40) ||
+      (ReadUnaligned32 ((UINT32 *)(Bmp + 18)) != Splash->image_width) ||
+      (ReadUnaligned32 ((UINT32 *)(Bmp + 22)) != Splash->image_height) ||
+      (ReadUnaligned16 ((UINT16 *)(Bmp + 26)) != 1) ||
+      ((BitsPerPixel != 24) && (BitsPerPixel != 32)) ||
+      (ReadUnaligned32 ((UINT32 *)(Bmp + 30)) != 0) ||
+      (ImageOffset < 54) || (ImageOffset > Splash->bmp_size))
+  {
+    return;
+  }
+
+  RowSize = (((UINT64)Splash->image_width * BitsPerPixel + 31) / 32) * 4;
+  if ((RowSize != (Splash->bmp_size - ImageOffset) / Splash->image_height) ||
+      ((Splash->bmp_size - ImageOffset) % Splash->image_height != 0)) {
+    return;
+  }
+
+  ZeroMem (&Logo, sizeof (Logo));
+  Logo.FrameBufferBase = FrameBuffer->physical_address;
+  Logo.ImageAddress   = ImageAddress;
+  Logo.ImageSize      = Splash->bmp_size;
+  Logo.DestinationX   = Splash->image_offset_x;
+  Logo.DestinationY   = Splash->image_offset_y;
+  Logo.Width          = Splash->image_width;
+  Logo.Height         = Splash->image_height;
+  BuildGuidDataHob (&gEdkiiBootLogoHobGuid, &Logo, sizeof (Logo));
+}
+
+/**
   Find the video frame buffer information
 
   @param  GfxInfo             Pointer to the EFI_PEI_GRAPHICS_INFO_HOB structure
@@ -606,6 +812,8 @@ ParseGfxInfo (
   GfxInfo->FrameBufferBase = CbFbRec->physical_address;
   GfxInfo->FrameBufferSize = CbFbRec->bytes_per_line *  CbFbRec->y_resolution;
 
+  BuildBootLogoHob (CbFbRec);
+
   return RETURN_SUCCESS;
 }
 
@@ -630,9 +838,12 @@ ParseGfxDeviceInfo (
 /**
   Parse and handle the misc info provided by bootloader
 
-  @retval RETURN_SUCCESS           The misc information was parsed successfully.
-  @retval RETURN_NOT_FOUND         Could not find required misc info.
-  @retval RETURN_OUT_OF_RESOURCES  Insufficant memory space.
+  @retval RETURN_SUCCESS               The misc information was parsed successfully.
+  @retval RETURN_INCOMPATIBLE_VERSION  The provided CFR data does not match the expected version.
+  @retval RETURN_CRC_ERROR             The calculated checksum does not match the supplied one.
+  @retval RETURN_COMPROMISED_DATA      The CFR record tree is malformed.
+  @retval RETURN_NOT_FOUND             Could not find required misc info.
+  @retval RETURN_OUT_OF_RESOURCES      Insufficant memory space.
 
 **/
 RETURN_STATUS
@@ -641,6 +852,115 @@ ParseMiscInfo (
   VOID
   )
 {
+  struct cb_header                      *CbHeader;
+  struct cb_cfr                         *CbCfrSetupMenu;
+  UINTN                                 TableStart;
+  UINTN                                 CfrStart;
+  UINTN                                 CfrOffset;
+  UINT32                                CfrCalculatedChecksum;
+  UINTN                                 ProcessedLength;
+  UINTN                                 FormNameOffset;
+  CFR_OPTION_FORM                       *CbCfrOuterFormOffset;
+  CFR_OPTION_FORM                       *CfrSetupMenuForm;
+  CFR_VARBINARY                         *CfrFormName;
+
+  //
+  // CFR has several CB tags, though these are nested structures,
+  // not for individual table-to-HOB conversion
+  //
+  CbCfrSetupMenu = FindCbTag (CB_TAG_CFR_ROOT);
+  if (CbCfrSetupMenu == NULL) {
+    DEBUG ((DEBUG_ERROR, "CFR Tag not found in cbtables\n"));
+    return RETURN_NOT_FOUND;
+  }
+
+  CbHeader  = GetParameterBase ();
+  TableStart = (UINTN)CbHeader + CbHeader->header_bytes;
+  CfrStart   = (UINTN)CbCfrSetupMenu;
+  if ((TableStart < (UINTN)CbHeader) ||
+      (CfrStart < TableStart) ||
+      ((CfrStart - TableStart) > CbHeader->table_bytes))
+  {
+    return RETURN_COMPROMISED_DATA;
+  }
+
+  CfrOffset = CfrStart - TableStart;
+  if (((CbHeader->table_bytes - CfrOffset) < sizeof (struct cb_cfr)) ||
+      (CbCfrSetupMenu->size < sizeof (struct cb_cfr)) ||
+      (CbCfrSetupMenu->size > (CbHeader->table_bytes - CfrOffset)))
+  {
+    return RETURN_COMPROMISED_DATA;
+  }
+
+  if (CbCfrSetupMenu->version != CB_CFR_VERSION) {
+    DEBUG ((DEBUG_WARN, "CFR: version mismatch! (expected %d, got %d)\n", CB_CFR_VERSION, CbCfrSetupMenu->version));
+    return RETURN_INCOMPATIBLE_VERSION;
+  }
+
+  //
+  // Checksum over CFR_FORM[] data  -- CbCfrSetupMenu header excluded
+  //
+  CfrCalculatedChecksum = CbCalculateCrc32 (CbCfrSetupMenu + 1, CbCfrSetupMenu->size - sizeof(*CbCfrSetupMenu));
+
+  if (CfrCalculatedChecksum != CbCfrSetupMenu->checksum) {
+    DEBUG ((DEBUG_WARN, "CFR: Calculated CRC32 0x%x does not match stored CRC32 0x%x!\n", CfrCalculatedChecksum, CbCfrSetupMenu->checksum));
+    return RETURN_CRC_ERROR;
+  }
+
+  ProcessedLength = sizeof (struct cb_cfr);
+
+  //
+  // Copy each form to HOB; TODO: This creates duplicate, copy pointer?
+  //
+  while (ProcessedLength < CbCfrSetupMenu->size) {
+    if ((CbCfrSetupMenu->size - ProcessedLength) < sizeof (CFR_OPTION_FORM)) {
+      return RETURN_COMPROMISED_DATA;
+    }
+
+    CbCfrOuterFormOffset = (CFR_OPTION_FORM *)((UINT8 *)CbCfrSetupMenu + ProcessedLength);
+    if (CbCfrOuterFormOffset->tag != CB_TAG_CFR_OPTION_FORM) {
+      DEBUG ((DEBUG_ERROR, "CFR Tag mismatch: 0x%x vs 0x%x\n", CbCfrOuterFormOffset->tag, CB_TAG_CFR_OPTION_FORM));
+      return RETURN_COMPROMISED_DATA;
+    }
+
+    if ((CbCfrOuterFormOffset->size > (CbCfrSetupMenu->size - ProcessedLength)) ||
+        RETURN_ERROR (
+          CfrValidateForm (
+            CbCfrOuterFormOffset,
+            CbCfrOuterFormOffset->size
+            )
+          ))
+    {
+      DEBUG ((DEBUG_ERROR, "CFR: Invalid form at offset 0x%x\n", ProcessedLength));
+      return RETURN_COMPROMISED_DATA;
+    }
+
+    CfrSetupMenuForm = BuildGuidDataHob (
+                          &gEfiCfrSetupMenuFormGuid,
+                          CbCfrOuterFormOffset,
+                          CbCfrOuterFormOffset->size
+                          );
+    if (CfrSetupMenuForm == NULL) {
+      return RETURN_OUT_OF_RESOURCES;
+    }
+
+    FormNameOffset = sizeof (CFR_OPTION_FORM);
+    CfrFormName = CfrExtractVarBinary (
+                    (UINT8 *)CfrSetupMenuForm,
+                    &FormNameOffset,
+                    CfrSetupMenuForm->size,
+                    CB_TAG_CFR_VARCHAR_UI_NAME
+                    );
+    DEBUG ((
+      DEBUG_INFO,
+      "CFR: Found form \"%a\", size 0x%x bytes\n",
+      CfrFormName->data,
+      CfrSetupMenuForm->size
+      ));
+
+    ProcessedLength += CfrSetupMenuForm->size;
+  }
+
   return RETURN_SUCCESS;
 }
 
@@ -792,6 +1112,52 @@ ParseCapsules (
     }
 
     TmpPtr += Range->size;
+  }
+
+  return RETURN_SUCCESS;
+}
+
+/**
+  Find the Tcg Physical Presence store information
+  @param  PPIInfo       Pointer to the TCG_PHYSICAL_PRESENCE_INFO structure
+  @retval RETURN_SUCCESS     Successfully find the SMM store buffer information.
+  @retval RETURN_NOT_FOUND   Failed to find the SMM store buffer information .
+**/
+RETURN_STATUS
+EFIAPI
+ParseTPMPPIInfo (
+  OUT TCG_PHYSICAL_PRESENCE_INFO       *PPIInfo
+  )
+{
+  struct cb_tpm_physical_presence       *CbTPPRec;
+  UINT8 VersionMajor;
+  UINT8 VersionMinor;
+
+  if (PPIInfo == NULL) {
+    return RETURN_INVALID_PARAMETER;
+  }
+
+  CbTPPRec = FindCbTag (CB_TAG_TPM_PPI_HANDOFF);
+  if (CbTPPRec == NULL) {
+    return RETURN_NOT_FOUND;
+  }
+
+  VersionMajor = CbTPPRec->ppi_version >> 4;
+  VersionMinor = CbTPPRec->ppi_version & 0xF;
+
+  DEBUG ((DEBUG_INFO, "Found Tcg Physical Presence information\n"));
+  DEBUG ((DEBUG_INFO, "PpiAddress: 0x%x\n", CbTPPRec->ppi_address));
+  DEBUG ((DEBUG_INFO, "TpmVersion: 0x%x\n", CbTPPRec->tpm_version));
+  DEBUG ((DEBUG_INFO, "PpiVersion: %x.%x\n", VersionMajor, VersionMinor));
+
+  PPIInfo->PpiAddress = CbTPPRec->ppi_address;
+  if (CbTPPRec->tpm_version == LB_TPM_VERSION_TPM_VERSION_1_2) {
+    PPIInfo->TpmVersion = UEFIPAYLOAD_TPM_VERSION_1_2;
+  } else if (CbTPPRec->tpm_version == LB_TPM_VERSION_TPM_VERSION_2) {
+    PPIInfo->TpmVersion = UEFIPAYLOAD_TPM_VERSION_2;
+  }
+  if (VersionMajor == 1 && VersionMinor >= 3) {
+    PPIInfo->PpiVersion = UEFIPAYLOAD_TPM_PPI_VERSION_1_30;
   }
 
   return RETURN_SUCCESS;

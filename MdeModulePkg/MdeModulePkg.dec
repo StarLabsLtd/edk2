@@ -195,6 +195,7 @@
   ArmCcaRsiLib|Include/Library/ArmCcaRsiLib.h
 
 [Guids]
+  gEdkiiBootLogoHobGuid = { 0x50c27557, 0x2fac, 0x460f, { 0x94, 0x9a, 0x40, 0x6d, 0x27, 0x52, 0x39, 0x55 } }
   ## MdeModule package token space guid
   # Include/Guid/MdeModulePkgTokenSpace.h
   gEfiMdeModulePkgTokenSpaceGuid       = { 0xA1AFF049, 0xFDEB, 0x442a, { 0xB3, 0x20, 0x13, 0xAB, 0x4C, 0xB7, 0x2B, 0xBC }}
@@ -604,6 +605,9 @@
   gEdkiiPeiMigrateTempRamPpiGuid            = { 0xc79dc53b, 0xafcd, 0x4a6a, { 0xad, 0x94, 0xa7, 0x6a, 0x3f, 0xa9, 0xe9, 0xc2 } }
 
 [Protocols]
+  ## Include/Protocol/VariableStoreSync.h
+  gEdkiiVariableStoreSyncProtocolGuid = { 0xd2851463, 0x7631, 0x4512, { 0xbc, 0x30, 0x3e, 0x38, 0x99, 0x27, 0x6f, 0xbf } }
+
   ## Load File protocol provides capability to load and unload EFI image into memory and execute it.
   #  Include/Protocol/LoadPe32Image.h
   #  This protocol is deprecated. Native EDKII module should NOT use this protocol to load/unload image.
@@ -618,6 +622,10 @@
   ## This protocol defines the Media Clear and Sanitize operations defined by NIST
   # Include/Protocol/MediaSanitize.h
   gMediaSanitizeProtocolGuid = { 0x0d799a99, 0x25af, 0x429e, {0x92, 0x72, 0xd0, 0xb2, 0x7d, 0x6d, 0x5f, 0x14 } }
+
+  ## Battery Status Protocol provides interface to retrieve battery information
+  # Include/Protocol/BatteryStatus.h
+  gEfiBatteryStatusProtocolGuid = { 0x8A3B2C1D, 0x4E5F, 0x6A7B, { 0x8C, 0x9D, 0x0E, 0x1F, 0x2A, 0x3B, 0x4C, 0x5D } }
 
   ## This protocol defines the generic memory test interfaces in Dxe phase.
   # Include/Protocol/GenericMemoryTest.h
@@ -634,6 +642,7 @@
   ## This protocol provides boot-time service to do fault tolerant write capability for block devices in SMM environment.
   #  Include/Protocol/SmmFaultTolerantWrite.h
   gEfiSmmFaultTolerantWriteProtocolGuid = { 0x3868fc3b, 0x7e45, 0x43a7, { 0x90, 0x6c, 0x4b, 0xa4, 0x7d, 0xe1, 0x75, 0x4d }}
+  gEdkiiFtwStoreValidationProtocolGuid = { 0xf16b2342, 0x0d05, 0x4dae, { 0x86, 0xb1, 0x68, 0x5d, 0x80, 0x14, 0x4c, 0x50 } }
 
   ## This protocol is used to abstract the swap operation of boot block and backup block of boot FV.
   #  Include/Protocol/SwapAddressRange.h
@@ -774,12 +783,21 @@
   ## Include/Protocol/CxlIo.h
   gEdkiiCxlIoProtocolGuid = { 0x8FAC60B2, 0xBBC1, 0x41DE, {0xA7, 0x97, 0x98, 0x75, 0xCD, 0xD3, 0xA8, 0xF8 } }
 
+  ## Include/Protocol/PciHostBridgeFixedResource.h
+  gEdkiiPciHostBridgeFixedResourceProtocolGuid = { 0xbb465aea, 0x5165, 0x4fdf, { 0xb4, 0xb0, 0xfd, 0x3a, 0x1d, 0x4c, 0xc6, 0xd8 } }
+
 [PcdsFeatureFlag]
   ## Indicates if the platform can support update capsule across a system reset.<BR><BR>
   #   TRUE  - Supports update capsule across a system reset.<BR>
   #   FALSE - Does not support update capsule across a system reset.<BR>
   # @Prompt Enable update capsule across a system reset.
   gEfiMdeModulePkgTokenSpaceGuid.PcdSupportUpdateCapsuleReset|FALSE|BOOLEAN|0x0001001d
+
+  ## Connect the active boot device while discovering Capsules On Disk before EndOfDxe.<BR><BR>
+  #  Device connection can discover and dispatch option ROMs. Platforms must only enable this
+  #  feature when an image-dispatch policy is active before Capsule On Disk discovery.<BR>
+  # @Prompt Connect the active boot device for early Capsule On Disk discovery.
+  gEfiMdeModulePkgTokenSpaceGuid.PcdCapsuleOnDiskConnectBootDevice|FALSE|BOOLEAN|0x000100C8
 
   ## Indicates if all PCD PPI services will be enabled.<BR><BR>
   #   TRUE  - All PCD PPI services will be produced.<BR>
@@ -878,6 +896,15 @@
   #   FALSE - Only FTW Write service is available.<BR>
   # @Prompt Enable FULL FTW services.
   gEfiMdeModulePkgTokenSpaceGuid.PcdFullFtwServiceEnable|TRUE|BOOLEAN|0x0001200b
+
+  ## Expose the FTW communication handler to external MM callers.
+  #  Internal FTW protocol services remain available when disabled.
+  # @Prompt Enable external FTW communication.
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFtwExternalCommunication|TRUE|BOOLEAN|0x0001200d
+
+  ## Require erased working and spare workspaces before initialising FTW.
+  # @Prompt Preserve invalid FTW workspaces.
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFtwProtectInvalidWorkspace|FALSE|BOOLEAN|0x0001200e
 
   ## Indicates if DXE IPL supports the UEFI decompression algorithm.<BR><BR>
   #   TRUE  - DXE IPL will support UEFI decompression.<BR>
@@ -1965,6 +1992,14 @@
   # @Prompt Firmware version string.
   gEfiMdeModulePkgTokenSpaceGuid.PcdFirmwareVersionString|L""|VOID*|0x00010052
 
+  ## Null-terminated Unicode string that describes the major EC firmware version.
+  # @Prompt EC Firmware version string.
+  gEfiMdeModulePkgTokenSpaceGuid.PcdEcMajorFirmwareVersion|0x00|UINT8|0x0001008c
+
+  ## Null-terminated Unicode string that describes the minor EC firmware version.
+  # @Prompt EC Firmware version string.
+  gEfiMdeModulePkgTokenSpaceGuid.PcdEcMinorFirmwareVersion|0x00|UINT8|0x0001008d
+
   ## Null-terminated Unicode string that contains the date the firmware was released
   # @Prompt Firmware release data string.
   gEfiMdeModulePkgTokenSpaceGuid.PcdFirmwareReleaseDateString|L""|VOID*|0x00010053
@@ -2383,6 +2418,13 @@
   #  Platforms requiring CRS retry support should set a non-zero value.
   # @Prompt PCI CRS timeout in seconds.
   gEfiMdeModulePkgTokenSpaceGuid.PcdPciCrsTimeoutSeconds|0|UINT32|0x1000002B
+
+  ## GUID of the FFS file containing the BMP logo used by LogoDxe.
+  #  When set to all zeros (default), LogoDxe uses the embedded HII logo.
+  #  When set to a non-zero GUID, LogoDxe loads the logo from the specified
+  #  FFS file in the firmware volume.<BR><BR>
+  # @Prompt Logo FFS file GUID.
+  gEfiMdeModulePkgTokenSpaceGuid.PcdLogoFileGuid|{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}|VOID*|0x1000002C
 
 [PcdsPatchableInModule]
   ## Specify memory size with page number for PEI code when

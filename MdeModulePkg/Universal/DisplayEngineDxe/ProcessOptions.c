@@ -653,10 +653,10 @@ CreateSharedPopUp (
     }
 
     PrintStringAt (
-      ((DimensionsWidth - GetStringWidth (String) / 2) / 2) + gStatementDimensions.LeftColumn + 1,
-      Index + 1,
-      String
-      );
+                   ((DimensionsWidth - GetStringWidth (String) / 2) / 2) + gStatementDimensions.LeftColumn + 1,
+                   Index + 1,
+                   String
+                   );
     gST->ConOut->SetAttribute (gST->ConOut, GetPopupColor ());
     PrintCharAt (Start, Index + 1, Character);
     PrintCharAt (End - 1, Index + 1, Character);
@@ -1026,6 +1026,37 @@ PrintMismatchMenuInfo (
   }
 }
 
+#define MAX_OPTION_STR_LEN  16
+
+CHAR16 *
+PadOptionString (
+  CHAR16  *StringPtr
+  )
+{
+  CHAR16  PadChar = L' ';
+  UINTN   InnerWidth;
+
+  // Calculate the number of pad characters needed
+  UINTN  CurrentLen = StrLen (StringPtr);
+
+  // Create a new string with enough space for the original, the padding, and the null terminator
+  InnerWidth = MAX (MAX_OPTION_STR_LEN, CurrentLen + 1);
+  CHAR16  *PaddedString = AllocateZeroPool ((InnerWidth + 1) * sizeof (CHAR16));
+
+  // Add a single padding character at the beginning
+  PaddedString[0] = PadChar;
+
+  // Copy the original string into the new string starting from the index 1
+  StrCpyS (PaddedString + 1, InnerWidth, StringPtr);
+
+  // Add the remaining padding characters at the end
+  for (UINTN i = CurrentLen + 1; i < InnerWidth; i++) {
+    PaddedString[i] = PadChar;
+  }
+
+  return PaddedString;
+}
+
 /**
   Process a Question's Option (whether selected or un-selected).
 
@@ -1051,7 +1082,6 @@ ProcessOptions (
   UINTN                          Index;
   FORM_DISPLAY_ENGINE_STATEMENT  *Question;
   CHAR16                         FormattedNumber[21];
-  UINT16                         Number;
   CHAR16                         Character[2];
   EFI_INPUT_KEY                  Key;
   UINTN                          BufferSize;
@@ -1176,6 +1206,12 @@ ProcessOptions (
           NewStrCat (OptionString[0], MaxLen, Character);
           StringPtr = GetToken (OneOfOption->OptionOpCode->Option, gFormData->HiiHandle);
           ASSERT (StringPtr != NULL);
+
+          // Pad the string
+          CHAR16  *PaddedStringPtr = PadOptionString (StringPtr);
+          FreePool (StringPtr);
+          StringPtr = PaddedStringPtr;
+
           NewStrCat (OptionString[0], MaxLen, StringPtr);
           Character[0] = RIGHT_ONEOF_DELIMITER;
           NewStrCat (OptionString[0], MaxLen, Character);
@@ -1216,6 +1252,12 @@ ProcessOptions (
             NewStrCat (OptionString[0], MaxLen, Character);
             StringPtr = GetToken (OneOfOption->OptionOpCode->Option, gFormData->HiiHandle);
             ASSERT (StringPtr != NULL);
+
+            // Pad the string
+            CHAR16  *PaddedStringPtr = PadOptionString (StringPtr);
+            FreePool (StringPtr);
+            StringPtr = PaddedStringPtr;
+
             NewStrCat (OptionString[0], MaxLen, StringPtr);
             Character[0] = RIGHT_ONEOF_DELIMITER;
             NewStrCat (OptionString[0], MaxLen, Character);
@@ -1255,6 +1297,44 @@ ProcessOptions (
           FreePool (*OptionString);
           *OptionString = NULL;
           return EFI_NOT_FOUND;
+        }
+      }
+
+      break;
+
+    case EFI_IFR_ACTION_OP:
+      //
+      // Some platforms use ACTION opcodes as navigation items, and store a
+      // display-only status string in QuestionConfig. Do not attempt to treat
+      // real <ConfigResp> strings as display values.
+      //
+      if (!Selected && (Question->OpCode->Length >= sizeof (EFI_IFR_ACTION))) {
+        EFI_IFR_ACTION  *ActionOp;
+
+        ActionOp = (EFI_IFR_ACTION *)Question->OpCode;
+        if (ActionOp->QuestionConfig != 0) {
+          StringPtr = GetToken (ActionOp->QuestionConfig, gFormData->HiiHandle);
+          if ((StringPtr != NULL) && (StringPtr[0] != L'\0') && (StrnCmp (StringPtr, L"GUID=", 5) != 0)) {
+            CHAR16  *PaddedStringPtr;
+
+            PaddedStringPtr = PadOptionString (StringPtr);
+            FreePool (StringPtr);
+            StringPtr = NULL;
+
+            MaxLen        = BufferSize / sizeof (CHAR16);
+            *OptionString = AllocateZeroPool (BufferSize);
+            ASSERT (*OptionString);
+
+            Character[0] = LEFT_ONEOF_DELIMITER;
+            NewStrCat (OptionString[0], MaxLen, Character);
+            NewStrCat (OptionString[0], MaxLen, PaddedStringPtr);
+            Character[0] = RIGHT_ONEOF_DELIMITER;
+            NewStrCat (OptionString[0], MaxLen, Character);
+
+            FreePool (PaddedStringPtr);
+          } else if (StringPtr != NULL) {
+            FreePool (StringPtr);
+          }
         }
       }
 
@@ -1337,6 +1417,12 @@ ProcessOptions (
         NewStrCat (OptionString[0], MaxLen, Character);
         StringPtr = GetToken (OneOfOption->OptionOpCode->Option, gFormData->HiiHandle);
         ASSERT (StringPtr != NULL);
+
+        // Pad the string
+        CHAR16  *PaddedStringPtr = PadOptionString (StringPtr);
+        FreePool (StringPtr);
+        StringPtr = PaddedStringPtr;
+
         NewStrCat (OptionString[0], MaxLen, StringPtr);
         Character[0] = RIGHT_ONEOF_DELIMITER;
         NewStrCat (OptionString[0], MaxLen, Character);
@@ -1359,18 +1445,29 @@ ProcessOptions (
         //
         return EFI_SUCCESS;
       } else {
+        CHAR16  *TempString;
+
+        if (QuestionValue->Value.b) {
+          TempString = CHECK_ON;
+        } else {
+          TempString = CHECK_OFF;
+        }
+
+        // Pad the string
+        CHAR16  *PaddedStringPtr = PadOptionString (TempString);
+
+        // Prepare the OptionString with delimiters and the padded string
+        MaxLen        = BufferSize / sizeof (CHAR16);
         *OptionString = AllocateZeroPool (BufferSize);
         ASSERT (*OptionString);
 
-        *OptionString[0] = LEFT_CHECKBOX_DELIMITER;
+        Character[0] = LEFT_CHECKBOX_DELIMITER;
+        NewStrCat (OptionString[0], MaxLen, Character);
+        NewStrCat (OptionString[0], MaxLen, PaddedStringPtr);
+        Character[0] = RIGHT_CHECKBOX_DELIMITER;
+        NewStrCat (OptionString[0], MaxLen, Character);
 
-        if (QuestionValue->Value.b) {
-          *(OptionString[0] + 1) = CHECK_ON;
-        } else {
-          *(OptionString[0] + 1) = CHECK_OFF;
-        }
-
-        *(OptionString[0] + 2) = RIGHT_CHECKBOX_DELIMITER;
+        FreePool (PaddedStringPtr);
       }
 
       break;
@@ -1382,19 +1479,24 @@ ProcessOptions (
         //
         Status = GetNumericInput (MenuOption);
       } else {
+        CHAR16  *PaddedStringPtr;
+
         *OptionString = AllocateZeroPool (BufferSize);
         ASSERT (*OptionString);
-
-        *OptionString[0] = LEFT_NUMERIC_DELIMITER;
 
         //
         // Formatted print
         //
         PrintFormattedNumber (Question, FormattedNumber, 21 * sizeof (CHAR16));
-        Number = (UINT16)GetStringWidth (FormattedNumber);
-        CopyMem (OptionString[0] + 1, FormattedNumber, Number);
+        PaddedStringPtr = PadOptionString (FormattedNumber);
 
-        *(OptionString[0] + Number / 2) = RIGHT_NUMERIC_DELIMITER;
+        Character[0] = LEFT_NUMERIC_DELIMITER;
+        NewStrCat (OptionString[0], BufferSize / sizeof (CHAR16), Character);
+        NewStrCat (OptionString[0], BufferSize / sizeof (CHAR16), PaddedStringPtr);
+        Character[0] = RIGHT_NUMERIC_DELIMITER;
+        NewStrCat (OptionString[0], BufferSize / sizeof (CHAR16), Character);
+
+        FreePool (PaddedStringPtr);
       }
 
       break;

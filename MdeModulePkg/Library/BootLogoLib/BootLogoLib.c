@@ -8,7 +8,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 
 **/
 
-#include <Uefi.h>
+#include <PiDxe.h>
 #include <Protocol/GraphicsOutput.h>
 #include <Protocol/SimpleTextOut.h>
 #include <Protocol/PlatformLogo.h>
@@ -18,9 +18,176 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Library/UefiLib.h>
 #include <Library/BaseMemoryLib.h>
 #include <Library/UefiBootServicesTableLib.h>
-#include <Library/PcdLib.h>
 #include <Library/MemoryAllocationLib.h>
 #include <Library/DebugLib.h>
+#include <Library/HobLib.h>
+#include <Library/BmpSupportLib.h>
+#include <Guid/BootLogo.h>
+
+#define BOOT_LOGO_HIDPI_HORIZONTAL_RESOLUTION  1920
+#define BOOT_LOGO_HIDPI_VERTICAL_RESOLUTION    1080
+
+STATIC
+BOOLEAN
+ShouldScaleBootLogoForHiDpi (
+  IN EFI_GRAPHICS_OUTPUT_PROTOCOL  *GraphicsOutput
+  )
+{
+  UINT32  HorizontalResolution;
+  UINT32  VerticalResolution;
+
+  if ((GraphicsOutput == NULL) ||
+      (GraphicsOutput->Mode == NULL) ||
+      (GraphicsOutput->Mode->Info == NULL) ||
+      (GraphicsOutput->Mode->FrameBufferBase == 0))
+  {
+    return FALSE;
+  }
+
+  HorizontalResolution = GraphicsOutput->Mode->Info->HorizontalResolution;
+  VerticalResolution   = GraphicsOutput->Mode->Info->VerticalResolution;
+
+  return (HorizontalResolution > BOOT_LOGO_HIDPI_HORIZONTAL_RESOLUTION) &&
+         (VerticalResolution > BOOT_LOGO_HIDPI_VERTICAL_RESOLUTION) &&
+         ((HorizontalResolution % 2) == 0) &&
+         ((VerticalResolution % 2) == 0);
+}
+
+STATIC
+EFI_STATUS
+ScaleLogoBlt2x (
+  IN  EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *Source,
+  IN  UINTN                          SourceWidth,
+  IN  UINTN                          SourceHeight,
+  OUT EFI_GRAPHICS_OUTPUT_BLT_PIXEL  **Destination
+  )
+{
+  EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *ScaledBitmap;
+  UINTN                          DestinationWidth;
+  UINTN                          Row;
+  UINTN                          Column;
+
+  if ((Source == NULL) || (Destination == NULL) || (SourceWidth == 0) || (SourceHeight == 0)) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  if ((SourceWidth > (MAX_UINTN / 2)) || (SourceHeight > (MAX_UINTN / 2))) {
+    return EFI_OUT_OF_RESOURCES;
+  }
+
+  DestinationWidth = SourceWidth * 2;
+  if (DestinationWidth > (MAX_UINTN / (SourceHeight * 2) / sizeof (EFI_GRAPHICS_OUTPUT_BLT_PIXEL))) {
+    return EFI_OUT_OF_RESOURCES;
+  }
+
+  ScaledBitmap = AllocateZeroPool (DestinationWidth * (SourceHeight * 2) * sizeof (EFI_GRAPHICS_OUTPUT_BLT_PIXEL));
+  if (ScaledBitmap == NULL) {
+    return EFI_OUT_OF_RESOURCES;
+  }
+
+  for (Row = 0; Row < SourceHeight; Row++) {
+    UINTN  DestinationRow0;
+    UINTN  DestinationRow1;
+
+    DestinationRow0 = (Row * 2) * DestinationWidth;
+    DestinationRow1 = DestinationRow0 + DestinationWidth;
+    for (Column = 0; Column < SourceWidth; Column++) {
+      EFI_GRAPHICS_OUTPUT_BLT_PIXEL  Pixel;
+      UINTN                          DestinationColumn;
+
+      Pixel             = Source[Row * SourceWidth + Column];
+      DestinationColumn = Column * 2;
+      ScaledBitmap[DestinationRow0 + DestinationColumn]     = Pixel;
+      ScaledBitmap[DestinationRow0 + DestinationColumn + 1] = Pixel;
+      ScaledBitmap[DestinationRow1 + DestinationColumn]     = Pixel;
+      ScaledBitmap[DestinationRow1 + DestinationColumn + 1] = Pixel;
+    }
+  }
+
+  *Destination = ScaledBitmap;
+  return EFI_SUCCESS;
+}
+
+/**
+  Reuse the physical logo already drawn by the bootloader, restoring it only
+  after a real UI operation invalidates it. Other GOP modes retain their usual
+  platform-logo path.
+**/
+STATIC
+EFI_STATUS
+EnableHandedOffBootLogo (
+  VOID
+  )
+{
+  EFI_HOB_GUID_TYPE               *GuidHob;
+  EDKII_BOOT_LOGO_HOB             *Logo;
+  EDKII_BOOT_LOGO2_PROTOCOL       *BootLogo;
+  EFI_GRAPHICS_OUTPUT_PROTOCOL   *GraphicsOutput;
+  EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *Blt;
+  EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *Current;
+  EFI_STATUS                     Status;
+  UINTN                          BltSize;
+  UINTN                          Width;
+  UINTN                          Height;
+  UINTN                          CurrentX;
+  UINTN                          CurrentY;
+  UINTN                          CurrentWidth;
+  UINTN                          CurrentHeight;
+
+  GuidHob = GetFirstGuidHob (&gEdkiiBootLogoHobGuid);
+  if ((GuidHob == NULL) || (GET_GUID_HOB_DATA_SIZE (GuidHob) < sizeof (*Logo))) {
+    return EFI_NOT_FOUND;
+  }
+
+  Logo   = GET_GUID_HOB_DATA (GuidHob);
+  Status = gBS->HandleProtocol (gST->ConsoleOutHandle, &gEfiGraphicsOutputProtocolGuid, (VOID **)&GraphicsOutput);
+  if (EFI_ERROR (Status) || (GraphicsOutput->Mode->FrameBufferBase != Logo->FrameBufferBase)) {
+    return EFI_UNSUPPORTED;
+  }
+
+  Status = gBS->LocateProtocol (&gEdkiiBootLogo2ProtocolGuid, NULL, (VOID **)&BootLogo);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  gST->ConOut->EnableCursor (gST->ConOut, FALSE);
+  Status = BootLogo->GetBootLogo (BootLogo, NULL, &CurrentX, &CurrentY, &CurrentWidth, &CurrentHeight);
+  if (Status == EFI_INVALID_PARAMETER) {
+    // Support providers predating the optional location-only query.
+    Status = BootLogo->GetBootLogo (BootLogo, &Current, &CurrentX, &CurrentY, &CurrentWidth, &CurrentHeight);
+  }
+
+  if (!EFI_ERROR (Status)) {
+    // The owner still reports a displayed logo; do not clear or repaint it.
+    return EFI_SUCCESS;
+  }
+
+  Blt     = NULL;
+  BltSize = 0;
+  Status  = TranslateBmpToGopBlt ((VOID *)(UINTN)Logo->ImageAddress, Logo->ImageSize, &Blt, &BltSize, &Height, &Width);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  Status = GraphicsOutput->Blt (
+                             GraphicsOutput,
+                             Blt,
+                             EfiBltBufferToVideo,
+                             0,
+                             0,
+                             Logo->DestinationX,
+                             Logo->DestinationY,
+                             Width,
+                             Height,
+                             0
+                             );
+  if (!EFI_ERROR (Status)) {
+    Status = BootLogo->SetBootLogo (BootLogo, Blt, Logo->DestinationX, Logo->DestinationY, Width, Height);
+  }
+
+  FreePool (Blt);
+  return Status;
+}
 
 /**
   Show LOGO returned from Edkii Platform Logo protocol on all consoles.
@@ -58,6 +225,11 @@ BootLogoEnableLogo (
   UINTN                                  NewDestX;
   UINTN                                  NewDestY;
   UINTN                                  BufferSize;
+
+  Status = EnableHandedOffBootLogo ();
+  if (!EFI_ERROR (Status)) {
+    return EFI_SUCCESS;
+  }
 
   Status = gBS->LocateProtocol (&gEdkiiPlatformLogoProtocolGuid, NULL, (VOID **)&PlatformLogo);
   if (EFI_ERROR (Status)) {
@@ -128,6 +300,25 @@ BootLogoEnableLogo (
     }
 
     Blt = Image.Bitmap;
+
+    if (ShouldScaleBootLogoForHiDpi (GraphicsOutput)) {
+      EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *ScaledBlt;
+
+      ScaledBlt = NULL;
+      Status    = ScaleLogoBlt2x (Blt, Image.Width, Image.Height, &ScaledBlt);
+      if (!EFI_ERROR (Status)) {
+        FreePool (Blt);
+        Blt          = ScaledBlt;
+        Image.Bitmap = ScaledBlt;
+        Image.Width *= 2;
+        Image.Height *= 2;
+        OffsetX *= 2;
+        OffsetY *= 2;
+      } else {
+        DEBUG ((DEBUG_INFO, "%a: failed to scale logo for HiDPI boot GOP: %r\n", __func__, Status));
+        Status = EFI_SUCCESS;
+      }
+    }
 
     //
     // Calculate the display position according to Attribute.

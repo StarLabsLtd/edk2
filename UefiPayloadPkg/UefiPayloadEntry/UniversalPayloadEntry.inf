@@ -20,6 +20,7 @@
 [Sources]
   UniversalPayloadEntry.c
   LoadDxeCore.c
+  MemoryTypeInformationHob.c
   PrintHob.c
   AcpiTable.c
 [Sources.Ia32]
@@ -31,11 +32,13 @@
   X64/VirtualMemory.h
   X64/VirtualMemory.c
   X64/DxeLoadFunc.c
+  X64/TriggerSmi.nasm
 [Sources.AARCH64]
   AArch64/DxeHandoff.c
 [Packages]
   MdePkg/MdePkg.dec
   MdeModulePkg/MdeModulePkg.dec
+  SecurityPkg/SecurityPkg.dec
   UefiCpuPkg/UefiCpuPkg.dec
   UefiPayloadPkg/UefiPayloadPkg.dec
 [LibraryClasses]
@@ -51,6 +54,7 @@
   StackCheckLib
   UefiCpuBaseArchSupportLib
   MemoryAllocationLib
+  CbMemLib
 
 [Guids]
   gEfiMemoryTypeInformationGuid
@@ -67,6 +71,11 @@
   gUniversalPayloadAcpiTableGuid
   gUniversalPayloadPciRootBridgeInfoGuid
   gUniversalPayloadSmbios3TableGuid
+  gEfiSmmStoreInfoHobGuid
+  gTcgEvent2EntryHobGuid
+  gEfiTcgPhysicalPresenceInfoHobGuid
+  gEfiVariableGuid
+  gEfiAuthenticatedVariableGuid
 [FeaturePcd.IA32]
   gEfiMdeModulePkgTokenSpaceGuid.PcdDxeIplSwitchToLongMode      ## CONSUMES
 [FeaturePcd.X64]
@@ -82,12 +91,15 @@
   gEfiMdeModulePkgTokenSpaceGuid.PcdGhcbSize                            ## CONSUMES
   gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFdMemBase
   gUefiPayloadPkgTokenSpaceGuid.PcdPayloadFdMemSize
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootloaderParameter
   gUefiPayloadPkgTokenSpaceGuid.PcdSystemMemoryUefiRegionSize
   gUefiPayloadPkgTokenSpaceGuid.PcdMemoryTypeEfiACPIMemoryNVS
   gUefiPayloadPkgTokenSpaceGuid.PcdMemoryTypeEfiACPIReclaimMemory
   gUefiPayloadPkgTokenSpaceGuid.PcdMemoryTypeEfiReservedMemoryType
   gUefiPayloadPkgTokenSpaceGuid.PcdMemoryTypeEfiRuntimeServicesData
   gUefiPayloadPkgTokenSpaceGuid.PcdMemoryTypeEfiRuntimeServicesCode
+  gUefiPayloadPkgTokenSpaceGuid.PcdMemoryTypeInformationBinBase
+  gUefiPayloadPkgTokenSpaceGuid.PcdMemoryTypeInformationBinSize
   gEfiMdeModulePkgTokenSpaceGuid.PcdSetNxForStack               ## SOMETIMES_CONSUMES
   gEfiMdeModulePkgTokenSpaceGuid.PcdDxeNxMemoryProtectionPolicy ## SOMETIMES_CONSUMES
   gEfiMdeModulePkgTokenSpaceGuid.PcdImageProtectionPolicy       ## SOMETIMES_CONSUMES

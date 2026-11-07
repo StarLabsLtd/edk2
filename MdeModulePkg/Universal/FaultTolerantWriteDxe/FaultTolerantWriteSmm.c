@@ -52,9 +52,29 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Library/MmServicesTableLib.h>
 #include <Library/BaseLib.h>
 #include <Protocol/SmmSwapAddressRange.h>
+#include <Protocol/FtwStoreValidation.h>
 #include "FaultTolerantWrite.h"
 #include "FaultTolerantWriteSmmCommon.h"
 #include <Protocol/MmEndOfDxe.h>
+
+BOOLEAN
+FtwCanReclaimWorkspace (
+  VOID
+  )
+{
+  EDKII_FTW_STORE_VALIDATION_PROTOCOL  *Validation;
+  EFI_STATUS                           Status;
+
+  if (!FeaturePcdGet (PcdFtwProtectInvalidWorkspace)) {
+    return TRUE;
+  }
+
+  Validation = NULL;
+  Status = gMmst->MmLocateProtocol (&gEdkiiFtwStoreValidationProtocolGuid, NULL,
+                                    (VOID **)&Validation);
+  return !EFI_ERROR (Status) && (Validation != NULL) && (Validation->Validate != NULL) &&
+         !EFI_ERROR (Validation->Validate ());
+}
 
 VOID            *mFvbRegistration = NULL;
 EFI_FTW_DEVICE  *mFtwDevice       = NULL;
@@ -567,8 +587,10 @@ FvbNotificationEvent (
   ///
   /// Register SMM FTW SMI handler
   ///
-  Status = gMmst->MmiHandlerRegister (SmmFaultTolerantWriteHandler, &gEfiSmmFaultTolerantWriteProtocolGuid, &SmmFtwHandle);
-  ASSERT_EFI_ERROR (Status);
+  if (FeaturePcdGet (PcdFtwExternalCommunication)) {
+    Status = gMmst->MmiHandlerRegister (SmmFaultTolerantWriteHandler, &gEfiSmmFaultTolerantWriteProtocolGuid, &SmmFtwHandle);
+    ASSERT_EFI_ERROR (Status);
+  }
 
   //
   // Notify the Ftw wrapper driver SMM Ftw is ready

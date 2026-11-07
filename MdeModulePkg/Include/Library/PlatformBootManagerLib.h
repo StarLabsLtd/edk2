@@ -42,6 +42,19 @@ PlatformBootManagerAfterConsole (
   );
 
 /**
+  Return the timeout BDS should use for its boot wait loop.
+
+  @param Timeout  The configured boot timeout.
+
+  @return The timeout to use for the current boot.
+**/
+UINT16
+EFIAPI
+PlatformBootManagerGetWaitTimeout (
+  IN UINT16  Timeout
+  );
+
+/**
   This function is called each second during the boot manager waits the timeout.
 
   @param TimeoutRemain  The remaining timeout.
@@ -50,6 +63,16 @@ VOID
 EFIAPI
 PlatformBootManagerWaitCallback (
   UINT16  TimeoutRemain
+  );
+
+/**
+  This function is called after the boot manager timeout wait exits and before
+  boot options are launched.
+**/
+VOID
+EFIAPI
+PlatformBootManagerAfterBootWait (
+  VOID
   );
 
 /**

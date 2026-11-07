@@ -14,10 +14,17 @@
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/PcdLib.h>
 #include <Library/SmmStoreLib.h>
+#include <Library/SmmStoreGeometryLib.h>
+#include <Protocol/VariableStoreSync.h>
 
 #include "SmmStoreFvbRuntime.h"
 
 STATIC EFI_EVENT  mSmmStoreVirtualAddrChangeEvent;
+
+STATIC EDKII_VARIABLE_STORE_SYNC_PROTOCOL  mVariableStoreSync = {
+  SmmStoreLibVariableBegin,
+  SmmStoreLibVariableEnd
+};
 
 //
 // Global variable declarations
@@ -88,6 +95,7 @@ SmmStoreInitInstance (
 {
   EFI_STATUS             Status;
   FV_MEMMAP_DEVICE_PATH  *FvDevicePath;
+  UINT64                 Generation;
 
   ASSERT (Instance != NULL);
 
@@ -104,6 +112,26 @@ SmmStoreInitInstance (
     return Status;
   }
 
+  // Publish before FVB: its notification consumers must see both interfaces.
+  Status = SmmStoreLibVariableBegin (&Generation);
+  if (!EFI_ERROR (Status)) {
+    Status = SmmStoreLibVariableEnd ();
+    if (EFI_ERROR (Status)) {
+      return Status;
+    }
+
+    Status = gBS->InstallProtocolInterface (
+                    &Instance->Handle,
+                    &gEdkiiVariableStoreSyncProtocolGuid,
+                    EFI_NATIVE_INTERFACE,
+                    &mVariableStoreSync
+                    );
+  }
+
+  if (EFI_ERROR (Status) && (Status != EFI_UNSUPPORTED)) {
+    return Status;
+  }
+
   Status = gBS->InstallMultipleProtocolInterfaces (
                   &Instance->Handle,
                   &gEfiDevicePathProtocolGuid,
@@ -113,6 +141,11 @@ SmmStoreInitInstance (
                   NULL
                   );
   if (EFI_ERROR (Status)) {
+    gBS->UninstallProtocolInterface (
+           Instance->Handle,
+           &gEdkiiVariableStoreSyncProtocolGuid,
+           &mVariableStoreSync
+           );
     return Status;
   }
 
@@ -138,6 +171,8 @@ SmmStoreVirtualNotifyEvent (
   )
 {
   SmmStoreLibVirtualAddressChange (EfiConvertPointer);
+  EfiConvertPointer (0, (VOID **)&mVariableStoreSync.Begin);
+  EfiConvertPointer (0, (VOID **)&mVariableStoreSync.End);
 
   // Convert Fvb
   EfiConvertPointer (0x0, (VOID **)&mSmmStoreInstance->FvbProtocol.EraseBlocks);
@@ -174,11 +209,9 @@ SmmStoreInitialize (
   EFI_PHYSICAL_ADDRESS  MmioAddress;
   UINTN                 BlockSize;
   UINTN                 BlockCount;
-  UINT32                NvStorageBase;
+  VARIABLE_FLASH_INFO   FlashInfo;
   UINT32                NvStorageSize;
-  UINT32                NvVariableSize;
-  UINT32                FtwWorkingSize;
-  UINT32                FtwSpareSize;
+  UINT64                StoreSize;
 
   Status = SmmStoreLibInitialize ();
   if (EFI_ERROR (Status)) {
@@ -207,45 +240,47 @@ SmmStoreInitialize (
     return Status;
   }
 
-  //
-  // The layout (starts at MmioAddress):
-  //
-  //  -------------------------- ------------- ------------------------------
-  // |                          |             |                              |
-  // |         Variable         |   Working   |         Spare Range          |
-  // |          Range           |    Range    | (larger than variable range) |
-  // |                          |             |                              |
-  //  <- (BlockCount / 2) - 1 -> <- 1 block -> <----- (BlockCount / 2) ----->
-  //           blocks                                      blocks
-  //
+  Status = SmmStoreGetFlashInfo (MmioAddress, BlockSize, BlockCount, &FlashInfo);
+  if (EFI_ERROR (Status)) {
+    SmmStoreLibDeinitialize ();
+    return Status;
+  }
 
-  NvStorageSize = BlockCount * BlockSize;
-  NvStorageBase = MmioAddress;
+  StoreSize = FlashInfo.FtwSpareBaseAddress - FlashInfo.NvVariableBaseAddress + FlashInfo.FtwSpareLength;
+  if ((StoreSize > MAX_UINT32) ||
+      (FlashInfo.NvVariableBaseAddress > MAX_UINT32) ||
+      (FlashInfo.NvVariableLength > MAX_UINT32) ||
+      (FlashInfo.FtwWorkingBaseAddress > MAX_UINT32) ||
+      (FlashInfo.FtwWorkingLength > MAX_UINT32) ||
+      (FlashInfo.FtwSpareBaseAddress > MAX_UINT32) ||
+      (FlashInfo.FtwSpareLength > MAX_UINT32))
+  {
+    SmmStoreLibDeinitialize ();
+    return EFI_UNSUPPORTED;
+  }
 
-  FtwSpareSize   = (BlockCount / 2) * BlockSize;
-  FtwWorkingSize = 1 * BlockSize;
-  NvVariableSize = NvStorageSize - FtwSpareSize - FtwWorkingSize;
-  DEBUG ((DEBUG_INFO, "NvStorageBase:0x%x, NvStorageSize:0x%x\n", NvStorageBase, NvStorageSize));
+  NvStorageSize = (UINT32)StoreSize;
+  DEBUG ((DEBUG_INFO, "NvStorageBase:0x%x, NvStorageSize:0x%x\n", (UINT32)MmioAddress, NvStorageSize));
 
-  Status = PcdSet32S (PcdFlashNvStorageVariableSize, NvVariableSize);
+  Status = PcdSet32S (PcdFlashNvStorageVariableSize, (UINT32)FlashInfo.NvVariableLength);
   ASSERT_EFI_ERROR (Status);
-  Status = PcdSet32S (PcdFlashNvStorageVariableBase, NvStorageBase);
+  Status = PcdSet32S (PcdFlashNvStorageVariableBase, (UINT32)FlashInfo.NvVariableBaseAddress);
   ASSERT_EFI_ERROR (Status);
-  Status = PcdSet64S (PcdFlashNvStorageVariableBase64, NvStorageBase);
-  ASSERT_EFI_ERROR (Status);
-
-  Status = PcdSet32S (PcdFlashNvStorageFtwWorkingSize, FtwWorkingSize);
-  ASSERT_EFI_ERROR (Status);
-  Status = PcdSet32S (PcdFlashNvStorageFtwWorkingBase, NvStorageBase + NvVariableSize);
-  ASSERT_EFI_ERROR (Status);
-  Status = PcdSet64S (PcdFlashNvStorageFtwWorkingBase64, NvStorageBase + NvVariableSize);
+  Status = PcdSet64S (PcdFlashNvStorageVariableBase64, FlashInfo.NvVariableBaseAddress);
   ASSERT_EFI_ERROR (Status);
 
-  Status = PcdSet32S (PcdFlashNvStorageFtwSpareSize, FtwSpareSize);
+  Status = PcdSet32S (PcdFlashNvStorageFtwWorkingSize, (UINT32)FlashInfo.FtwWorkingLength);
   ASSERT_EFI_ERROR (Status);
-  Status = PcdSet32S (PcdFlashNvStorageFtwSpareBase, NvStorageBase + NvVariableSize + FtwWorkingSize);
+  Status = PcdSet32S (PcdFlashNvStorageFtwWorkingBase, (UINT32)FlashInfo.FtwWorkingBaseAddress);
   ASSERT_EFI_ERROR (Status);
-  Status = PcdSet64S (PcdFlashNvStorageFtwSpareBase64, NvStorageBase + NvVariableSize + FtwWorkingSize);
+  Status = PcdSet64S (PcdFlashNvStorageFtwWorkingBase64, FlashInfo.FtwWorkingBaseAddress);
+  ASSERT_EFI_ERROR (Status);
+
+  Status = PcdSet32S (PcdFlashNvStorageFtwSpareSize, (UINT32)FlashInfo.FtwSpareLength);
+  ASSERT_EFI_ERROR (Status);
+  Status = PcdSet32S (PcdFlashNvStorageFtwSpareBase, (UINT32)FlashInfo.FtwSpareBaseAddress);
+  ASSERT_EFI_ERROR (Status);
+  Status = PcdSet64S (PcdFlashNvStorageFtwSpareBase64, FlashInfo.FtwSpareBaseAddress);
   ASSERT_EFI_ERROR (Status);
 
   mSmmStoreInstance = AllocateRuntimeCopyPool (sizeof (SMMSTORE_INSTANCE), &mSmmStoreInstanceTemplate);

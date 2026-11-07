@@ -41,6 +41,11 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 
 #include "PrivilegePolymorphic.h"
 
+BOOLEAN
+IsUserVariable (
+  IN VARIABLE_HEADER  *Variable
+  );
+
 #define EFI_VARIABLE_ATTRIBUTES_MASK  (EFI_VARIABLE_NON_VOLATILE |\
                                       EFI_VARIABLE_BOOTSERVICE_ACCESS | \
                                       EFI_VARIABLE_RUNTIME_ACCESS | \

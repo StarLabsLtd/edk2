@@ -13,6 +13,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Protocol/HiiPopup.h>
 #include <Protocol/RealTimeClock.h>
 #include <Library/BaseCryptLib.h>
+#include <Library/PcdLib.h>
 #include <Library/SecureBootVariableLib.h>
 #include <Library/SecureBootVariableProvisionLib.h>
 
@@ -3298,6 +3299,139 @@ ON_EXIT:
 
 /**
 
+  Compare a live Secure Boot key variable against its default reference.
+
+  @param[in]  VariableName      Name of the live key variable.
+  @param[in]  VendorGuid        Vendor GUID of the live key variable.
+  @param[in]  DefaultName       Name of the default reference variable.
+  @param[out] DefaultAvailable  TRUE if the default reference exists.
+
+  @retval TRUE   The live variable differs from its default.
+  @retval FALSE  The live variable matches its default, or the default is absent.
+
+**/
+STATIC
+BOOLEAN
+IsKeyVariableCustom (
+  IN  CHAR16    *VariableName,
+  IN  EFI_GUID  *VendorGuid,
+  IN  CHAR16    *DefaultName,
+  OUT BOOLEAN   *DefaultAvailable
+  )
+{
+  UINT8    *Current;
+  UINTN    CurrentSize;
+  UINT8    *Default;
+  UINTN    DefaultSize;
+  BOOLEAN  Custom;
+
+  Current           = NULL;
+  CurrentSize       = 0;
+  Default           = NULL;
+  DefaultSize       = 0;
+  Custom            = FALSE;
+  *DefaultAvailable = FALSE;
+
+  GetVariable2 (DefaultName, &gEfiGlobalVariableGuid, (VOID **)&Default, &DefaultSize);
+  if (Default == NULL) {
+    return FALSE;
+  }
+
+  *DefaultAvailable = TRUE;
+
+  GetVariable2 (VariableName, VendorGuid, (VOID **)&Current, &CurrentSize);
+  if (Current == NULL) {
+    Custom = TRUE;
+  } else if ((CurrentSize != DefaultSize) || (CompareMem (Current, Default, DefaultSize) != 0)) {
+    Custom = TRUE;
+  }
+
+  if (Current != NULL) {
+    FreePool (Current);
+  }
+
+  FreePool (Default);
+
+  return Custom;
+}
+
+/**
+  Determine whether the enrolled Secure Boot keys differ from platform defaults.
+
+  @param[out] Determined  TRUE only when all required default references exist.
+
+  @retval TRUE   At least one live key differs from its default.
+  @retval FALSE  All keys match, or not all defaults were available.
+
+**/
+STATIC
+BOOLEAN
+SecureBootKeysAreCustom (
+  OUT BOOLEAN  *Determined
+  )
+{
+  BOOLEAN  Custom;
+  BOOLEAN  Available;
+  BOOLEAN  AllAvailable;
+
+  Custom       = FALSE;
+  AllAvailable = TRUE;
+
+  Custom       |= IsKeyVariableCustom (EFI_PLATFORM_KEY_NAME, &gEfiGlobalVariableGuid, EFI_PK_DEFAULT_VARIABLE_NAME, &Available);
+  AllAvailable &= Available;
+  Custom       |= IsKeyVariableCustom (EFI_KEY_EXCHANGE_KEY_NAME, &gEfiGlobalVariableGuid, EFI_KEK_DEFAULT_VARIABLE_NAME, &Available);
+  AllAvailable &= Available;
+  Custom       |= IsKeyVariableCustom (EFI_IMAGE_SECURITY_DATABASE, &gEfiImageSecurityDatabaseGuid, EFI_DB_DEFAULT_VARIABLE_NAME, &Available);
+  AllAvailable &= Available;
+  Custom       |= IsKeyVariableCustom (EFI_IMAGE_SECURITY_DATABASE1, &gEfiImageSecurityDatabaseGuid, EFI_DBX_DEFAULT_VARIABLE_NAME, &Available);
+  AllAvailable &= Available;
+
+  *Determined = AllAvailable;
+  return Custom;
+}
+
+/**
+  Update the key provenance string to show default, custom, none, or unknown.
+
+  @param[in]  Private  Module's private data.
+
+**/
+STATIC
+VOID
+UpdateSecureBootKeysString (
+  IN SECUREBOOT_CONFIG_PRIVATE_DATA  *Private
+  )
+{
+  UINT8    *SetupMode;
+  BOOLEAN  Custom;
+  BOOLEAN  Determined;
+
+  SetupMode = NULL;
+
+  GetVariable2 (EFI_SETUP_MODE_NAME, &gEfiGlobalVariableGuid, (VOID **)&SetupMode, NULL);
+  if ((SetupMode == NULL) || (*SetupMode == SETUP_MODE)) {
+    HiiSetString (Private->HiiHandle, STRING_TOKEN (STR_SECURE_BOOT_KEYS_CONTENT), L"None (Setup Mode)", NULL);
+    if (SetupMode != NULL) {
+      FreePool (SetupMode);
+    }
+
+    return;
+  }
+
+  FreePool (SetupMode);
+
+  Custom = SecureBootKeysAreCustom (&Determined);
+  if (!Determined) {
+    HiiSetString (Private->HiiHandle, STRING_TOKEN (STR_SECURE_BOOT_KEYS_CONTENT), L"Unknown", NULL);
+  } else if (Custom) {
+    HiiSetString (Private->HiiHandle, STRING_TOKEN (STR_SECURE_BOOT_KEYS_CONTENT), L"Custom", NULL);
+  } else {
+    HiiSetString (Private->HiiHandle, STRING_TOKEN (STR_SECURE_BOOT_KEYS_CONTENT), L"Default", NULL);
+  }
+}
+
+/**
+
   Update SecureBoot strings based on new Secure Boot Mode State. String includes STR_SECURE_BOOT_STATE_CONTENT
  and STR_CUR_SECURE_BOOT_MODE_CONTENT.
 
@@ -3329,6 +3463,8 @@ UpdateSecureBootString (
   } else {
     HiiSetString (Private->HiiHandle, STRING_TOKEN (STR_SECURE_BOOT_STATE_CONTENT), L"Disabled", NULL);
   }
+
+  UpdateSecureBootKeysString (Private);
 
   FreePool (SecureBoot);
 
@@ -3424,6 +3560,21 @@ SecureBootExtractConfigFromVariable (
     ConfigData->SecureBootMode = STANDARD_SECURE_BOOT_MODE;
   } else {
     ConfigData->SecureBootMode = *(SecureBootMode);
+  }
+
+  //
+  // CustomMode itself is reset to Standard on setup exit. For display, still
+  // show Custom when Setup Mode is active or the enrolled keys differ from the
+  // firmware default references.
+  //
+  if ((SetupMode == NULL) || (*SetupMode == SETUP_MODE)) {
+    ConfigData->SecureBootMode = SECURE_BOOT_MODE_CUSTOM;
+  } else {
+    BOOLEAN  Determined;
+
+    if (SecureBootKeysAreCustom (&Determined) && Determined) {
+      ConfigData->SecureBootMode = SECURE_BOOT_MODE_CUSTOM;
+    }
   }
 
   if (SecureBootEnable != NULL) {
@@ -4386,9 +4537,43 @@ KeyEnrollReset (
   )
 {
   EFI_STATUS  Status;
+  EFI_STATUS  RestoreStatus;
   UINT8       SetupMode;
+  UINT8       *SecureBootEnable;
+  UINTN       SecureBootEnableSize;
+  BOOLEAN     SecureBootWasEnabled;
 
-  Status = EFI_SUCCESS;
+  Status               = EFI_SUCCESS;
+  SecureBootEnable     = NULL;
+  SecureBootWasEnabled = FALSE;
+
+  //
+  // Preserve current Secure Boot enable/disable policy.
+  //
+  SecureBootEnableSize = 0;
+  Status = GetVariable2 (EFI_SECURE_BOOT_ENABLE_NAME, &gEfiSecureBootEnableDisableGuid, (VOID **)&SecureBootEnable, &SecureBootEnableSize);
+  if (EFI_ERROR (Status) && (Status != EFI_NOT_FOUND)) {
+    return Status;
+  }
+
+  if (!EFI_ERROR (Status) &&
+      ((SecureBootEnable == NULL) || (SecureBootEnableSize != sizeof (*SecureBootEnable)) ||
+       (*SecureBootEnable > SECURE_BOOT_ENABLE)))
+  {
+    if (SecureBootEnable != NULL) {
+      FreePool (SecureBootEnable);
+    }
+
+    return EFI_COMPROMISED_DATA;
+  }
+  if ((SecureBootEnable != NULL) && (*SecureBootEnable == SECURE_BOOT_ENABLE)) {
+    SecureBootWasEnabled = TRUE;
+  }
+
+  if (SecureBootEnable != NULL) {
+    FreePool (SecureBootEnable);
+    SecureBootEnable = NULL;
+  }
 
   Status = SetSecureBootMode (CUSTOM_SECURE_BOOT_MODE);
   if (EFI_ERROR (Status)) {
@@ -4399,31 +4584,31 @@ KeyEnrollReset (
   Status = DeleteDb ();
   if (EFI_ERROR (Status) && (Status != EFI_NOT_FOUND)) {
     DEBUG ((DEBUG_ERROR, "Fail to clear DB: %r\n", Status));
-    return Status;
+    goto error;
   }
 
   Status = DeleteDbx ();
   if (EFI_ERROR (Status) && (Status != EFI_NOT_FOUND)) {
     DEBUG ((DEBUG_ERROR, "Fail to clear DBX: %r\n", Status));
-    return Status;
+    goto error;
   }
 
   Status = DeleteDbt ();
   if (EFI_ERROR (Status) && (Status != EFI_NOT_FOUND)) {
     DEBUG ((DEBUG_ERROR, "Fail to clear DBT: %r\n", Status));
-    return Status;
+    goto error;
   }
 
   Status = DeleteKEK ();
   if (EFI_ERROR (Status) && (Status != EFI_NOT_FOUND)) {
     DEBUG ((DEBUG_ERROR, "Fail to clear KEK: %r\n", Status));
-    return Status;
+    goto error;
   }
 
   Status = DeletePlatformKey ();
   if (EFI_ERROR (Status) && (Status != EFI_NOT_FOUND)) {
     DEBUG ((DEBUG_ERROR, "Fail to clear PK: %r\n", Status));
-    return Status;
+    goto error;
   }
 
   // After PK clear, Setup Mode shall be enabled
@@ -4434,12 +4619,13 @@ KeyEnrollReset (
       "Cannot get SetupMode variable: %r\n",
       Status
       ));
-    return Status;
+    goto error;
   }
 
   if (SetupMode == USER_MODE) {
     DEBUG ((DEBUG_INFO, "Skipped - USER_MODE\n"));
-    return EFI_SUCCESS;
+    Status = EFI_DEVICE_ERROR;
+    goto error;
   }
 
   Status = SetSecureBootMode (CUSTOM_SECURE_BOOT_MODE);
@@ -4449,7 +4635,7 @@ KeyEnrollReset (
       "Cannot set CUSTOM_SECURE_BOOT_MODE: %r\n",
       Status
       ));
-    return EFI_SUCCESS;
+    goto error;
   }
 
   // Enroll all the keys from default variables
@@ -4460,36 +4646,43 @@ KeyEnrollReset (
   }
 
   Status = EnrollDbxFromDefault ();
-  if (EFI_ERROR (Status)) {
+  if (EFI_ERROR (Status) && (Status != EFI_NOT_FOUND)) {
     DEBUG ((DEBUG_ERROR, "Cannot enroll dbx: %r\n", Status));
+    goto cleardbs;
   }
 
   Status = EnrollDbtFromDefault ();
-  if (EFI_ERROR (Status)) {
+  if (EFI_ERROR (Status) && (Status != EFI_NOT_FOUND)) {
     DEBUG ((DEBUG_ERROR, "Cannot enroll dbt: %r\n", Status));
+    goto cleardbs;
   }
 
   Status = EnrollKEKFromDefault ();
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "Cannot enroll KEK: %r\n", Status));
-    goto cleardbs;
+    goto clearKEK;
   }
 
   Status = EnrollPKFromDefault ();
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "Cannot enroll PK: %r\n", Status));
-    goto clearKEK;
   }
 
-  Status = SetSecureBootMode (STANDARD_SECURE_BOOT_MODE);
-  if (EFI_ERROR (Status)) {
-    DEBUG ((
-      DEBUG_ERROR,
-      "Cannot set CustomMode to STANDARD_SECURE_BOOT_MODE\n"
-      "Please do it manually, otherwise system can be easily compromised\n"
-      ));
+  // PK may already have been committed even if enrollment returned an error.
+  // Keep the databases, restore policy, and do not load another image until
+  // the variable driver has reconciled the live SecureBoot state on reboot.
+  RestoreStatus = SetSecureBootMode (STANDARD_SECURE_BOOT_MODE);
+  if (EFI_ERROR (RestoreStatus) && !EFI_ERROR (Status)) {
+    Status = RestoreStatus;
   }
 
+  RestoreStatus = SaveSecureBootVariable (SecureBootWasEnabled ? SECURE_BOOT_ENABLE : SECURE_BOOT_DISABLE);
+  if (EFI_ERROR (RestoreStatus) && !EFI_ERROR (Status)) {
+    Status = RestoreStatus;
+  }
+
+  gRT->ResetSystem (EFI_ERROR (Status) ? EfiResetShutdown : EfiResetCold, Status, 0, NULL);
+  CpuDeadLoop ();
   return Status;
 
 clearKEK:
@@ -4501,11 +4694,87 @@ cleardbs:
   DeleteDb ();
 
 error:
-  if (SetSecureBootMode (STANDARD_SECURE_BOOT_MODE) != EFI_SUCCESS) {
-    DEBUG ((DEBUG_ERROR, "Cannot set mode to Secure: %r\n", Status));
+  RestoreStatus = SetSecureBootMode (STANDARD_SECURE_BOOT_MODE);
+  if (EFI_ERROR (RestoreStatus)) {
+    DEBUG ((DEBUG_ERROR, "Cannot restore Standard Mode: %r\n", RestoreStatus));
+    gRT->ResetSystem (EfiResetShutdown, RestoreStatus, 0, NULL);
+    CpuDeadLoop ();
   }
 
   return Status;
+}
+
+/**
+  Clear PK after user confirmation to enter UEFI Setup Mode.
+
+  @param[in]  Private    Module private data.
+  @param[in]  IfrNvData  Current form configuration.
+
+  @retval EFI_SUCCESS  PK cleared and Setup Mode entered.
+  @retval EFI_ABORTED  User cancelled the operation.
+  @retval Others       PK could not be cleared.
+
+**/
+STATIC
+EFI_STATUS
+ConfirmEnterSetupMode (
+  IN SECUREBOOT_CONFIG_PRIVATE_DATA  *Private,
+  IN SECUREBOOT_CONFIGURATION        *IfrNvData
+  )
+{
+  EFI_STATUS               Status;
+  EFI_HII_POPUP_PROTOCOL   *HiiPopup;
+  EFI_HII_POPUP_SELECTION  UserSelection;
+
+  Status = gBS->LocateProtocol (&gEfiHiiPopupProtocolGuid, NULL, (VOID **)&HiiPopup);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  UserSelection = EfiHiiPopupSelectionNo;
+  Status        = HiiPopup->CreatePopup (
+                              HiiPopup,
+                              EfiHiiPopupStyleWarning,
+                              EfiHiiPopupTypeYesNo,
+                              Private->HiiHandle,
+                              STRING_TOKEN (STR_ENTER_SETUP_MODE_POPUP),
+                              &UserSelection
+                              );
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  if (UserSelection != EfiHiiPopupSelectionYes) {
+    return EFI_ABORTED;
+  }
+
+  Status = DeletePlatformKey ();
+  if (EFI_ERROR (Status)) {
+    HiiPopup->CreatePopup (
+                HiiPopup,
+                EfiHiiPopupStyleError,
+                EfiHiiPopupTypeOk,
+                Private->HiiHandle,
+                STRING_TOKEN (STR_ENTER_SETUP_MODE_FAIL_POPUP),
+                NULL
+                );
+    return Status;
+  }
+
+  SecureBootExtractConfigFromVariable (Private, IfrNvData);
+  IfrNvData->HasPk    = FALSE;
+  IfrNvData->DeletePk = FALSE;
+
+  HiiPopup->CreatePopup (
+              HiiPopup,
+              EfiHiiPopupStyleInfo,
+              EfiHiiPopupTypeOk,
+              Private->HiiHandle,
+              STRING_TOKEN (STR_ENTER_SETUP_MODE_DONE_POPUP),
+              NULL
+              );
+
+  return EFI_SUCCESS;
 }
 
 /**
@@ -4561,6 +4830,7 @@ SecureBootCallback (
   ENROLL_KEY_ERROR                EnrollKeyErrorCode;
   EFI_HII_POPUP_PROTOCOL          *HiiPopup;
   EFI_HII_POPUP_SELECTION         UserSelection;
+  BOOLEAN                         SimpleUi;
 
   Status               = EFI_SUCCESS;
   SecureBootEnable     = NULL;
@@ -4575,6 +4845,7 @@ SecureBootCallback (
   }
 
   Private = SECUREBOOT_CONFIG_PRIVATE_FROM_THIS (This);
+  SimpleUi = PcdGetBool (PcdSecureBootConfigSimpleUi);
 
   gSecureBootPrivateData = Private;
 
@@ -4588,7 +4859,9 @@ SecureBootCallback (
   }
 
   if (Action == EFI_BROWSER_ACTION_FORM_OPEN) {
-    if (QuestionId == KEY_SECURE_BOOT_MODE) {
+    if ((!SimpleUi && (QuestionId == KEY_SECURE_BOOT_MODE)) ||
+        (SimpleUi && ((QuestionId == KEY_SECURE_BOOT_ENABLE) || (QuestionId == KEY_SECURE_BOOT_MODE) || (QuestionId == KEY_SECURE_BOOT_ADVANCED))))
+    {
       //
       // Update secure boot strings when opening this form
       //
@@ -4622,9 +4895,21 @@ SecureBootCallback (
           SecureBootExtractConfigFromVariable (Private, IfrNvData);
         }
 
-        Value->u8 = SECURE_BOOT_MODE_STANDARD;
+        Value->u8 = IfrNvData->SecureBootMode;
         Status    = EFI_SUCCESS;
       }
+    }
+
+    if (SimpleUi && (QuestionId == KEY_SECURE_BOOT_ENABLE)) {
+      GetVariable2 (EFI_SECURE_BOOT_ENABLE_NAME, &gEfiSecureBootEnableDisableGuid, (VOID **)&SecureBootEnable, NULL);
+      if (SecureBootEnable != NULL) {
+        Value->u8 = *SecureBootEnable ? 1 : 0;
+        FreePool (SecureBootEnable);
+      } else {
+        Value->u8 = 0;
+      }
+
+      Status = EFI_SUCCESS;
     }
 
     goto EXIT;
@@ -4642,25 +4927,41 @@ SecureBootCallback (
   if (Action == EFI_BROWSER_ACTION_CHANGING) {
     switch (QuestionId) {
       case KEY_SECURE_BOOT_ENABLE:
-        GetVariable2 (EFI_SECURE_BOOT_ENABLE_NAME, &gEfiSecureBootEnableDisableGuid, (VOID **)&SecureBootEnable, NULL);
-        if (NULL != SecureBootEnable) {
-          FreePool (SecureBootEnable);
-          if (EFI_ERROR (SaveSecureBootVariable (Value->u8))) {
+        if (SimpleUi) {
+          do {
             CreatePopUp (
               EFI_LIGHTGRAY | EFI_BACKGROUND_BLUE,
               &Key,
-              L"Only Physical Presence User could disable secure boot!",
+              L"Reboot required to apply the change.",
+              L"Enter to continue, Esc to cancel",
               NULL
               );
-            Status = EFI_UNSUPPORTED;
-          } else {
-            CreatePopUp (
-              EFI_LIGHTGRAY | EFI_BACKGROUND_BLUE,
-              &Key,
-              L"Configuration changed, please reset the platform to take effect!",
-              NULL
-              );
+          } while ((Key.UnicodeChar != CHAR_CARRIAGE_RETURN) && (Key.ScanCode != SCAN_ESC));
+
+          if (Key.ScanCode == SCAN_ESC) {
+            Status = EFI_ABORTED;
+            break;
           }
+        }
+
+        Status = SaveSecureBootVariable (Value->u8);
+        if (EFI_ERROR (Status)) {
+          CreatePopUp (
+            EFI_LIGHTGRAY | EFI_BACKGROUND_BLUE,
+            &Key,
+            L"Only Physical Presence User could disable secure boot!",
+            NULL
+            );
+        } else if (SimpleUi) {
+          gRT->ResetSystem (EfiResetCold, EFI_SUCCESS, 0, NULL);
+          CpuDeadLoop ();
+        } else {
+          CreatePopUp (
+            EFI_LIGHTGRAY | EFI_BACKGROUND_BLUE,
+            &Key,
+            L"Configuration changed, please reset the platform to take effect!",
+            NULL
+            );
         }
 
         break;
@@ -4765,7 +5066,7 @@ SecureBootCallback (
         break;
 
       case KEY_SECURE_BOOT_DELETE_PK:
-        if (Value->u8) {
+        if (!SimpleUi && Value->u8) {
           CreatePopUp (
             EFI_LIGHTGRAY | EFI_BACKGROUND_BLUE,
             &Key,
@@ -5111,6 +5412,15 @@ SecureBootCallback (
       case KEY_SECURE_BOOT_MODE:
         mIsEnterSecureBootForm = FALSE;
         break;
+      case KEY_ENTER_SETUP_MODE:
+        Status = ConfirmEnterSetupMode (Private, IfrNvData);
+        if (!EFI_ERROR (Status)) {
+          Status = UpdateSecureBootString (Private);
+          SecureBootExtractConfigFromVariable (Private, IfrNvData);
+          *ActionRequest = EFI_BROWSER_ACTION_REQUEST_FORM_APPLY;
+        }
+
+        break;
       case KEY_SECURE_BOOT_KEK_GUID:
       case KEY_SECURE_BOOT_SIGNATURE_GUID_DB:
       case KEY_SECURE_BOOT_SIGNATURE_GUID_DBX:
@@ -5125,6 +5435,33 @@ SecureBootCallback (
         *ActionRequest = EFI_BROWSER_ACTION_REQUEST_FORM_APPLY;
         break;
       case KEY_SECURE_BOOT_DELETE_PK:
+        if (SimpleUi) {
+          CreatePopUp (
+            EFI_LIGHTGRAY | EFI_BACKGROUND_BLUE,
+            &Key,
+            L"Are you sure you want to delete PK? Secure boot will be disabled!",
+            L"Press 'Y' to delete PK and exit, 'N' to discard change and return",
+            NULL
+            );
+          if ((Key.UnicodeChar == 'y') || (Key.UnicodeChar == 'Y')) {
+            Status = DeletePlatformKey ();
+            if (EFI_ERROR (Status)) {
+              CreatePopUp (
+                EFI_LIGHTGRAY | EFI_BACKGROUND_BLUE,
+                &Key,
+                L"Only Physical Presence User could delete PK in custom mode!",
+                NULL
+                );
+            } else {
+              Status = UpdateSecureBootString (Private);
+              SecureBootExtractConfigFromVariable (Private, IfrNvData);
+            }
+          }
+
+          *ActionRequest = EFI_BROWSER_ACTION_REQUEST_FORM_APPLY;
+          break;
+        }
+
         GetVariable2 (EFI_SETUP_MODE_NAME, &gEfiGlobalVariableGuid, (VOID **)&SetupMode, NULL);
         if ((SetupMode == NULL) || ((*SetupMode) == SETUP_MODE)) {
           IfrNvData->DeletePk = TRUE;
@@ -5143,19 +5480,30 @@ SecureBootCallback (
         break;
       case KEY_SECURE_BOOT_RESET_TO_DEFAULT:
       {
+        EFI_STRING_ID  PopupStringId;
+
         Status = gBS->LocateProtocol (&gEfiHiiPopupProtocolGuid, NULL, (VOID **)&HiiPopup);
         if (EFI_ERROR (Status)) {
           return Status;
         }
 
+        PopupStringId = SimpleUi ?
+                        STRING_TOKEN (STR_SECUREBOOT_SIMPLE_RESET_TO_DEFAULTS_POPUP) :
+                        STRING_TOKEN (STR_RESET_TO_DEFAULTS_POPUP);
+
+        UserSelection = EfiHiiPopupSelectionNo;
         Status = HiiPopup->CreatePopup (
                              HiiPopup,
                              EfiHiiPopupStyleInfo,
                              EfiHiiPopupTypeYesNo,
                              Private->HiiHandle,
-                             STRING_TOKEN (STR_RESET_TO_DEFAULTS_POPUP),
+                             PopupStringId,
                              &UserSelection
                              );
+        if (EFI_ERROR (Status)) {
+          break;
+        }
+
         if (UserSelection == EfiHiiPopupSelectionYes) {
           Status = KeyEnrollReset ();
         }
@@ -5220,7 +5568,7 @@ EXIT:
     File = NULL;
   }
 
-  return EFI_SUCCESS;
+  return Status;
 }
 
 /**
@@ -5242,6 +5590,7 @@ InstallSecureBootConfigForm (
   EFI_HII_HANDLE                  HiiHandle;
   EFI_HANDLE                      DriverHandle;
   EFI_HII_CONFIG_ACCESS_PROTOCOL  *ConfigAccess;
+  VOID                            *FormBin;
 
   DriverHandle = NULL;
   ConfigAccess = &PrivateData->ConfigAccess;
@@ -5259,6 +5608,8 @@ InstallSecureBootConfigForm (
 
   PrivateData->DriverHandle = DriverHandle;
 
+  FormBin = PcdGetBool (PcdSecureBootConfigSimpleUi) ? (VOID *)SecureBootConfigSimpleBin : (VOID *)SecureBootConfigBin;
+
   //
   // Publish the HII package list
   //
@@ -5266,7 +5617,7 @@ InstallSecureBootConfigForm (
                 &gSecureBootConfigFormSetGuid,
                 DriverHandle,
                 SecureBootConfigDxeStrings,
-                SecureBootConfigBin,
+                FormBin,
                 NULL
                 );
   if (HiiHandle == NULL) {

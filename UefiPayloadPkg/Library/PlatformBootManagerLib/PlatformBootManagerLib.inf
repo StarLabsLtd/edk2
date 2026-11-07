@@ -30,11 +30,14 @@
 [Packages]
   MdePkg/MdePkg.dec
   MdeModulePkg/MdeModulePkg.dec
+  SecurityPkg/SecurityPkg.dec
   UefiPayloadPkg/UefiPayloadPkg.dec
   ShellPkg/ShellPkg.dec
+  SecurityPkg/SecurityPkg.dec
 
 [LibraryClasses]
   BaseLib
+  BmpSupportLib
   UefiBootServicesTableLib
   UefiRuntimeServicesTableLib
   UefiLib
@@ -46,22 +49,34 @@
   DevicePathLib
   HiiLib
   PrintLib
+  Tcg2PhysicalPresenceLib
   PlatformHookLib
   CapsuleLib
   HobLib
+  TcgPhysicalPresenceLib
+  Tcg2PhysicalPresenceLib
 
 [Guids]
+  gEdkiiBootLogoHobGuid
   gEfiEndOfDxeEventGroupGuid
+  gEfiEventReadyToBootGuid
+  gEfiGlobalVariableGuid
   gUefiShellFileGuid
 
 [Protocols]
+  gEdkiiBootLogo2ProtocolGuid
+  gEsrtManagementProtocolGuid      ## CONSUMES
   gEfiGenericMemTestProtocolGuid  ## CONSUMES
   gEfiGraphicsOutputProtocolGuid  ## CONSUMES
   gEfiBootLogoProtocolGuid        ## CONSUMES
+  gEfiHiiFontProtocolGuid         ## CONSUMES
   gEfiDxeSmmReadyToLockProtocolGuid
   gEfiSmmAccess2ProtocolGuid
   gEfiSerialIoProtocolGuid
   gEfiPciRootBridgeIoProtocolGuid
+  gEfiPciIoProtocolGuid
+  gEfiMmCommunication2ProtocolGuid
+  gEfiBatteryStatusProtocolGuid        ## CONSUMES
 
 [Pcd]
   gEfiMdePkgTokenSpaceGuid.PcdPlatformBootTimeOut
@@ -73,3 +88,6 @@
   gEfiMdePkgTokenSpaceGuid.PcdUartDefaultParity
   gEfiMdePkgTokenSpaceGuid.PcdUartDefaultStopBits
   gUefiPayloadPkgTokenSpaceGuid.PcdBootManagerEscape
+
+[FeaturePcd]
+  gUefiPayloadPkgTokenSpaceGuid.PcdConnectAllDevices

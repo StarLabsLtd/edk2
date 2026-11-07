@@ -31,10 +31,16 @@
 [LibraryClasses]
   BaseLib
   BaseMemoryLib
+  CfrHelpersLib
   IoLib
   DebugLib
   PcdLib
   PrintLib
+  HobLib
+
+[Guids]
+  gEdkiiBootLogoHobGuid
+  gEfiCfrSetupMenuFormGuid
 
 [Pcd]
   gUefiPayloadPkgTokenSpaceGuid.PcdBootloaderParameter

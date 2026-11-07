@@ -6,7 +6,7 @@
   SPDX-License-Identifier: BSD-2-Clause-Patent
 **/
 
-#include <Uefi.h>
+#include <PiDxe.h>
 
 #include <IndustryStandard/Acpi.h>
 
@@ -16,6 +16,8 @@
 #include <Protocol/BootLogo2.h>
 
 #include <Guid/EventGroup.h>
+#include <Guid/BootLogo.h>
+#include <Library/HobLib.h>
 
 #include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
@@ -120,6 +122,8 @@ GetBootLogo2 (
 //
 // Boot Logo Protocol Handle
 //
+STATIC UINT32  mLogoBmpSize;
+
 EFI_HANDLE  mBootLogoHandle = NULL;
 
 //
@@ -245,9 +249,10 @@ SetBootLogo2 (
   IN UINTN                          Height
   )
 {
-  EFI_STATUS  Status;
-  UINTN       BufferSize;
-  UINT32      Result32;
+  EFI_STATUS                     Status;
+  UINTN                          BufferSize;
+  UINT32                         Result32;
+  EFI_GRAPHICS_OUTPUT_BLT_PIXEL  *NewLogoBltBuffer;
 
   if (BltBuffer == NULL) {
     mIsLogoValid           = FALSE;
@@ -308,26 +313,18 @@ SetBootLogo2 (
     return EFI_UNSUPPORTED;
   }
 
-  //
-  // Update state
-  //
-  mAcpiBgrtBufferChanged = TRUE;
-
-  //
-  // Free old logo buffer
-  //
-  if (mLogoBltBuffer != NULL) {
-    FreePool (mLogoBltBuffer);
-    mLogoBltBuffer = NULL;
-  }
-
-  //
-  // Allocate new logo buffer
-  //
-  mLogoBltBuffer = AllocateCopyPool (BufferSize, BltBuffer);
-  if (mLogoBltBuffer == NULL) {
+  // Allocate before releasing the current image or changing its state.
+  NewLogoBltBuffer = AllocateCopyPool (BufferSize, BltBuffer);
+  if (NewLogoBltBuffer == NULL) {
     return EFI_OUT_OF_RESOURCES;
   }
+
+  if (mLogoBltBuffer != NULL) {
+    FreePool (mLogoBltBuffer);
+  }
+
+  mLogoBltBuffer         = NewLogoBltBuffer;
+  mAcpiBgrtBufferChanged = TRUE;
 
   mLogoDestX   = DestinationX;
   mLogoDestY   = DestinationY;
@@ -378,24 +375,39 @@ GetBootLogo2 (
   // called with a NULL BltBuffer then the boot logo is not valid and
   // EFI_NOT_READY is returned.
   //
-  if (mLogoBltBuffer == NULL) {
-    DEBUG ((DEBUG_ERROR, "Request to get boot logo location before boot logo has been set.\n"));
+  EFI_STATUS  Status;
+  UINTN       BltSize;
+
+  if (!mIsLogoValid || ((mLogoBltBuffer == NULL) &&
+                       (mBootGraphicsResourceTableTemplate.ImageAddress == 0)))
+  {
     return EFI_NOT_READY;
   }
 
-  //
-  // Make sure none of the boot logo location parameters are NULL.
-  //
-  if ((BltBuffer == NULL) || (DestinationX == NULL) || (DestinationY == NULL) ||
-      (Width == NULL) || (Height == NULL))
-  {
+  if ((DestinationX == NULL) || (DestinationY == NULL) || (Width == NULL) || (Height == NULL)) {
     return EFI_INVALID_PARAMETER;
   }
 
-  //
-  // Boot logo is valid.  Return values from module globals.
-  //
-  *BltBuffer    = mLogoBltBuffer;
+  // A location-only query must not allocate or decode the retained BMP.
+  if (BltBuffer != NULL) {
+    if (mLogoBltBuffer == NULL) {
+      BltSize = 0;
+      Status  = TranslateBmpToGopBlt (
+                  (VOID *)(UINTN)mBootGraphicsResourceTableTemplate.ImageAddress,
+                  mLogoBmpSize,
+                  &mLogoBltBuffer,
+                  &BltSize,
+                  &mLogoHeight,
+                  &mLogoWidth
+                  );
+      if (EFI_ERROR (Status)) {
+        return Status;
+      }
+    }
+
+    *BltBuffer = mLogoBltBuffer;
+  }
+
   *DestinationX = mLogoDestX;
   *DestinationY = mLogoDestY;
   *Width        = mLogoWidth;
@@ -457,24 +469,17 @@ BgrtReadyToBootEventNotify (
         return;
       }
     }
+    mAcpiBgrtInstalled = FALSE;
   } else {
     //
     // Check whether Logo exists
     //
-    if (mLogoBltBuffer == NULL) {
+    if ((mLogoBltBuffer == NULL) && (mBootGraphicsResourceTableTemplate.ImageAddress == 0)) {
       return;
     }
   }
 
   if (mAcpiBgrtBufferChanged) {
-    //
-    // Free the old BMP image buffer
-    //
-    ImageBuffer = (UINT8 *)(UINTN)mBootGraphicsResourceTableTemplate.ImageAddress;
-    if (ImageBuffer != NULL) {
-      FreePool (ImageBuffer);
-    }
-
     //
     // Convert GOP Blt buffer to BMP image.  Pass in ImageBuffer set to NULL
     // so the BMP image is allocated by TranslateGopBltToBmp().
@@ -491,6 +496,11 @@ BgrtReadyToBootEventNotify (
       return;
     }
 
+    // The conversion succeeded; replace the old owned BMP only now.
+    if (mBootGraphicsResourceTableTemplate.ImageAddress != 0) {
+      FreePool ((VOID *)(UINTN)mBootGraphicsResourceTableTemplate.ImageAddress);
+    }
+
     //
     // Free the logo buffer
     //
@@ -500,9 +510,11 @@ BgrtReadyToBootEventNotify (
     //
     // Update BMP image fields of the Boot Graphics Resource Table
     //
+    mLogoBmpSize = BmpSize;
     mBootGraphicsResourceTableTemplate.ImageAddress = (UINT64)(UINTN)ImageBuffer;
     mBootGraphicsResourceTableTemplate.ImageOffsetX = (UINT32)mLogoDestX;
     mBootGraphicsResourceTableTemplate.ImageOffsetY = (UINT32)mLogoDestY;
+    mAcpiBgrtBufferChanged = FALSE;
   }
 
   //
@@ -561,6 +573,9 @@ BootGraphicsDxeEntryPoint (
 {
   EFI_STATUS                   Status;
   EFI_ACPI_DESCRIPTION_HEADER  *Header;
+  EFI_HOB_GUID_TYPE            *GuidHob;
+  EDKII_BOOT_LOGO_HOB           *Logo;
+  VOID                         *Image;
 
   //
   // Update Header fields of Boot Graphics Resource Table from PCDs
@@ -576,6 +591,25 @@ BootGraphicsDxeEntryPoint (
   Header->OemRevision     = PcdGet32 (PcdAcpiDefaultOemRevision);
   Header->CreatorId       = PcdGet32 (PcdAcpiDefaultCreatorId);
   Header->CreatorRevision = PcdGet32 (PcdAcpiDefaultCreatorRevision);
+
+  // The bootloader has already drawn this image. Keep its BMP unchanged;
+  // decode it lazily only if a later consumer needs a BLT buffer.
+  GuidHob = GetFirstGuidHob (&gEdkiiBootLogoHobGuid);
+  if ((GuidHob != NULL) && (GET_GUID_HOB_DATA_SIZE (GuidHob) >= sizeof (*Logo))) {
+    Logo  = GET_GUID_HOB_DATA (GuidHob);
+    Image = AllocateCopyPool (Logo->ImageSize, (VOID *)(UINTN)Logo->ImageAddress);
+    if (Image != NULL) {
+      mBootGraphicsResourceTableTemplate.ImageAddress = (UINT64)(UINTN)Image;
+      mBootGraphicsResourceTableTemplate.ImageOffsetX = Logo->DestinationX;
+      mBootGraphicsResourceTableTemplate.ImageOffsetY = Logo->DestinationY;
+      mLogoBmpSize = Logo->ImageSize;
+      mLogoDestX   = Logo->DestinationX;
+      mLogoDestY   = Logo->DestinationY;
+      mLogoWidth   = Logo->Width;
+      mLogoHeight  = Logo->Height;
+      mIsLogoValid = TRUE;
+    }
+  }
 
   //
   // Install Boot Logo and Boot Logo 2 Protocols.

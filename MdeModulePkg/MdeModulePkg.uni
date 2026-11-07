@@ -432,9 +432,17 @@
 
 #string STR_gEfiMdeModulePkgTokenSpaceGuid_PcdFirmwareVersionString_HELP  #language en-US "Null-terminated Unicode string that describes the firmware version."
 
-#string STR_gEfiMdeModulePkgTokenSpaceGuid_PcdFirmwareReleaseDateString_PROMPT  #language en-US "Firmware release data string"
+#string STR_gEfiMdeModulePkgTokenSpaceGuid_PcdEcMajorFirmwareVersionString_PROMPT  #language en-US "EC Firmware major version string"
 
-#string STR_gEfiMdeModulePkgTokenSpaceGuid_PcdFirmwareReleaseDateString_HELP  #language en-US "Null-terminated Unicode string that contains the date the firmware was released"
+#string STR_gEfiMdeModulePkgTokenSpaceGuid_PcdEcMajorFirmwareVersionString_HELP  #language en-US "Null-terminated Unicode string that describes the EC major firmware version."
+
+#string STR_gEfiMdeModulePkgTokenSpaceGuid_PcdEcMinorFirmwareVersion_PROMPT  #language en-US "EC Firmware minor version string"
+
+#string STR_gEfiMdeModulePkgTokenSpaceGuid_PcdEcMinorFirmwareVersion_HELP  #language en-US "Null-terminated Unicode string that describes the EC minor firmware version."
+
+#string STR_gEfiMdeModulePkgTokenSpaceGuid_PcdFirmwareReleaseDate_PROMPT  #language en-US "Firmware release data string"
+
+#string STR_gEfiMdeModulePkgTokenSpaceGuid_PcdFirmwareReleaseDate_HELP  #language en-US "Null-terminated Unicode string that contains the date the firmware was released"
 
 #string STR_gEfiMdeModulePkgTokenSpaceGuid_PcdStatusCodeMemorySize_PROMPT  #language en-US "StatusCode memory size"
 
@@ -1156,6 +1164,11 @@
                                                                                            "Note:<BR>"
                                                                                            "If Both Capsule In Ram and Capsule On Disk are provisioned at the same time, the Capsule On Disk will be bypassed."
 
+#string STR_gEfiMdeModulePkgTokenSpaceGuid_PcdCapsuleOnDiskConnectBootDevice_PROMPT  #language en-US "Connect the active boot device for early Capsule On Disk discovery"
+
+#string STR_gEfiMdeModulePkgTokenSpaceGuid_PcdCapsuleOnDiskConnectBootDevice_HELP  #language en-US   "Connect the active boot device while discovering Capsules On Disk before EndOfDxe.<BR>"
+                                                                                                      "Device connection can discover and dispatch option ROMs. Platforms must only enable this feature when an image-dispatch policy is active before Capsule On Disk discovery."
+
 #string STR_gEfiMdeModulePkgTokenSpaceGuid_PcdFwVolDxeMaxEncapsulationDepth_PROMPT #language en-US "Maximum permitted FwVol section nesting depth (exclusive)."
 
 #string STR_gEfiMdeModulePkgTokenSpaceGuid_PcdFwVolDxeMaxEncapsulationDepth_HELP   #language en-US "Maximum permitted encapsulation levels of sections in a firmware volume,<BR>"
@@ -1357,3 +1370,9 @@
 #string STR_gEfiMdeModulePkgTokenSpaceGuid_PcdPcieResizableBarMaxSize_HELP   #language en-US "Set platform limit for max size to pick from Resizable BAR Capability register.<BR><BR>\n"
                                                                                              "Decimal value 'n' is interpreted as 2^(n+20), which means 0=>1MB, 1=>2MB, 2=>4MB, 3=>8MB, etc.<BR>\n"
                                                                                              "Maximum reasonable size to set is half of processor address with, i.e. address width - 1.<BR>\n"
+
+#string STR_gEfiMdeModulePkgTokenSpaceGuid_PcdLogoFileGuid_PROMPT #language en-US "Logo File GUID"
+
+#string STR_gEfiMdeModulePkgTokenSpaceGuid_PcdLogoFileGuid_HELP   #language en-US "Specifies the GUID of the logo file to be loaded from firmware volume.<BR><BR>\n"
+                                                                                   "If set to zero GUID (default), the embedded HII logo is used.<BR>\n"
+                                                                                   "If set to a non-zero GUID, the logo is loaded from the firmware volume file with the specified GUID.<BR>"

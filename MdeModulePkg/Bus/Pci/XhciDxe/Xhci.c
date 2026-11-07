@@ -45,7 +45,8 @@ USB_PORT_STATE_MAP  mUsbHubPortChangeMap[] = {
   { XHC_HUB_PORTSC_CSC, USB_PORT_STAT_C_CONNECTION  },
   { XHC_HUB_PORTSC_PEC, USB_PORT_STAT_C_ENABLE      },
   { XHC_HUB_PORTSC_OCC, USB_PORT_STAT_C_OVERCURRENT },
-  { XHC_HUB_PORTSC_PRC, USB_PORT_STAT_C_RESET       }
+  { XHC_HUB_PORTSC_PRC, USB_PORT_STAT_C_RESET       },
+  { XHC_HUB_PORTSC_BHRC, USB_PORT_STAT_C_RESET      }
 };
 
 USB_CLEAR_PORT_MAP  mUsbHubClearPortChangeMap[] = {
@@ -576,9 +577,10 @@ XhcSetRootHubPortFeature (
       // 4.3.1 Resetting a Root Hub Port
       // 1) Write the PORTSC register with the Port Reset (PR) bit set to '1'.
       //
-      State |= XHC_PORTSC_RESET;
+      // Acknowledge any previous reset completion before starting this reset.
+      State |= XHC_PORTSC_RESET | XHC_PORTSC_PRC;
       XhcWriteOpReg (Xhc, Offset, State);
-      XhcWaitOpRegBit (Xhc, Offset, XHC_PORTSC_PRC, TRUE, XHC_GENERIC_TIMEOUT);
+      Status = XhcWaitOpRegBit (Xhc, Offset, XHC_PORTSC_PRC, TRUE, XHC_GENERIC_TIMEOUT);
       break;
 
     case EfiUsbPortPower:
@@ -819,6 +821,7 @@ XhcTransfer (
       DEBUG ((DEBUG_ERROR, "XhcTransfer[Type=%d]: pending URB is finished, Length = %d.\n", Type, Urb->Completed));
     } else if (EFI_ERROR (RecoveryStatus)) {
       DEBUG ((DEBUG_ERROR, "XhcTransfer[Type=%d]: XhcDequeueTrbFromEndpoint failed!\n", Type));
+      Status = RecoveryStatus;
     }
   }
 

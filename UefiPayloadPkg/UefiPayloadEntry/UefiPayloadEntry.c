@@ -59,9 +59,12 @@ MemInfoCallbackMmio (
     return EFI_SUCCESS;
   }
 
-  if (MemoryMapEntry->Base == AcpiBoardInfo->PcieBaseAddress) {
+  if ((AcpiBoardInfo->PcieBaseSize != 0) &&
+      (MemoryMapEntry->Base == AcpiBoardInfo->PcieBaseAddress))
+  {
     //
-    // MMCONF is always MMIO
+    // ECAM must remain MMIO in the GCD map so DXE PCI config access works.
+    // DxeCore reports this range as reserved in the final UEFI memory map.
     //
     Type = EFI_RESOURCE_MEMORY_MAPPED_IO;
   } else if (MemoryMapEntry->Base < mTopOfLowerUsableDram) {
@@ -92,7 +95,11 @@ MemInfoCallbackMmio (
   BuildResourceDescriptorHob (Type, Attribute, (EFI_PHYSICAL_ADDRESS)Base, Size);
   DEBUG ((DEBUG_INFO, "buildhob: base = 0x%lx, size = 0x%lx, type = 0x%x\n", Base, Size, Type));
 
-  if ((MemoryMapEntry->Type == E820_UNUSABLE) ||
+  if ((AcpiBoardInfo->PcieBaseSize != 0) &&
+      (MemoryMapEntry->Base == AcpiBoardInfo->PcieBaseAddress))
+  {
+    BuildMemoryAllocationHob (Base, Size, EfiReservedMemoryType);
+  } else if ((MemoryMapEntry->Type == E820_UNUSABLE) ||
       (MemoryMapEntry->Type == E820_DISABLED))
   {
     BuildMemoryAllocationHob (Base, Size, EfiUnusableMemory);
@@ -344,14 +351,16 @@ BuildHobFromBl (
   SMMSTORE_INFO                     *NewSmmStoreInfo;
   FIRMWARE_INFO                     FirmwareInfo;
   FIRMWARE_INFO                     *NewFirmwareInfo;
+  TCG_PHYSICAL_PRESENCE_INFO        PhysicalPresenceInfo;
+  TCG_PHYSICAL_PRESENCE_INFO        *NewPhysicalPresenceInfo;
   EFI_PEI_GRAPHICS_INFO_HOB         GfxInfo;
   EFI_PEI_GRAPHICS_INFO_HOB         *NewGfxInfo;
   EFI_PEI_GRAPHICS_DEVICE_INFO_HOB  GfxDeviceInfo;
   EFI_PEI_GRAPHICS_DEVICE_INFO_HOB  *NewGfxDeviceInfo;
   UNIVERSAL_PAYLOAD_SMBIOS_TABLE    *SmBiosTableHob;
   UNIVERSAL_PAYLOAD_ACPI_TABLE      *AcpiTableHob;
-  UINT64                            SmBiosEntryPoint;
   EFI_BOOT_MODE                     BootMode;
+  UINT64                            SmBiosEntryPoint;
 
   //
   // First find TOLUD
@@ -421,6 +430,17 @@ BuildHobFromBl (
   if (!EFI_ERROR (Status)) {
     HobInfo->BootMode = BootMode;
     DEBUG ((DEBUG_INFO, "BootMode from bootloader: %x\n", BootMode));
+  }
+
+  //
+  // Create guid hob for Tcg Physical Presence Interface
+  //
+  Status = ParseTPMPPIInfo (&PhysicalPresenceInfo);
+  if (!EFI_ERROR (Status)) {
+    NewPhysicalPresenceInfo = BuildGuidHob (&gEfiTcgPhysicalPresenceInfoHobGuid, sizeof (TCG_PHYSICAL_PRESENCE_INFO));
+    ASSERT (NewPhysicalPresenceInfo != NULL);
+    CopyMem (NewPhysicalPresenceInfo, &PhysicalPresenceInfo, sizeof (TCG_PHYSICAL_PRESENCE_INFO));
+    DEBUG ((DEBUG_INFO, "Created Tcg Physical Presence info hob\n"));
   }
 
   //
@@ -548,8 +568,9 @@ _ModuleEntryPoint (
   UNIVERSAL_PAYLOAD_SERIAL_PORT_INFO  *UniversalSerialPort;
   EFI_HOB_HANDOFF_INFO_TABLE          *HobInfo;
 
-  Status = PcdSet64S (PcdBootloaderParameter, BootloaderParameter);
-  ASSERT_EFI_ERROR (Status);
+  PatchPcdSet64 (PcdBootloaderParameter, BootloaderParameter);
+  CbMemTimestampAdd (CBMEM_TS_UPL_ENTRY);
+  CbMemLogSummary ();
 
   // Initialize floating point operating environment to be compliant with UEFI spec.
   InitializeFloatingPointUnits ();
@@ -607,6 +628,11 @@ _ModuleEntryPoint (
     DEBUG ((DEBUG_ERROR, "BuildHobFromBl Status = %r\n", Status));
     return Status;
   }
+  Status = CbMemPublishTableHob ();
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_WARN, "CBMEM: failed to publish table HOB: %r\n", Status));
+  }
+  CbMemTimestampAdd (CBMEM_TS_UPL_HOB_READY);
 
   // Build other HOBs required by DXE
   BuildGenericHob ();
@@ -614,15 +640,17 @@ _ModuleEntryPoint (
   //
   // Create Memory Type Information HOB
   //
-  BuildGuidDataHob (
-    &gEfiMemoryTypeInformationGuid,
+  BuildMemoryTypeInformationHob (
     mDefaultMemoryTypeInformation,
-    sizeof (mDefaultMemoryTypeInformation)
+    sizeof (mDefaultMemoryTypeInformation),
+    HobInfo->BootMode
     );
 
   // Load the DXE Core
+  CbMemTimestampAdd (CBMEM_TS_UPL_DXE_LOAD_START);
   Status = LoadDxeCore (&DxeCoreEntryPoint);
   ASSERT_EFI_ERROR (Status);
+  CbMemTimestampAdd (CBMEM_TS_UPL_DXE_LOAD_END);
 
   DEBUG ((DEBUG_INFO, "DxeCoreEntryPoint = 0x%lx\n", DxeCoreEntryPoint));
 
@@ -640,6 +668,7 @@ _ModuleEntryPoint (
   IoWrite8 (LEGACY_8259_MASK_REGISTER_SLAVE, 0xFF);
 
   Hob.HandoffInformationTable = (EFI_HOB_HANDOFF_INFO_TABLE *)GetFirstHob (EFI_HOB_TYPE_HANDOFF);
+  CbMemTimestampAdd (CBMEM_TS_UPL_DXE_HANDOFF);
   HandOffToDxeCore (DxeCoreEntryPoint, Hob);
 
   // Should not get here

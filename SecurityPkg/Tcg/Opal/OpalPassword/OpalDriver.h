@@ -15,6 +15,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Protocol/PciIo.h>
 #include <Protocol/SmmCommunication.h>
 #include <Protocol/BlockIo.h>
+#include <Protocol/GraphicsOutput.h>
 #include <Protocol/LoadedImage.h>
 #include <Protocol/DevicePath.h>
 #include <Protocol/DevicePathToText.h>
@@ -36,6 +37,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Library/DevicePathLib.h>
 #include <Library/HiiLib.h>
 #include <Library/UefiHiiServicesLib.h>
+#include <Library/PcdLib.h>
 #include <Library/PciLib.h>
 #include <Library/LockBoxLib.h>
 #include <Library/TcgStorageOpalLib.h>
@@ -56,6 +58,11 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #define CONCAT(x, y)   CONCAT_(x, y)
 
 #define UNICODE_STR(x)  CONCAT( L, x )
+
+BOOLEAN
+TcgStorageIsSimpleUiEnabled (
+  VOID
+  );
 
 extern EFI_DRIVER_BINDING_PROTOCOL   gOpalDriverBinding;
 extern EFI_COMPONENT_NAME_PROTOCOL   gOpalComponentName;
@@ -139,6 +146,7 @@ typedef struct {
   OPAL_OWNER_SHIP                          Owner;
   OPAL_DISK_SUPPORT_ATTRIBUTE              SupportedAttributes;
   TCG_LOCKING_FEATURE_DESCRIPTOR           LockingFeature;                // Locking Feature Descriptor retrieved from performing a Level 0 Discovery
+  BOOLEAN                                  S3HandoffPending;
   UINT8                                    PasswordLength;
   UINT8                                    Password[OPAL_MAX_PASSWORD_SIZE];
 

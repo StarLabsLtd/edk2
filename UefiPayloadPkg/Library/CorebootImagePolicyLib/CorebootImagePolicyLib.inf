@@ -1,0 +1,28 @@
+## @file
+# Close firmware Setup authorization before external images run.
+# Copyright (c) 2026, Star Labs Systems. All rights reserved.<BR>
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+[Defines]
+  INF_VERSION = 0x0001001B
+  BASE_NAME = CorebootImagePolicyLib
+  FILE_GUID = 2dcd32d5-8127-489e-aabe-1313e38e60a9
+  MODULE_TYPE = DXE_DRIVER
+  LIBRARY_CLASS = NULL|DXE_DRIVER
+  CONSTRUCTOR = CorebootImagePolicyConstructor
+[Sources]
+  CorebootImagePolicyLib.c
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+[LibraryClasses]
+  BaseMemoryLib
+  DevicePathLib
+  MemoryAllocationLib
+  SecurityManagementLib
+  UefiBootServicesTableLib
+[Guids]
+  gEfiEventReadyToBootGuid
+[Protocols]
+  gEfiFirmwareVolume2ProtocolGuid
+  gEfiMmCommunication2ProtocolGuid

@@ -18,14 +18,18 @@
 #include <Library/HobLib.h>
 #include <Library/PcdLib.h>
 #include <Guid/MemoryAllocationHob.h>
+#include <Guid/MemoryTypeInformation.h>
 #include <Library/IoLib.h>
 #include <Library/PeCoffLib.h>
 #include <Library/BlParseLib.h>
+#include <Library/CbMemLib.h>
 #include <Library/SmmStoreParseLib.h>
 #include <Library/PlatformSupportLib.h>
 #include <Library/CpuLib.h>
 #include <IndustryStandard/Acpi.h>
 #include <IndustryStandard/MemoryMappedConfigurationSpaceAccessTable.h>
+#include <IndustryStandard/Tpm2Acpi.h>
+#include <IndustryStandard/UefiTcgPlatform.h>
 #include <Guid/SerialPortInfoGuid.h>
 #include <Guid/MemoryMapInfoGuid.h>
 #include <Guid/AcpiBoardInfoGuid.h>
@@ -39,6 +43,8 @@
 #include <Guid/PcdDataBaseSignatureGuid.h>
 #include <Guid/FirmwareInfoGuid.h>
 #include <Guid/SmmStoreInfoGuid.h>
+#include <Guid/TcgEventHob.h>
+#include <Guid/TcgPhysicalPresenceGuid.h>
 
 #define LEGACY_8259_MASK_REGISTER_MASTER  0x21
 #define LEGACY_8259_MASK_REGISTER_SLAVE   0xA1
@@ -180,6 +186,13 @@ HandOffToDxeCore (
 EFI_STATUS
 FixUpPcdDatabase (
   IN  EFI_FIRMWARE_VOLUME_HEADER  *DxeFv
+  );
+
+VOID
+BuildMemoryTypeInformationHob (
+  IN EFI_MEMORY_TYPE_INFORMATION  *DefaultMemoryTypeInformation,
+  IN UINTN                        DefaultMemoryTypeInformationSize,
+  IN EFI_BOOT_MODE                BootMode
   );
 
 /**

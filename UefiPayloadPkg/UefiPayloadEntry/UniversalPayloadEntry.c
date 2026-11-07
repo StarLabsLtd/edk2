@@ -151,7 +151,7 @@ FindResourceDescriptorByRange (
     //
     // Skip all HOBs except Resource Descriptor HOBs
     //
-    if (GET_HOB_TYPE (Hob) != EFI_HOB_TYPE_RESOURCE_DESCRIPTOR) {
+    if (!IS_RESOURCE_DESCRIPTOR_HOB (Hob)) {
       continue;
     }
 
@@ -210,7 +210,7 @@ FindAnotherHighestBelow4GResourceDescriptor (
     //
     // Skip all HOBs except Resource Descriptor HOBs
     //
-    if (GET_HOB_TYPE (Hob) != EFI_HOB_TYPE_RESOURCE_DESCRIPTOR) {
+    if (!IS_RESOURCE_DESCRIPTOR_HOB (Hob)) {
       continue;
     }
 
@@ -469,8 +469,15 @@ _ModuleEntryPoint (
   EFI_PEI_HOB_POINTERS        Hob;
   EFI_FIRMWARE_VOLUME_HEADER  *DxeFv;
 
+  Status = PcdSet64S (PcdBootloaderParameter, BootloaderParameter);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
   mHobList = (VOID *)BootloaderParameter;
   DxeFv    = NULL;
+  CbMemTimestampAdd (CBMEM_TS_UPL_ENTRY);
+  CbMemLogSummary ();
   // Call constructor for all libraries
   ProcessLibraryConstructorList ();
 
@@ -490,23 +497,29 @@ _ModuleEntryPoint (
   // Build HOB based on information from Bootloader
   Status = BuildHobs (BootloaderParameter, &DxeFv);
   ASSERT_EFI_ERROR (Status);
+  Status = CbMemPublishTableHob ();
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_WARN, "CBMEM: failed to publish table HOB: %r\n", Status));
+  }
+  CbMemTimestampAdd (CBMEM_TS_UPL_HOB_READY);
 
   //
   // Create Memory Type Information HOB
   //
-  if (GetFirstGuidHob (&gEfiMemoryTypeInformationGuid) == NULL) {
-    BuildGuidDataHob (
-      &gEfiMemoryTypeInformationGuid,
-      mDefaultMemoryTypeInformation,
-      sizeof (mDefaultMemoryTypeInformation)
-      );
-  }
+  BuildMemoryTypeInformationHob (
+    mDefaultMemoryTypeInformation,
+    sizeof (mDefaultMemoryTypeInformation),
+    GetBootModeHob ()
+    );
 
   FixUpPcdDatabase (DxeFv);
+  CbMemTimestampAdd (CBMEM_TS_UPL_DXE_LOAD_START);
   Status = UniversalLoadDxeCore (DxeFv, &DxeCoreEntryPoint);
   ASSERT_EFI_ERROR (Status);
+  CbMemTimestampAdd (CBMEM_TS_UPL_DXE_LOAD_END);
 
   Hob.HandoffInformationTable = (EFI_HOB_HANDOFF_INFO_TABLE *)GetFirstHob (EFI_HOB_TYPE_HANDOFF);
+  CbMemTimestampAdd (CBMEM_TS_UPL_DXE_HANDOFF);
   HandOffToDxeCore (DxeCoreEntryPoint, Hob);
 
   // Should not get here

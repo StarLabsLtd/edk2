@@ -54,6 +54,7 @@
   PcdLib
   UefiHiiServicesLib
   UefiBootManagerLib
+  BootLogoLib
 
 [Guids]
   gEfiIfrTianoGuid                              ## CONSUMES ## GUID (Extended IFR Guid Opcode)
@@ -62,6 +63,7 @@
 [Protocols]
   gEfiSmbiosProtocolGuid                        ## CONSUMES
   gEfiHiiConfigAccessProtocolGuid               ## CONSUMES
+  gEfiBatteryStatusProtocolGuid                 ## CONSUMES
 
 [FeaturePcd]
 
@@ -76,6 +78,8 @@
   gEfiMdeModulePkgTokenSpaceGuid.PcdSetupVideoHorizontalResolution  ## CONSUMES
   gEfiMdeModulePkgTokenSpaceGuid.PcdSetupVideoVerticalResolution    ## CONSUMES
   gEfiMdeModulePkgTokenSpaceGuid.PcdFirmwareVersionString           ## CONSUMES
+  gEfiMdeModulePkgTokenSpaceGuid.PcdEcMajorFirmwareVersion          ## CONSUMES
+  gEfiMdeModulePkgTokenSpaceGuid.PcdEcMinorFirmwareVersion          ## CONSUMES
   gEfiMdeModulePkgTokenSpaceGuid.PcdTestKeyUsed                     ## CONSUMES
 
 [UserExtensions.TianoCore."ExtraFiles"]

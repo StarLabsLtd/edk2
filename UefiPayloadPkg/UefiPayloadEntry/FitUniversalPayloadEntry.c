@@ -447,14 +447,11 @@ FitBuildHobs (
   //
   // To create Memory Type Information HOB
   //
-  GuidHob = GetFirstGuidHob (&gEfiMemoryTypeInformationGuid);
-  if (GuidHob == NULL) {
-    BuildGuidDataHob (
-      &gEfiMemoryTypeInformationGuid,
-      mDefaultMemoryTypeInformation,
-      sizeof (mDefaultMemoryTypeInformation)
-      );
-  }
+  BuildMemoryTypeInformationHob (
+    mDefaultMemoryTypeInformation,
+    sizeof (mDefaultMemoryTypeInformation),
+    GetBootModeHob ()
+    );
 
   //
   // Create guid hob for acpi board information

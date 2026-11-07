@@ -24,6 +24,7 @@
 [Sources]
   UefiPayloadEntry.c
   LoadDxeCore.c
+  MemoryTypeInformationHob.c
   AcpiTable.c
 
 [Sources.Ia32]
@@ -36,6 +37,7 @@
   X64/VirtualMemory.h
   X64/VirtualMemory.c
   X64/DxeLoadFunc.c
+  X64/TriggerSmi.nasm
 
 [Sources.AARCH64]
   AArch64/DxeHandoff.c
@@ -43,6 +45,7 @@
 [Packages]
   MdePkg/MdePkg.dec
   MdeModulePkg/MdeModulePkg.dec
+  SecurityPkg/SecurityPkg.dec
   UefiCpuPkg/UefiCpuPkg.dec
   UefiPayloadPkg/UefiPayloadPkg.dec
 
@@ -60,6 +63,7 @@
   StackCheckLib
   UefiCpuBaseArchSupportLib
   MemoryAllocationLib
+  CbMemLib
 
 [Guids]
   gEfiMemoryTypeInformationGuid
@@ -72,6 +76,10 @@
   gUniversalPayloadSerialPortInfoGuid
   gEfiFirmwareInfoHobGuid
   gEfiSmmStoreInfoHobGuid
+  gTcgEvent2EntryHobGuid
+  gEfiTcgPhysicalPresenceInfoHobGuid
+  gEfiVariableGuid
+  gEfiAuthenticatedVariableGuid
 
 [FeaturePcd.IA32]
   gEfiMdeModulePkgTokenSpaceGuid.PcdDxeIplSwitchToLongMode      ## CONSUMES
@@ -98,6 +106,8 @@
   gUefiPayloadPkgTokenSpaceGuid.PcdMemoryTypeEfiReservedMemoryType
   gUefiPayloadPkgTokenSpaceGuid.PcdMemoryTypeEfiRuntimeServicesData
   gUefiPayloadPkgTokenSpaceGuid.PcdMemoryTypeEfiRuntimeServicesCode
+  gUefiPayloadPkgTokenSpaceGuid.PcdMemoryTypeInformationBinBase
+  gUefiPayloadPkgTokenSpaceGuid.PcdMemoryTypeInformationBinSize
 
   gEfiMdeModulePkgTokenSpaceGuid.PcdSetNxForStack               ## SOMETIMES_CONSUMES
   gEfiMdeModulePkgTokenSpaceGuid.PcdDxeNxMemoryProtectionPolicy ## SOMETIMES_CONSUMES

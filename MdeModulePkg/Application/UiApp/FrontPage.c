@@ -9,15 +9,25 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 
 #include "FrontPage.h"
 #include "FrontPageCustomizedUi.h"
+#include <Library/BootLogoLib.h>
+#include <Protocol/BatteryStatus.h>
 
 #define MAX_STRING_LEN  200
+#define FRONT_PAGE_BATTERY_REFRESH_SECONDS  15
+#define FRONT_PAGE_BATTERY_ROW              7
 
 EFI_GUID  mFrontPageGuid = FRONT_PAGE_FORMSET_GUID;
 
 BOOLEAN  mResetRequired = FALSE;
 
-EFI_FORM_BROWSER2_PROTOCOL  *gFormBrowser2;
-BOOLEAN                     mModeInitialized = FALSE;
+EFI_FORM_BROWSER2_PROTOCOL         *gFormBrowser2;
+CHAR8                              *mLanguageString;
+BOOLEAN                             mModeInitialized = FALSE;
+EFI_EVENT                           mBatteryUpdateTimer = NULL;
+BOOLEAN                             mFrontPageActive = FALSE;
+STATIC UINT8                        mLastBatteryPercentage = 0xFE;
+STATIC BOOLEAN                      mLastBatteryPresent = FALSE;
+STATIC BOOLEAN                      mLastBatteryCharging = FALSE;
 //
 // Boot video resolution and text mode.
 //
@@ -44,6 +54,18 @@ FRONT_PAGE_CALLBACK_DATA  gFrontPagePrivate = {
     FrontPageCallback
   }
 };
+
+STATIC
+VOID
+UpdateFrontPageBatteryStatus (
+  IN BOOLEAN  ForceRedraw
+  );
+
+STATIC
+VOID
+SetFrontPageBatteryRefreshTimer (
+  IN BOOLEAN  Enable
+  );
 
 HII_VENDOR_DEVICE_PATH  mFrontPageHiiVendorDevicePath = {
   {
@@ -181,6 +203,15 @@ FrontPageCallback (
   OUT EFI_BROWSER_ACTION_REQUEST            *ActionRequest
   )
 {
+  if (Action == EFI_BROWSER_ACTION_FORM_OPEN) {
+    mFrontPageActive = TRUE;
+    UpdateFrontPageBatteryStatus (TRUE);
+    SetFrontPageBatteryRefreshTimer (TRUE);
+  } else if (Action == EFI_BROWSER_ACTION_FORM_CLOSE) {
+    SetFrontPageBatteryRefreshTimer (FALSE);
+    mFrontPageActive = FALSE;
+  }
+
   return UiFrontPageCallbackHandler (gFrontPagePrivate.HiiHandle, Action, QuestionId, Type, Value, ActionRequest);
 }
 
@@ -247,6 +278,210 @@ UpdateFrontPageForm (
 Exit:
   HiiFreeOpCodeHandle (StartOpCodeHandle);
   return;
+}
+
+STATIC
+VOID
+DrawFrontPageBatteryStatus (
+  IN CONST CHAR16  *BatteryString
+  )
+{
+  EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL  *ConOut;
+  EFI_STATUS                       Status;
+  UINTN                            SavedColumn;
+  UINTN                            SavedRow;
+  UINTN                            Columns;
+  UINTN                            Rows;
+  UINTN                            Index;
+  UINTN                            ClearWidth;
+  INT32                            SavedAttribute;
+  CHAR16                           ClearString[MAX_STRING_LEN];
+
+  if (!mFrontPageActive || (gST == NULL) || (gST->ConOut == NULL) || (gST->ConOut->Mode == NULL)) {
+    return;
+  }
+
+  ConOut = gST->ConOut;
+  Status = ConOut->QueryMode (ConOut, ConOut->Mode->Mode, &Columns, &Rows);
+  if (EFI_ERROR (Status) || (Columns <= 1) || (FRONT_PAGE_BATTERY_ROW >= Rows)) {
+    return;
+  }
+
+  SavedColumn = ConOut->Mode->CursorColumn;
+  SavedRow    = ConOut->Mode->CursorRow;
+  SavedAttribute = ConOut->Mode->Attribute;
+
+  ClearWidth = Columns - 1;
+  if (ClearWidth >= MAX_STRING_LEN) {
+    ClearWidth = MAX_STRING_LEN - 1;
+  }
+
+  for (Index = 0; Index < ClearWidth; Index++) {
+    ClearString[Index] = L' ';
+  }
+
+  ClearString[ClearWidth] = CHAR_NULL;
+
+  ConOut->SetAttribute (ConOut, EFI_BLUE | EFI_BACKGROUND_LIGHTGRAY);
+  if (!EFI_ERROR (ConOut->SetCursorPosition (ConOut, 1, FRONT_PAGE_BATTERY_ROW))) {
+    ConOut->OutputString (ConOut, ClearString);
+    ConOut->SetCursorPosition (ConOut, 1, FRONT_PAGE_BATTERY_ROW);
+    if ((BatteryString != NULL) && (BatteryString[0] != CHAR_NULL)) {
+      ConOut->OutputString (ConOut, (CHAR16 *)BatteryString);
+    }
+  }
+
+  ConOut->SetAttribute (ConOut, SavedAttribute);
+  ConOut->SetCursorPosition (ConOut, SavedColumn, SavedRow);
+}
+
+STATIC
+VOID
+UpdateFrontPageBatteryStatus (
+  IN BOOLEAN  ForceRedraw
+  )
+{
+  EFI_STATUS                   Status;
+  EFI_BATTERY_STATUS_PROTOCOL  *BatteryStatus;
+  UINT8                        BatteryPercentage;
+  BOOLEAN                      BatteryPresent;
+  BOOLEAN                      BatteryCharging;
+  CHAR16                       *BatteryString;
+  BOOLEAN                      Changed;
+
+  BatteryPercentage = 0xFF;
+  BatteryPresent    = FALSE;
+  BatteryCharging   = FALSE;
+
+  Status = gBS->LocateProtocol (&gEfiBatteryStatusProtocolGuid, NULL, (VOID **)&BatteryStatus);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_INFO, "%a: battery status protocol unavailable: %r\n", __func__, Status));
+    if (ForceRedraw || mLastBatteryPresent) {
+      HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_BATTERY_STATUS), L"", NULL);
+      DrawFrontPageBatteryStatus (L"");
+      mLastBatteryPresent = FALSE;
+    }
+
+    return;
+  }
+
+  Status = BatteryStatus->GetBatteryInfo (
+                            BatteryStatus,
+                            &BatteryPercentage,
+                            &BatteryPresent,
+                            &BatteryCharging
+                            );
+  if (EFI_ERROR (Status) || !BatteryPresent) {
+    DEBUG ((DEBUG_INFO, "%a: battery unavailable: %r present=%d\n", __func__, Status, BatteryPresent));
+    if (ForceRedraw || mLastBatteryPresent) {
+      HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_BATTERY_STATUS), L"", NULL);
+      DrawFrontPageBatteryStatus (L"");
+      mLastBatteryPresent = FALSE;
+    }
+
+    return;
+  }
+
+  Changed = ForceRedraw ||
+            (BatteryPercentage != mLastBatteryPercentage) ||
+            (BatteryPresent != mLastBatteryPresent) ||
+            (BatteryCharging != mLastBatteryCharging);
+  if (!Changed) {
+    return;
+  }
+
+  BatteryString = AllocateZeroPool (MAX_STRING_LEN * sizeof (CHAR16));
+  if (BatteryString == NULL) {
+    DEBUG ((DEBUG_WARN, "%a: failed to allocate battery banner string\n", __func__));
+    return;
+  }
+
+  if (BatteryPercentage == 0xFF) {
+    UnicodeSPrint (
+      BatteryString,
+      MAX_STRING_LEN * sizeof (CHAR16),
+      L"%-24s%s",
+      L"Battery:",
+      L"present"
+      );
+  } else {
+    UnicodeSPrint (
+      BatteryString,
+      MAX_STRING_LEN * sizeof (CHAR16),
+      BatteryCharging ? L"%-24s%u%% (charging)" : L"%-24s%u%%",
+      L"Battery:",
+      BatteryPercentage
+      );
+  }
+
+  UiCustomizeFrontPageBanner (FRONT_PAGE_BATTERY_ROW, TRUE, &BatteryString);
+  HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_BATTERY_STATUS), BatteryString, NULL);
+  DrawFrontPageBatteryStatus (BatteryString);
+
+  mLastBatteryPercentage = BatteryPercentage;
+  mLastBatteryPresent    = BatteryPresent;
+  mLastBatteryCharging   = BatteryCharging;
+
+  DEBUG ((
+    DEBUG_INFO,
+    "%a: battery=%u%% present=%d charging=%d\n",
+    __func__,
+    BatteryPercentage,
+    BatteryPresent,
+    BatteryCharging
+    ));
+
+  FreePool (BatteryString);
+}
+
+STATIC
+VOID
+EFIAPI
+FrontPageBatteryUpdateTimerCallback (
+  IN EFI_EVENT  Event,
+  IN VOID       *Context
+  )
+{
+  if (mFrontPageActive) {
+    UpdateFrontPageBatteryStatus (FALSE);
+  }
+}
+
+STATIC
+VOID
+SetFrontPageBatteryRefreshTimer (
+  IN BOOLEAN  Enable
+  )
+{
+  EFI_STATUS  Status;
+
+  if (Enable) {
+    if (mBatteryUpdateTimer == NULL) {
+      Status = gBS->CreateEvent (
+                      EVT_TIMER | EVT_NOTIFY_SIGNAL,
+                      TPL_CALLBACK,
+                      FrontPageBatteryUpdateTimerCallback,
+                      NULL,
+                      &mBatteryUpdateTimer
+                      );
+      if (EFI_ERROR (Status)) {
+        DEBUG ((DEBUG_WARN, "%a: failed to create battery update timer: %r\n", __func__, Status));
+        mBatteryUpdateTimer = NULL;
+        return;
+      }
+    }
+
+    Status = gBS->SetTimer (
+                    mBatteryUpdateTimer,
+                    TimerPeriodic,
+                    FRONT_PAGE_BATTERY_REFRESH_SECONDS * 10000000
+                    );
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_WARN, "%a: failed to arm battery update timer: %r\n", __func__, Status));
+    }
+  } else if (mBatteryUpdateTimer != NULL) {
+    gBS->SetTimer (mBatteryUpdateTimer, TimerCancel, 0);
+  }
 }
 
 /**
@@ -365,6 +600,12 @@ FreeFrontPage (
 {
   EFI_STATUS  Status;
 
+  if (mBatteryUpdateTimer != NULL) {
+    gBS->SetTimer (mBatteryUpdateTimer, TimerCancel, 0);
+    gBS->CloseEvent (mBatteryUpdateTimer);
+    mBatteryUpdateTimer = NULL;
+  }
+
   Status = gBS->UninstallMultipleProtocolInterfaces (
                   gFrontPagePrivate.DriverHandle,
                   &gEfiDevicePathProtocolGuid,
@@ -447,10 +688,15 @@ ConvertMemorySizeToString (
 {
   CHAR16  *StringBuffer;
 
-  StringBuffer = AllocateZeroPool (0x24);
+  StringBuffer = AllocateZeroPool (MAX_STRING_LEN * sizeof (CHAR16));
   ASSERT (StringBuffer != NULL);
-  UnicodeValueToStringS (StringBuffer, 0x24, LEFT_JUSTIFY, MemorySize, 10);
-  StrCatS (StringBuffer, 0x24 / sizeof (CHAR16), L" MB RAM");
+  UnicodeSPrint (
+    StringBuffer,
+    MAX_STRING_LEN * sizeof (CHAR16),
+    L"%-24s%u MB",
+    L"Memory:",
+    MemorySize
+    );
 
   *String = (CHAR16 *)StringBuffer;
 
@@ -517,6 +763,8 @@ UpdateFrontPageBannerStrings (
   UINT8                    StrIndex;
   CHAR16                   *NewString;
   CHAR16                   *FirmwareVersionString;
+  UINT8                    EcMajorVersion;
+  UINT8                    EcMinorVersion;
   EFI_STATUS               Status;
   EFI_SMBIOS_HANDLE        SmbiosHandle;
   EFI_SMBIOS_PROTOCOL      *Smbios;
@@ -527,32 +775,12 @@ UpdateFrontPageBannerStrings (
   EFI_SMBIOS_TABLE_HEADER  *Record;
   UINT64                   InstalledMemory;
   BOOLEAN                  FoundCpu;
+  CHAR16                   EcVersion[9];
+  CHAR16                   *MissingString;
+  CHAR16                   *SerialNumber;
 
   InstalledMemory = 0;
   FoundCpu        = 0;
-
-  //
-  // Update default banner string.
-  //
-  NewString = HiiGetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_CUSTOMIZE_BANNER_LINE4_LEFT), NULL);
-  UiCustomizeFrontPageBanner (4, TRUE, &NewString);
-  HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_CUSTOMIZE_BANNER_LINE4_LEFT), NewString, NULL);
-  FreePool (NewString);
-
-  NewString = HiiGetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_CUSTOMIZE_BANNER_LINE4_RIGHT), NULL);
-  UiCustomizeFrontPageBanner (4, FALSE, &NewString);
-  HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_CUSTOMIZE_BANNER_LINE4_RIGHT), NewString, NULL);
-  FreePool (NewString);
-
-  NewString = HiiGetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_CUSTOMIZE_BANNER_LINE5_LEFT), NULL);
-  UiCustomizeFrontPageBanner (5, TRUE, &NewString);
-  HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_CUSTOMIZE_BANNER_LINE5_LEFT), NewString, NULL);
-  FreePool (NewString);
-
-  NewString = HiiGetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_CUSTOMIZE_BANNER_LINE5_RIGHT), NULL);
-  UiCustomizeFrontPageBanner (5, FALSE, &NewString);
-  HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_CUSTOMIZE_BANNER_LINE5_RIGHT), NewString, NULL);
-  FreePool (NewString);
 
   //
   // Update Front Page banner strings base on SmBios Table.
@@ -572,21 +800,27 @@ UpdateFrontPageBannerStrings (
     HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_CPU_MODEL), NewString, NULL);
     FreePool (NewString);
 
-    NewString = HiiGetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_CPU_SPEED), NULL);
-    UiCustomizeFrontPageBanner (2, FALSE, &NewString);
-    HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_CPU_SPEED), NewString, NULL);
-    FreePool (NewString);
-
     NewString = HiiGetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_BIOS_VERSION), NULL);
-    UiCustomizeFrontPageBanner (3, TRUE, &NewString);
+    UiCustomizeFrontPageBanner (4, TRUE, &NewString);
     HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_BIOS_VERSION), NewString, NULL);
     FreePool (NewString);
 
+    NewString = HiiGetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_EC_VERSION), NULL);
+    UiCustomizeFrontPageBanner (5, TRUE, &NewString);
+    HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_EC_VERSION), NewString, NULL);
+    FreePool (NewString);
+
+    NewString = HiiGetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_SERIAL_NUMBER), NULL);
+    UiCustomizeFrontPageBanner (6, TRUE, &NewString);
+    HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_SERIAL_NUMBER), NewString, NULL);
+    FreePool (NewString);
+
     NewString = HiiGetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_MEMORY_SIZE), NULL);
-    UiCustomizeFrontPageBanner (3, FALSE, &NewString);
+    UiCustomizeFrontPageBanner (3, TRUE, &NewString);
     HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_MEMORY_SIZE), NewString, NULL);
     FreePool (NewString);
 
+    UpdateFrontPageBatteryStatus (TRUE);
     return;
   }
 
@@ -594,19 +828,67 @@ UpdateFrontPageBannerStrings (
   Status       = Smbios->GetNext (Smbios, &SmbiosHandle, NULL, &Record, NULL);
   while (!EFI_ERROR (Status)) {
     if (Record->Type == SMBIOS_TYPE_BIOS_INFORMATION) {
+      CHAR16   *BiosVersion;
+      BOOLEAN  EcVersionFound;
+      UINT8    MajorVersion;
+      UINT8    MinorVersion;
+
       Type0Record = (SMBIOS_TABLE_TYPE0 *)Record;
       StrIndex    = Type0Record->BiosVersion;
-      GetOptionalStringByIndex ((CHAR8 *)((UINT8 *)Type0Record + Type0Record->Hdr.Length), StrIndex, &NewString);
+      GetOptionalStringByIndex ((CHAR8 *)((UINT8 *)Type0Record + Type0Record->Hdr.Length), StrIndex, &BiosVersion);
+
+      NewString = AllocateZeroPool (MAX_STRING_LEN * sizeof (CHAR16));
+      if (NewString != NULL) {
+        UnicodeSPrint (NewString, MAX_STRING_LEN * sizeof (CHAR16), L"%-24s%s", L"coreboot version:", BiosVersion);
+      }
+
+      FreePool (BiosVersion);
 
       FirmwareVersionString = (CHAR16 *)PcdGetPtr (PcdFirmwareVersionString);
-      if (*FirmwareVersionString != 0x0000 ) {
-        FreePool (NewString);
+      if (*FirmwareVersionString != 0x0000) {
+        if (NewString != NULL) {
+          FreePool (NewString);
+        }
+
         NewString = (CHAR16 *)PcdGetPtr (PcdFirmwareVersionString);
-        UiCustomizeFrontPageBanner (3, TRUE, &NewString);
+        UiCustomizeFrontPageBanner (4, TRUE, &NewString);
         HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_BIOS_VERSION), NewString, NULL);
+      } else if (NewString != NULL) {
+        UiCustomizeFrontPageBanner (4, TRUE, &NewString);
+        HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_BIOS_VERSION), NewString, NULL);
+        FreePool (NewString);
+      }
+
+      EcVersionFound = FALSE;
+      NewString      = NULL;
+      EcMajorVersion = PcdGet8 (PcdEcMajorFirmwareVersion);
+      EcMinorVersion = PcdGet8 (PcdEcMinorFirmwareVersion);
+      if ((EcMajorVersion != 0x00) || (EcMinorVersion != 0x00)) {
+        MajorVersion   = EcMajorVersion;
+        MinorVersion   = EcMinorVersion;
+        EcVersionFound = TRUE;
       } else {
-        UiCustomizeFrontPageBanner (3, TRUE, &NewString);
-        HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_BIOS_VERSION), NewString, NULL);
+        MajorVersion = Type0Record->EmbeddedControllerFirmwareMajorRelease;
+        MinorVersion = Type0Record->EmbeddedControllerFirmwareMinorRelease;
+
+        if ((MajorVersion != 0x00) || (MinorVersion != 0x00)) {
+          EcVersionFound = TRUE;
+        }
+      }
+
+      if (EcVersionFound) {
+        NewString = AllocateZeroPool (MAX_STRING_LEN * sizeof (CHAR16));
+        if (NewString != NULL) {
+          UnicodeSPrint (EcVersion, sizeof (EcVersion), L"%d.%02d", MajorVersion, MinorVersion);
+          UnicodeSPrint (NewString, MAX_STRING_LEN * sizeof (CHAR16), L"%-24s%s", L"EC version:", EcVersion);
+        }
+      } else {
+        NewString = HiiGetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_EC_VERSION), NULL);
+      }
+
+      if (NewString != NULL) {
+        UiCustomizeFrontPageBanner (5, TRUE, &NewString);
+        HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_EC_VERSION), NewString, NULL);
         FreePool (NewString);
       }
     }
@@ -618,27 +900,52 @@ UpdateFrontPageBannerStrings (
       UiCustomizeFrontPageBanner (1, TRUE, &NewString);
       HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_COMPUTER_MODEL), NewString, NULL);
       FreePool (NewString);
+
+      StrIndex = Type1Record->SerialNumber;
+      GetOptionalStringByIndex ((CHAR8 *)((UINT8 *)Type1Record + Type1Record->Hdr.Length), StrIndex, &SerialNumber);
+      if (SerialNumber != NULL) {
+        MissingString = GetStringById (STRING_TOKEN (STR_MISSING_STRING));
+        if ((SerialNumber[0] != CHAR_NULL) &&
+            ((MissingString == NULL) || (StrCmp (SerialNumber, MissingString) != 0)))
+        {
+          NewString = AllocateZeroPool (MAX_STRING_LEN * sizeof (CHAR16));
+          if (NewString != NULL) {
+            UnicodeSPrint (NewString, MAX_STRING_LEN * sizeof (CHAR16), L"%-24s%s", L"Serial number:", SerialNumber);
+            UiCustomizeFrontPageBanner (6, TRUE, &NewString);
+            HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_SERIAL_NUMBER), NewString, NULL);
+            FreePool (NewString);
+          }
+        }
+
+        if (MissingString != NULL) {
+          FreePool (MissingString);
+        }
+
+        FreePool (SerialNumber);
+      }
     }
 
     if ((Record->Type == SMBIOS_TYPE_PROCESSOR_INFORMATION) && !FoundCpu) {
-      Type4Record = (SMBIOS_TABLE_TYPE4 *)Record;
-      //
-      // The information in the record should be only valid when the CPU Socket is populated.
-      //
-      if ((Type4Record->Status & SMBIOS_TYPE4_CPU_SOCKET_POPULATED) == SMBIOS_TYPE4_CPU_SOCKET_POPULATED) {
-        StrIndex = Type4Record->ProcessorVersion;
-        GetOptionalStringByIndex ((CHAR8 *)((UINT8 *)Type4Record + Type4Record->Hdr.Length), StrIndex, &NewString);
-        UiCustomizeFrontPageBanner (2, TRUE, &NewString);
-        HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_CPU_MODEL), NewString, NULL);
-        FreePool (NewString);
+        Type4Record = (SMBIOS_TABLE_TYPE4 *)Record;
+        //
+        // The information in the record should be only valid when the CPU Socket is populated.
+        //
+        if ((Type4Record->Status & SMBIOS_TYPE4_CPU_SOCKET_POPULATED) == SMBIOS_TYPE4_CPU_SOCKET_POPULATED) {
+            StrIndex = Type4Record->ProcessorVersion;
+            GetOptionalStringByIndex ((CHAR8 *)((UINT8 *)Type4Record + Type4Record->Hdr.Length), StrIndex, &NewString);
 
-        ConvertProcessorToString (Type4Record->CurrentSpeed, 6, &NewString);
-        UiCustomizeFrontPageBanner (2, FALSE, &NewString);
-        HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_CPU_SPEED), NewString, NULL);
-        FreePool (NewString);
+            CHAR16 *PrependedNewString = (CHAR16 *)AllocateZeroPool (100 * sizeof(CHAR16));  // Allocate fixed size
 
-        FoundCpu = TRUE;
-      }
+            UnicodeSPrint(PrependedNewString, 100 * sizeof(CHAR16), L"%-24s%s", L"Processor:", NewString);
+
+            FreePool(NewString);
+
+            UiCustomizeFrontPageBanner (2, TRUE, &PrependedNewString);
+            HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_CPU_MODEL), PrependedNewString, NULL);
+            FreePool(PrependedNewString);
+
+            FoundCpu = TRUE;
+        }
     }
 
     if ( Record->Type == SMBIOS_TYPE_MEMORY_ARRAY_MAPPED_ADDRESS ) {
@@ -665,9 +972,11 @@ UpdateFrontPageBannerStrings (
   // Now update the total installed RAM size
   //
   ConvertMemorySizeToString ((UINT32)InstalledMemory, &NewString);
-  UiCustomizeFrontPageBanner (3, FALSE, &NewString);
+  UiCustomizeFrontPageBanner (3, TRUE, &NewString);
   HiiSetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_FRONT_PAGE_MEMORY_SIZE), NewString, NULL);
   FreePool (NewString);
+
+  UpdateFrontPageBatteryStatus (TRUE);
 }
 
 /**
@@ -985,6 +1294,8 @@ InitializeUserInterface (
   UiSetConsoleMode (TRUE);
   UiEntry (FALSE);
   UiSetConsoleMode (FALSE);
+  Status = BootLogoEnableLogo ();
+  DEBUG ((DEBUG_INFO, "%a: repainted boot logo after setup: %r\n", __func__, Status));
 
   UninitializeStringSupport ();
   HiiRemovePackages (HiiHandle);
@@ -1118,6 +1429,9 @@ SetupResetReminder (
     FreePool (StringBuffer1);
     FreePool (StringBuffer2);
 
-    gRT->ResetSystem (EfiResetCold, EFI_SUCCESS, 0, NULL);
+    //
+    // Warm reset keeps in-memory requests (e.g. TPM PPI) across the reboot.
+    //
+    gRT->ResetSystem (EfiResetWarm, EFI_SUCCESS, 0, NULL);
   }
 }

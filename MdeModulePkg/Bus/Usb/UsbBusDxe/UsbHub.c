@@ -849,8 +849,27 @@ UsbHubResetPort (
   EFI_USB_PORT_STATUS  PortState;
   UINTN                Index;
   EFI_STATUS           Status;
+  BOOLEAN              SuperSpeed;
+  UINT16               ResetChange;
 
-  Status = UsbHubSetPortFeature (HubIf, Port, (EFI_USB_PORT_FEATURE)USB_HUB_PORT_RESET);
+  SuperSpeed  = (BOOLEAN)(HubIf->Device->Speed == EFI_USB_SPEED_SUPER);
+  ResetChange = USB_PORT_STAT_C_RESET;
+
+  if (SuperSpeed) {
+    Status = UsbHubClearPortFeature (HubIf, Port, (EFI_USB_PORT_FEATURE)USB_HUB_C_BH_PORT_RESET);
+    if (EFI_ERROR (Status)) {
+      return Status;
+    }
+  }
+
+  //
+  // XhciDxe exposes external SuperSpeed warm-reset completion as C_RESET.
+  //
+  Status = UsbHubSetPortFeature (
+             HubIf,
+             Port,
+             (EFI_USB_PORT_FEATURE)(SuperSpeed ? USB_HUB_BH_PORT_RESET : USB_HUB_PORT_RESET)
+             );
 
   if (EFI_ERROR (Status)) {
     return Status;
@@ -863,7 +882,7 @@ UsbHubResetPort (
   gBS->Stall (USB_SET_PORT_RESET_STALL);
 
   //
-  // Check USB_PORT_STAT_C_RESET bit to see if the resetting state is done.
+  // Wait for the completion bit matching the requested reset.
   //
   ZeroMem (&PortState, sizeof (EFI_USB_PORT_STATUS));
 
@@ -874,9 +893,14 @@ UsbHubResetPort (
       return Status;
     }
 
-    if (!EFI_ERROR (Status) &&
-        USB_BIT_IS_SET (PortState.PortChangeStatus, USB_PORT_STAT_C_RESET))
-    {
+    if (USB_BIT_IS_SET (PortState.PortChangeStatus, ResetChange)) {
+      if (SuperSpeed) {
+        Status = UsbHubClearPortFeature (HubIf, Port, (EFI_USB_PORT_FEATURE)USB_HUB_C_BH_PORT_RESET);
+        if (EFI_ERROR (Status)) {
+          return Status;
+        }
+      }
+
       gBS->Stall (USB_SET_PORT_RECOVERY_STALL);
       return EFI_SUCCESS;
     }
@@ -1161,20 +1185,28 @@ UsbRootHubResetPort (
   }
 
   //
-  // Drive the reset signal for at least 50ms. Check USB 2.0 Spec
-  // section 7.1.7.5 for timing requirements.
+  // Legacy host controllers require software to drive reset for at least
+  // 50 ms (USB 2.0 section 7.1.7.5). xHCI drives reset itself and waits for
+  // completion in SetRootHubPortFeature; do not wait another 50 ms.
   //
-  gBS->Stall (USB_SET_ROOT_PORT_RESET_STALL);
+  if ((Bus->Usb2Hc == NULL) || (Bus->Usb2Hc->MajorRevision < 0x3)) {
+    gBS->Stall (USB_SET_ROOT_PORT_RESET_STALL);
+  }
 
   for (Index = 0; Index < Bus->MaxDevices; Index++) {
     if (  (Bus->Devices[Index] != NULL)
        && (Bus->Devices[Index]->ParentPort == Port)
        && (Bus->Devices[Index]->ParentIf == RootIf))
     {
+      //
+      // DevDesc is freed and set to NULL by UsbEnumerateNewDev() before
+      // it retries the port reset, so check it before dereferencing.
+      //
       if (  (Bus->Usb2Hc != NULL)
          && (Bus->Usb2Hc->MajorRevision >= 0x3)
          && (Bus->Devices[Index]->IsSSDev)
          && (Bus->Devices[Index]->Speed < EFI_USB_SPEED_SUPER)
+         && (Bus->Devices[Index]->DevDesc != NULL)
          && (Bus->Devices[Index]->DevDesc->Desc.DeviceClass != USB_HUB_CLASS_CODE))
       {
         DEBUG ((DEBUG_INFO, "Found the device matched, Index = %d, Port = %X, ParentIf = %X\n", Index, Port, RootIf));

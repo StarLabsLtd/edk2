@@ -9,6 +9,8 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 
 #include <PiDxe.h>
 #include <Protocol/LoadedImage.h>
+#include <Protocol/GraphicsOutput.h>
+#include <Protocol/HiiFont.h>
 
 #include <Library/DebugLib.h>
 #include <Library/BaseMemoryLib.h>
@@ -27,6 +29,8 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Library/BootLogoLib.h>
 #include <Library/CapsuleLib.h>
 #include <Library/HobLib.h>
+#include <Library/TcgPhysicalPresenceLib.h>
+#include <Library/Tcg2PhysicalPresenceLib.h>
 #include <Protocol/SmmAccess2.h>
 
 typedef struct {

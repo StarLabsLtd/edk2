@@ -1303,7 +1303,10 @@ BootMaintCallback (
           break;
 
         case FORM_RESET:
-          gRT->ResetSystem (EfiResetCold, EFI_SUCCESS, 0, NULL);
+          //
+          // Warm reset keeps in-memory requests (e.g. TPM PPI) across the reboot.
+          //
+          gRT->ResetSystem (EfiResetWarm, EFI_SUCCESS, 0, NULL);
           return EFI_UNSUPPORTED;
 
         default:
@@ -1534,20 +1537,6 @@ InitializeBmmConfig (
   // Initialize data which located in Boot Options Menu
   //
   GetBootOrder (CallbackData);
-
-  //
-  // Initialize data which located in Driver Options Menu
-  //
-  GetDriverOrder (CallbackData);
-
-  //
-  // Initialize data which located in Console Options Menu
-  //
-  GetConsoleOutMode (CallbackData);
-  GetConsoleInCheck (CallbackData);
-  GetConsoleOutCheck (CallbackData);
-  GetConsoleErrCheck (CallbackData);
-  GetTerminalAttribute (CallbackData);
 
   CallbackData->BmmFakeNvData.ForceReconnect = TRUE;
 

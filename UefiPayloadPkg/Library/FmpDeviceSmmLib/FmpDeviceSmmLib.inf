@@ -21,8 +21,17 @@
 
 [Sources]
   FmpDeviceSmmLib.c
+  FmpDeviceSmmFmap.c
+  FmpDeviceSmmFmap.h
+  FmpDeviceSmmFlashRetry.c
+  FmpDeviceSmmFlashRetry.h
+  FmpDeviceSmmManifest.c
+  FmpDeviceSmmManifest.h
+  FmpDeviceSmmUpdatePolicy.c
+  FmpDeviceSmmUpdatePolicy.h
 
 [LibraryClasses]
+  CorebootCapsuleLib
   BaseMemoryLib
   DebugLib
   HobLib

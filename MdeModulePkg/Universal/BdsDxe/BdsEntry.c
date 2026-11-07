@@ -13,8 +13,10 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 **/
 
 #include "Bds.h"
+#include "BootNextPolicy.h"
 #include "Language.h"
 #include "HwErrRecSupport.h"
+#include <Library/HobLib.h>
 #include <Library/VariablePolicyHelperLib.h>
 
 #define SET_BOOT_OPTION_SUPPORT_KEY_COUNT(a, c)  { \
@@ -277,28 +279,21 @@ BdsWaitForSingleEvent (
 }
 
 /**
-  The function reads user inputs.
+  Drain queued console input.
 
 **/
+STATIC
 VOID
-BdsReadKeys (
+BdsDrainConsoleInput (
   VOID
   )
 {
-  EFI_STATUS     Status;
   EFI_INPUT_KEY  Key;
-
-  if (PcdGetBool (PcdConInConnectOnDemand)) {
-    return;
-  }
+  EFI_STATUS     Status;
 
   while (gST->ConIn != NULL) {
     Status = gST->ConIn->ReadKeyStroke (gST->ConIn, &Key);
-
     if (EFI_ERROR (Status)) {
-      //
-      // No more keys.
-      //
       break;
     }
   }
@@ -317,17 +312,16 @@ BdsWait (
   )
 {
   EFI_STATUS  Status;
+  UINT16      BootTimeOut;
   UINT16      TimeoutRemain;
 
   DEBUG ((DEBUG_INFO, "[Bds]BdsWait ...Zzzzzzzzzzzz...\n"));
 
-  TimeoutRemain = PcdGet16 (PcdPlatformBootTimeOut);
+  BootTimeOut   = PlatformBootManagerGetWaitTimeout (PcdGet16 (PcdPlatformBootTimeOut));
+  TimeoutRemain = BootTimeOut;
   while (TimeoutRemain != 0) {
     DEBUG ((DEBUG_INFO, "[Bds]BdsWait(%d)..Zzzz...\n", (UINTN)TimeoutRemain));
     PlatformBootManagerWaitCallback (TimeoutRemain);
-
-    BdsReadKeys (); // BUGBUG: Only reading can signal HotkeyTriggered
-                    //         Can be removed after all keyboard drivers invoke callback in timer callback.
 
     if (HotkeyTriggered != NULL) {
       Status = BdsWaitForSingleEvent (HotkeyTriggered, EFI_TIMER_PERIOD_SECONDS (1));
@@ -354,7 +348,7 @@ BdsWait (
   // Note that the (TimeoutRemain == 0) condition excludes
   // PcdPlatformBootTimeOut=0xFFFF, and that's deliberate.
   //
-  if ((PcdGet16 (PcdPlatformBootTimeOut) != 0) && (TimeoutRemain == 0)) {
+  if ((BootTimeOut != 0) && (TimeoutRemain == 0)) {
     PlatformBootManagerWaitCallback (0);
   }
 
@@ -696,16 +690,22 @@ BdsEntry (
   CHAR16                          BootNextVariableName[sizeof ("Boot####")];
   EFI_BOOT_MANAGER_LOAD_OPTION    BootManagerMenu;
   BOOLEAN                         BootFwUi;
+  BOOLEAN                         BootFwUiAttempted;
   BOOLEAN                         PlatformRecovery;
   BOOLEAN                         BootSuccess;
   EFI_DEVICE_PATH_PROTOCOL        *FilePath;
   EFI_STATUS                      BootManagerMenuStatus;
   EFI_BOOT_MANAGER_LOAD_OPTION    PlatformDefaultBootOption;
   BOOLEAN                         PlatformDefaultBootOptionValid;
+  UINT16                          *CurrentBootNext;
+  BOOLEAN                         CapsuleDeliveryRequested;
 
-  HotkeyTriggered = NULL;
-  Status          = EFI_SUCCESS;
-  BootSuccess     = FALSE;
+  HotkeyTriggered          = NULL;
+  Status                   = EFI_SUCCESS;
+  BootSuccess              = FALSE;
+  BootFwUiAttempted        = FALSE;
+  CurrentBootNext          = NULL;
+  CapsuleDeliveryRequested = FALSE;
 
   //
   // Insert the performance probe
@@ -808,6 +808,19 @@ BdsEntry (
 
     BootNext = NULL;
   }
+
+  DataSize = sizeof (OsIndication);
+  Status   = gRT->GetVariable (
+                    EFI_OS_INDICATIONS_VARIABLE_NAME,
+                    &gEfiGlobalVariableGuid,
+                    NULL,
+                    &DataSize,
+                    &OsIndication
+                    );
+  CapsuleDeliveryRequested = (BOOLEAN)(
+                                        !EFI_ERROR (Status) &&
+                                        ((OsIndication & EFI_OS_INDICATIONS_FILE_CAPSULE_DELIVERY_SUPPORTED) != 0)
+                                        );
 
   //
   // Initialize the platform language variables
@@ -1033,18 +1046,31 @@ BdsEntry (
   //
   // Launch Boot Manager Menu directly when EFI_OS_INDICATIONS_BOOT_TO_FW_UI is set. Skip HotkeyBoot
   //
-  if (BootFwUi && (BootManagerMenuStatus != EFI_NOT_FOUND)) {
-    //
-    // Follow generic rule, Call BdsDxeOnConnectConInCallBack to connect ConIn before enter UI
-    //
-    if (PcdGetBool (PcdConInConnectOnDemand)) {
-      BdsDxeOnConnectConInCallBack (NULL, NULL);
-    }
+  if (BootFwUi) {
+    if (BootManagerMenuStatus != EFI_NOT_FOUND) {
+      //
+      // Follow generic rule, Call BdsDxeOnConnectConInCallBack to connect ConIn before enter UI
+      //
+      if (PcdGetBool (PcdConInConnectOnDemand)) {
+        BdsDxeOnConnectConInCallBack (NULL, NULL);
+      }
 
-    //
-    // Directly enter the setup page.
-    //
-    EfiBootManagerBoot (&BootManagerMenu);
+      //
+      // A hotkey notification can leave the same key queued for ReadKeyStroke().
+      // Consume it before Enter can immediately select Continue in Front Page.
+      //
+      BdsDrainConsoleInput ();
+
+      //
+      // Directly enter the setup page.
+      //
+      DEBUG ((DEBUG_INFO, "[Bds]Booting firmware setup menu from OsIndications\n"));
+      BootFwUiAttempted = TRUE;
+      EfiBootManagerBoot (&BootManagerMenu);
+      DEBUG ((DEBUG_INFO, "[Bds]Firmware setup menu returned: %r\n", BootManagerMenu.Status));
+    } else {
+      DEBUG ((DEBUG_WARN, "[Bds]Boot-to-firmware-UI requested but Boot Manager Menu is unavailable\n"));
+    }
   }
 
   if (!PlatformRecovery) {
@@ -1057,18 +1083,74 @@ BdsEntry (
       EfiBootManagerFreeLoadOptions (LoadOptions, LoadOptionCount);
     }
 
-    //
-    // Execute Key####
-    //
-    PERF_INMODULE_BEGIN ("BdsWait");
-    BdsWait (HotkeyTriggered);
-    PERF_INMODULE_END ("BdsWait");
-    //
-    // BdsReadKeys() can be removed after all keyboard drivers invoke callback in timer callback.
-    //
-    BdsReadKeys ();
+    if (!BootFwUiAttempted) {
+      //
+      // Execute Key####
+      //
+      PERF_INMODULE_BEGIN ("BdsWait");
+      BdsWait (HotkeyTriggered);
+      PERF_INMODULE_END ("BdsWait");
+      //
+      // Some input drivers deliver hotkey notifications from ReadKeyStroke().
+      // Perform one event-gated scan even when the timeout is zero.
+      //
+      if (!PcdGetBool (PcdConInConnectOnDemand) &&
+          (gST->ConIn != NULL) &&
+          (gST->ConIn->WaitForKey != NULL) &&
+          !EFI_ERROR (gBS->CheckEvent (gST->ConIn->WaitForKey)))
+      {
+        BdsDrainConsoleInput ();
+      }
 
-    EfiBootManagerHotkeyBoot ();
+      EfiBootManagerHotkeyBoot ();
+    } else {
+      //
+      // The OS-requested setup path has already consumed this boot's intent.
+      // Do not process a hotkey that was pressed at the splash while setup was
+      // launching, otherwise exiting setup can immediately enter setup again.
+      //
+      DEBUG ((DEBUG_INFO, "[Bds]Skipping hotkey boot after OsIndications setup\n"));
+    }
+
+    DataSize = 0;
+    GetEfiGlobalVariable2 (
+      EFI_BOOT_NEXT_VARIABLE_NAME,
+      (VOID **)&CurrentBootNext,
+      &DataSize
+      );
+    if ((BootNext != NULL) &&
+        ((CurrentBootNext == NULL) ||
+         (DataSize != sizeof (UINT16)) ||
+         (*CurrentBootNext != *BootNext)))
+    {
+      //
+      // Platform policy cleared or replaced the cached request. A replacement
+      // remains non-volatile for the next boot and must not be consumed now.
+      //
+      FreePool (BootNext);
+      BootNext = NULL;
+    }
+
+    if (CurrentBootNext != NULL) {
+      FreePool (CurrentBootNext);
+      CurrentBootNext = NULL;
+    }
+
+    if (BdsShouldPreserveCapsuleBootNext (
+          BootNext != NULL,
+          CapsuleDeliveryRequested,
+          GetBootModeHob ()
+          ))
+    {
+      //
+      // Keep the capsule request for the next normal boot. Consuming BootNext
+      // would either replace an S4 resume or discard a deferred retry path.
+      //
+      FreePool (BootNext);
+      BootNext = NULL;
+    }
+
+    PlatformBootManagerAfterBootWait ();
 
     if (BootNext != NULL) {
       //

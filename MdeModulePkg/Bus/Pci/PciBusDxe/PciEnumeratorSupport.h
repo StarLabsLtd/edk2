@@ -303,6 +303,21 @@ PciParseBar (
   );
 
 /**
+  Parse the Enhanced Allocation (EA) capability of a PCI function, if present,
+  and record the fixed BARs it describes in the PCI device instance.
+
+  This must be called after the BARs have been parsed with PciParseBar (), and
+  before resource allocation takes place.
+
+  @param PciIoDevice  Pci device instance.
+
+**/
+VOID
+PciParseEnhancedAllocation (
+  IN PCI_IO_DEVICE  *PciIoDevice
+  );
+
+/**
   Parse PCI IOV VF bar information and fill them into PCI device instance.
 
   @param PciIoDevice  Pci device instance.
@@ -426,22 +441,6 @@ StartManagingRootBridge (
   );
 
 /**
-  This routine can be used to check whether a PCI device should be rejected when light enumeration.
-
-  @param PciIoDevice  Pci device instance.
-
-  @retval TRUE      This device should be rejected.
-  @retval FALSE     This device shouldn't be rejected.
-
-**/
-BOOLEAN
-IsPciDeviceRejected (
-  IN PCI_IO_DEVICE  *PciIoDevice
-  );
-
-/**
-  Reset all bus number from specific bridge.
-
   @param Bridge           Parent specific bridge.
   @param StartBusNumber   Start bus number.
 

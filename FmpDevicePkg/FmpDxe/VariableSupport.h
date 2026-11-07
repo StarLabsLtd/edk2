@@ -24,7 +24,6 @@
 /// separate variables.
 ///
 #define VARNAME_VERSION             L"FmpVersion"
-#define VARNAME_LSV                 L"FmpLsv"
 #define VARNAME_LASTATTEMPTSTATUS   L"LastAttemptStatus"
 #define VARNAME_LASTATTEMPTVERSION  L"LastAttemptVersion"
 
@@ -34,22 +33,8 @@
 /// then they are merged into a single variable and the separate variables are
 /// deleted.
 ///
-#define VARNAME_FMPSTATE  L"FmpState"
 
-///
-/// FMP Controller State structure that is used to store the state of
-/// a controller in one combined UEFI Variable.
-///
-typedef struct {
-  BOOLEAN    VersionValid;
-  BOOLEAN    LsvValid;
-  BOOLEAN    LastAttemptStatusValid;
-  BOOLEAN    LastAttemptVersionValid;
-  UINT32     Version;
-  UINT32     Lsv;
-  UINT32     LastAttemptStatus;
-  UINT32     LastAttemptVersion;
-} FMP_CONTROLLER_STATE;
+#include <Guid/FmpControllerState.h>
 
 /**
   Generate the names of the UEFI Variables used to store state information for
@@ -230,6 +215,22 @@ SetLastAttemptStatusInVariable (
 **/
 VOID
 SetLastAttemptVersionInVariable (
+  IN FIRMWARE_MANAGEMENT_PRIVATE_DATA  *Private,
+  IN UINT32                            LastAttemptVersion
+  );
+
+/**
+  Records a durable failure checkpoint immediately before device update starts.
+
+  @param[in] Private             Private context structure for the managed
+                                 controller.
+  @param[in] LastAttemptVersion  Version of the firmware update being attempted.
+
+  @retval EFI_SUCCESS  The checkpoint is durable.
+  @retval Other        The checkpoint could not be persisted.
+**/
+EFI_STATUS
+SetUpdateInProgressInVariable (
   IN FIRMWARE_MANAGEMENT_PRIVATE_DATA  *Private,
   IN UINT32                            LastAttemptVersion
   );

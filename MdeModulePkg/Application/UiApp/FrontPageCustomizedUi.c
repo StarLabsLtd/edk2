@@ -55,6 +55,11 @@ UiCustomizeFrontPage (
   UiCreateContinueMenu (HiiHandle, StartOpCodeHandle);
 
   //
+  // Create empty line.
+  //
+  UiCreateEmptyLine (HiiHandle, StartOpCodeHandle);
+
+  //
   // Create reset menu.
   //
   UiCreateResetMenu (HiiHandle, StartOpCodeHandle);
@@ -101,13 +106,15 @@ UiFrontPageCallbackHandler (
   Update the banner string in the front page.
 
   Current layout for the banner string like below:
-  PS: Totally only 5 lines of banner supported.
+  PS: Totally only 7 lines of banner supported.
 
   Line 1: Left BannerStr                           RightBannerStr
   Line 2: Left BannerStr                           RightBannerStr
   Line 3: Left BannerStr                           RightBannerStr
   Line 4: Left BannerStr                           RightBannerStr
   Line 5: Left BannerStr                           RightBannerStr
+  Line 6: Left BannerStr                           RightBannerStr
+  Line 7: Left BannerStr                           RightBannerStr
   <EmptyLine>
   First menu in front page.
   ...
@@ -126,16 +133,9 @@ UiCustomizeFrontPageBanner (
   IN OUT EFI_STRING  *BannerStr
   )
 {
-  if ((LineIndex == 5) && LeftOrRight) {
-    // Update STR_CUSTOMIZE_BANNER_LINE5_LEFT
-    if (PcdGetBool (PcdTestKeyUsed)) {
-      if (BannerStr != NULL) {
-        FreePool (*BannerStr);
-      }
-
-      *BannerStr = HiiGetString (gFrontPagePrivate.HiiHandle, STRING_TOKEN (STR_TEST_KEY_USED), NULL);
-    }
-  }
+  (VOID)LineIndex;
+  (VOID)LeftOrRight;
+  (VOID)BannerStr;
 
   return;
 }
