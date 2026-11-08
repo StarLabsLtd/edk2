@@ -290,9 +290,11 @@ HiiGetStringEx (
   }
 
   //
-  // Get the current platform language setting
+  // PlatformLang can affect the result only when choosing among languages.
   //
-  GetEfiGlobalVariable2 (L"PlatformLang", (VOID **)&PlatformLanguage, NULL);
+  if (TryBestLanguage && (AsciiStrStr (SupportedLanguages, ";") != NULL)) {
+    GetEfiGlobalVariable2 (L"PlatformLang", (VOID **)&PlatformLanguage, NULL);
+  }
 
   //
   // If Languag is NULL, then set it to an empty string, so it will be
