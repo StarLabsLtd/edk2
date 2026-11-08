@@ -24,6 +24,12 @@
   SmmStoreGeometryLib|UefiPayloadPkg/Library/SmmStoreGeometryLib/SmmStoreGeometryLib.inf
 
 [Components]
+  UefiPayloadPkg/Library/CbParseLib/GoogleTest/RootBridgeTest.inf {
+    <LibraryClasses>
+      PcdLib|MdePkg/Test/Mock/Library/GoogleTest/MockPcdLib/MockPcdLib.inf
+    <BuildOptions>
+      GCC:*_*_*_DLINK_FLAGS = -Wl,--gc-sections
+  }
   UefiPayloadPkg/Library/CbParseLib/GoogleTest/BootSplashTest.inf {
     <BuildOptions>
       GCC:*_*_*_DLINK_FLAGS = -Wl,--gc-sections,--wrap=AllocateCopyPool,--wrap=AllocateZeroPool
@@ -38,3 +44,6 @@
   gEfiMdeModulePkgTokenSpaceGuid.PcdConOutRow|25
   gEfiMdeModulePkgTokenSpaceGuid.PcdVideoHorizontalResolution|800
   gEfiMdeModulePkgTokenSpaceGuid.PcdVideoVerticalResolution|600
+
+[PcdsDynamicDefault]
+  gEfiMdeModulePkgTokenSpaceGuid.PcdPciDisableBusEnumeration|FALSE

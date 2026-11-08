@@ -1,0 +1,42 @@
+## @file
+# Production coreboot root-bridge handoff import tests.
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+[Defines]
+  INF_VERSION    = 0x00010017
+  BASE_NAME      = RootBridgeTest
+  FILE_GUID      = 27C85093-DC95-43F1-A2F8-0FA6382E5978
+  MODULE_TYPE    = HOST_APPLICATION
+  VERSION_STRING = 1.0
+[Sources]
+  RootBridgeTest.cpp
+  ../CbParseLib.c
+  ../../PayloadEntryHelperLib/PayloadEntryHelperLib.c
+  ../../PayloadEntryHobLib/Hob.c
+  ../../PciHostBridgeLib/PciHostBridgeLib.c
+  ../../PciHostBridgeLib/PciHostBridgeSupport.c
+  ../../CfrHelpersLib/CfrHelpersLib.c
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  UefiPayloadPkg/UefiPayloadPkg.dec
+  UnitTestFrameworkPkg/UnitTestFrameworkPkg.dec
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  GoogleTestLib
+  MemoryAllocationLib
+  DevicePathLib
+  PcdLib
+[Guids]
+  gUniversalPayloadPciRootBridgeInfoGuid
+  gEfiHobMemoryAllocModuleGuid
+  gEfiHobMemoryAllocStackGuid
+  gZeroGuid
+  gEdkiiBootLogoHobGuid
+  gEfiCfrSetupMenuFormGuid
+[PatchPcd]
+  gUefiPayloadPkgTokenSpaceGuid.PcdBootloaderParameter
+[Pcd]
+  gEfiMdeModulePkgTokenSpaceGuid.PcdPciDisableBusEnumeration

@@ -37,8 +37,10 @@
   PcdLib
   PrintLib
   HobLib
+  PayloadEntryHelperLib
 
 [Guids]
+  gUniversalPayloadPciRootBridgeInfoGuid
   gEdkiiBootLogoHobGuid
   gEfiCfrSetupMenuFormGuid
 

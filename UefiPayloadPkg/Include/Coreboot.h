@@ -264,6 +264,7 @@ STATIC_ASSERT (sizeof (struct cb_boot_splash) == 48, "coreboot splash ABI");
 
 #define CBMEM_ID_CONSOLE      0x434F4E53
 #define CBMEM_ID_TIMESTAMP    0x54494D45
+#define CBMEM_ID_RB_INFO      0x50524249
 
 struct cb_timestamp_entry {
   UINT32    entry_id;
