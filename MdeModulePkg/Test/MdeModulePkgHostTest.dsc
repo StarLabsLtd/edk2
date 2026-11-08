@@ -23,6 +23,11 @@
   SafeIntLib|MdePkg/Library/BaseSafeIntLib/BaseSafeIntLib.inf
 
 [Components]
+  MdeModulePkg/Library/UefiHiiLib/GoogleTest/HiiStringTest.inf {
+    <BuildOptions>
+      GCC:*_*_*_DLINK_FLAGS = -Wl,--gc-sections,--wrap=GetEfiGlobalVariable2
+  }
+
   MdeModulePkg/Library/DxeResetSystemLib/UnitTest/MockUefiRuntimeServicesTableLib.inf
   MdeModulePkg/Universal/BdsDxe/BdsBootNextPolicyUnitTestHost.inf
 
