@@ -1,0 +1,28 @@
+## @file
+# Production HII string language-selection tests.
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+[Defines]
+  INF_VERSION    = 0x00010017
+  BASE_NAME      = HiiStringTest
+  FILE_GUID      = 8c469676-50f4-41f2-832e-1d86d236bd70
+  MODULE_TYPE    = HOST_APPLICATION
+  VERSION_STRING = 1.0
+[Sources]
+  HiiStringTest.cpp
+  ../HiiString.c
+  ../HiiLanguage.c
+  ../../../../MdePkg/Library/UefiLib/UefiLib.c
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  UnitTestFrameworkPkg/UnitTestFrameworkPkg.dec
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  GoogleTestLib
+  MemoryAllocationLib
+  PcdLib
+[Guids]
+  gEfiGlobalVariableGuid
