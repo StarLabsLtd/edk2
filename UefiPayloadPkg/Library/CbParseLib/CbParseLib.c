@@ -10,6 +10,7 @@
 #include <PiPei.h>
 #include <Uefi/UefiBaseType.h>
 #include <Library/HobLib.h>
+#include <Library/PayloadEntryHelperLib.h>
 #include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
 #include <Library/DebugLib.h>
@@ -23,6 +24,7 @@
 #include <Coreboot.h>
 #include <Guid/BootLogo.h>
 #include <Guid/CfrSetupMenuGuid.h>
+#include <UniversalPayload/PciRootBridges.h>
 
 /**
   Map a coreboot memory type to the E820-style encoding used by UefiPayloadEntry.
@@ -414,6 +416,11 @@ ParseCbMemTable (
   UINT64                  Size;
   UINTN                   Index;
   struct cbmem_root       *CbMemRoot;
+  struct cb_header        *Header;
+  struct cb_record        *Record;
+  struct cb_cbmem_entry   *Entry;
+  UINT8                   *Cursor;
+  UINTN                   Remaining;
 
   if (MemTable == NULL) {
     return RETURN_INVALID_PARAMETER;
@@ -422,6 +429,65 @@ ParseCbMemTable (
   *MemTable = NULL;
   Status    = RETURN_NOT_FOUND;
 
+  //
+  // Published entry records include small CBMEM allocations as well as large
+  // ones, and supply the actual allocation size without walking IMD internals.
+  //
+  Header = (struct cb_header *)GetParameterBase ();
+  if ((Header == NULL) || (Header->header_bytes < sizeof (*Header)) ||
+      (Header->header_bytes > MAX_UINTN - (UINTN)Header) ||
+      (Header->table_bytes > MAX_UINTN - (UINTN)Header - Header->header_bytes))
+  {
+    return RETURN_COMPROMISED_DATA;
+  }
+
+  Entry     = NULL;
+  Cursor    = (UINT8 *)Header + Header->header_bytes;
+  Remaining = Header->table_bytes;
+  for (Index = 0; Index < Header->table_entries; Index++) {
+    if (Remaining < sizeof (*Record)) {
+      return RETURN_COMPROMISED_DATA;
+    }
+
+    Record = (struct cb_record *)Cursor;
+    if ((Record->size < sizeof (*Record)) || (Record->size > Remaining)) {
+      return RETURN_COMPROMISED_DATA;
+    }
+
+    if (Record->tag == CB_TAG_CBMEM_ENTRY) {
+      if (Record->size < sizeof (*Entry)) {
+        return RETURN_COMPROMISED_DATA;
+      }
+
+      if (((struct cb_cbmem_entry *)Record)->id == TableId) {
+        if (Entry != NULL) {
+          return RETURN_COMPROMISED_DATA;
+        }
+
+        Entry = (struct cb_cbmem_entry *)Record;
+      }
+    }
+
+    Cursor    += Record->size;
+    Remaining -= Record->size;
+  }
+
+  if (Entry != NULL) {
+    Start = cb_unpack64 (Entry->address);
+    if ((Start > MAX_UINTN) || (Entry->entry_size > MAX_UINTN - Start)) {
+      return RETURN_UNSUPPORTED;
+    }
+
+    *MemTable = (VOID *)(UINTN)Start;
+    if (MemTableSize != NULL) {
+      *MemTableSize = Entry->entry_size;
+    }
+
+    return RETURN_SUCCESS;
+  }
+
+  //
+  // Older coreboot tables may provide only the memory-region directory.
   //
   // Get the coreboot memory table
   //
@@ -836,6 +902,48 @@ ParseGfxDeviceInfo (
 }
 
 /**
+  Import the standard root-bridge handoff from its actual CBMEM allocation.
+**/
+STATIC
+VOID
+ParseRootBridgeInfo (
+  VOID
+  )
+{
+  UNIVERSAL_PAYLOAD_PCI_ROOT_BRIDGES  *Info;
+  EFI_HOB_GUID_TYPE                  *Hob;
+  VOID                              *Data;
+  UINT32                            Size;
+
+  if (RETURN_ERROR (ParseCbMemTable (CBMEM_ID_RB_INFO, &Data, &Size)) ||
+      (Data == NULL) || (Size < sizeof (*Info)))
+  {
+    return;
+  }
+
+  // HOB lengths include the GUID header and are aligned to eight bytes.
+  Info = Data;
+  if ((Info->Header.Revision != UNIVERSAL_PAYLOAD_PCI_ROOT_BRIDGES_REVISION) ||
+      (Info->Header.Length < sizeof (*Info)) || (Info->Header.Length > Size) ||
+      (Info->Header.Length > MAX_UINT16 - 7 - sizeof (*Hob)) ||
+      (Info->Count == 0) ||
+      (Info->Count > (Info->Header.Length - sizeof (*Info)) / sizeof (Info->RootBridge[0])))
+  {
+    DEBUG ((DEBUG_ERROR, "Invalid coreboot root-bridge handoff; retaining PCI scan\n"));
+    return;
+  }
+
+  Hob = CreateHob (EFI_HOB_TYPE_GUID_EXTENSION, (UINT16)(sizeof (*Hob) + Info->Header.Length));
+  if (Hob == NULL) {
+    DEBUG ((DEBUG_ERROR, "Could not import coreboot root-bridge handoff\n"));
+    return;
+  }
+
+  CopyGuid (&Hob->Name, &gUniversalPayloadPciRootBridgeInfoGuid);
+  CopyMem (GET_GUID_HOB_DATA (Hob), Info, Info->Header.Length);
+}
+
+/**
   Parse and handle the misc info provided by bootloader
 
   @retval RETURN_SUCCESS               The misc information was parsed successfully.
@@ -863,6 +971,8 @@ ParseMiscInfo (
   CFR_OPTION_FORM                       *CbCfrOuterFormOffset;
   CFR_OPTION_FORM                       *CfrSetupMenuForm;
   CFR_VARBINARY                         *CfrFormName;
+
+  ParseRootBridgeInfo ();
 
   //
   // CFR has several CB tags, though these are nested structures,
