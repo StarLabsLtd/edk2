@@ -229,6 +229,8 @@ struct _USB_INTERFACE {
   //
   // Data used only by normal hub devices
   //
+  UINT64                      PowerOnTime;
+  UINTN                       PowerGoodDelay;
   USB_ENDPOINT_DESC           *HubEp;
   UINT8                       *ChangeMap;
 
