@@ -654,6 +654,35 @@ RetrieveRootBridgeInfoFromHob (
     return NULL;
   }
 
+  //
+  // Imported apertures must satisfy the same GCD policy as scanned BARs.
+  // Translation maps device addresses to host addresses with UINT64 wrap.
+  //
+  for (Index = 0; Index < PciRootBridgeInfo->Count; Index++) {
+    UNIVERSAL_PAYLOAD_PCI_ROOT_BRIDGE           *Root;
+    UNIVERSAL_PAYLOAD_PCI_ROOT_BRIDGE_APERTURE  *Apertures[4];
+    UINTN                                       ApertureIndex;
+    UINT64                                      Base;
+    UINT64                                      Limit;
+
+    Root         = &PciRootBridgeInfo->RootBridge[Index];
+    Apertures[0] = &Root->Mem;
+    Apertures[1] = &Root->MemAbove4G;
+    Apertures[2] = &Root->PMem;
+    Apertures[3] = &Root->PMemAbove4G;
+    for (ApertureIndex = 0; ApertureIndex < ARRAY_SIZE (Apertures); ApertureIndex++) {
+      if (Apertures[ApertureIndex]->Base > Apertures[ApertureIndex]->Limit) {
+        continue;
+      }
+
+      Base  = Apertures[ApertureIndex]->Base - Apertures[ApertureIndex]->Translation;
+      Limit = Apertures[ApertureIndex]->Limit - Apertures[ApertureIndex]->Translation;
+      if ((Base > Limit) || EFI_ERROR (PcatPciRootBridgeWarnAboutBrokenFW (Base, Limit))) {
+        return ScanForRootBridges (NumberOfRootBridges);
+      }
+    }
+  }
+
   Size           = PciRootBridgeInfo->Count * sizeof (PCI_ROOT_BRIDGE);
   PciRootBridges = (PCI_ROOT_BRIDGE *)AllocatePool (Size);
   ASSERT (PciRootBridges != NULL);
