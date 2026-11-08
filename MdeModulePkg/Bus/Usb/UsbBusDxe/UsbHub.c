@@ -8,6 +8,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 **/
 
 #include "UsbBus.h"
+#include <Library/TimerLib.h>
 
 //
 // Array that maps the change bit to feature value which is
@@ -648,7 +649,12 @@ UsbHubInit (
     // Update for the usb hub has no power on delay requirement
     //
     if (HubDesc->PwrOn2PwrGood > 0) {
-      gBS->Stall (HubDesc->PwrOn2PwrGood * USB_SET_PORT_POWER_STALL);
+      //
+      // Let other ports initialize while this hub's port power settles.
+      // The first port-status query waits for any remaining delay.
+      //
+      HubIf->PowerOnTime    = GetPerformanceCounter ();
+      HubIf->PowerGoodDelay = HubDesc->PwrOn2PwrGood * USB_SET_PORT_POWER_STALL;
     }
 
     UsbHubAckHubStatus (HubIf->Device);
@@ -734,6 +740,33 @@ UsbHubGetPortStatus (
   )
 {
   EFI_STATUS  Status;
+  UINT64      First;
+  UINT64      Last;
+  UINT64      Now;
+  UINT64      Elapsed;
+  UINT64      Ticks;
+
+  if (HubIf->PowerGoodDelay != 0) {
+    Elapsed = 0;
+    if (GetPerformanceCounterProperties (&First, &Last) != 0) {
+      Now = GetPerformanceCounter ();
+      if (First < Last) {
+        Ticks = (Now >= HubIf->PowerOnTime) ? Now - HubIf->PowerOnTime :
+                (Last - HubIf->PowerOnTime) + (Now - First) + 1;
+      } else {
+        Ticks = (Now <= HubIf->PowerOnTime) ? HubIf->PowerOnTime - Now :
+                (HubIf->PowerOnTime - Last) + (First - Now) + 1;
+      }
+
+      Elapsed = DivU64x32 (GetTimeInNanoSecond (Ticks), 1000);
+    }
+
+    if (Elapsed < HubIf->PowerGoodDelay) {
+      gBS->Stall (HubIf->PowerGoodDelay - (UINTN)Elapsed);
+    }
+
+    HubIf->PowerGoodDelay = 0;
+  }
 
   Status = UsbHubCtrlGetPortStatus (HubIf->Device, Port, PortState);
 
