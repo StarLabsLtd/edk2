@@ -1296,7 +1296,16 @@ UsbRootHubResetPort (
     return Status;
   }
 
-  gBS->Stall (USB_CLR_ROOT_PORT_RESET_STALL);
+  //
+  // xHCI has already completed reset. Allow the 10 ms recovery required
+  // by USB 2.0 section 7.1.7.5; keep the legacy-controller delay.
+  //
+  if ((Bus->Usb2Hc != NULL) && (Bus->Usb2Hc->MajorRevision >= 0x3)) {
+    gBS->Stall (USB_SET_PORT_RECOVERY_STALL);
+  } else {
+    gBS->Stall (USB_CLR_ROOT_PORT_RESET_STALL);
+  }
+
 
   //
   // USB host controller won't clear the RESET bit until
