@@ -119,9 +119,12 @@ extern CHAR16  *mBmLoadOptionName[];
   @param Name    Variable name.
   @param Guid    Variable GUID.
   @param Context The same context passed to BmForEachVariable.
+
+  @retval TRUE   Continue enumeration.
+  @retval FALSE  Stop enumeration.
 **/
 typedef
-VOID
+BOOLEAN
 (*BM_VARIABLE_VISITOR) (
   CHAR16    *Name,
   EFI_GUID  *Guid,
@@ -129,7 +132,7 @@ VOID
   );
 
 /**
-  Call Visitor function for each variable in variable storage.
+  Call Visitor for each variable until it returns FALSE.
 
   @param Visitor   Visitor function.
   @param Context   The context passed to Visitor function.

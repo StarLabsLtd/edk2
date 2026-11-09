@@ -134,9 +134,28 @@ BmIsKeyOptionVariable (
   return TRUE;
 }
 
+/**
+  Compare the keystroke sequence and modifiers of two key options.
+**/
+STATIC
+BOOLEAN
+BmKeyOptionsMatch (
+  IN CONST EFI_BOOT_MANAGER_KEY_OPTION  *First,
+  IN CONST EFI_BOOT_MANAGER_KEY_OPTION  *Second
+  )
+{
+  return (BOOLEAN)((First->KeyData.PackedValue == Second->KeyData.PackedValue) &&
+                   (CompareMem (
+                      First->Keys,
+                      Second->Keys,
+                      First->KeyData.Options.InputKeyCount * sizeof (EFI_INPUT_KEY)
+                      ) == 0));
+}
+
 typedef struct {
-  EFI_BOOT_MANAGER_KEY_OPTION    *KeyOptions;
-  UINTN                          KeyOptionCount;
+  EFI_BOOT_MANAGER_KEY_OPTION          *KeyOptions;
+  UINTN                                KeyOptionCount;
+  CONST EFI_BOOT_MANAGER_KEY_OPTION    *Match;
 } BM_COLLECT_KEY_OPTIONS_PARAM;
 
 /**
@@ -146,7 +165,7 @@ typedef struct {
   @param Guid    Variable GUID.
   @param Context The same context passed to BmForEachVariable.
 **/
-VOID
+BOOLEAN
 BmCollectKeyOptions (
   CHAR16    *Name,
   EFI_GUID  *Guid,
@@ -158,8 +177,10 @@ BmCollectKeyOptions (
   VOID                          *KeyOption;
   UINT16                        OptionNumber;
   UINTN                         KeyOptionSize;
+  BOOLEAN                       Continue;
 
-  Param = (BM_COLLECT_KEY_OPTIONS_PARAM *)Context;
+  Param    = (BM_COLLECT_KEY_OPTIONS_PARAM *)Context;
+  Continue = TRUE;
 
   if (BmIsKeyOptionVariable (Name, Guid, &OptionNumber)) {
     GetEfiGlobalVariable2 (Name, &KeyOption, &KeyOptionSize);
@@ -184,23 +205,29 @@ BmCollectKeyOptions (
       CopyMem (&Param->KeyOptions[Index], KeyOption, KeyOptionSize);
       Param->KeyOptions[Index].OptionNumber = OptionNumber;
       Param->KeyOptionCount++;
+      Continue = (BOOLEAN)((Param->Match == NULL) || !BmKeyOptionsMatch (KeyOption, Param->Match));
     }
 
     FreePool (KeyOption);
   }
+
+  return Continue;
 }
 
 /**
   Return the array of key options.
 
   @param Count  Return the number of key options.
+  @param Match  Stop after collecting a valid matching key, or enumerate
+                all keys when NULL.
 
   @retval NULL  No key option.
   @retval Other Pointer to the key options.
 **/
 EFI_BOOT_MANAGER_KEY_OPTION *
 BmGetKeyOptions (
-  OUT UINTN  *Count
+  OUT UINTN                             *Count,
+  IN CONST EFI_BOOT_MANAGER_KEY_OPTION  *Match OPTIONAL
   )
 {
   BM_COLLECT_KEY_OPTIONS_PARAM  Param;
@@ -211,6 +238,7 @@ BmGetKeyOptions (
 
   Param.KeyOptions     = NULL;
   Param.KeyOptionCount = 0;
+  Param.Match          = Match;
 
   BmForEachVariable (BmCollectKeyOptions, (VOID *)&Param);
 
@@ -917,7 +945,7 @@ EfiBootManagerStartHotkeyService (
     *HotkeyTriggered = mBmHotkeyTriggered;
   }
 
-  KeyOptions = BmGetKeyOptions (&KeyOptionCount);
+  KeyOptions = BmGetKeyOptions (&KeyOptionCount, NULL);
   for (Index = 0; Index < KeyOptionCount; Index++) {
     BmProcessKeyOption (&KeyOptions[Index]);
   }
@@ -1020,12 +1048,10 @@ EfiBootManagerAddKeyOptionVariable (
   //
   // Check if the hot key sequence was defined already
   //
-  KeyOptions = BmGetKeyOptions (&KeyOptionCount);
+  KeyOptions = BmGetKeyOptions (&KeyOptionCount, &KeyOption);
   if (KeyOptions != NULL) {
     for (Index = 0; Index < KeyOptionCount; Index++) {
-      if ((KeyOptions[Index].KeyData.PackedValue == KeyOption.KeyData.PackedValue) &&
-          (CompareMem (KeyOptions[Index].Keys, KeyOption.Keys, KeyOption.KeyData.Options.InputKeyCount * sizeof (EFI_INPUT_KEY)) == 0))
-      {
+      if (BmKeyOptionsMatch (&KeyOptions[Index], &KeyOption)) {
         break;
       }
 
@@ -1158,20 +1184,13 @@ EfiBootManagerDeleteKeyOptionVariable (
   // Delete the key option from the variable
   //
   Status     = EFI_NOT_FOUND;
-  KeyOptions = BmGetKeyOptions (&KeyOptionCount);
+  KeyOptions = BmGetKeyOptions (&KeyOptionCount, NULL);
   if (KeyOptions == NULL) {
     goto Exit;
   }
 
   for (Index = 0; Index < KeyOptionCount; Index++) {
-    if ((KeyOptions[Index].KeyData.PackedValue == KeyOption.KeyData.PackedValue) &&
-        (CompareMem (
-           KeyOptions[Index].Keys,
-           KeyOption.Keys,
-           KeyOption.KeyData.Options.InputKeyCount * sizeof (EFI_INPUT_KEY)
-           ) == 0)
-        )
-    {
+    if (BmKeyOptionsMatch (&KeyOptions[Index], &KeyOption)) {
       UnicodeSPrint (KeyOptionName, sizeof (KeyOptionName), L"Key%04x", KeyOptions[Index].OptionNumber);
       Status = gRT->SetVariable (
                       KeyOptionName,
