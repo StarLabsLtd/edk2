@@ -475,6 +475,9 @@ UsbOnHubInterrupt (
   EFI_USB_IO_PROTOCOL          *UsbIo;
   EFI_USB_ENDPOINT_DESCRIPTOR  *EpDesc;
   EFI_STATUS                   Status;
+  EFI_TPL                      OldTpl;
+  UINTN                        MapSize;
+  UINTN                        Index;
 
   HubIf  = (USB_INTERFACE *)Context;
   UsbIo  = &(HubIf->UsbIo);
@@ -539,13 +542,22 @@ UsbOnHubInterrupt (
   // practise since UsbOnHubInterrupt is called in the context
   // of host controller's AsyncInterrupt monitor.
   //
-  HubIf->ChangeMap = AllocateZeroPool (DataLength);
+  MapSize = HubIf->NumOfPort / 8 + 1;
+  OldTpl  = gBS->RaiseTPL (TPL_NOTIFY);
+  if (HubIf->ChangeMap == NULL) {
+    HubIf->ChangeMap = AllocateZeroPool (MapSize);
+  }
 
   if (HubIf->ChangeMap == NULL) {
+    gBS->RestoreTPL (OldTpl);
     return EFI_OUT_OF_RESOURCES;
   }
 
-  CopyMem (HubIf->ChangeMap, Data, DataLength);
+  for (Index = 0; Index < MIN (DataLength, MapSize); Index++) {
+    HubIf->ChangeMap[Index] |= ((UINT8 *)Data)[Index];
+  }
+
+  gBS->RestoreTPL (OldTpl);
   gBS->SignalEvent (HubIf->HubNotify);
 
   return EFI_SUCCESS;
@@ -660,6 +672,8 @@ UsbHubInit (
     UsbHubAckHubStatus (HubIf->Device);
   }
 
+  HubIf->Ports = AllocateZeroPool (sizeof (*HubIf->Ports) * HubIf->NumOfPort);
+
   //
   // Create an event to enumerate the hub's port. On
   //
@@ -678,6 +692,11 @@ UsbHubInit (
       HubDev->Address,
       Status
       ));
+
+    if (HubIf->Ports != NULL) {
+      FreePool (HubIf->Ports);
+      HubIf->Ports = NULL;
+    }
 
     return Status;
   }
@@ -710,6 +729,11 @@ UsbHubInit (
 
     gBS->CloseEvent (HubIf->HubNotify);
     HubIf->HubNotify = NULL;
+
+    if (HubIf->Ports != NULL) {
+      FreePool (HubIf->Ports);
+      HubIf->Ports = NULL;
+    }
 
     return Status;
   }
@@ -976,6 +1000,10 @@ UsbHubRelease (
   }
 
   gBS->CloseEvent (HubIf->HubNotify);
+  if (HubIf->Ports != NULL) {
+    FreePool (HubIf->Ports);
+    HubIf->Ports = NULL;
+  }
 
   HubIf->IsHub     = FALSE;
   HubIf->HubApi    = NULL;
@@ -1026,6 +1054,9 @@ UsbRootHubInit (
   HubIf->NumOfPort = NumOfPort;
   HubIf->HubNotify = NULL;
 
+  // OOM retains the legacy serial path, before any status is consumed.
+  HubIf->Ports = AllocateZeroPool (NumOfPort * sizeof (*HubIf->Ports));
+
   //
   // Create a timer to poll root hub ports periodically
   //
@@ -1038,6 +1069,11 @@ UsbRootHubInit (
                   );
 
   if (EFI_ERROR (Status)) {
+    if (HubIf->Ports != NULL) {
+      FreePool (HubIf->Ports);
+      HubIf->Ports = NULL;
+    }
+
     return Status;
   }
 
@@ -1055,6 +1091,10 @@ UsbRootHubInit (
 
   if (EFI_ERROR (Status)) {
     gBS->CloseEvent (HubIf->HubNotify);
+    if (HubIf->Ports != NULL) {
+      FreePool (HubIf->Ports);
+      HubIf->Ports = NULL;
+    }
   }
 
   return Status;
@@ -1328,6 +1368,10 @@ UsbRootHubRelease (
 
   gBS->SetTimer (HubIf->HubNotify, TimerCancel, USB_ROOTHUB_POLL_INTERVAL);
   gBS->CloseEvent (HubIf->HubNotify);
+  if (HubIf->Ports != NULL) {
+    FreePool (HubIf->Ports);
+    HubIf->Ports = NULL;
+  }
 
   return EFI_SUCCESS;
 }
