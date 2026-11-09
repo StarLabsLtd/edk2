@@ -27,7 +27,7 @@ CHAR16  *mBmLoadOptionOrderName[] = {
 };
 
 /**
-  Call Visitor function for each variable in variable storage.
+  Call Visitor for each variable until it returns FALSE.
 
   @param Visitor  Visitor function.
   @param Context  The context passed to Visitor function.
@@ -67,7 +67,9 @@ BmForEachVariable (
 
     ASSERT_EFI_ERROR (Status);
 
-    Visitor (Name, &Guid, Context);
+    if (!Visitor (Name, &Guid, Context)) {
+      break;
+    }
   }
 
   FreePool (Name);
@@ -1049,7 +1051,7 @@ typedef struct {
   @param Guid    Variable GUID.
   @param Context The same context passed to BmForEachVariable.
 **/
-VOID
+BOOLEAN
 BmCollectLoadOptions (
   IN CHAR16    *Name,
   IN EFI_GUID  *Guid,
@@ -1090,6 +1092,8 @@ BmCollectLoadOptions (
       Param->OptionCount++;
     }
   }
+
+  return TRUE;
 }
 
 /**
