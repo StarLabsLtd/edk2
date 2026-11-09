@@ -16,6 +16,10 @@
   UsbBusDxeGoogleTest.cpp
   ../UsbDesc.c
   ../UsbHub.c
+  ../UsbEnumer.c
+  ../UsbUtility.c
+  ../UsbBus.c
+  ../ComponentName.c
 
 [Packages]
   MdePkg/MdePkg.dec
@@ -28,3 +32,11 @@
   DebugLib
   GoogleTestLib
   MemoryAllocationLib
+  DevicePathLib
+  UefiLib
+  ReportStatusCodeLib
+
+[Protocols]
+  gEfiUsbIoProtocolGuid
+  gEfiDevicePathProtocolGuid
+  gEfiUsb2HcProtocolGuid

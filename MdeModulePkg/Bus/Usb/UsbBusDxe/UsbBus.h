@@ -48,11 +48,11 @@ typedef struct _USB_HUB_API    USB_HUB_API;
 #define USB_BUS_1_MILLISECOND  1000
 
 //
-// Roothub and hub's polling interval, set by experience,
-// The unit of roothub is 100us, means 100ms as interval, and
-// the unit of hub is 1ms, means 64ms as interval.
+// Root-hub polling uses the UEFI timer's 100 ns units (10 ms).
+// External-hub interrupt polling uses milliseconds (64 ms).
+// Port debounce and reset recovery delays are independent of polling.
 //
-#define USB_ROOTHUB_POLL_INTERVAL  (100 * 10000U)
+#define USB_ROOTHUB_POLL_INTERVAL  (10 * 10000U)
 #define USB_HUB_POLL_INTERVAL      64
 
 //
@@ -202,6 +202,14 @@ struct _USB_DEVICE {
 };
 
 //
+// Pending port events consumed by host-controller status reads.
+//
+typedef struct {
+  UINT16     Changes;
+  BOOLEAN    Debounced;
+} USB_PORT_STATE;
+
+//
 // Stands for different functions of USB device
 //
 struct _USB_INTERFACE {
@@ -235,11 +243,10 @@ struct _USB_INTERFACE {
   UINT8                       *ChangeMap;
 
   //
-  // Data used only by root hub to hand over device to
-  // companion UHCI driver if low/full speed devices are
-  // connected to EHCI.
+  // Root-hub companion-controller handoff and pending enumeration events.
   //
   UINT8                       MaxSpeed;
+  USB_PORT_STATE              *Ports;
 };
 
 //

@@ -667,6 +667,7 @@ UsbFindChild (
   @param  HubIf                 The HUB that has the device connected.
   @param  Port                  The port index of the hub (started with zero).
   @param  ResetIsNeeded         The boolean to control whether skip the reset of the port.
+  @param  PortIsStable          The connection has completed its debounce delay.
 
   @retval EFI_SUCCESS           The device is enumerated (added or removed).
   @retval EFI_OUT_OF_RESOURCES  Failed to allocate resource for the device.
@@ -677,7 +678,8 @@ EFI_STATUS
 UsbEnumerateNewDev (
   IN USB_INTERFACE  *HubIf,
   IN UINT8          Port,
-  IN BOOLEAN        ResetIsNeeded
+  IN BOOLEAN        ResetIsNeeded,
+  IN BOOLEAN        PortIsStable
   )
 {
   USB_BUS              *Bus;
@@ -696,7 +698,10 @@ UsbEnumerateNewDev (
   HubApi  = HubIf->HubApi;
   Address = Bus->MaxDevices;
 
-  gBS->Stall (USB_WAIT_PORT_STABLE_STALL);
+  if (!PortIsStable) {
+    gBS->Stall (USB_WAIT_PORT_STABLE_STALL);
+  }
+
 
   //
   // Hub resets the device for at least 10 milliseconds.
@@ -960,6 +965,58 @@ ON_ERROR:
 }
 
 /**
+  Read a port without losing events consumed by the host-controller driver.
+
+  @param  HubIf      The hub interface.
+  @param  Port       The port index.
+  @param  PortState  The current status and pending changes.
+  @param  ResetComplete  Whether this read reports a completed reset.
+
+  @return The host-controller status.
+**/
+STATIC
+EFI_STATUS
+UsbReadPort (
+  IN  USB_INTERFACE        *HubIf,
+  IN  UINT8                Port,
+  OUT EFI_USB_PORT_STATUS  *PortState,
+  OUT BOOLEAN              *ResetComplete OPTIONAL
+  )
+{
+  USB_PORT_STATE  *Pending;
+  EFI_STATUS      Status;
+
+  Pending = &HubIf->Ports[Port];
+  Status  = HubIf->HubApi->GetPortStatus (HubIf, Port, PortState);
+  if (ResetComplete != NULL) {
+    *ResetComplete = (BOOLEAN)(!EFI_ERROR (Status) &&
+                               USB_BIT_IS_SET (PortState->PortChangeStatus, USB_PORT_STAT_C_RESET));
+  }
+
+  if (EFI_ERROR (Status)) {
+    Pending->Debounced = FALSE;
+    return Status;
+  }
+
+  if ((PortState->PortChangeStatus != 0) ||
+      !USB_BIT_IS_SET (PortState->PortStatus, USB_PORT_STAT_CONNECTION))
+  {
+    Pending->Debounced = FALSE;
+  }
+
+  // A completed reset belongs to the old connection, not its replacement.
+  if (USB_BIT_IS_SET (PortState->PortChangeStatus, USB_PORT_STAT_C_CONNECTION) ||
+      !USB_BIT_IS_SET (PortState->PortStatus, USB_PORT_STAT_CONNECTION))
+  {
+    Pending->Changes &= (UINT16) ~USB_PORT_STAT_C_RESET;
+  }
+
+  Pending->Changes           |= PortState->PortChangeStatus;
+  PortState->PortChangeStatus = Pending->Changes;
+  return EFI_SUCCESS;
+}
+
+/**
   Process the events on the port.
 
   @param  HubIf                 The HUB that has the device connected.
@@ -980,6 +1037,8 @@ UsbEnumeratePort (
   USB_DEVICE           *Child;
   EFI_USB_PORT_STATUS  PortState;
   EFI_STATUS           Status;
+  BOOLEAN              PortIsStable;
+  BOOLEAN              ResetComplete;
 
   Child  = NULL;
   HubApi = HubIf->HubApi;
@@ -992,7 +1051,16 @@ UsbEnumeratePort (
   //
   // Host learns of the new device by polling the hub for port changes.
   //
-  Status = HubApi->GetPortStatus (HubIf, Port, &PortState);
+  if (HubIf->Ports != NULL) {
+    Status = UsbReadPort (HubIf, Port, &PortState, &ResetComplete);
+    if (EFI_ERROR (Status)) {
+      return Status;
+    }
+  } else {
+    Status        = HubApi->GetPortStatus (HubIf, Port, &PortState);
+    ResetComplete = (BOOLEAN)((Status != EFI_DEVICE_ERROR) &&
+                              USB_BIT_IS_SET (PortState.PortChangeStatus, USB_PORT_STAT_C_RESET));
+  }
 
   if (EFI_ERROR (Status) && (Status != EFI_DEVICE_ERROR)) {
     DEBUG ((DEBUG_ERROR, "UsbEnumeratePort: failed to get state of port %d\n", Port));
@@ -1064,6 +1132,13 @@ UsbEnumeratePort (
   //
   // Following as the above cases, it's safety to remove and create again.
   //
+  PortIsStable = FALSE;
+  if (HubIf->Ports != NULL) {
+    PortIsStable                 = HubIf->Ports[Port].Debounced;
+    HubIf->Ports[Port].Changes   = 0;
+    HubIf->Ports[Port].Debounced = FALSE;
+  }
+
   Child = UsbFindChild (HubIf, Port);
 
   if (Child != NULL) {
@@ -1076,13 +1151,9 @@ UsbEnumeratePort (
     // Now, new device connected, enumerate and configure the device
     //
     DEBUG ((DEBUG_INFO, "UsbEnumeratePort: new device connected at port %d\n", Port));
-    if (USB_BIT_IS_SET (PortState.PortChangeStatus, USB_PORT_STAT_C_RESET) &&
-        (Status != EFI_DEVICE_ERROR))
-    {
-      Status = UsbEnumerateNewDev (HubIf, Port, FALSE);
-    } else {
-      Status = UsbEnumerateNewDev (HubIf, Port, TRUE);
-    }
+    // Queued C_RESET is an event, not proof that the controller's slot is
+    // still initialized. Only the fresh processing read may authorize skipping.
+    Status = UsbEnumerateNewDev (HubIf, Port, (BOOLEAN) !ResetComplete, PortIsStable);
   } else {
     DEBUG ((DEBUG_INFO, "UsbEnumeratePort: device disconnected event on port %d\n", Port));
   }
@@ -1105,15 +1176,24 @@ UsbHubEnumeration (
   IN VOID       *Context
   )
 {
-  USB_INTERFACE  *HubIf;
-  UINT8          Byte;
-  UINT8          Bit;
-  UINT8          Index;
-  USB_DEVICE     *Child;
+  USB_INTERFACE        *HubIf;
+  UINT8                Byte;
+  UINT8                Bit;
+  UINT8                Index;
+  USB_DEVICE           *Child;
+  EFI_USB_PORT_STATUS  PortState;
+  EFI_STATUS           Status;
+  BOOLEAN              Debounce;
+  UINT8                *ChangeMap;
+  EFI_TPL              OldTpl;
 
   ASSERT (Context != NULL);
 
-  HubIf = (USB_INTERFACE *)Context;
+  HubIf            = (USB_INTERFACE *)Context;
+  OldTpl           = gBS->RaiseTPL (TPL_NOTIFY);
+  ChangeMap        = HubIf->ChangeMap;
+  HubIf->ChangeMap = NULL;
+  gBS->RestoreTPL (OldTpl);
 
   for (Index = 0; Index < HubIf->NumOfPort; Index++) {
     Child = UsbFindChild (HubIf, Index);
@@ -1123,8 +1203,41 @@ UsbHubEnumeration (
     }
   }
 
-  if (HubIf->ChangeMap == NULL) {
+  if (ChangeMap == NULL) {
     return;
+  }
+
+  // Collect connected ports before waiting, so each port on this hub can
+  // share the interval without deferring input readiness to a later callback.
+  Debounce = FALSE;
+  Byte     = 0;
+  Bit      = 1;
+  if (HubIf->Ports != NULL) {
+    for (Index = 0; Index < HubIf->NumOfPort; Index++) {
+      HubIf->Ports[Index].Debounced = FALSE;
+      if (USB_BIT_IS_SET (ChangeMap[Byte], USB_BIT (Bit))) {
+        Status = UsbReadPort (HubIf, Index, &PortState, NULL);
+        if (!EFI_ERROR (Status) &&
+            USB_BIT_IS_SET (PortState.PortStatus, USB_PORT_STAT_CONNECTION) &&
+            (PortState.PortChangeStatus == USB_PORT_STAT_C_CONNECTION))
+        {
+          Status = HubIf->HubApi->ClearPortFeature (HubIf, Index, EfiUsbPortConnectChange);
+          if (!EFI_ERROR (Status)) {
+            HubIf->Ports[Index].Debounced = TRUE;
+            Status                        = UsbReadPort (HubIf, Index, &PortState, NULL);
+            if (!EFI_ERROR (Status) && HubIf->Ports[Index].Debounced) {
+              Debounce = TRUE;
+            }
+          }
+        }
+      }
+
+      USB_NEXT_BIT (Byte, Bit);
+    }
+  }
+
+  if (Debounce) {
+    gBS->Stall (USB_WAIT_PORT_STABLE_STALL);
   }
 
   //
@@ -1134,8 +1247,19 @@ UsbHubEnumeration (
   Bit  = 1;
 
   for (Index = 0; Index < HubIf->NumOfPort; Index++) {
-    if (USB_BIT_IS_SET (HubIf->ChangeMap[Byte], USB_BIT (Bit))) {
-      UsbEnumeratePort (HubIf, Index);
+    if (USB_BIT_IS_SET (ChangeMap[Byte], USB_BIT (Bit))) {
+      Status = UsbEnumeratePort (HubIf, Index);
+      if (EFI_ERROR (Status) && (HubIf->Ports != NULL) &&
+          (HubIf->Ports[Index].Changes != 0))
+      {
+        // The collection read already acknowledged this event. Retry a
+        // transient processing-read failure before leaving the callback.
+        Status = UsbEnumeratePort (HubIf, Index);
+      }
+
+      if (EFI_ERROR (Status)) {
+        DEBUG ((DEBUG_ERROR, "UsbHubEnumeration: port %u failed - %r\n", Index, Status));
+      }
     }
 
     USB_NEXT_BIT (Byte, Bit);
@@ -1143,8 +1267,7 @@ UsbHubEnumeration (
 
   UsbHubAckHubStatus (HubIf->Device);
 
-  gBS->FreePool (HubIf->ChangeMap);
-  HubIf->ChangeMap = NULL;
+  gBS->FreePool (ChangeMap);
   return;
 }
 
@@ -1162,11 +1285,42 @@ UsbRootHubEnumeration (
   IN VOID       *Context
   )
 {
-  USB_INTERFACE  *RootHub;
-  UINT8          Index;
-  USB_DEVICE     *Child;
+  USB_INTERFACE        *RootHub;
+  UINT8                Index;
+  USB_DEVICE           *Child;
+  EFI_USB_PORT_STATUS  PortState;
+  EFI_STATUS           Status;
+  BOOLEAN              Debounce;
 
   RootHub = (USB_INTERFACE *)Context;
+
+  Debounce  = FALSE;
+  if (RootHub->Ports != NULL) {
+    for (Index = 0; Index < RootHub->NumOfPort; Index++) {
+      RootHub->Ports[Index].Debounced = FALSE;
+      Status                          = UsbReadPort (RootHub, Index, &PortState, NULL);
+      if (EFI_ERROR (Status) ||
+          !USB_BIT_IS_SET (PortState.PortStatus, USB_PORT_STAT_CONNECTION) ||
+          (PortState.PortChangeStatus != USB_PORT_STAT_C_CONNECTION))
+      {
+        continue;
+      }
+
+      // Some host controllers consume change bits on a status read. Only
+      // share the wait when a second read confirms they were acknowledged;
+      // otherwise retain the legacy per-port path without an extra wait.
+      RootHub->Ports[Index].Debounced = TRUE;
+      Status                          = UsbReadPort (RootHub, Index, &PortState, NULL);
+      if (!EFI_ERROR (Status) && RootHub->Ports[Index].Debounced) {
+        Debounce = TRUE;
+      }
+    }
+  }
+
+
+  if (Debounce) {
+    gBS->Stall (USB_WAIT_PORT_STABLE_STALL);
+  }
 
   for (Index = 0; Index < RootHub->NumOfPort; Index++) {
     Child = UsbFindChild (RootHub, Index);
