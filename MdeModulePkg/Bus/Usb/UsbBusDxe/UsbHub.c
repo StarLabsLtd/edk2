@@ -678,7 +678,7 @@ UsbHubInit (
   // Create an event to enumerate the hub's port. On
   //
   Status = gBS->CreateEvent (
-                  EVT_NOTIFY_SIGNAL,
+                  EVT_NOTIFY_SIGNAL | EVT_TIMER,
                   TPL_CALLBACK,
                   UsbHubEnumeration,
                   HubIf,
@@ -1005,6 +1005,11 @@ UsbHubRelease (
   }
 
   gBS->CloseEvent (HubIf->HubNotify);
+  if (HubIf->ChangeMap != NULL) {
+    FreePool (HubIf->ChangeMap);
+    HubIf->ChangeMap = NULL;
+  }
+
   if (HubIf->Ports != NULL) {
     FreePool (HubIf->Ports);
     HubIf->Ports = NULL;
@@ -1382,6 +1387,11 @@ UsbRootHubRelease (
 
   gBS->SetTimer (HubIf->HubNotify, TimerCancel, USB_ROOTHUB_POLL_INTERVAL);
   gBS->CloseEvent (HubIf->HubNotify);
+  if (HubIf->ChangeMap != NULL) {
+    FreePool (HubIf->ChangeMap);
+    HubIf->ChangeMap = NULL;
+  }
+
   if (HubIf->Ports != NULL) {
     FreePool (HubIf->Ports);
     HubIf->Ports = NULL;
