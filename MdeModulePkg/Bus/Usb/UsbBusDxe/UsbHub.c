@@ -912,11 +912,16 @@ UsbHubResetPort (
   SuperSpeed  = (BOOLEAN)(HubIf->Device->Speed == EFI_USB_SPEED_SUPER);
   ResetChange = USB_PORT_STAT_C_RESET;
 
-  if (SuperSpeed) {
-    Status = UsbHubClearPortFeature (HubIf, Port, (EFI_USB_PORT_FEATURE)USB_HUB_C_BH_PORT_RESET);
-    if (EFI_ERROR (Status)) {
-      return Status;
-    }
+  //
+  // Do not mistake completion of a previous reset for the new one.
+  //
+  Status = UsbHubClearPortFeature (
+             HubIf,
+             Port,
+             (EFI_USB_PORT_FEATURE)(SuperSpeed ? USB_HUB_C_BH_PORT_RESET : USB_HUB_C_PORT_RESET)
+             );
+  if (EFI_ERROR (Status)) {
+    return Status;
   }
 
   //
@@ -933,8 +938,8 @@ UsbHubResetPort (
   }
 
   //
-  // Drive the reset signal for worst 20ms. Check USB 2.0 Spec
-  // section 7.1.7.5 for timing requirements.
+  // The hub drives reset. Wait the minimum interval before checking
+  // completion (USB 2.0 section 11.5.1.5).
   //
   gBS->Stall (USB_SET_PORT_RESET_STALL);
 
