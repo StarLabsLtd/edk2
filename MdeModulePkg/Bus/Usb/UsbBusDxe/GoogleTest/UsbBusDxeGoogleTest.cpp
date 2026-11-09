@@ -42,6 +42,7 @@ extern "C" {
 static EFI_BOOT_SERVICES       mBootServices;
 static UINTN                   mFreePoolCount;
 static UINTN                   mStallMicroseconds;
+static UINTN                   mRootStatusStall;
 static EFI_STATUS              mResetStatus;
 static UINTN                   mControlTransferCount;
 static EFI_STATUS              mControlTransferStatus;
@@ -424,6 +425,7 @@ extern "C" {
         mPorts[PortIndex].PortChangeStatus = 0;
       }
     } else {
+      mRootStatusStall = mStallMicroseconds;
       *PortStatus = mRootHubPortStatus;
     }
 
@@ -458,6 +460,7 @@ protected:
     mHubDescriptor.PwrOn2PwrGood = 50;
 
     mStallMicroseconds     = 0;
+    mRootStatusStall       = MAX_UINTN;
     mResetStatus           = EFI_SUCCESS;
     mFreePoolCount         = 0;
     mControlTransferCount  = 0;
@@ -711,7 +714,8 @@ TEST_F (UsbBusDxeTest, AvoidsNullDereferenceDuringRootHubReset) {
 **/
 TEST_F (UsbBusDxeTest, DoesNotRepeatCompletedXhciResetDelay) {
   EXPECT_EQ (ResetRootPort (3), EFI_SUCCESS);
-  EXPECT_EQ (mStallMicroseconds, (UINTN)USB_CLR_ROOT_PORT_RESET_STALL);
+  EXPECT_EQ (mStallMicroseconds, (UINTN)USB_SET_PORT_RECOVERY_STALL);
+  EXPECT_EQ (mRootStatusStall, (UINTN)USB_SET_PORT_RECOVERY_STALL);
 }
 
 /**
@@ -720,9 +724,11 @@ TEST_F (UsbBusDxeTest, DoesNotRepeatCompletedXhciResetDelay) {
 TEST_F (UsbBusDxeTest, PreservesLegacyRootResetTiming) {
   EXPECT_EQ (ResetRootPort (2), EFI_SUCCESS);
   EXPECT_EQ (mStallMicroseconds, (UINTN)(USB_SET_ROOT_PORT_RESET_STALL + USB_CLR_ROOT_PORT_RESET_STALL));
+  EXPECT_EQ (mRootStatusStall, (UINTN)(USB_SET_ROOT_PORT_RESET_STALL + USB_CLR_ROOT_PORT_RESET_STALL));
   mStallMicroseconds = 0;
   EXPECT_EQ (ResetRootPort (0), EFI_SUCCESS);
   EXPECT_EQ (mStallMicroseconds, (UINTN)(USB_SET_ROOT_PORT_RESET_STALL + USB_CLR_ROOT_PORT_RESET_STALL));
+  EXPECT_EQ (mRootStatusStall, (UINTN)(USB_SET_ROOT_PORT_RESET_STALL + USB_CLR_ROOT_PORT_RESET_STALL));
 }
 
 /**
@@ -732,6 +738,7 @@ TEST_F (UsbBusDxeTest, PropagatesRootResetFailureWithoutWaiting) {
   mResetStatus = EFI_TIMEOUT;
   EXPECT_EQ (ResetRootPort (3), EFI_TIMEOUT);
   EXPECT_EQ (mStallMicroseconds, (UINTN)0);
+  EXPECT_EQ (mRootStatusStall, MAX_UINTN);
 }
 
 /**
