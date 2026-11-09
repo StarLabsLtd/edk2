@@ -1,0 +1,77 @@
+## @file
+# Production boot-manager hotkey tests.
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+[Defines]
+  INF_VERSION    = 0x00010017
+  BASE_NAME      = HotkeyTest
+  FILE_GUID      = ea2c72b1-558f-447d-a645-04907dc4f938
+  MODULE_TYPE    = HOST_APPLICATION
+  VERSION_STRING = 1.0
+[Sources]
+  HotkeyTest.cpp
+  ../BmHotkey.c
+  ../BmLoadOption.c
+  ../BmMisc.c
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  UnitTestFrameworkPkg/UnitTestFrameworkPkg.dec
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  GoogleTestLib
+  MemoryAllocationLib
+  PcdLib
+  PrintLib
+  DevicePathLib
+  UefiLib
+  UefiBootServicesTableLib
+  UefiRuntimeServicesTableLib
+  PerformanceLib
+  VariablePolicyHelperLib
+
+[Guids]
+  gEfiMemoryTypeInformationGuid
+  gEfiGlobalVariableGuid
+  gEdkiiStatusCodeDataTypeVariableGuid
+  gEfiDiskInfoAhciInterfaceGuid
+  gEfiDiskInfoIdeInterfaceGuid
+  gEfiDiskInfoScsiInterfaceGuid
+  gEfiDiskInfoSdMmcInterfaceGuid
+  gEfiDiskInfoUfsInterfaceGuid
+
+[Protocols]
+  gEfiPciRootBridgeIoProtocolGuid
+  gEfiSimpleFileSystemProtocolGuid
+  gEfiLoadFileProtocolGuid
+  gEfiSimpleTextOutProtocolGuid
+  gEfiPciIoProtocolGuid
+  gEfiLoadedImageProtocolGuid
+  gEfiSimpleNetworkProtocolGuid
+  gEfiSimpleTextInProtocolGuid
+  gEfiBlockIoProtocolGuid
+  gEfiFirmwareVolume2ProtocolGuid
+  gEfiDevicePathProtocolGuid
+  gEfiBootLogoProtocolGuid
+  gEfiSimpleTextInputExProtocolGuid
+  gEdkiiVariablePolicyProtocolGuid
+  gEfiGraphicsOutputProtocolGuid
+  gEfiUsbIoProtocolGuid
+  gEfiNvmExpressPassThruProtocolGuid
+  gEfiDiskInfoProtocolGuid
+  gEfiDriverHealthProtocolGuid
+  gEfiFormBrowser2ProtocolGuid
+  gEfiRamDiskProtocolGuid
+  gEfiDeferredImageLoadProtocolGuid
+  gEdkiiPlatformBootManagerProtocolGuid
+
+[Pcd]
+  gEfiMdeModulePkgTokenSpaceGuid.PcdResetOnMemoryTypeInformationChange
+  gEfiMdeModulePkgTokenSpaceGuid.PcdProgressCodeOsLoaderLoad
+  gEfiMdeModulePkgTokenSpaceGuid.PcdProgressCodeOsLoaderStart
+  gEfiMdeModulePkgTokenSpaceGuid.PcdErrorCodeSetVariable
+  gEfiMdeModulePkgTokenSpaceGuid.PcdBootManagerMenuFile
+  gEfiMdeModulePkgTokenSpaceGuid.PcdDriverHealthConfigureForm
+  gEfiMdeModulePkgTokenSpaceGuid.PcdMaxRepairCount

@@ -27,6 +27,16 @@
     <BuildOptions>
       GCC:*_*_*_DLINK_FLAGS = -Wl,--gc-sections,--wrap=GetEfiGlobalVariable2
   }
+  MdeModulePkg/Library/UefiBootManagerLib/GoogleTest/HotkeyTest.inf {
+    <LibraryClasses>
+      DevicePathLib|MdePkg/Library/UefiDevicePathLib/UefiDevicePathLib.inf
+      UefiLib|MdePkg/Library/UefiLib/UefiLib.inf
+      UefiRuntimeServicesTableLib|MdePkg/Test/Mock/Library/GoogleTest/MockUefiRuntimeServicesTableLib/MockUefiRuntimeServicesTableLib.inf
+      PerformanceLib|MdePkg/Library/BasePerformanceLibNull/BasePerformanceLibNull.inf
+      VariablePolicyHelperLib|MdeModulePkg/Library/VariablePolicyHelperLib/VariablePolicyHelperLib.inf
+    <BuildOptions>
+      GCC:*_*_*_DLINK_FLAGS = -Wl,--gc-sections
+  }
 
   MdeModulePkg/Library/DxeResetSystemLib/UnitTest/MockUefiRuntimeServicesTableLib.inf
   MdeModulePkg/Universal/BdsDxe/BdsBootNextPolicyUnitTestHost.inf
