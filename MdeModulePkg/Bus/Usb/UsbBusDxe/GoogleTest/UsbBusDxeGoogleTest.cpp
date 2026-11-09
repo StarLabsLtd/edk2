@@ -49,6 +49,18 @@ static EFI_STATUS              mControlTransferStatus;
 static EFI_USB_PORT_STATUS     mRootHubPortStatus;
 static EFI_USB_BOS_DESCRIPTOR  mBosDescriptor;
 static EFI_USB_HUB_DESCRIPTOR  mHubDescriptor;
+static struct {
+  BOOLEAN  Enabled;
+  BOOLEAN  Active;
+  UINT64   Started;
+  UINT64   Duration;
+  UINT16   Changes;
+  UINT8    FailRequest;
+  UINTN    Resets;
+  UINTN    Clears;
+  UINTN    Reads;
+} mHubReset;
+
 static UINT64                  mNow, mCounterBase, mCounterFirst, mCounterLast, mFrequency;
 static UINTN                   mPortReads, mEarlyPortReads, mClosedEvents;
 
@@ -251,6 +263,44 @@ extern "C" {
     )
   {
     mControlTransferCount++;
+    if (mHubReset.Enabled) {
+      *UsbResult = 0;
+      EXPECT_EQ (Request->Index, 1);
+      if (Request->Request == mHubReset.FailRequest) {
+        return EFI_DEVICE_ERROR;
+      }
+
+      if (Request->Request == USB_HUB_REQ_CLEAR_FEATURE) {
+        EXPECT_EQ (Request->Value, (DevSpeed == EFI_USB_SPEED_SUPER) ?
+                   USB_HUB_C_BH_PORT_RESET : USB_HUB_C_PORT_RESET);
+        mHubReset.Changes &= (UINT16) ~USB_PORT_STAT_C_RESET;
+        mHubReset.Clears++;
+      } else if (Request->Request == USB_HUB_REQ_SET_FEATURE) {
+        EXPECT_EQ (Request->Value, (DevSpeed == EFI_USB_SPEED_SUPER) ?
+                   USB_HUB_BH_PORT_RESET : USB_HUB_PORT_RESET);
+        mHubReset.Active  = TRUE;
+        mHubReset.Started = mNow;
+        mHubReset.Resets++;
+      } else if (Request->Request == USB_HUB_REQ_GET_STATUS) {
+        EFI_USB_PORT_STATUS  PortState = { USB_PORT_STAT_CONNECTION, mHubReset.Changes };
+        if (mHubReset.Active && ((mNow - mHubReset.Started) >= mHubReset.Duration)) {
+          PortState.PortStatus       |= USB_PORT_STAT_ENABLE;
+          PortState.PortChangeStatus |= USB_PORT_STAT_C_RESET;
+        } else {
+          PortState.PortStatus |= USB_PORT_STAT_RESET;
+        }
+
+        EXPECT_GE (*DataLength, sizeof (PortState));
+        CopyMem (Data, &PortState, sizeof (PortState));
+        mHubReset.Reads++;
+      } else {
+        ADD_FAILURE () << "Unexpected hub request";
+        return EFI_UNSUPPORTED;
+      }
+
+      return EFI_SUCCESS;
+    }
+
     if (mEnumerating) {
       *UsbResult = 0;
       if (!mSlotReady[mActivePort]) {
@@ -444,6 +494,9 @@ protected:
     ) override
   {
     mEnumerating = FALSE;
+    ZeroMem (&mHubReset, sizeof (mHubReset));
+    mHubReset.FailRequest = MAX_UINT8;
+    mHubReset.Duration    = 10000;
     gBS          = &mBootServices;
     ZeroMem (&mBootServices, sizeof (mBootServices));
     mBootServices.FreePool    = TestFreePool;
@@ -528,6 +581,24 @@ protected:
     EXPECT_EQ (mStallMicroseconds, ExpectedStall);
     EXPECT_EQ (mUsbHubApi.Release (&HubIf), EFI_SUCCESS);
     EXPECT_EQ (mClosedEvents, (UINTN)1);
+  }
+
+  EFI_STATUS
+  ResetExternalHub (
+    UINT8  Speed = EFI_USB_SPEED_HIGH
+    )
+  {
+    USB_BUS        Bus = {};
+    USB_DEVICE     Device = {};
+    USB_INTERFACE  Interface = {};
+
+    Device.Bus        = &Bus;
+    Device.Speed      = Speed;
+    Device.Address    = 1;
+    Device.MaxPacket0 = 64;
+    Interface.Device  = &Device;
+    mHubReset.Enabled = TRUE;
+    return mUsbHubApi.ResetPort (&Interface, 0);
   }
 
   EFI_STATUS
@@ -739,6 +810,64 @@ TEST_F (UsbBusDxeTest, PropagatesRootResetFailureWithoutWaiting) {
   EXPECT_EQ (ResetRootPort (3), EFI_TIMEOUT);
   EXPECT_EQ (mStallMicroseconds, (UINTN)0);
   EXPECT_EQ (mRootStatusStall, MAX_UINTN);
+}
+
+TEST_F (UsbBusDxeTest, FollowsExternalHubResetCompletion) {
+  EXPECT_EQ (ResetExternalHub (), EFI_SUCCESS);
+  EXPECT_EQ (mNow, 20000U);
+  EXPECT_EQ (mHubReset.Resets, 1U);
+  EXPECT_EQ (mHubReset.Clears, 1U);
+}
+
+TEST_F (UsbBusDxeTest, FollowsFullSpeedExternalHubResetCompletion) {
+  EXPECT_EQ (ResetExternalHub (EFI_USB_SPEED_FULL), EFI_SUCCESS);
+  EXPECT_EQ (mNow, 20000U);
+}
+
+TEST_F (UsbBusDxeTest, WaitsForSlowerExternalHubReset) {
+  mHubReset.Duration = 20000;
+  EXPECT_EQ (ResetExternalHub (), EFI_SUCCESS);
+  EXPECT_EQ (mNow, 30000U);
+}
+
+TEST_F (UsbBusDxeTest, DoesNotAcceptStaleExternalHubResetCompletion) {
+  mHubReset.Duration = 25000;
+  mHubReset.Changes  = USB_PORT_STAT_C_RESET;
+  EXPECT_EQ (ResetExternalHub (), EFI_SUCCESS);
+  EXPECT_EQ (mNow, 35000U);
+  EXPECT_EQ (mHubReset.Clears, 1U);
+}
+
+TEST_F (UsbBusDxeTest, TimesOutWithoutFreshExternalHubResetCompletion) {
+  mHubReset.Duration = MAX_UINT64;
+  mHubReset.Changes  = USB_PORT_STAT_C_RESET;
+  EXPECT_EQ (ResetExternalHub (), EFI_TIMEOUT);
+  EXPECT_EQ (mHubReset.Reads, (UINTN)USB_WAIT_PORT_STS_CHANGE_LOOP);
+  EXPECT_EQ (mNow, (UINT64)(10000 + USB_WAIT_PORT_STS_CHANGE_LOOP * USB_WAIT_PORT_STS_CHANGE_STALL));
+}
+
+TEST_F (UsbBusDxeTest, DoesNotAcceptOtherExternalHubChangesAsResetCompletion) {
+  mHubReset.Duration = MAX_UINT64;
+  mHubReset.Changes  = USB_PORT_STAT_C_CONNECTION;
+  EXPECT_EQ (ResetExternalHub (), EFI_TIMEOUT);
+  EXPECT_EQ (mHubReset.Changes, USB_PORT_STAT_C_CONNECTION);
+}
+
+TEST_F (UsbBusDxeTest, PreservesSuperSpeedWarmResetCompletion) {
+  EXPECT_EQ (ResetExternalHub (EFI_USB_SPEED_SUPER), EFI_SUCCESS);
+  EXPECT_EQ (mNow, 20000U);
+  EXPECT_EQ (mHubReset.Resets, 1U);
+  EXPECT_EQ (mHubReset.Clears, 2U);
+}
+
+TEST_F (UsbBusDxeTest, PropagatesExternalHubResetTransferFailures) {
+  for (UINT8 Request : { USB_HUB_REQ_CLEAR_FEATURE, USB_HUB_REQ_SET_FEATURE, USB_HUB_REQ_GET_STATUS }) {
+    mNow                  = 0;
+    mHubReset.Active      = FALSE;
+    mHubReset.FailRequest = Request;
+    EXPECT_EQ (ResetExternalHub (), EFI_DEVICE_ERROR);
+    EXPECT_EQ (mNow, (Request == USB_HUB_REQ_GET_STATUS) ? 10000U : 0U);
+  }
 }
 
 /**
