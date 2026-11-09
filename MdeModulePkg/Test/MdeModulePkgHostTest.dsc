@@ -71,7 +71,15 @@
       NvmExpressDxe|MdeModulePkg/Bus/Pci/NvmExpressDxe/NvmExpressDxe.inf
   }
 
-  MdeModulePkg/Bus/Usb/UsbBusDxe/GoogleTest/UsbBusDxeGoogleTest.inf
+  MdeModulePkg/Bus/Usb/UsbBusDxe/GoogleTest/UsbBusDxeGoogleTest.inf {
+    <LibraryClasses>
+      DevicePathLib|MdePkg/Library/UefiDevicePathLib/UefiDevicePathLib.inf
+      UefiLib|MdePkg/Library/UefiLib/UefiLib.inf
+      UefiRuntimeServicesTableLib|MdePkg/Test/Mock/Library/GoogleTest/MockUefiRuntimeServicesTableLib/MockUefiRuntimeServicesTableLib.inf
+      ReportStatusCodeLib|MdePkg/Library/BaseReportStatusCodeLibNull/BaseReportStatusCodeLibNull.inf
+    <BuildOptions>
+      GCC:*_*_*_DLINK_FLAGS = -Wl,--gc-sections,--wrap=UsbHcControlTransfer,--wrap=UsbHcGetCapability,--wrap=UsbHcSetRootHubPortFeature,--wrap=UsbHcClearRootHubPortFeature,--wrap=UsbHcGetRootHubPortStatus,--wrap=AllocateZeroPool
+  }
 
   MdeModulePkg/Library/DxeReportStatusCodeLib/GoogleTest/DxeReportStatusCodeLibGoogleTest.inf {
     <LibraryClasses>
