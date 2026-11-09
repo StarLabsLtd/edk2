@@ -69,6 +69,7 @@ static UINTN                   mPortReads, mEarlyPortReads, mClosedEvents;
 static BOOLEAN              mEnumerating, mConsumeChanges, mFailRootAllocation;
 static EFI_USB_PORT_STATUS  mPorts[3];
 static UINTN                mReads[3], mFailRead[3], mResets[3], mResetTime[3];
+static UINTN                mFailReadCount[3], mRetryTimers;
 static UINTN                mConnectedKeyboards, mDebounceWaits;
 static UINTN                mInjectAt[3], mFailInitAt[3], mInvalidTransfers, mActivePort;
 static UINT16               mInjectChanges[3];
@@ -80,6 +81,7 @@ static EFI_EVENT_NOTIFY  mNotify;
 static VOID              *mNotifyContext;
 static EFI_STATUS        mCreateStatus, mTimerStatus;
 static UINT64            mRootPollInterval;
+static UINT32            mEventType;
 static EFI_TPL           mTpl;
 static const UINT8       mKeyboardDevice[] = {
   18, 1, 0, 2, 0, 0, 0, 64, 0x34, 0x12, 0x78, 0x56, 0, 1, 0, 0, 0, 1
@@ -197,7 +199,8 @@ extern "C" {
     EFI_EVENT         *Event
     )
   {
-    *Event = (EFI_EVENT)(UINTN)1;
+    mEventType = Type;
+    *Event     = (EFI_EVENT)(UINTN)1;
     if (mEnumerating) {
       mNotify        = Notify;
       mNotifyContext = Context;
@@ -303,6 +306,14 @@ extern "C" {
 
     if (mEnumerating) {
       *UsbResult = 0;
+      if ((DevAddr == 0) && (Request->RequestType == 0xa0) &&
+          (Request->Request == USB_HUB_REQ_GET_STATUS))
+      {
+        EXPECT_EQ (*DataLength, sizeof (UINT32));
+        ZeroMem (Data, *DataLength);
+        return EFI_SUCCESS;
+      }
+
       if (!mSlotReady[mActivePort]) {
         mInvalidTransfers++;
         return EFI_DEVICE_ERROR;
@@ -449,7 +460,9 @@ extern "C" {
   {
     if (mEnumerating) {
       mReads[PortIndex]++;
-      if (mReads[PortIndex] == mFailRead[PortIndex]) {
+      if ((mReads[PortIndex] >= mFailRead[PortIndex]) &&
+          (mReads[PortIndex] - mFailRead[PortIndex] < MAX (mFailReadCount[PortIndex], 1U)))
+      {
         return EFI_TIMEOUT;
       }
 
@@ -1112,6 +1125,11 @@ extern "C" {
       mRootPollInterval = Time;
     }
 
+    if (Type == TimerRelative) {
+      mRetryTimers++;
+      EXPECT_EQ (Time, USB_ROOTHUB_POLL_INTERVAL);
+    }
+
     return (Type == TimerCancel) ? EFI_SUCCESS : mTimerStatus;
   }
 }
@@ -1145,6 +1163,8 @@ protected:
     ZeroMem (mPorts, sizeof (mPorts));
     ZeroMem (mReads, sizeof (mReads));
     ZeroMem (mFailRead, sizeof (mFailRead));
+    ZeroMem (mFailReadCount, sizeof (mFailReadCount));
+    mRetryTimers = 0;
     ZeroMem (mResets, sizeof (mResets));
     ZeroMem (mResetTime, sizeof (mResetTime));
     ZeroMem (&Bus, sizeof (Bus));
@@ -1566,4 +1586,84 @@ TEST_F (UsbHubBatchTest, RetriesTheRetainedConnectionAfterAProcessingReadFailure
   EXPECT_EQ (mConnectedKeyboards, 1U);
   EXPECT_EQ (mInvalidTransfers, 0U);
   EXPECT_EQ (Root.Ports[0].Changes, 0U);
+}
+
+TEST_F (UsbHubBatchTest, RetriesTwoFailedReadsWithoutANewInterrupt) {
+  Attach (0);
+  mFailRead[0]      = 3;
+  mFailReadCount[0] = 2;
+  Notify (2);
+  EXPECT_EQ (mConnectedKeyboards, 0U);
+  EXPECT_EQ (mRetryTimers, 1U);
+  ASSERT_NE (Root.ChangeMap, nullptr);
+  EXPECT_EQ (*Root.ChangeMap, 2U);
+  UsbHubEnumeration (Root.HubNotify, &Root);
+  EXPECT_EQ (mConnectedKeyboards, 1U);
+  EXPECT_EQ (Root.ChangeMap, nullptr);
+  EXPECT_EQ (Root.Ports[0].Changes, 0U);
+  EXPECT_EQ (mInvalidTransfers, 0U);
+}
+
+TEST_F (UsbHubBatchTest, PersistentReadFailuresKeepBoundedRetryWork) {
+  Attach (0);
+  mFailRead[0]      = 3;
+  mFailReadCount[0] = 100;
+  Notify (2);
+  EXPECT_EQ (mReads[0], 4U);
+  EXPECT_EQ (mRetryTimers, 1U);
+  ASSERT_NE (Root.ChangeMap, nullptr);
+  UsbHubEnumeration (Root.HubNotify, &Root);
+  EXPECT_EQ (mReads[0], 7U);
+  EXPECT_EQ (mRetryTimers, 2U);
+  EXPECT_EQ (mConnectedKeyboards, 0U);
+  ASSERT_NE (Root.ChangeMap, nullptr);
+}
+
+TEST_F (UsbHubBatchTest, DisconnectBeforeRetryDoesNotCreateADevice) {
+  Attach (0);
+  mFailRead[0]      = 3;
+  mFailReadCount[0] = 2;
+  Notify (2);
+  ASSERT_NE (Root.ChangeMap, nullptr);
+  mPorts[0].PortStatus       = 0;
+  mPorts[0].PortChangeStatus = USB_PORT_STAT_C_CONNECTION;
+  UsbHubEnumeration (Root.HubNotify, &Root);
+  EXPECT_EQ (mConnectedKeyboards, 0U);
+  EXPECT_EQ (Root.ChangeMap, nullptr);
+  EXPECT_EQ (Root.Ports[0].Changes, 0U);
+}
+
+TEST_F (UsbHubBatchTest, NewInterruptCanCompleteThePendingRetry) {
+  Attach (0);
+  mFailRead[0]      = 3;
+  mFailReadCount[0] = 2;
+  Notify (2);
+  ASSERT_NE (Root.ChangeMap, nullptr);
+  mNotify        = UsbHubEnumeration;
+  mNotifyContext = &Root;
+  Attach (1);
+  UINT8  Map = 4;
+
+  EXPECT_EQ (UsbOnHubInterrupt (&Map, sizeof (Map), &Root, EFI_USB_NOERROR), EFI_SUCCESS);
+  EXPECT_EQ (mConnectedKeyboards, 2U);
+  EXPECT_EQ (Root.ChangeMap, nullptr);
+  UsbHubEnumeration (Root.HubNotify, &Root);
+  EXPECT_EQ (mConnectedKeyboards, 2U);
+}
+
+TEST_F (UsbBusDxeTest, ReleasesAnExternalHubWithAPendingRetry) {
+  ASSERT_EQ (InitHub (), EFI_SUCCESS);
+  EXPECT_EQ (mEventType, (UINT32)(EVT_TIMER | EVT_NOTIFY_SIGNAL));
+  HubIf.ChangeMap = (UINT8 *)AllocateZeroPool (HubIf.NumOfPort / 8 + 1);
+  ASSERT_NE (HubIf.ChangeMap, nullptr);
+  *HubIf.ChangeMap       = 2;
+  mBootServices.SetTimer = EnumTimer;
+  mTimerStatus           = EFI_SUCCESS;
+  EXPECT_EQ (gBS->SetTimer (HubIf.HubNotify, TimerRelative, USB_ROOTHUB_POLL_INTERVAL), EFI_SUCCESS);
+  UINTN  Closed = mClosedEvents;
+
+  EXPECT_EQ (mUsbHubApi.Release (&HubIf), EFI_SUCCESS);
+  EXPECT_EQ (mClosedEvents, Closed + 1);
+  EXPECT_EQ (HubIf.ChangeMap, nullptr);
+  EXPECT_EQ (HubIf.HubNotify, nullptr);
 }
