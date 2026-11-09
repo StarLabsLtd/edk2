@@ -702,7 +702,6 @@ UsbEnumerateNewDev (
     gBS->Stall (USB_WAIT_PORT_STABLE_STALL);
   }
 
-
   //
   // Hub resets the device for at least 10 milliseconds.
   // Host learns device speed. If device is of low/full speed
@@ -1184,6 +1183,8 @@ UsbHubEnumeration (
   EFI_USB_PORT_STATUS  PortState;
   EFI_STATUS           Status;
   BOOLEAN              Debounce;
+  BOOLEAN              Retry;
+  UINTN                MapIndex;
   UINT8                *ChangeMap;
   EFI_TPL              OldTpl;
 
@@ -1243,8 +1244,9 @@ UsbHubEnumeration (
   //
   // HUB starts its port index with 1.
   //
-  Byte = 0;
-  Bit  = 1;
+  Byte  = 0;
+  Bit   = 1;
+  Retry = FALSE;
 
   for (Index = 0; Index < HubIf->NumOfPort; Index++) {
     if (USB_BIT_IS_SET (ChangeMap[Byte], USB_BIT (Bit))) {
@@ -1260,6 +1262,14 @@ UsbHubEnumeration (
       if (EFI_ERROR (Status)) {
         DEBUG ((DEBUG_ERROR, "UsbHubEnumeration: port %u failed - %r\n", Index, Status));
       }
+
+      if (EFI_ERROR (Status) && (HubIf->Ports != NULL) &&
+          (HubIf->Ports[Index].Changes != 0))
+      {
+        Retry = TRUE;
+      } else {
+        ChangeMap[Byte] &= (UINT8) ~USB_BIT (Bit);
+      }
     }
 
     USB_NEXT_BIT (Byte, Bit);
@@ -1267,7 +1277,32 @@ UsbHubEnumeration (
 
   UsbHubAckHubStatus (HubIf->Device);
 
-  gBS->FreePool (ChangeMap);
+  if (Retry) {
+    ChangeMap[0]                    &= (UINT8) ~1U;
+    ChangeMap[HubIf->NumOfPort / 8] &= (UINT8)((1U << (HubIf->NumOfPort % 8 + 1)) - 1);
+    // An acknowledged change may not generate another hub interrupt.
+    // Retain its bit and retry later, without looping at callback TPL.
+    OldTpl = gBS->RaiseTPL (TPL_NOTIFY);
+    if (HubIf->ChangeMap == NULL) {
+      HubIf->ChangeMap = ChangeMap;
+      ChangeMap        = NULL;
+    } else {
+      for (MapIndex = 0; MapIndex < HubIf->NumOfPort / 8 + 1; MapIndex++) {
+        HubIf->ChangeMap[MapIndex] |= ChangeMap[MapIndex];
+      }
+    }
+
+    gBS->RestoreTPL (OldTpl);
+    Status = gBS->SetTimer (HubIf->HubNotify, TimerRelative, USB_ROOTHUB_POLL_INTERVAL);
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_ERROR, "UsbHubEnumeration: failed to schedule retry - %r\n", Status));
+    }
+  }
+
+  if (ChangeMap != NULL) {
+    gBS->FreePool (ChangeMap);
+  }
+
   return;
 }
 
@@ -1294,7 +1329,7 @@ UsbRootHubEnumeration (
 
   RootHub = (USB_INTERFACE *)Context;
 
-  Debounce  = FALSE;
+  Debounce = FALSE;
   if (RootHub->Ports != NULL) {
     for (Index = 0; Index < RootHub->NumOfPort; Index++) {
       RootHub->Ports[Index].Debounced = FALSE;
@@ -1316,7 +1351,6 @@ UsbRootHubEnumeration (
       }
     }
   }
-
 
   if (Debounce) {
     gBS->Stall (USB_WAIT_PORT_STABLE_STALL);
