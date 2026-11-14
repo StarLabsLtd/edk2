@@ -64,6 +64,14 @@ static EFI_STATUS EFIAPI GetVariable(CHAR16 *Name, EFI_GUID *Guid, UINT32 *Attri
 static EFI_STATUS EFIAPI Locate(EFI_GUID *g, VOID *r, VOID **i)
 { (void)g; (void)r; (void)i; return Exited ? EFI_SUCCESS : EFI_NOT_FOUND; }
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "dispatch %u: %s\n", __LINE__, #x); return 1; } } while (0)
+static EFI_STATUS Command(VOID *Packet, UINTN *Size)
+{
+  COREBOOT_CAPSULE_HEADER *Header = Packet;
+
+  /* A delivered rejection must survive MmiManage's transport-status filter. */
+  if (Dispatch(NULL, NULL, Packet, Size) != EFI_SUCCESS) abort();
+  return Header->Result & BIT31 ? EFIERR(Header->Result & ~BIT31) : Header->Result;
+}
 int main(void)
 {
   static COREBOOT_CAPSULE_PRIVATE_INFO Info = {.FlashSize = CAPSULE_BLOCK_SIZE,
@@ -80,7 +88,7 @@ int main(void)
   Variables.SmmGetVariable = GetVariable;
   mPolicy.LowestSupportedVersion = 10;
   Size = sizeof(Geometry);
-  CHECK(Dispatch(NULL, NULL, &Geometry, &Size) == EFI_NOT_READY);
+  CHECK(Command(&Geometry, &Size) == EFI_NOT_READY);
   KeySize = 0;
   CHECK(VariableReady(NULL, &Variables, NULL) == EFI_DEVICE_ERROR && !mFloorReady);
   KeySize = 3;
@@ -118,51 +126,51 @@ int main(void)
   Start->Signature[0] = 0xa5;
   PacketAddress = Start->Signature;
   Size = sizeof(Geometry);
-  CHECK(Dispatch(NULL, NULL, &Geometry, &Size) == EFI_SUCCESS && Geometry.FlashSize == Info.FlashSize);
+  CHECK(Command(&Geometry, &Size) == EFI_SUCCESS && Geometry.FlashSize == Info.FlashSize);
   Size = sizeof(Header);
-  CHECK(Dispatch(NULL, NULL, &Header, &Size) == EFI_ACCESS_DENIED);
+  CHECK(Command(&Header, &Size) == EFI_ACCESS_DENIED);
   /* The primary packet models the MM core's internal shadow, not external RAM. */
   Size = sizeof(Geometry);
-  CHECK(Dispatch(NULL, NULL, &Geometry, &Size) == EFI_SUCCESS);
+  CHECK(Command(&Geometry, &Size) == EFI_SUCCESS);
   Size = sizeof(Bytes);
   Start->SignatureSize = 2;
-  CHECK(Dispatch(NULL, NULL, Bytes, &Size) == EFI_INVALID_PARAMETER && !Begins);
+  CHECK(Command(Bytes, &Size) == EFI_INVALID_PARAMETER && !Begins);
   Start->SignatureSize = 1;
   SourceAllowed = FALSE;
-  CHECK(Dispatch(NULL, NULL, Bytes, &Size) == EFI_SECURITY_VIOLATION && !Begins);
+  CHECK(Command(Bytes, &Size) == EFI_SECURITY_VIOLATION && !Begins);
   SourceAllowed = TRUE;
   Size = sizeof(Bytes);
   VerifyStatus = EFI_SECURITY_VIOLATION;
-  CHECK(Dispatch(NULL, NULL, Bytes, &Size) == EFI_SECURITY_VIOLATION && !mTransaction);
+  CHECK(Command(Bytes, &Size) == EFI_SECURITY_VIOLATION && !mTransaction);
   Size = sizeof(Bytes);
   KeySize = 0;
   VerifyStatus = EFI_SUCCESS;
-  CHECK(Dispatch(NULL, NULL, Bytes, &Size) == EFI_SECURITY_VIOLATION && !mTransaction);
+  CHECK(Command(Bytes, &Size) == EFI_SECURITY_VIOLATION && !mTransaction);
   KeySize = sizeof(KeyData);
   Size = sizeof(Bytes);
   Activate = FALSE;
-  CHECK(Dispatch(NULL, NULL, Bytes, &Size) == EFI_SECURITY_VIOLATION && !mTransaction);
+  CHECK(Command(Bytes, &Size) == EFI_SECURITY_VIOLATION && !mTransaction);
   Activate = TRUE;
   Size = sizeof(Bytes);
-  CHECK(Dispatch(NULL, NULL, Bytes, &Size) == EFI_SUCCESS && Size == sizeof(*Start));
+  CHECK(Command(Bytes, &Size) == EFI_SUCCESS && Size == sizeof(*Start));
   Transaction = Start->Header.Transaction;
   CHECK(Transaction && mOwner.Active);
   Block = (COREBOOT_CAPSULE_BLOCK){{COREBOOT_CAPSULE_REVISION, COREBOOT_CAPSULE_PROGRAM, Transaction + 1}, 0};
   Size = sizeof(Block);
-  CHECK(Dispatch(NULL, NULL, &Block, &Size) == EFI_ACCESS_DENIED && !Programs);
+  CHECK(Command(&Block, &Size) == EFI_ACCESS_DENIED && !Programs);
   Block.Header.Transaction = Transaction;
   Size--;
-  CHECK(Dispatch(NULL, NULL, &Block, &Size) == EFI_INVALID_PARAMETER && !Programs);
+  CHECK(Command(&Block, &Size) == EFI_INVALID_PARAMETER && !Programs);
   Size = sizeof(Block);
-  CHECK(Dispatch(NULL, NULL, &Block, &Size) == EFI_SUCCESS && Programs == 1);
+  CHECK(Command(&Block, &Size) == EFI_SUCCESS && Programs == 1);
   CHECK(ExitBootServices(NULL, NULL, NULL) == EFI_SUCCESS && !mTransaction && !mOwner.Active);
   Exited = TRUE;
   Size = sizeof(Bytes);
-  CHECK(Dispatch(NULL, NULL, Bytes, &Size) == EFI_ACCESS_DENIED && !mTransaction);
+  CHECK(Command(Bytes, &Size) == EFI_ACCESS_DENIED && !mTransaction);
   Size = sizeof(Block);
-  CHECK(Dispatch(NULL, NULL, &Block, &Size) == EFI_ACCESS_DENIED && Programs == 1);
+  CHECK(Command(&Block, &Size) == EFI_ACCESS_DENIED && Programs == 1);
   Size = sizeof(Geometry);
-  CHECK(Dispatch(NULL, NULL, &Geometry, &Size) == EFI_SUCCESS);
+  CHECK(Command(&Geometry, &Size) == EFI_SUCCESS);
   puts("MM dispatcher: framing, source refusal, signature snapshot, transaction, persistent floor and ExitBootServices passed");
   return 0;
 }

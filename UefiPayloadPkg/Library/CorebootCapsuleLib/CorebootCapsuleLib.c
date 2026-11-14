@@ -28,6 +28,7 @@ Send(VOID *Packet, UINTN PacketSize, UINTN *ResponseSize)
   EFI_MM_COMMUNICATE_HEADER *Header;
   UINTN Size;
   EFI_STATUS Status;
+  COREBOOT_CAPSULE_HEADER Reply;
 
   if (PacketSize > COREBOOT_CAPSULE_MAX_SIGNATURE + sizeof(COREBOOT_CAPSULE_START)) {
     return EFI_BAD_BUFFER_SIZE;
@@ -51,12 +52,20 @@ Send(VOID *Packet, UINTN PacketSize, UINTN *ResponseSize)
   if (!EFI_ERROR(Status)) {
     if (Size < OFFSET_OF(EFI_MM_COMMUNICATE_HEADER, Data) ||
         !CompareGuid(&Header->HeaderGuid, &gCorebootCapsuleUpdateGuid) ||
+        Header->MessageLength < sizeof(Reply) ||
         Header->MessageLength > PacketSize ||
         Header->MessageLength > Size - OFFSET_OF(EFI_MM_COMMUNICATE_HEADER, Data)) {
       Status = EFI_DEVICE_ERROR;
     } else {
-      CopyMem(Packet, Header->Data, Header->MessageLength);
-      *ResponseSize = Header->MessageLength;
+      CopyMem(&Reply, Header->Data, sizeof(Reply));
+      if (Reply.Revision != COREBOOT_CAPSULE_REVISION ||
+          Reply.Command != ((COREBOOT_CAPSULE_HEADER *)Packet)->Command) {
+        Status = EFI_DEVICE_ERROR;
+      } else {
+        CopyMem(Packet, Header->Data, Header->MessageLength);
+        *ResponseSize = Header->MessageLength;
+        Status = (Reply.Result & BIT31) ? EFIERR(Reply.Result & ~BIT31) : Reply.Result;
+      }
     }
   }
   FreePool(Header);
@@ -98,7 +107,7 @@ CorebootCapsuleClose(VOID)
 
   if (mTransaction) {
     Request = (COREBOOT_CAPSULE_HEADER) {
-      COREBOOT_CAPSULE_REVISION, COREBOOT_CAPSULE_CLOSE, mTransaction
+      COREBOOT_CAPSULE_REVISION, COREBOOT_CAPSULE_CLOSE, mTransaction, 0
     };
     Send(&Request, sizeof(Request), &Size);
     mTransaction = 0;
@@ -194,7 +203,7 @@ ProgramBlock(EFI_LBA Block)
     return EFI_ACCESS_DENIED;
   }
   Request.Header = (COREBOOT_CAPSULE_HEADER) {
-    COREBOOT_CAPSULE_REVISION, COREBOOT_CAPSULE_PROGRAM, mTransaction
+    COREBOOT_CAPSULE_REVISION, COREBOOT_CAPSULE_PROGRAM, mTransaction, 0
   };
   Request.Block = (UINT32)Block;
   return Send(&Request, sizeof(Request), &Size);

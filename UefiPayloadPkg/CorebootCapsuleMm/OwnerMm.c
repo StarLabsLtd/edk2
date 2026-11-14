@@ -225,7 +225,7 @@ Begin(CONST COREBOOT_CAPSULE_START *Request, CONST UINT8 *Signature)
 STATIC
 EFI_STATUS
 EFIAPI
-Dispatch(IN EFI_HANDLE Handle, IN CONST VOID *Context OPTIONAL,
+ProcessCommand(IN EFI_HANDLE Handle, IN CONST VOID *Context OPTIONAL,
          IN OUT VOID *CommBuffer OPTIONAL, IN OUT UINTN *CommSize OPTIONAL)
 {
   COREBOOT_CAPSULE_HEADER Header;
@@ -302,6 +302,25 @@ Dispatch(IN EFI_HANDLE Handle, IN CONST VOID *Context OPTIONAL,
     default:
       return EFI_UNSUPPORTED;
   }
+}
+
+STATIC
+EFI_STATUS
+EFIAPI
+Dispatch(IN EFI_HANDLE Handle, IN CONST VOID *Context OPTIONAL,
+         IN OUT VOID *CommBuffer OPTIONAL, IN OUT UINTN *CommSize OPTIONAL)
+{
+  COREBOOT_CAPSULE_HEADER *Header = CommBuffer;
+  EFI_STATUS Status;
+
+  if (!CommBuffer || !CommSize || *CommSize < sizeof(*Header) ||
+      Header->Revision != COREBOOT_CAPSULE_REVISION) {
+    return EFI_INVALID_PARAMETER;
+  }
+  /* MmiManage reports delivery, not the operation's EFI status. */
+  Status = ProcessCommand(Handle, Context, CommBuffer, CommSize);
+  Header->Result = (UINT32)Status | (EFI_ERROR(Status) ? BIT31 : 0);
+  return EFI_SUCCESS;
 }
 
 EFI_STATUS

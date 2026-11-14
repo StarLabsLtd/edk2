@@ -7,7 +7,7 @@
 #include <Uefi.h>
 extern EFI_GUID gCorebootCapsuleInfoGuid;
 extern EFI_GUID gCorebootCapsuleUpdateGuid;
-#define COREBOOT_CAPSULE_REVISION 1U
+#define COREBOOT_CAPSULE_REVISION 2U
 #define COREBOOT_CAPSULE_INFO 1U
 #define COREBOOT_CAPSULE_BEGIN 2U
 #define COREBOOT_CAPSULE_PROGRAM 3U
@@ -21,6 +21,8 @@ typedef struct {
 } COREBOOT_CAPSULE_PRIVATE_INFO;
 typedef struct {
   UINT32 Revision, Command, Transaction;
+  /* Command status uses the IA32 EFI error bit, independent of caller width. */
+  UINT32 Result;
 } COREBOOT_CAPSULE_HEADER;
 typedef struct {
   COREBOOT_CAPSULE_HEADER Header;
@@ -39,5 +41,5 @@ typedef struct {
 #pragma pack()
 STATIC_ASSERT(sizeof(COREBOOT_CAPSULE_PRIVATE_INFO) == 56, "Capsule private handoff ABI");
 STATIC_ASSERT(OFFSET_OF(COREBOOT_CAPSULE_PRIVATE_INFO, ImageGuid) == 40, "Capsule namespace ABI");
-STATIC_ASSERT(sizeof(COREBOOT_CAPSULE_HEADER) == 12, "Capsule wire header ABI");
-STATIC_ASSERT(OFFSET_OF(COREBOOT_CAPSULE_START, Signature) == 32, "Capsule begin ABI");
+STATIC_ASSERT(sizeof(COREBOOT_CAPSULE_HEADER) == 16, "Capsule wire header ABI");
+STATIC_ASSERT(OFFSET_OF(COREBOOT_CAPSULE_START, Signature) == 36, "Capsule begin ABI");
