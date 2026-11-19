@@ -61,10 +61,11 @@
   UefiRuntimeServicesTableLib
 
 [Protocols]
+  gEfiRealTimeClockArchProtocolGuid                  ## CONSUMES
   gEfiVariableWriteArchProtocolGuid                  ## CONSUMES
 
 [FixedPcd]
   gUefiPayloadPkgTokenSpaceGuid.PcdDefaultSecureBootEnable
 
 [Depex]
-  TRUE
+  gEfiRealTimeClockArchProtocolGuid
