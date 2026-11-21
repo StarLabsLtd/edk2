@@ -56,9 +56,14 @@ static EFI_STATUS EFIAPI SendMock(CONST EFI_MM_COMMUNICATION2_PROTOCOL *p, VOID 
     }
     case COREBOOT_CAPSULE_PROGRAM: {
       COREBOOT_CAPSULE_BLOCK *b = (VOID *)r;
-      if (r->Transaction != 7) return EFI_ACCESS_DENIED;
+      if (r->Transaction != 7) {
+        r->Result = BIT31 | 15;
+        return EFI_SUCCESS;
+      }
       Programs++;
-      return b->Block == 0 ? ProgramStatus : EFI_SUCCESS;
+      r->Result = b->Block == 0 ?
+        (UINT32)ProgramStatus | (EFI_ERROR(ProgramStatus) ? BIT31 : 0) : 0;
+      return EFI_SUCCESS;
     }
     case COREBOOT_CAPSULE_CLOSE:
       Closes++;
