@@ -18,12 +18,24 @@ static unsigned Mode, Programs, Closes, Frees;
 static EFI_STATUS ProgramStatus;
 static UINT8 Arena[128 * EFI_PAGE_SIZE] __attribute__((aligned(EFI_PAGE_SIZE)));
 static unsigned MapMode, MapCalls, Allocations, Pools;
-static BOOLEAN ArenaBusy;
+static BOOLEAN ArenaBusy, OwnerActive;
+static unsigned ZeroCount, FailZeroAt;
+static enum { NoFault, CloseDenied, CloseLost, CloseWrongToken,
+              BeginLost, BeginShort, BeginShortError, BeginErrorToken, BeginWrongSource,
+              BeginRejected } Fault;
 VOID *EFIAPI CopyMem(VOID *d, CONST VOID *s, UINTN n) { return memcpy(d, s, n); }
 VOID *EFIAPI ZeroMem(VOID *d, UINTN n) { return memset(d, 0, n); }
 BOOLEAN EFIAPI CompareGuid(CONST GUID *a, CONST GUID *b) { return !memcmp(a, b, sizeof(*a)); }
 UINT32 EFIAPI ReadUnaligned32(CONST VOID *p) { UINT32 v; memcpy(&v, p, sizeof(v)); return v; }
-VOID *EFIAPI AllocateZeroPool(UINTN n) { VOID *p = calloc(1, n); if (p) Pools++; return p; }
+VOID *EFIAPI AllocateZeroPool(UINTN n)
+{
+  VOID *p;
+  ZeroCount++;
+  if (ZeroCount == FailZeroAt) return NULL;
+  p = calloc(1, n);
+  if (p) Pools++;
+  return p;
+}
 VOID *EFIAPI AllocatePool(UINTN n) { VOID *p = malloc(n); if (p) Pools++; return p; }
 VOID EFIAPI FreePool(VOID *p) { if (!p || !Pools) abort(); Pools--; free(p); }
 static EFI_STATUS EFIAPI GetMap(UINTN *size, EFI_MEMORY_DESCRIPTOR *map,
@@ -93,10 +105,21 @@ static EFI_STATUS EFIAPI SendMock(CONST EFI_MM_COMMUNICATION2_PROTOCOL *p, VOID 
       memcpy(&Count, (UINT8 *)(UINTN)b->Address + b->SignedSize - 8, 8);
       if (b->ImageOffset != 16 || b->SignatureSize != 1 || b->Signature[0] != 0xa5 || Count != 9)
         abort();
-      b->Header.Transaction = 7;
-      h->MessageLength = sizeof(*b);
-      *size = OFFSET_OF(EFI_MM_COMMUNICATE_HEADER, Data) + sizeof(*b);
-      return EFI_SUCCESS;
+      if (OwnerActive) abort();
+      if (Fault == BeginRejected) {
+        b->Header.Result = BIT31 | 26;
+      } else {
+        OwnerActive = TRUE;
+        b->Header.Transaction = 7;
+        if (Fault == BeginShortError || Fault == BeginErrorToken) {
+          b->Header.Result = BIT31 | 26;
+          if (Fault == BeginShortError) b->Header.Transaction = 0;
+        }
+        if (Fault == BeginWrongSource) b->Address++;
+      }
+      h->MessageLength = Fault == BeginShort || Fault == BeginShortError ? sizeof(*r) : sizeof(*b);
+      *size = OFFSET_OF(EFI_MM_COMMUNICATE_HEADER, Data) + h->MessageLength;
+      return Fault == BeginLost ? EFI_DEVICE_ERROR : EFI_SUCCESS;
     }
     case COREBOOT_CAPSULE_PROGRAM: {
       COREBOOT_CAPSULE_BLOCK *b = (VOID *)r;
@@ -107,11 +130,16 @@ static EFI_STATUS EFIAPI SendMock(CONST EFI_MM_COMMUNICATION2_PROTOCOL *p, VOID 
       Programs++;
       r->Result = b->Block == 0 ?
         (UINT32)ProgramStatus | (EFI_ERROR(ProgramStatus) ? BIT31 : 0) : 0;
+      if (r->Result & BIT31) OwnerActive = FALSE;
       return EFI_SUCCESS;
     }
     case COREBOOT_CAPSULE_CLOSE:
       Closes++;
-      return EFI_SUCCESS;
+      if (Fault == CloseDenied) return EFI_ACCESS_DENIED;
+      r->Result = OwnerActive ? 0 : BIT31 | 15;
+      OwnerActive = FALSE;
+      if (Fault == CloseWrongToken) r->Transaction++;
+      return Fault == CloseLost ? EFI_DEVICE_ERROR : EFI_SUCCESS;
     default: return EFI_UNSUPPORTED;
   }
 }
@@ -208,7 +236,87 @@ int main(void)
     CHECK(FindSourceAddress(Map, sizeof(Map), sizeof(Map[0]) - 1, 33, SIZE_1MB, &Address) == EFI_INVALID_PARAMETER);
     CHECK(FindSourceAddress(Map, sizeof(Map), sizeof(Map[0]), 0, SIZE_1MB, &Address) == EFI_INVALID_PARAMETER);
   }
+  MapMode = 0;
+  ProgramStatus = EFI_SUCCESS;
+  {
+    unsigned before, allocated;
+    CHECK(CorebootCapsuleAuthenticate(Image, Size) == EFI_SUCCESS);
+    before = Frees;
+    FailZeroAt = ZeroCount + 1;
+    CorebootCapsuleClose();
+    CHECK(OwnerActive && ArenaBusy && mClosing && mTransaction == 7 && Frees == before);
+    CHECK(CorebootCapsuleApply(NULL) == EFI_ACCESS_DENIED);
+    allocated = Allocations;
+    FailZeroAt = ZeroCount + 1;
+    CHECK(CorebootCapsuleAuthenticate(Image, Size) == EFI_NOT_READY && Allocations == allocated);
+    FailZeroAt = 0;
+    CorebootCapsuleClose();
+    CorebootCapsuleClose();
+    CHECK(!OwnerActive && !ArenaBusy && Frees == before + 1);
+
+    CHECK(CorebootCapsuleAuthenticate(Image, Size) == EFI_SUCCESS);
+    before = Frees;
+    Fault = CloseDenied;
+    CorebootCapsuleClose();
+    CHECK(OwnerActive && ArenaBusy && mClosing && Frees == before);
+    CHECK(CorebootCapsuleAuthenticate(Image, Size) == EFI_NOT_READY);
+    Fault = NoFault;
+    CorebootCapsuleClose();
+    CHECK(!ArenaBusy && Frees == before + 1);
+
+    for (unsigned fault = CloseLost; fault <= CloseWrongToken; fault++) {
+      CHECK(CorebootCapsuleAuthenticate(Image, Size) == EFI_SUCCESS);
+      before = Frees;
+      Fault = fault;
+      CorebootCapsuleClose();
+      CHECK(!OwnerActive && ArenaBusy && mClosing && Frees == before);
+      CHECK(CorebootCapsuleApply(NULL) == EFI_ACCESS_DENIED);
+      Fault = NoFault;
+      CorebootCapsuleClose();
+      CorebootCapsuleClose();
+      CHECK(!ArenaBusy && !mTransaction && Frees == before + 1);
+    }
+    CHECK(CorebootCapsuleAuthenticate(Image, Size) == EFI_SUCCESS);
+    before = Frees;
+    Fault = CloseLost;
+    CHECK(CorebootCapsuleApply(NULL) == EFI_DEVICE_ERROR && ArenaBusy && !OwnerActive);
+    Fault = NoFault;
+    CorebootCapsuleClose();
+    CHECK(Frees == before + 1);
+
+    /* Both request and transport-packet allocation failures precede BEGIN. */
+    for (unsigned allocation = 1; allocation <= 2; allocation++) {
+      before = Frees;
+      FailZeroAt = ZeroCount + allocation;
+      CHECK(CorebootCapsuleAuthenticate(Image, Size) == EFI_OUT_OF_RESOURCES);
+      CHECK(!OwnerActive && !ArenaBusy && !mSourcePages && Frees == before + 1);
+      FailZeroAt = 0;
+    }
+    Fault = BeginRejected;
+    before = Frees;
+    CHECK(CorebootCapsuleAuthenticate(Image, Size) == EFI_SECURITY_VIOLATION);
+    CHECK(!OwnerActive && !ArenaBusy && Frees == before + 1);
+    Fault = NoFault;
+
+    for (unsigned fault = BeginLost; fault <= BeginWrongSource; fault++) {
+      before = Frees;
+      Fault = fault;
+      CHECK(CorebootCapsuleAuthenticate(Image, Size) == EFI_DEVICE_ERROR);
+      CHECK(OwnerActive && ArenaBusy && !mTransaction && mClosing && Frees == before);
+      allocated = Allocations;
+      CHECK(CorebootCapsuleAuthenticate(Image, Size) == EFI_NOT_READY && Allocations == allocated);
+      CHECK(CorebootCapsuleApply(NULL) == EFI_ACCESS_DENIED);
+      CorebootCapsuleClose();
+      CHECK(OwnerActive && ArenaBusy && Frees == before);
+      /* Model the owner's confirmed ExitBootServices shutdown. */
+      OwnerActive = FALSE;
+      ReleaseSource();
+      CHECK(!ArenaBusy && !mSourcePages && Frees == before + 1);
+      Fault = NoFault;
+    }
+    CHECK(!Pools);
+  }
   free(Image);
-  puts("Capsule client: framing, lifetime, block iteration, low RAM selection and allocation races passed");
+  puts("Capsule client: framing, lifetime, block iteration, low RAM selection, allocation races and uncertain-delivery lifetime passed");
   return 0;
 }

@@ -20,16 +20,26 @@ STATIC UINTN mSourcePages;
 STATIC UINT32 mTransaction;
 STATIC UINT32 mFlashSize;
 STATIC UINT32 mBlockSize;
+STATIC BOOLEAN mClosing;
+
+typedef enum {
+  RequestNotSent,
+  RequestUnconfirmed,
+  RequestReplied
+} CAPSULE_DELIVERY;
 
 STATIC
 EFI_STATUS
-Send(VOID *Packet, UINTN PacketSize, UINTN *ResponseSize)
+Send(VOID *Packet, UINTN PacketSize, UINTN *ResponseSize, CAPSULE_DELIVERY *Delivery OPTIONAL)
 {
   EFI_MM_COMMUNICATE_HEADER *Header;
   UINTN Size;
   EFI_STATUS Status;
   COREBOOT_CAPSULE_HEADER Reply;
 
+  if (Delivery) {
+    *Delivery = RequestNotSent;
+  }
   if (PacketSize > COREBOOT_CAPSULE_MAX_SIGNATURE + sizeof(COREBOOT_CAPSULE_START)) {
     return EFI_BAD_BUFFER_SIZE;
   }
@@ -48,6 +58,9 @@ Send(VOID *Packet, UINTN PacketSize, UINTN *ResponseSize)
   Header->HeaderGuid = gCorebootCapsuleUpdateGuid;
   Header->MessageLength = PacketSize;
   CopyMem(Header->Data, Packet, PacketSize);
+  if (Delivery) {
+    *Delivery = RequestUnconfirmed;
+  }
   Status = mCommunication->Communicate(mCommunication, Header, Header, &Size);
   if (!EFI_ERROR(Status)) {
     if (Size < OFFSET_OF(EFI_MM_COMMUNICATE_HEADER, Data) ||
@@ -59,11 +72,16 @@ Send(VOID *Packet, UINTN PacketSize, UINTN *ResponseSize)
     } else {
       CopyMem(&Reply, Header->Data, sizeof(Reply));
       if (Reply.Revision != COREBOOT_CAPSULE_REVISION ||
-          Reply.Command != ((COREBOOT_CAPSULE_HEADER *)Packet)->Command) {
+          Reply.Command != ((COREBOOT_CAPSULE_HEADER *)Packet)->Command ||
+          (Reply.Command != COREBOOT_CAPSULE_BEGIN &&
+           Reply.Transaction != ((COREBOOT_CAPSULE_HEADER *)Packet)->Transaction)) {
         Status = EFI_DEVICE_ERROR;
       } else {
         CopyMem(Packet, Header->Data, Header->MessageLength);
         *ResponseSize = Header->MessageLength;
+        if (Delivery) {
+          *Delivery = RequestReplied;
+        }
         Status = (Reply.Result & BIT31) ? EFIERR(Reply.Result & ~BIT31) : Reply.Result;
       }
     }
@@ -83,7 +101,7 @@ CorebootCapsuleGeometry(UINT32 *FlashSize, UINT32 *BlockSize)
     ZeroMem(&Request, sizeof(Request));
     Request.Header.Revision = COREBOOT_CAPSULE_REVISION;
     Request.Header.Command = COREBOOT_CAPSULE_INFO;
-    Status = Send(&Request, sizeof(Request), &Size);
+    Status = Send(&Request, sizeof(Request), &Size, NULL);
     if (EFI_ERROR(Status)) {
       return Status;
     }
@@ -99,23 +117,44 @@ CorebootCapsuleGeometry(UINT32 *FlashSize, UINT32 *BlockSize)
   return EFI_SUCCESS;
 }
 
+STATIC
+VOID
+ReleaseSource(VOID)
+{
+  if (mSourcePages) {
+    gBS->FreePages(mSource, mSourcePages);
+  }
+  mSource = 0;
+  mSourcePages = 0;
+  mTransaction = 0;
+  mClosing = FALSE;
+}
+
 VOID
 CorebootCapsuleClose(VOID)
 {
   COREBOOT_CAPSULE_HEADER Request;
   UINTN Size;
+  EFI_STATUS Status;
+  CAPSULE_DELIVERY Delivery;
 
-  if (mTransaction) {
-    Request = (COREBOOT_CAPSULE_HEADER) {
-      COREBOOT_CAPSULE_REVISION, COREBOOT_CAPSULE_CLOSE, mTransaction, 0
-    };
-    Send(&Request, sizeof(Request), &Size);
-    mTransaction = 0;
+  if (!mSourcePages) {
+    return;
   }
-  if (mSourcePages) {
-    gBS->FreePages(mSource, mSourcePages);
-    mSource = 0;
-    mSourcePages = 0;
+  mClosing = TRUE;
+  /* A lost BEGIN token cannot be cancelled safely. Keep this allocation
+     until MM closes boot access at ExitBootServices or the machine resets. */
+  if (!mTransaction) {
+    return;
+  }
+  Request = (COREBOOT_CAPSULE_HEADER) {
+    COREBOOT_CAPSULE_REVISION, COREBOOT_CAPSULE_CLOSE, mTransaction, 0
+  };
+  Status = Send(&Request, sizeof(Request), &Size, &Delivery);
+  /* An owner denial confirms that this token is no longer active. A
+     transport denial does not prove that the request reached the owner. */
+  if (Delivery == RequestReplied && (Status == EFI_SUCCESS || Status == EFI_ACCESS_DENIED)) {
+    ReleaseSource();
   }
 }
 
@@ -227,11 +266,15 @@ CorebootCapsuleAuthenticate(EFI_FIRMWARE_IMAGE_AUTHENTICATION *Image, UINTN Size
   EFI_FIRMWARE_IMAGE_AUTHENTICATION Authentication;
   COREBOOT_CAPSULE_START *Request;
   UINTN PayloadOffset, PayloadSize, SignedSize, SignatureSize, ResponseSize;
-  UINT32 FlashSize, BlockSize;
+  UINT32 FlashSize, BlockSize, ImageOffset;
   EFI_PHYSICAL_ADDRESS Address;
   EFI_STATUS Status;
+  CAPSULE_DELIVERY Delivery;
 
   CorebootCapsuleClose();
+  if (mSourcePages) {
+    return EFI_NOT_READY;
+  }
   if (!Image || Size < sizeof(Authentication)) {
     return EFI_INVALID_PARAMETER;
   }
@@ -263,32 +306,40 @@ CorebootCapsuleAuthenticate(EFI_FIRMWARE_IMAGE_AUTHENTICATION *Image, UINTN Size
   }
   mSource = Address;
   mSourcePages = EFI_SIZE_TO_PAGES(SignedSize);
+  mClosing = TRUE;
   CopyMem((VOID *)(UINTN)mSource, (UINT8 *)Image + PayloadOffset, PayloadSize);
   CopyMem((UINT8 *)(UINTN)mSource + PayloadSize, &Authentication.MonotonicCount, sizeof(UINT64));
   Request = AllocateZeroPool(sizeof(*Request) + SignatureSize);
   if (!Request) {
-    CorebootCapsuleClose();
+    ReleaseSource();
     return EFI_OUT_OF_RESOURCES;
   }
   Request->Header.Revision = COREBOOT_CAPSULE_REVISION;
   Request->Header.Command = COREBOOT_CAPSULE_BEGIN;
   Request->Address = mSource;
   Request->SignedSize = (UINT32)SignedSize;
-  Request->ImageOffset = ReadUnaligned32((CONST UINT32 *)((CONST UINT8 *)(UINTN)mSource + 4));
+  ImageOffset = ReadUnaligned32((CONST UINT32 *)((CONST UINT8 *)(UINTN)mSource + 4));
+  Request->ImageOffset = ImageOffset;
   Request->SignatureSize = (UINT32)SignatureSize;
   CopyMem(Request->Signature, Image->AuthInfo.CertData, SignatureSize);
-  Status = Send(Request, sizeof(*Request) + SignatureSize, &ResponseSize);
+  Status = Send(Request, sizeof(*Request) + SignatureSize, &ResponseSize, &Delivery);
+  if (Delivery == RequestReplied &&
+      (ResponseSize != sizeof(*Request) || Request->Address != mSource ||
+       Request->SignedSize != SignedSize || Request->ImageOffset != ImageOffset ||
+       Request->SignatureSize != SignatureSize ||
+       (EFI_ERROR(Status) ? Request->Header.Transaction != 0 : Request->Header.Transaction == 0))) {
+    Delivery = RequestUnconfirmed;
+    Status = EFI_DEVICE_ERROR;
+  }
   if (!EFI_ERROR(Status)) {
-    if (ResponseSize != sizeof(*Request) || !Request->Header.Transaction) {
-      Status = EFI_DEVICE_ERROR;
-    } else {
-      mTransaction = Request->Header.Transaction;
-    }
+    mTransaction = Request->Header.Transaction;
+    mClosing = FALSE;
+  }
+  if (Delivery == RequestNotSent ||
+      (Delivery == RequestReplied && (Request->Header.Result & BIT31))) {
+    ReleaseSource();
   }
   FreePool(Request);
-  if (EFI_ERROR(Status)) {
-    CorebootCapsuleClose();
-  }
   return Status;
 }
 
@@ -299,14 +350,14 @@ ProgramBlock(EFI_LBA Block)
   COREBOOT_CAPSULE_BLOCK Request;
   UINTN Size;
 
-  if (!mTransaction || !mBlockSize || Block >= mFlashSize / mBlockSize) {
+  if (mClosing || !mTransaction || !mBlockSize || Block >= mFlashSize / mBlockSize) {
     return EFI_ACCESS_DENIED;
   }
   Request.Header = (COREBOOT_CAPSULE_HEADER) {
     COREBOOT_CAPSULE_REVISION, COREBOOT_CAPSULE_PROGRAM, mTransaction, 0
   };
   Request.Block = (UINT32)Block;
-  return Send(&Request, sizeof(Request), &Size);
+  return Send(&Request, sizeof(Request), &Size, NULL);
 }
 
 /* The protected owner merges and verifies the complete plan once per block.
@@ -318,7 +369,7 @@ CorebootCapsuleApply(EFI_FIRMWARE_MANAGEMENT_UPDATE_IMAGE_PROGRESS Progress OPTI
   UINTN Block;
   EFI_STATUS Status;
 
-  if (!mTransaction) {
+  if (mClosing || !mTransaction) {
     return EFI_ACCESS_DENIED;
   }
   Status = CorebootCapsuleGeometry(&Flash, &BlockSize);
@@ -341,6 +392,9 @@ CorebootCapsuleApply(EFI_FIRMWARE_MANAGEMENT_UPDATE_IMAGE_PROGRESS Progress OPTI
   Status = EFI_SUCCESS;
 Done:
   CorebootCapsuleClose();
+  if (!EFI_ERROR(Status) && mSourcePages) {
+    return EFI_DEVICE_ERROR;
+  }
   return Status;
 }
 
