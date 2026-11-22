@@ -119,6 +119,108 @@ CorebootCapsuleClose(VOID)
   }
 }
 
+/* Choose low RAM without depending on the order of the firmware memory map.
+   The protected owner independently checks its permitted source range. */
+STATIC
+EFI_STATUS
+FindSourceAddress(CONST VOID *Map, UINTN Size, UINTN Stride, UINTN Pages,
+                  EFI_PHYSICAL_ADDRESS Minimum, EFI_PHYSICAL_ADDRESS *Address)
+{
+  EFI_MEMORY_DESCRIPTOR Descriptor;
+  UINT64 Start, End, Bytes;
+  UINTN Offset;
+
+  if (Stride < sizeof(Descriptor) || Size % Stride ||
+      !Pages || Pages > (BASE_4GB - SIZE_1MB) / EFI_PAGE_SIZE) {
+    return EFI_INVALID_PARAMETER;
+  }
+  Bytes = (UINT64)Pages * EFI_PAGE_SIZE;
+  *Address = BASE_4GB;
+  for (Offset = 0; Offset < Size; Offset += Stride) {
+    CopyMem(&Descriptor, (CONST UINT8 *)Map + Offset, sizeof(Descriptor));
+    if (Descriptor.Type != EfiConventionalMemory) {
+      continue;
+    }
+    Start = Descriptor.PhysicalStart;
+    if (!Descriptor.NumberOfPages) {
+      continue;
+    }
+    if (Start % EFI_PAGE_SIZE || Descriptor.NumberOfPages - 1 >
+        (MAX_UINT64 - Start) / EFI_PAGE_SIZE) {
+      return EFI_DEVICE_ERROR;
+    }
+    if (Start >= BASE_4GB) {
+      continue;
+    }
+    End = Start + MIN(Descriptor.NumberOfPages,
+                      (BASE_4GB - Start) / EFI_PAGE_SIZE) * EFI_PAGE_SIZE;
+    Start = MAX(Start, SIZE_1MB);
+    if (Start < Minimum) {
+      continue;
+    }
+    if (Start < End && Bytes <= End - Start && Start < *Address) {
+      *Address = Start;
+    }
+  }
+  return *Address < BASE_4GB ? EFI_SUCCESS : EFI_OUT_OF_RESOURCES;
+}
+
+STATIC
+EFI_STATUS
+AllocateSourcePages(UINTN Pages, EFI_PHYSICAL_ADDRESS *Address)
+{
+  EFI_MEMORY_DESCRIPTOR *Map;
+  UINTN Size, Capacity, Key, Stride, Attempt, Required = 0;
+  EFI_PHYSICAL_ADDRESS Minimum = SIZE_1MB, Rejected = BASE_4GB, Candidate;
+  UINT32 Version;
+  EFI_STATUS Status;
+
+  /* Pool allocation can grow the map; AllocateAddress can race another user.
+     Retry from a fresh map rather than falling back to high RAM. */
+  for (Attempt = 0; Attempt < 8; Attempt++) {
+    Size = 0;
+    Status = gBS->GetMemoryMap(&Size, NULL, &Key, &Stride, &Version);
+    Size = MAX(Size, Required);
+    if (Status != EFI_BUFFER_TOO_SMALL || Stride < sizeof(*Map) ||
+        Stride > MAX_UINTN / 2 || Size > MAX_UINTN - 2 * Stride) {
+      return EFI_DEVICE_ERROR;
+    }
+    Capacity = Size + 2 * Stride;
+    Map = AllocatePool(Capacity);
+    if (!Map) {
+      return EFI_OUT_OF_RESOURCES;
+    }
+    Size = Capacity;
+    Status = gBS->GetMemoryMap(&Size, Map, &Key, &Stride, &Version);
+    if (Status == EFI_BUFFER_TOO_SMALL) {
+      Required = MAX(Required, Size);
+    } else if (!EFI_ERROR(Status)) {
+      if (Size > Capacity || Version != EFI_MEMORY_DESCRIPTOR_VERSION) {
+        Status = EFI_DEVICE_ERROR;
+      } else {
+        Status = FindSourceAddress(Map, Size, Stride, Pages, Minimum, Address);
+        if (!EFI_ERROR(Status)) {
+          Candidate = *Address;
+          Status = gBS->AllocatePages(AllocateAddress, EfiBootServicesData, Pages, &Candidate);
+          if (Status == EFI_NOT_FOUND || Status == EFI_OUT_OF_RESOURCES) {
+            /* Retry a raced range once, then try the next reported extent. */
+            if (*Address == Rejected) {
+              Minimum = *Address + EFI_PAGE_SIZE;
+            }
+            Rejected = *Address;
+          }
+        }
+      }
+    }
+    FreePool(Map);
+    if (Status != EFI_BUFFER_TOO_SMALL && Status != EFI_NOT_FOUND &&
+        Status != EFI_OUT_OF_RESOURCES) {
+      return Status;
+    }
+  }
+  return EFI_OUT_OF_RESOURCES;
+}
+
 EFI_STATUS
 CorebootCapsuleAuthenticate(EFI_FIRMWARE_IMAGE_AUTHENTICATION *Image, UINTN Size)
 {
@@ -155,9 +257,7 @@ CorebootCapsuleAuthenticate(EFI_FIRMWARE_IMAGE_AUTHENTICATION *Image, UINTN Size
     return EFI_BAD_BUFFER_SIZE;
   }
   SignedSize = PayloadSize + sizeof(UINT64);
-  Address = MAX_UINT32;
-  Status = gBS->AllocatePages(AllocateMaxAddress, EfiBootServicesData,
-                              EFI_SIZE_TO_PAGES(SignedSize), &Address);
+  Status = AllocateSourcePages(EFI_SIZE_TO_PAGES(SignedSize), &Address);
   if (EFI_ERROR(Status)) {
     return Status;
   }

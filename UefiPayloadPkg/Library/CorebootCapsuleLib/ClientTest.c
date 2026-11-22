@@ -16,17 +16,61 @@ EFI_BOOT_SERVICES *gBS = &Services;
 static EFI_MM_COMMUNICATION2_PROTOCOL Communication;
 static unsigned Mode, Programs, Closes, Frees;
 static EFI_STATUS ProgramStatus;
+static UINT8 Arena[128 * EFI_PAGE_SIZE] __attribute__((aligned(EFI_PAGE_SIZE)));
+static unsigned MapMode, MapCalls, Allocations, Pools;
+static BOOLEAN ArenaBusy;
 VOID *EFIAPI CopyMem(VOID *d, CONST VOID *s, UINTN n) { return memcpy(d, s, n); }
 VOID *EFIAPI ZeroMem(VOID *d, UINTN n) { return memset(d, 0, n); }
 BOOLEAN EFIAPI CompareGuid(CONST GUID *a, CONST GUID *b) { return !memcmp(a, b, sizeof(*a)); }
 UINT32 EFIAPI ReadUnaligned32(CONST VOID *p) { UINT32 v; memcpy(&v, p, sizeof(v)); return v; }
-VOID *EFIAPI AllocateZeroPool(UINTN n) { return calloc(1, n); }
-VOID *EFIAPI AllocatePool(UINTN n) { return malloc(n); }
-VOID EFIAPI FreePool(VOID *p) { free(p); }
+VOID *EFIAPI AllocateZeroPool(UINTN n) { VOID *p = calloc(1, n); if (p) Pools++; return p; }
+VOID *EFIAPI AllocatePool(UINTN n) { VOID *p = malloc(n); if (p) Pools++; return p; }
+VOID EFIAPI FreePool(VOID *p) { if (!p || !Pools) abort(); Pools--; free(p); }
+static EFI_STATUS EFIAPI GetMap(UINTN *size, EFI_MEMORY_DESCRIPTOR *map,
+                                UINTN *key, UINTN *stride, UINT32 *version)
+{
+  EFI_MEMORY_DESCRIPTOR d = {0};
+  UINTN needed = 3 * (sizeof(d) + 16);
+  *key = 1;
+  *stride = sizeof(d) + 16;
+  *version = MapMode == 3 ? 0 : EFI_MEMORY_DESCRIPTOR_VERSION;
+  MapCalls++;
+  if (!map || *size < needed || (MapMode == 1 && *size < needed + 3 * *stride)) {
+    *size = MapMode == 1 && map ? needed + 3 * *stride : needed;
+    return EFI_BUFFER_TOO_SMALL;
+  }
+  *size = needed;
+  d.Type = EfiConventionalMemory;
+  d.PhysicalStart = BASE_4GB;
+  d.NumberOfPages = 64;
+  memcpy(map, &d, sizeof(d));
+  d.PhysicalStart = (UINTN)Arena + 64 * EFI_PAGE_SIZE;
+  d.NumberOfPages = MapMode == 4 ? 1 : 48;
+  memcpy((UINT8 *)map + *stride, &d, sizeof(d));
+  d.PhysicalStart = (UINTN)Arena;
+  d.NumberOfPages = MapMode == 4 ? 1 : 48;
+  memcpy((UINT8 *)map + 2 * *stride, &d, sizeof(d));
+  if (MapMode == 6) *size = needed + 3 * *stride;
+  if (MapMode == 7) *stride = 0;
+  return EFI_SUCCESS;
+}
 static EFI_STATUS EFIAPI Pages(EFI_ALLOCATE_TYPE t, EFI_MEMORY_TYPE m, UINTN n, EFI_PHYSICAL_ADDRESS *a)
-{ (void)t; (void)m; *a = (UINTN)malloc(EFI_PAGES_TO_SIZE(n)); return *a ? EFI_SUCCESS : EFI_OUT_OF_RESOURCES; }
+{
+  Allocations++;
+  if (t != AllocateAddress || m != EfiBootServicesData || n != 33 ||
+      (*a != (UINTN)Arena && *a != (UINTN)Arena + 64 * EFI_PAGE_SIZE) || ArenaBusy) abort();
+  if (MapMode == 5 || (MapMode == 8 && *a == (UINTN)Arena) ||
+      (MapMode == 2 && Allocations == 1)) { *a = MAX_UINT64; return EFI_NOT_FOUND; }
+  ArenaBusy = TRUE;
+  return EFI_SUCCESS;
+}
 static EFI_STATUS EFIAPI FreePagesMock(EFI_PHYSICAL_ADDRESS a, UINTN n)
-{ (void)n; free((VOID *)(UINTN)a); Frees++; return EFI_SUCCESS; }
+{
+  if (!ArenaBusy || a != mSource || n != 33) abort();
+  ArenaBusy = FALSE;
+  Frees++;
+  return EFI_SUCCESS;
+}
 static EFI_STATUS EFIAPI SendMock(CONST EFI_MM_COMMUNICATION2_PROTOCOL *p, VOID *physical, VOID *virtual, UINTN *size)
 {
   EFI_MM_COMMUNICATE_HEADER *h = virtual;
@@ -87,6 +131,7 @@ int main(void)
   Services.LocateProtocol = Locate;
   Services.AllocatePages = Pages;
   Services.FreePages = FreePagesMock;
+  Services.GetMemoryMap = GetMap;
   for (Mode = 1; Mode <= 5; Mode++) {
     CHECK(EFI_ERROR(CorebootCapsuleGeometry(&Flash, &Block)) && !mFlashSize);
   }
@@ -115,7 +160,55 @@ int main(void)
   CHECK(CorebootCapsuleAuthenticate(Image, Size) == EFI_SUCCESS);
   ProgramStatus = EFI_NOT_FOUND;
   CHECK(CorebootCapsuleApply(NULL) == EFI_NOT_FOUND && Programs == 6 && Frees == 4);
+  CHECK(!Pools && !ArenaBusy);
+  for (MapMode = 1; MapMode <= 8; MapMode++) {
+    MapCalls = Allocations = 0;
+    if (MapMode <= 2 || MapMode == 8) {
+      CHECK(CorebootCapsuleAuthenticate(Image, Size) == EFI_SUCCESS);
+      CHECK(mSource == (UINTN)Arena + (MapMode == 8 ? 64 * EFI_PAGE_SIZE : 0) && mSourcePages == 33 && ArenaBusy);
+      CHECK(MapCalls == (MapMode == 8 ? 6 : 4) &&
+            Allocations == (MapMode == 8 ? 3 : MapMode == 2 ? 2 : 1));
+      CorebootCapsuleClose();
+    } else {
+      CHECK(EFI_ERROR(CorebootCapsuleAuthenticate(Image, Size)));
+      CHECK(Allocations == (MapMode == 5 ? 4 : 0));
+      CHECK(MapCalls == (MapMode == 4 || MapMode == 5 ? 16 : 2));
+      CHECK(!mSourcePages && !mTransaction);
+    }
+    CHECK(!Pools && !ArenaBusy);
+  }
+  {
+    EFI_MEMORY_DESCRIPTOR Map[4] = {{0}};
+    EFI_PHYSICAL_ADDRESS Address;
+    Map[0].Type = EfiConventionalMemory;
+    Map[0].PhysicalStart = BASE_4GB - EFI_PAGE_SIZE;
+    Map[0].NumberOfPages = 2;
+    Map[1].Type = EfiReservedMemoryType;
+    Map[1].PhysicalStart = 2 * SIZE_1MB;
+    Map[1].NumberOfPages = 64;
+    Map[2].Type = EfiConventionalMemory;
+    Map[2].PhysicalStart = SIZE_1MB - EFI_PAGE_SIZE;
+    Map[2].NumberOfPages = 34;
+    CHECK(FindSourceAddress(Map, sizeof(Map), sizeof(Map[0]), 33, SIZE_1MB, &Address) == EFI_SUCCESS);
+    CHECK(Address == SIZE_1MB);
+    Map[3].Type = EfiConventionalMemory;
+    Map[3].PhysicalStart = MAX_UINT64 - EFI_PAGE_SIZE + 1;
+    Map[3].NumberOfPages = 1;
+    CHECK(FindSourceAddress(Map, sizeof(Map), sizeof(Map[0]), 33, SIZE_1MB, &Address) == EFI_SUCCESS);
+    CHECK(Address == SIZE_1MB);
+    Map[2].NumberOfPages = 33;
+    CHECK(FindSourceAddress(Map, sizeof(Map), sizeof(Map[0]), 33, SIZE_1MB, &Address) == EFI_OUT_OF_RESOURCES);
+    Map[2].PhysicalStart = MAX_UINT64 - EFI_PAGE_SIZE + 1;
+    Map[2].NumberOfPages = 2;
+    CHECK(FindSourceAddress(Map, sizeof(Map), sizeof(Map[0]), 33, SIZE_1MB, &Address) == EFI_DEVICE_ERROR);
+    Map[2].PhysicalStart = SIZE_1MB + 1;
+    Map[2].NumberOfPages = 64;
+    CHECK(FindSourceAddress(Map, sizeof(Map), sizeof(Map[0]), 33, SIZE_1MB, &Address) == EFI_DEVICE_ERROR);
+    CHECK(FindSourceAddress(Map, sizeof(Map) - 1, sizeof(Map[0]), 33, SIZE_1MB, &Address) == EFI_INVALID_PARAMETER);
+    CHECK(FindSourceAddress(Map, sizeof(Map), sizeof(Map[0]) - 1, 33, SIZE_1MB, &Address) == EFI_INVALID_PARAMETER);
+    CHECK(FindSourceAddress(Map, sizeof(Map), sizeof(Map[0]), 0, SIZE_1MB, &Address) == EFI_INVALID_PARAMETER);
+  }
   free(Image);
-  puts("Capsule client: response framing, staged lifetime, block iteration, progress failure and errors passed");
+  puts("Capsule client: framing, lifetime, block iteration, low RAM selection and allocation races passed");
   return 0;
 }
