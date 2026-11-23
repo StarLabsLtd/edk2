@@ -18,14 +18,6 @@ CONST UINT16  mBmUsbLangId    = 0x0409; // English
 
 CHAR16  mBootDescGenericManufacturer[] = L"Generic";
 CHAR16  mBootDescSd[]                  = L"SD Device";
-CHAR16  mBootDescEmmc[]                = L"eMMC Device";
-CHAR16  mBootDescEmmcUserData[]        = L"eMMC User Data";
-CHAR16  mBootDescEmmcBoot1[]           = L"eMMC Boot 1";
-CHAR16  mBootDescEmmcBoot2[]           = L"eMMC Boot 2";
-CHAR16  mBootDescEmmcGp1[]             = L"eMMC GP 1";
-CHAR16  mBootDescEmmcGp2[]             = L"eMMC GP 2";
-CHAR16  mBootDescEmmcGp3[]             = L"eMMC GP 3";
-CHAR16  mBootDescEmmcGp4[]             = L"eMMC GP 4";
 
 typedef struct {
   UINT8     Id;
@@ -240,40 +232,6 @@ BmGetSdMmcManufacturerName (
 }
 
 /**
-  Get the eMMC partition type from a controller path.
-
-  @param    DevicePath       Pointer to a CONTROLLER_DEVICE_PATH.
-
-  @return  The description string.
-**/
-CHAR16 *
-BmGetEmmcTypeDescription (
-  CONTROLLER_DEVICE_PATH  *DevicePath
-  )
-{
-  switch (DevicePath->ControllerNumber) {
-    case EmmcPartitionUserData:
-      return mBootDescEmmcUserData;
-    case EmmcPartitionBoot1:
-      return mBootDescEmmcBoot1;
-    case EmmcPartitionBoot2:
-      return mBootDescEmmcBoot2;
-    case EmmcPartitionGP1:
-      return mBootDescEmmcGp1;
-    case EmmcPartitionGP2:
-      return mBootDescEmmcGp2;
-    case EmmcPartitionGP3:
-      return mBootDescEmmcGp3;
-    case EmmcPartitionGP4:
-      return mBootDescEmmcGp4;
-    default:
-      break;
-  }
-
-  return mBootDescEmmc;
-}
-
-/**
   Get an SD/MMC boot description.
 
   @param    ManufacturerName           Manufacturer name string.
@@ -349,7 +307,6 @@ BmGetDescriptionFromDiskInfo (
   SD_CID                    SdCid;
   EMMC_CID                  EmmcCid;
   CHAR16                    *Description;
-  CHAR16                    *DescTemp;
   CONST UINTN               ModelNameLength    = 40;
   CHAR8                     *StrPtr;
   UINT8                     Temp;
@@ -375,29 +332,24 @@ BmGetDescriptionFromDiskInfo (
                              &IdentifyData,
                              &BufferSize
                              );
-    if (!EFI_ERROR (Status)) {
-      Description = AllocateZeroPool (StrSize (L"SATA: ") + ModelNameLength * sizeof (CHAR16));
+    if (!EFI_ERROR (Status) && (BufferSize >= sizeof (IdentifyData))) {
+      CONST CHAR16  *Prefix;
+      UINTN         PrefixLength;
+
+      Prefix       = CompareGuid (&DiskInfo->Interface, &gEfiDiskInfoAhciInterfaceGuid) ? L"SATA: " : L"IDE: ";
+      PrefixLength = StrLen (Prefix);
+      Description  = AllocateZeroPool ((PrefixLength + ModelNameLength + 1) * sizeof (CHAR16));
       if (Description == NULL) {
-        ASSERT (Description != NULL);
         return NULL;
       }
 
+      CopyMem (Description, Prefix, PrefixLength * sizeof (CHAR16));
       for (Index = 0; Index + 1 < ModelNameLength; Index += 2) {
-        Description[Index]     = (CHAR16)IdentifyData.ModelName[Index + 1];
-        Description[Index + 1] = (CHAR16)IdentifyData.ModelName[Index];
+        Description[PrefixLength + Index]     = (CHAR16)IdentifyData.ModelName[Index + 1];
+        Description[PrefixLength + Index + 1] = (CHAR16)IdentifyData.ModelName[Index];
       }
-      Description[Index] = L'\0';
-      BmEliminateExtraSpaces (Description);
 
-      DescTemp = AllocateZeroPool (0x60);
-      if (CompareGuid (&DiskInfo->Interface, &gEfiDiskInfoAhciInterfaceGuid)) {
-        StrCatS (DescTemp, 0x60 / sizeof (CHAR16), L"SATA: ");
-      } else {
-        StrCatS (DescTemp, 0x60 / sizeof (CHAR16), L"IDE: ");
-      }
-      StrCatS (DescTemp, 0x60 / sizeof (CHAR16), Description);
-      StrCpyS(Description, StrSize (DescTemp) / sizeof (CHAR16), DescTemp);
-      FreePool (DescTemp);
+      BmEliminateExtraSpaces (Description);
     }
   } else if (CompareGuid (&DiskInfo->Interface, &gEfiDiskInfoScsiInterfaceGuid) ||
              CompareGuid (&DiskInfo->Interface, &gEfiDiskInfoUfsInterfaceGuid))
@@ -472,19 +424,8 @@ BmGetDescriptionFromDiskInfo (
         return NULL;
       }
 
-      Description = mBootDescEmmc;
-
-      DevicePath = NextDevicePathNode (DevicePath);
-      if (DevicePath->SubType == HW_CONTROLLER_DP) {
-        Description = BmGetEmmcTypeDescription ((CONTROLLER_DEVICE_PATH *)DevicePath);
-      }
-
-      Description = L"Internal eMMC";
-    } else {
-      return NULL;
+      Description = AllocateCopyPool (sizeof (L"Internal eMMC"), L"Internal eMMC");
     }
-
-    Description = AllocateCopyPool (StrSize (Description), Description);
   }
 
   return Description;
@@ -555,17 +496,10 @@ BmGetUsbDescription (
 
   DescMaxSize = StrSize (L"USB: ") + StrSize (Manufacturer) + StrSize (Product);
   Description = AllocateZeroPool (DescMaxSize);
-  if (Description == NULL) {
-    ASSERT (Description != NULL);
-    return NULL;
+  if (Description != NULL) {
+    UnicodeSPrint (Description, DescMaxSize, L"USB: %s %s", Manufacturer, Product);
+    BmEliminateExtraSpaces (Description);
   }
-
-  StrCatS (Description, DescMaxSize/sizeof (CHAR16), L"USB: ");
-  StrCatS (Description, DescMaxSize/sizeof (CHAR16), Manufacturer);
-  StrCatS (Description, DescMaxSize/sizeof (CHAR16), L" ");
-
-  StrCatS (Description, DescMaxSize/sizeof (CHAR16), Product);
-  StrCatS (Description, DescMaxSize/sizeof (CHAR16), L" ");
 
   if (Manufacturer != &NullChar) {
     FreePool (Manufacturer);
@@ -574,8 +508,6 @@ BmGetUsbDescription (
   if (Product != &NullChar) {
     FreePool (Product);
   }
-
-  BmEliminateExtraSpaces (Description);
 
   return Description;
 }
@@ -808,7 +740,6 @@ BmGetNvmeDescription (
   EFI_NVM_EXPRESS_COMPLETION                Completion;
   NVME_ADMIN_CONTROLLER_DATA                ControllerData;
   CHAR16                                    *Description;
-  CHAR16                                    *DescTemp;
   CHAR16                                    *Char;
   UINTN                                     Index;
 
@@ -866,23 +797,15 @@ BmGetNvmeDescription (
     return NULL;
   }
 
-  Description = AllocateZeroPool (
-                  (ARRAY_SIZE (ControllerData.Mn) + 1
-                   + ARRAY_SIZE (ControllerData.Sn) + 1
-                   + MAXIMUM_VALUE_CHARACTERS + 1
-                  ) * sizeof (CHAR16)
-                  );
+  Description = AllocateZeroPool (StrSize (L"NVMe: ") + ARRAY_SIZE (ControllerData.Mn) * sizeof (CHAR16));
   if (Description != NULL) {
-    Char = Description;
+    CopyMem (Description, L"NVMe: ", StrSize (L"NVMe: ") - sizeof (CHAR16));
+    Char = Description + StrLen (L"NVMe: ");
     for (Index = 0; Index < ARRAY_SIZE (ControllerData.Mn); Index++) {
-      *(Char++) = (CHAR16)ControllerData.Mn[Index];
+      Char[Index] = (CHAR16)ControllerData.Mn[Index];
     }
+
     BmEliminateExtraSpaces (Description);
-    DescTemp = AllocateZeroPool (0x60);
-    StrCatS (DescTemp, 0x60 / sizeof (CHAR16), L"NVMe: ");
-    StrCatS (DescTemp, 0x60 / sizeof (CHAR16), Description);
-    StrCpyS(Description, StrSize (DescTemp) / sizeof (CHAR16), DescTemp);
-    FreePool (DescTemp);
   }
 
   return Description;
