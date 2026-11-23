@@ -588,19 +588,19 @@ FrameBufferBltLibVideoToVideo (
   //
   // Video to Video: Source is Video, destination is Video
   //
-  if (SourceY + Height > Configure->Height) {
+  if ((SourceY > Configure->Height) || (Height > Configure->Height - SourceY)) {
     return RETURN_INVALID_PARAMETER;
   }
 
-  if (SourceX + Width > Configure->Width) {
+  if ((SourceX > Configure->Width) || (Width > Configure->Width - SourceX)) {
     return RETURN_INVALID_PARAMETER;
   }
 
-  if (DestinationY + Height > Configure->Height) {
+  if ((DestinationY > Configure->Height) || (Height > Configure->Height - DestinationY)) {
     return RETURN_INVALID_PARAMETER;
   }
 
-  if (DestinationX + Width > Configure->Width) {
+  if ((DestinationX > Configure->Width) || (Width > Configure->Width - DestinationX)) {
     return RETURN_INVALID_PARAMETER;
   }
 
@@ -623,16 +623,16 @@ FrameBufferBltLibVideoToVideo (
     //
     // Copy from last line to avoid source is corrupted by copying
     //
-    Source      += Height * LineStride;
-    Destination += Height * LineStride;
+    Source      += (Height - 1) * LineStride;
+    Destination += (Height - 1) * LineStride;
     LineStride   = -LineStride;
   }
 
-  while (Height-- > 0) {
-    CopyMem (Destination, Source, WidthInBytes);
-
+  CopyMem (Destination, Source, WidthInBytes);
+  while (--Height > 0) {
     Source      += LineStride;
     Destination += LineStride;
+    CopyMem (Destination, Source, WidthInBytes);
   }
 
   return RETURN_SUCCESS;

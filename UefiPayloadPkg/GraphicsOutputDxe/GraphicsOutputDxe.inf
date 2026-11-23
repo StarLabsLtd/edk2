@@ -41,6 +41,7 @@
   BaseMemoryLib
   DevicePathLib
   FrameBufferBltLib
+  SafeIntLib
   UefiLib
   HobLib
   PcdLib
