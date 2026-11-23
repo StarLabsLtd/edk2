@@ -1311,21 +1311,21 @@ EXIT:
   return Urb->Finished;
 }
 
+#define XHC_ENDPOINT_STATE_DISABLED  0
+#define XHC_ENDPOINT_STATE_RUNNING   1
+#define XHC_ENDPOINT_STATE_HALTED    2
+
 /**
-  Check whether an endpoint is in the Running state.
+  Return the state of an endpoint in the controller's context layout.
 
-  @param  Xhc     The XHCI instance.
-  @param  SlotId  The slot id.
-  @param  Dci     The device context index.
-
-  @retval TRUE    The endpoint is in the Running state.
-  @retval FALSE   The endpoint is not in the Running state.
-
+  @param[in] Xhc     The XHCI instance.
+  @param[in] SlotId  Device slot.
+  @param[in] Dci     Device context index of the endpoint.
+  @return            Endpoint state or disabled for an absent context.
 **/
 STATIC
-BOOLEAN
-EFIAPI
-XhcEndpointRunning (
+UINT8
+XhcGetEndpointState (
   IN USB_XHCI_INSTANCE  *Xhc,
   IN UINT8              SlotId,
   IN UINT8              Dci
@@ -1333,50 +1333,20 @@ XhcEndpointRunning (
 {
   VOID  *OutputContext;
 
-  OutputContext = Xhc->UsbDevContext[SlotId].OutputContext;
-  if (OutputContext == NULL) {
-    return FALSE;
+  if ((SlotId == 0) || (Dci == 0) || (Dci >= 32)) {
+    return XHC_ENDPOINT_STATE_DISABLED;
   }
-
-  if (Xhc->HcCParams.Data.Csz == 0) {
-    return ((DEVICE_CONTEXT *)OutputContext)->EP[Dci - 1].EPState == 1;
-  }
-
-  return ((DEVICE_CONTEXT_64 *)OutputContext)->EP[Dci - 1].EPState == 1;
-}
-
-/**
-  Check whether an endpoint is in the Halted state.
-
-  @param  Xhc     The XHCI instance.
-  @param  SlotId  The slot id.
-  @param  Dci     The device context index.
-
-  @retval TRUE    The endpoint is in the Halted state.
-  @retval FALSE   The endpoint is not in the Halted state.
-
-**/
-STATIC
-BOOLEAN
-EFIAPI
-XhcEndpointHalted (
-  IN USB_XHCI_INSTANCE  *Xhc,
-  IN UINT8              SlotId,
-  IN UINT8              Dci
-  )
-{
-  VOID  *OutputContext;
 
   OutputContext = Xhc->UsbDevContext[SlotId].OutputContext;
   if (OutputContext == NULL) {
-    return FALSE;
+    return XHC_ENDPOINT_STATE_DISABLED;
   }
 
   if (Xhc->HcCParams.Data.Csz == 0) {
-    return ((DEVICE_CONTEXT *)OutputContext)->EP[Dci - 1].EPState == 2;
+    return ((DEVICE_CONTEXT *)OutputContext)->EP[Dci - 1].EPState;
   }
 
-  return ((DEVICE_CONTEXT_64 *)OutputContext)->EP[Dci - 1].EPState == 2;
+  return ((DEVICE_CONTEXT_64 *)OutputContext)->EP[Dci - 1].EPState;
 }
 
 /**
@@ -1427,8 +1397,9 @@ XhcExecTransfer (
     ASSERT (Dci < 32);
   }
 
-  if (!CmdTransfer && XhcEndpointHalted (Xhc, SlotId, Dci)) {
-    goto DONE;
+  if (!CmdTransfer && (XhcGetEndpointState (Xhc, SlotId, Dci) == XHC_ENDPOINT_STATE_HALTED)) {
+    Urb->Result = EFI_USB_ERR_STALL;
+    return EFI_DEVICE_ERROR;
   }
 
   if (Timeout == 0) {
@@ -1461,9 +1432,8 @@ XhcExecTransfer (
     ElapsedTicks += TicksDelta;
   } while (IndefiniteTimeout || ElapsedTicks < TimeoutTicks);
 
-DONE:
   if (!Finished) {
-    if (XhcEndpointHalted (Xhc, SlotId, Dci)) {
+    if (!CmdTransfer && (XhcGetEndpointState (Xhc, SlotId, Dci) == XHC_ENDPOINT_STATE_HALTED)) {
       Urb->Result = EFI_USB_ERR_STALL;
       Status      = EFI_DEVICE_ERROR;
     } else {
@@ -3591,12 +3561,14 @@ XhcStopEndpoint (
   EFI_STATUS                  Status;
   EVT_TRB_COMMAND_COMPLETION  *EvtTrb;
   CMD_TRB_STOP_ENDPOINT       CmdTrbStopED;
+  UINT8                       EndpointState;
 
   DEBUG ((DEBUG_VERBOSE, "XhcStopEndpoint: Slot = 0x%x, Dci = 0x%x\n", SlotId, Dci));
 
   EvtTrb = NULL;
 
-  if (XhcEndpointHalted (Xhc, SlotId, Dci)) {
+  EndpointState = XhcGetEndpointState (Xhc, SlotId, Dci);
+  if (EndpointState == XHC_ENDPOINT_STATE_HALTED) {
     if (PendingUrb != NULL) {
       PendingUrb->Result = EFI_USB_ERR_STALL;
     }
@@ -3604,7 +3576,7 @@ XhcStopEndpoint (
     return EFI_DEVICE_ERROR;
   }
 
-  if (!XhcEndpointRunning (Xhc, SlotId, Dci)) {
+  if (EndpointState != XHC_ENDPOINT_STATE_RUNNING) {
     if (PendingUrb != NULL) {
       PendingUrb->Result = EFI_USB_ERR_SYSTEM;
     }
