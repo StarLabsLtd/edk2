@@ -496,8 +496,6 @@ SerialPortInitialize (
   UINT32         Divisor;
   UINT8          CurrentLcr;
 
-  DEBUG ((DEBUG_INFO, "[SerialPortLib] SerialPortInitialize() called\n"));
-
   //
   // Perform platform specific initialization required to enable use of the 16550 device
   // at the location specified by PcdSerialUseMmio and PcdSerialRegisterBase.
@@ -526,9 +524,6 @@ SerialPortInitialize (
     return RETURN_DEVICE_ERROR;
   }
 
-  DEBUG ((DEBUG_INFO, "[SerialPortLib] SerialRegisterBase: 0x%lx, BaudRate: %d, UseMmio: %d\n",
-          SerialRegisterBase, PcdGet32 (PcdSerialBaudRate), PcdGetBool (PcdSerialUseMmio)));
-
   //
   // See if the serial port is already initialized
   // If line control is correct, trust that baud rate is also correct
@@ -541,11 +536,8 @@ SerialPortInitialize (
     // Serial port is already properly initialized, return success
     // without touching any UART registers to avoid disrupting output
     //
-    DEBUG ((DEBUG_INFO, "[SerialPortLib] UART already initialized, skipping reinitialization\n"));
     return RETURN_SUCCESS;
   }
-
-  DEBUG ((DEBUG_INFO, "[SerialPortLib] UART not initialized, proceeding with initialization\n"));
 
   //
   // Wait for the serial port to be ready.
@@ -986,7 +978,6 @@ SerialPortSetAttributes (
   UINT8   LcrData;
   UINT8   LcrParity;
   UINT8   LcrStop;
-  UINT8   CurrentLcr;
 
   SerialRegisterBase = GetSerialRegisterBase ();
   if (SerialRegisterBase == 0) {
@@ -1117,19 +1108,6 @@ SerialPortSetAttributes (
   // Calculate expected LCR value
   //
   Lcr = (UINT8)((LcrParity << 3) | (LcrStop << 2) | LcrData);
-
-  //
-  // Check if UART already has the correct settings
-  // If line control matches, assume baud rate is also correct to avoid
-  // any UART register writes that could disrupt serial output
-  //
-  CurrentLcr = SerialPortReadRegister (SerialRegisterBase, R_UART_LCR);
-  if ((CurrentLcr & 0x3F) == (Lcr & 0x3F)) {
-    DEBUG ((DEBUG_INFO, "[SerialPortLib] SetAttributes: Already configured correctly, skipping\n"));
-    return RETURN_SUCCESS;
-  }
-
-  DEBUG ((DEBUG_INFO, "[SerialPortLib] SetAttributes: Reconfiguring UART (LCR: 0x%02x -> 0x%02x)\n", CurrentLcr & 0x3F, Lcr & 0x3F));
 
   //
   // Configure baud rate
