@@ -28,6 +28,7 @@
   PlatformBootManager.h
 
 [Packages]
+  FmpDevicePkg/FmpDevicePkg.dec
   MdePkg/MdePkg.dec
   MdeModulePkg/MdeModulePkg.dec
   SecurityPkg/SecurityPkg.dec
@@ -59,11 +60,13 @@
 [Guids]
   gEdkiiBootLogoHobGuid
   gEfiEndOfDxeEventGroupGuid
+  gFmpDevicePreEndOfDxeLockEventGuid
   gEfiEventReadyToBootGuid
   gEfiGlobalVariableGuid
   gUefiShellFileGuid
 
 [Protocols]
+  gFmpDevicePreEndOfDxeLockClaimProtocolGuid            ## PRODUCES ## CONSUMES
   gEdkiiBootLogo2ProtocolGuid
   gEfiTcg2ProtocolGuid
   gEsrtManagementProtocolGuid      ## CONSUMES
@@ -80,6 +83,7 @@
   gEfiBatteryStatusProtocolGuid        ## CONSUMES
 
 [Pcd]
+  gFmpDevicePkgTokenSpaceGuid.PcdFmpDeviceLockEventGuid
   gEfiMdePkgTokenSpaceGuid.PcdPlatformBootTimeOut
   gEfiMdeModulePkgTokenSpaceGuid.PcdConOutRow
   gEfiMdeModulePkgTokenSpaceGuid.PcdConOutColumn

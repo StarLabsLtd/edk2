@@ -804,6 +804,9 @@
 [PcdsFixedAtBuild]
   gEfiMdeModulePkgTokenSpaceGuid.PcdBootLogoSourceScale|$(BOOT_LOGO_SOURCE_SCALE)
   gEfiMdePkgTokenSpaceGuid.PcdHardwareErrorRecordLevel|1
+!if $(ASS) == TRUE && $(CAPSULE_SUPPORT) == TRUE
+  gFmpDevicePkgTokenSpaceGuid.PcdFmpDeviceLockEventGuid|{GUID("dac942f3-54b2-4d6a-8911-c97a3c016a20")}
+!endif
   gEfiMdeModulePkgTokenSpaceGuid.PcdMaxVariableSize|0x10000
   gEfiMdeModulePkgTokenSpaceGuid.PcdMaxHardwareErrorVariableSize|0x8000
   gEfiMdeModulePkgTokenSpaceGuid.PcdVariableStoreSize|0x10000

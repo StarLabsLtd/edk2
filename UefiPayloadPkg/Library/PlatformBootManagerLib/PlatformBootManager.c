@@ -873,12 +873,42 @@ InstallReadyToLock (
   EFI_STATUS                Status;
   EFI_HANDLE                Handle;
   EFI_SMM_ACCESS2_PROTOCOL  *SmmAccess;
+  VOID                      *FmpClaim;
 
   DEBUG ((DEBUG_INFO, "InstallReadyToLock  entering......\n"));
   //
   // Inform the SMM infrastructure that we're entering BDS and may run 3rd party code hereafter
   // Since PI1.2.1, we need signal EndOfDxe as ExitPmAuth
   //
+  if ((PcdGetSize (PcdFmpDeviceLockEventGuid) == sizeof (EFI_GUID)) &&
+      CompareGuid (PcdGetPtr (PcdFmpDeviceLockEventGuid), &gFmpDevicePreEndOfDxeLockEventGuid))
+  {
+    //
+    // Close admission before signaling the one-shot lock event.
+    //
+    Status = gBS->LocateProtocol (&gFmpDevicePreEndOfDxeLockClaimProtocolGuid, NULL, &FmpClaim);
+    if (Status == EFI_NOT_FOUND) {
+      Handle = NULL;
+      Status = gBS->InstallProtocolInterface (
+                      &Handle,
+                      &gFmpDevicePreEndOfDxeLockClaimProtocolGuid,
+                      EFI_NATIVE_INTERFACE,
+                      NULL
+                      );
+    }
+
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_ERROR, "Failed to close FMP lock registration: %r\n", Status));
+      CpuDeadLoop ();
+    }
+
+    Status = EfiEventGroupSignal (&gFmpDevicePreEndOfDxeLockEventGuid);
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_ERROR, "Failed to signal FMP lock before EndOfDxe: %r\n", Status));
+      CpuDeadLoop ();
+    }
+  }
+
   EfiEventGroupSignal (&gEfiEndOfDxeEventGroupGuid);
   DEBUG ((DEBUG_INFO, "All EndOfDxe callbacks have returned successfully\n"));
 
