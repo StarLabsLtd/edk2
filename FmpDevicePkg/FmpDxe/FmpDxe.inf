@@ -54,8 +54,10 @@
 
 [Guids]
   gEfiEndOfDxeEventGroupGuid
+  gFmpDevicePreEndOfDxeLockEventGuid
 
 [Protocols]
+  gFmpDevicePreEndOfDxeLockClaimProtocolGuid            ## PRODUCES ## CONSUMES
   gEfiFirmwareManagementProtocolGuid            ## PRODUCES
   gEdkiiFirmwareManagementProgressProtocolGuid  ## PRODUCES
   gEdkiiVariablePolicyProtocolGuid              ## CONSUMES

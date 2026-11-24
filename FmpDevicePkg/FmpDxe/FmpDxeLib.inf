@@ -17,7 +17,7 @@
   MODULE_TYPE                    = DXE_DRIVER
   VERSION_STRING                 = 1.0
   LIBRARY_CLASS                  = NULL
-  CONSTRUCTOR                    = FmpDxeEntryPoint
+  CONSTRUCTOR                    = FmpDxeLibConstructor
   DESTRUCTOR                     = FmpDxeLibDestructor
 
 [Sources]
@@ -52,8 +52,10 @@
 
 [Guids]
   gEfiEndOfDxeEventGroupGuid
+  gFmpDevicePreEndOfDxeLockEventGuid
 
 [Protocols]
+  gFmpDevicePreEndOfDxeLockClaimProtocolGuid            ## PRODUCES ## CONSUMES
   gEdkiiVariableLockProtocolGuid                ## CONSUMES
   gEfiFirmwareManagementProtocolGuid            ## PRODUCES
   gEdkiiFirmwareManagementProgressProtocolGuid  ## PRODUCES

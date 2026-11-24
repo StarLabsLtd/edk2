@@ -28,6 +28,7 @@ const EFI_GUID  mDefaultModuleFileGuid = {
 /// TRUE if FmpDeviceLib manages a single firmware storage device.
 ///
 BOOLEAN  mFmpSingleInstance = FALSE;
+STATIC BOOLEAN  mFmpLibraryInstance = FALSE;
 
 ///
 /// Firmware Management Protocol instance that is initialized in the entry
@@ -1623,6 +1624,53 @@ SetPackageInfo (
   return EFI_UNSUPPORTED;
 }
 
+STATIC
+BOOLEAN
+UsePreEndOfDxeLock (
+  VOID
+  )
+{
+  return mFmpSingleInstance && !mFmpLibraryInstance &&
+         CompareGuid (mLockGuid, &gFmpDevicePreEndOfDxeLockEventGuid);
+}
+
+STATIC
+EFI_STATUS
+ClaimPreEndOfDxeLock (
+  VOID
+  )
+{
+  EFI_STATUS  Status;
+  EFI_HANDLE  Claim;
+  VOID        *Interface;
+
+  Status = gBS->LocateProtocol (&gFmpDevicePreEndOfDxeLockClaimProtocolGuid, NULL, &Interface);
+  if (!EFI_ERROR (Status)) {
+    return EFI_ACCESS_DENIED;
+  }
+
+  if (Status == EFI_NOT_FOUND) {
+    //
+    // Keep the claim until reset. Reloading the driver cannot repeat deferred
+    // policy registration after cleanup or after the lock event has fired.
+    //
+    Claim  = NULL;
+    Status = gBS->InstallProtocolInterface (
+                    &Claim,
+                    &gFmpDevicePreEndOfDxeLockClaimProtocolGuid,
+                    EFI_NATIVE_INTERFACE,
+                    NULL
+                    );
+  }
+
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "FmpDxe(%s): Failed to reserve early variable locking: %r\n", mImageIdName, Status));
+    CpuDeadLoop ();
+  }
+
+  return Status;
+}
+
 /**
   Event notification function that is invoked when the event GUID specified by
   PcdFmpDeviceLockEventGuid is signaled.
@@ -1649,6 +1697,16 @@ FmpDxeLockEventNotify (
   Private = (FIRMWARE_MANAGEMENT_PRIVATE_DATA *)Context;
 
   if (!Private->FmpDeviceLocked) {
+    if (UsePreEndOfDxeLock ()) {
+      Status = LockAllFmpVariables (Private);
+      if (EFI_ERROR (Status)) {
+        DEBUG ((DEBUG_ERROR, "FmpDxe(%s): Failed to lock update variables before EndOfDxe: %r\n", mImageIdName, Status));
+        CpuDeadLoop ();
+      }
+
+      DEBUG ((DEBUG_INFO, "FmpDxe(%s): Update variables locked before EndOfDxe\n", mImageIdName));
+    }
+
     //
     // Lock the firmware device
     //
@@ -1685,6 +1743,11 @@ InstallFmpInstance (
   EFI_STATUS                        Status;
   EFI_FIRMWARE_MANAGEMENT_PROTOCOL  *Fmp;
   FIRMWARE_MANAGEMENT_PRIVATE_DATA  *Private;
+  BOOLEAN                           DeferVariableLock;
+  BOOLEAN                           LockRequired;
+  EFI_GUID                          *LockGuid;
+
+  DeferVariableLock = FALSE;
 
   //
   // Only allow a single FMP Protocol instance to be installed
@@ -1726,20 +1789,38 @@ InstallFmpInstance (
     goto cleanup;
   }
 
+  LockRequired = IsLockFmpDeviceAtLockEventGuidRequired ();
+  if (LockRequired && UsePreEndOfDxeLock ()) {
+    Status = ClaimPreEndOfDxeLock ();
+    if (EFI_ERROR (Status)) {
+      goto cleanup;
+    }
+
+    DeferVariableLock = TRUE;
+  }
+
   //
   // Make sure the descriptor has already been loaded or refreshed
   //
   PopulateDescriptor (Private);
 
-  if (IsLockFmpDeviceAtLockEventGuidRequired ()) {
+  if (LockRequired) {
     //
-    // Register all UEFI Variables used by this module to be locked.
+    // Platforms using the pre-EndOfDxe event must write their capsule checkpoint
+    // and result while variable policy registration is still open.
     //
-    Status = LockAllFmpVariables (Private);
-    if (EFI_ERROR (Status)) {
-      DEBUG ((DEBUG_ERROR, "FmpDxe(%s): Failed to register variables to lock.  Status = %r.\n", mImageIdName, Status));
-    } else {
-      DEBUG ((DEBUG_INFO, "FmpDxe(%s): All variables registered to lock\n", mImageIdName));
+    LockGuid = mLockGuid;
+    if (!DeferVariableLock && CompareGuid (LockGuid, &gFmpDevicePreEndOfDxeLockEventGuid)) {
+      LockGuid = &gEfiEndOfDxeEventGroupGuid;
+    }
+
+    if (!DeferVariableLock) {
+      Status = LockAllFmpVariables (Private);
+      if (EFI_ERROR (Status)) {
+        DEBUG ((DEBUG_ERROR, "FmpDxe(%s): Failed to register variables to lock.  Status = %r.\n", mImageIdName, Status));
+      } else {
+        DEBUG ((DEBUG_INFO, "FmpDxe(%s): All variables registered to lock\n", mImageIdName));
+      }
     }
 
     //
@@ -1750,11 +1831,14 @@ InstallFmpInstance (
                     TPL_CALLBACK,
                     FmpDxeLockEventNotify,
                     Private,
-                    mLockGuid,
+                    LockGuid,
                     &Private->FmpDeviceLockEvent
                     );
     if (EFI_ERROR (Status)) {
       DEBUG ((DEBUG_ERROR, "FmpDxe(%s): Failed to register notification.  Status = %r\n", mImageIdName, Status));
+      if (DeferVariableLock) {
+        goto cleanup;
+      }
     }
 
     ASSERT_EFI_ERROR (Status);
@@ -1784,6 +1868,15 @@ cleanup:
     if (Private != NULL) {
       if (Private->FmpDeviceLockEvent != NULL) {
         gBS->CloseEvent (Private->FmpDeviceLockEvent);
+      }
+
+      //
+      // If installation failed after populating the descriptor, there is no
+      // FMP instance left to lock its update variables at the platform event.
+      //
+      if (DeferVariableLock && EFI_ERROR (LockAllFmpVariables (Private))) {
+        DEBUG ((DEBUG_ERROR, "FmpDxe(%s): Failed to protect update variables after installation error\n", mImageIdName));
+        CpuDeadLoop ();
       }
 
       if (Private->Descriptor.VersionName != NULL) {
@@ -1855,12 +1948,11 @@ UninstallFmpInstance (
   }
 
   Private = FIRMWARE_MANAGEMENT_PRIVATE_DATA_FROM_THIS (Fmp);
-  FmpDeviceSetContext (Private->Handle, &Private->FmpDeviceContext);
-
-  if (Private->FmpDeviceLockEvent != NULL) {
-    gBS->CloseEvent (Private->FmpDeviceLockEvent);
+  if (UsePreEndOfDxeLock () && (Private->FmpDeviceLockEvent != NULL) && !Private->FmpDeviceLocked) {
+    return EFI_ACCESS_DENIED;
   }
 
+  FmpDeviceSetContext (Private->Handle, &Private->FmpDeviceContext);
   Status = gBS->UninstallMultipleProtocolInterfaces (
                   Private->Handle,
                   &gEfiFirmwareManagementProtocolGuid,
@@ -1872,6 +1964,10 @@ UninstallFmpInstance (
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "FmpDxe(%s): Protocol uninstall error. Status = %r.\n", mImageIdName, Status));
     return Status;
+  }
+
+  if (Private->FmpDeviceLockEvent != NULL) {
+    gBS->CloseEvent (Private->FmpDeviceLockEvent);
   }
 
   if (Private->Descriptor.VersionName != NULL) {
@@ -2025,4 +2121,19 @@ FmpDxeEntryPoint (
   }
 
   return Status;
+}
+
+/**
+  Initialize the FMP library with installation-time variable policy.
+  Library destructors cannot prevent unloading the containing image.
+**/
+EFI_STATUS
+EFIAPI
+FmpDxeLibConstructor (
+  IN EFI_HANDLE        ImageHandle,
+  IN EFI_SYSTEM_TABLE  *SystemTable
+  )
+{
+  mFmpLibraryInstance = TRUE;
+  return FmpDxeEntryPoint (ImageHandle, SystemTable);
 }

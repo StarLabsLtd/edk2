@@ -61,6 +61,15 @@
   ## Firmware Management Protocol Device Package Token Space GUID
   gFmpDevicePkgTokenSpaceGuid = { 0x40b2d964, 0xfe11, 0x40dc, { 0x82, 0x83, 0x2e, 0xfb, 0xda, 0x29, 0x53, 0x56 } }
 
+  ## Signals that early capsule processing is complete and FMP must lock its
+  #  variables and device before EndOfDxe closes variable policy registration.
+  gFmpDevicePreEndOfDxeLockEventGuid = { 0xdac942f3, 0x54b2, 0x4d6a, { 0x89, 0x11, 0xc9, 0x7a, 0x3c, 0x01, 0x6a, 0x20 } }
+
+[Protocols]
+  ## Reserved for one resident FMP instance using the pre-EndOfDxe lock event.
+  #  The boot manager closes admission if no instance has reserved it.
+  gFmpDevicePreEndOfDxeLockClaimProtocolGuid = { 0xf7e6143e, 0x1e85, 0x49fe, { 0x98, 0xdf, 0x31, 0x14, 0x1e, 0x8c, 0xcc, 0xa8 } }
+
 [Protocols.Common.Private]
   ## Capsule Update Policy Protocol
   gEdkiiCapsuleUpdatePolicyProtocolGuid = { 0x487784c5, 0x6299, 0x4ba6, { 0xb0, 0x96, 0x5c, 0xc5, 0x27, 0x7c, 0xf7, 0x57 } }
