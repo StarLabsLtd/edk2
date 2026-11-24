@@ -74,4 +74,3 @@ STATIC_ASSERT (sizeof (COREBOOT_VARIABLE_SERVICE_BUFFER) == 32, "Coreboot buffer
 
 extern EFI_GUID  gCorebootVariableServiceInfoGuid;
 extern EFI_GUID  gCorebootVariableServiceReadyGuid;
-extern EFI_GUID  gCorebootVariableStoreReadyGuid;
