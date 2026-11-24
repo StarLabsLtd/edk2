@@ -18,6 +18,17 @@
 #define CBMEM_TS_UPL_EXIT_BOOT      1307
 
 /**
+  Supply the checked coreboot table before the legacy entry creates HOBs.
+
+  @param[in] Table  Legacy coreboot table, or NULL when unavailable.
+**/
+VOID
+EFIAPI
+CbMemSetLegacyTable (
+  IN VOID  *Table OPTIONAL
+  );
+
+/**
   Find a CBMEM entry exported by the coreboot table.
 
   @param[in]  Id          CBMEM entry ID.

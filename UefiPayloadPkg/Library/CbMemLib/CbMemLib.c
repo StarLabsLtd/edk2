@@ -4,18 +4,28 @@
   SPDX-License-Identifier: BSD-2-Clause-Patent
 **/
 
-#include <Base.h>
+#include <PiPei.h>
 #include <Coreboot.h>
 #include <Guid/CbMemTableHob.h>
 
 #include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
-#include <Library/BlParseLib.h>
 #include <Library/DebugLib.h>
 #include <Library/HobLib.h>
 #include <Library/PcdLib.h>
 
 #include <Library/CbMemLib.h>
+
+STATIC struct cb_header  *mLegacyCorebootTable;
+
+VOID
+EFIAPI
+CbMemSetLegacyTable (
+  IN VOID  *Table OPTIONAL
+  )
+{
+  mLegacyCorebootTable = Table;
+}
 
 STATIC
 UINT64
@@ -44,52 +54,45 @@ GetCorebootTable (
   OUT struct cb_header  **Header
   )
 {
-  struct cb_header     *Candidate;
-  COREBOOT_TABLE_HOB   *TableHob;
-  VOID                 *GuidHob;
-  VOID                 *HobList;
+  struct cb_header    *Candidate;
+  COREBOOT_TABLE_HOB  *TableHob;
+  EFI_HOB_GUID_TYPE   *GuidHob;
 
-  if (Header == NULL) {
-    return RETURN_INVALID_PARAMETER;
-  }
-
-  *Header   = NULL;
-  HobList = GetHobList ();
-  GuidHob = NULL;
-  if (HobList != NULL) {
-    GuidHob = GetFirstGuidHob (&gUefiPayloadCorebootTableGuid);
-  }
-  if ((GuidHob != NULL) &&
-      (GET_GUID_HOB_DATA_SIZE (GuidHob) >= sizeof (*TableHob)))
-  {
-    TableHob  = (COREBOOT_TABLE_HOB *)GET_GUID_HOB_DATA (GuidHob);
-    if (TableHob->Address > MAX_UINTN) {
-      return RETURN_UNSUPPORTED;
+  *Header = NULL;
+  GuidHob = (GetHobList () != NULL) ? GetFirstGuidHob (&gUefiPayloadCorebootTableGuid) : NULL;
+  if (GuidHob == NULL) {
+    if (mLegacyCorebootTable == NULL) {
+      return RETURN_NOT_FOUND;
     }
 
-    Candidate = (struct cb_header *)(UINTN)TableHob->Address;
-    if ((Candidate != NULL) && (Candidate->signature == CB_HEADER_SIGNATURE) &&
-        (Candidate->header_bytes >= sizeof (*Candidate)) &&
-        (Candidate->table_bytes >= sizeof (struct cb_record)) &&
-        (TableHob->Size >= Candidate->header_bytes + Candidate->table_bytes))
-    {
-      *Header = Candidate;
-      return RETURN_SUCCESS;
-    }
-  }
-
-  // Legacy coreboot handoff: retain the low-memory scan for payloads that do
-  // not publish the table HOB.
-  Candidate = (struct cb_header *)GetParameterBase ();
-  if ((Candidate != NULL) && (Candidate->signature == CB_HEADER_SIGNATURE) &&
-      (Candidate->header_bytes >= sizeof (*Candidate)) &&
-      (Candidate->table_bytes >= sizeof (struct cb_record)))
-  {
-    *Header = Candidate;
+    *Header = mLegacyCorebootTable;
     return RETURN_SUCCESS;
   }
 
-  return (GuidHob == NULL) ? RETURN_NOT_FOUND : RETURN_COMPROMISED_DATA;
+  if (GuidHob->Header.HobLength < sizeof (*GuidHob) + sizeof (*TableHob)) {
+    return RETURN_COMPROMISED_DATA;
+  }
+
+  TableHob = GET_GUID_HOB_DATA (GuidHob);
+  if ((TableHob->Reserved != 0) || (TableHob->Address == 0) ||
+      (TableHob->Address > MAX_UINTN) ||
+      (TableHob->Size < sizeof (*Candidate)) || (TableHob->Size > SIZE_32KB) ||
+      (TableHob->Size > MAX_UINTN - TableHob->Address))
+  {
+    return RETURN_COMPROMISED_DATA;
+  }
+
+  Candidate = (VOID *)(UINTN)TableHob->Address;
+  if ((Candidate->signature != CB_HEADER_SIGNATURE) ||
+      (Candidate->header_bytes != sizeof (*Candidate)) ||
+      (Candidate->table_bytes < sizeof (struct cb_record)) ||
+      (Candidate->table_bytes != TableHob->Size - sizeof (*Candidate)))
+  {
+    return RETURN_COMPROMISED_DATA;
+  }
+
+  *Header = Candidate;
+  return RETURN_SUCCESS;
 }
 
 STATIC
@@ -248,9 +251,11 @@ CbMemFind (
       return RETURN_COMPROMISED_DATA;
     }
 
-    if ((Record->tag == CB_TAG_CBMEM_ENTRY) &&
-        (Record->size >= sizeof (*Entry)))
-    {
+    if (Record->tag == CB_TAG_CBMEM_ENTRY) {
+      if (Record->size < sizeof (*Entry)) {
+        return RETURN_COMPROMISED_DATA;
+      }
+
       Entry = (struct cb_cbmem_entry *)Record;
       if (Entry->id == Id) {
         EntryAddress = CbMemUnpack64 (Entry->address);
@@ -258,9 +263,15 @@ CbMemFind (
           return RETURN_UNSUPPORTED;
         }
 
+        if ((EntryAddress == 0) || (Entry->entry_size == 0) ||
+            (Entry->entry_size > MAX_UINTN - EntryAddress))
+        {
+          return RETURN_COMPROMISED_DATA;
+        }
+
         *Address = (VOID *)(UINTN)EntryAddress;
         *Size    = Entry->entry_size;
-        return (*Address == NULL) ? RETURN_COMPROMISED_DATA : RETURN_SUCCESS;
+        return RETURN_SUCCESS;
       }
     }
 
@@ -283,6 +294,10 @@ CbMemPublishTableHob (
   Status = GetCorebootTable (&Header);
   if (RETURN_ERROR (Status)) {
     return Status;
+  }
+
+  if (GetFirstGuidHob (&gUefiPayloadCorebootTableGuid) != NULL) {
+    return RETURN_SUCCESS;
   }
 
   TableHob.Address  = (UINT64)(UINTN)Header;

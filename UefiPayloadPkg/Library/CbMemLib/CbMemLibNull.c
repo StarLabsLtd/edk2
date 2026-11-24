@@ -6,6 +6,15 @@
 
 #include <Library/CbMemLib.h>
 
+VOID
+EFIAPI
+CbMemSetLegacyTable (
+  IN VOID  *Table OPTIONAL
+  )
+{
+  (VOID)Table;
+}
+
 RETURN_STATUS
 EFIAPI
 CbMemFind (

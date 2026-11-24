@@ -23,7 +23,6 @@
 [LibraryClasses]
   BaseLib
   BaseMemoryLib
-  BlParseLib
   DebugLib
   HobLib
   PcdLib

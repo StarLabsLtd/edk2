@@ -569,6 +569,7 @@ _ModuleEntryPoint (
   EFI_HOB_HANDOFF_INFO_TABLE          *HobInfo;
 
   PatchPcdSet64 (PcdBootloaderParameter, BootloaderParameter);
+  CbMemSetLegacyTable (GetParameterBase ());
   CbMemTimestampAdd (CBMEM_TS_UPL_ENTRY);
   CbMemLogSummary ();
 

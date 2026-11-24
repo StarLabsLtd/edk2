@@ -162,23 +162,31 @@ CbCalculateCrc32 (
   Check the coreboot table if it is valid.
 
   @param  Header            Pointer to coreboot table
+  @param  BufferSize        Size of the containing buffer
 
   @retval TRUE              The coreboot table is valid.
   @retval Others            The coreboot table is not valid.
 
 **/
+STATIC
 BOOLEAN
 IsValidCbTable (
-  IN struct cb_header  *Header
+  IN struct cb_header  *Header,
+  IN UINTN             BufferSize
   )
 {
   UINT16  CheckSum;
 
-  if ((Header == NULL) || (Header->table_bytes == 0)) {
-    return FALSE;
-  }
-
-  if (Header->signature != CB_HEADER_SIGNATURE) {
+  // The legacy pointer handoff has no length. Coreboot reserves at most 32 KiB for this table.
+  if ((Header == NULL) || (BufferSize < sizeof (*Header)) ||
+      ((UINTN)Header > MAX_UINTN - sizeof (*Header)) ||
+      (Header->signature != CB_HEADER_SIGNATURE) ||
+      (Header->header_bytes != sizeof (*Header)) ||
+      (Header->table_bytes < sizeof (struct cb_record)) ||
+      (Header->table_bytes > SIZE_32KB - sizeof (*Header)) ||
+      (Header->table_bytes > BufferSize - sizeof (*Header)) ||
+      (Header->table_bytes > MAX_UINTN - (UINTN)Header - sizeof (*Header)))
+  {
     return FALSE;
   }
 
@@ -201,6 +209,40 @@ IsValidCbTable (
 }
 
 /**
+  Find the first record with Tag inside a checked coreboot table.
+**/
+STATIC
+struct cb_record *
+FindCbTagInTable (
+  IN struct cb_header  *Header,
+  IN UINT32            Tag
+  )
+{
+  struct cb_record  *Record;
+  UINTN             Remaining;
+  UINT32            Index;
+
+  Record    = (VOID *)(Header + 1);
+  Remaining = Header->table_bytes;
+  for (Index = 0; Index < Header->table_entries; Index++) {
+    if ((Remaining < sizeof (*Record)) ||
+        (Record->size < sizeof (*Record)) || (Record->size > Remaining))
+    {
+      return NULL;
+    }
+
+    if (Record->tag == Tag) {
+      return Record;
+    }
+
+    Remaining -= Record->size;
+    Record     = (VOID *)((UINT8 *)Record + Record->size);
+  }
+
+  return NULL;
+}
+
+/**
   This function retrieves the parameter base address from boot loader.
 
   This function will get bootloader specific parameter address for UEFI payload.
@@ -218,7 +260,7 @@ GetParameterBase (
 {
   struct cb_header  *Header;
   struct cb_record  *Record;
-  UINT8             *TmpPtr;
+  UINT64            ForwardAddress;
   UINT8             *CbTablePtr;
   UINTN             Idx;
   EFI_STATUS        Status;
@@ -226,8 +268,9 @@ GetParameterBase (
   //
   // coreboot could pass coreboot table to UEFI payload
   //
-  Header = (struct cb_header *)(UINTN)GET_BOOTLOADER_PARAMETER ();
-  if (IsValidCbTable (Header)) {
+  ForwardAddress = GET_BOOTLOADER_PARAMETER ();
+  Header         = (struct cb_header *)(UINTN)ForwardAddress;
+  if ((ForwardAddress <= MAX_UINTN) && IsValidCbTable (Header, MAX_UINTN)) {
     return Header;
   }
 
@@ -236,43 +279,43 @@ GetParameterBase (
   // Some GCC version does not allow directly access to NULL pointer,
   // so start the search from 0x10 instead.
   //
-  for (Idx = 16; Idx < 4096; Idx += 16) {
+  for (Idx = 16; Idx < SIZE_4KB; Idx += 16) {
     Header = (struct cb_header *)Idx;
     if (Header->signature == CB_HEADER_SIGNATURE) {
       break;
     }
   }
 
-  if (Idx >= 4096) {
+  if (Idx >= SIZE_4KB) {
     return NULL;
   }
 
   //
   // Check the coreboot header
   //
-  if (!IsValidCbTable (Header)) {
+  if (!IsValidCbTable (Header, SIZE_4KB - Idx)) {
     return NULL;
   }
 
   //
   // Find full coreboot table in high memory
   //
-  CbTablePtr = NULL;
-  TmpPtr     = (UINT8 *)Header + Header->header_bytes;
-  for (Idx = 0; Idx < Header->table_entries; Idx++) {
-    Record = (struct cb_record *)TmpPtr;
-    if (Record->tag == CB_TAG_FORWARD) {
-      CbTablePtr = (VOID *)(UINTN)((struct cb_forward *)(UINTN)Record)->forward;
-      break;
-    }
-
-    TmpPtr += Record->size;
+  Record = FindCbTagInTable (Header, CB_TAG_FORWARD);
+  if ((Record == NULL) || (Record->size < sizeof (struct cb_forward))) {
+    return NULL;
   }
+
+  ForwardAddress = ((struct cb_forward *)Record)->forward;
+  if (ForwardAddress > MAX_UINTN) {
+    return NULL;
+  }
+
+  CbTablePtr = (VOID *)(UINTN)ForwardAddress;
 
   //
   // Check the coreboot header in high memory
   //
-  if (!IsValidCbTable ((struct cb_header *)CbTablePtr)) {
+  if (!IsValidCbTable ((struct cb_header *)CbTablePtr, MAX_UINTN)) {
     return NULL;
   }
 
@@ -297,26 +340,9 @@ FindCbTag (
   )
 {
   struct cb_header  *Header;
-  struct cb_record  *Record;
-  UINT8             *TmpPtr;
-  UINT8             *TagPtr;
-  UINTN             Idx;
 
-  Header = (struct cb_header *)GetParameterBase ();
-
-  TagPtr = NULL;
-  TmpPtr = (UINT8 *)Header + Header->header_bytes;
-  for (Idx = 0; Idx < Header->table_entries; Idx++) {
-    Record = (struct cb_record *)TmpPtr;
-    if (Record->tag == Tag) {
-      TagPtr = TmpPtr;
-      break;
-    }
-
-    TmpPtr += Record->size;
-  }
-
-  return TagPtr;
+  Header = GetParameterBase ();
+  return (Header == NULL) ? NULL : FindCbTagInTable (Header, Tag);
 }
 
 /**
@@ -581,6 +607,10 @@ ParseBootMode (
     return RETURN_NOT_FOUND;
   }
 
+  if (CbBootMode->size < sizeof (*CbBootMode)) {
+    return RETURN_COMPROMISED_DATA;
+  }
+
   switch (CbBootMode->boot_mode) {
     case LB_BOOT_MODE_NORMAL:
       *Mode = BOOT_WITH_FULL_CONFIGURATION;
@@ -679,6 +709,10 @@ ParseSerialInfo (
   CbSerial = FindCbTag (CB_TAG_SERIAL);
   if (CbSerial == NULL) {
     return RETURN_NOT_FOUND;
+  }
+
+  if (CbSerial->size < sizeof (*CbSerial)) {
+    return RETURN_COMPROMISED_DATA;
   }
 
   SerialPortInfo->BaseAddr    = CbSerial->baseaddr;
@@ -841,6 +875,10 @@ ParseGfxInfo (
   CbFbRec = FindCbTag (CB_TAG_FRAMEBUFFER);
   if (CbFbRec == NULL) {
     return RETURN_NOT_FOUND;
+  }
+
+  if (CbFbRec->size <= OFFSET_OF (struct cb_framebuffer, reserved_mask_size)) {
+    return RETURN_COMPROMISED_DATA;
   }
 
   DEBUG ((DEBUG_INFO, "Found coreboot video frame buffer information\n"));
@@ -1099,6 +1137,10 @@ ParseSmmStoreInfo (
     return RETURN_NOT_FOUND;
   }
 
+  if (CbSSRec->size < sizeof (*CbSSRec)) {
+    return RETURN_COMPROMISED_DATA;
+  }
+
   DEBUG ((DEBUG_INFO, "Found Smm Store information\n"));
   DEBUG ((DEBUG_INFO, "block size: 0x%x\n", CbSSRec->block_size));
   DEBUG ((DEBUG_INFO, "number of blocks: 0x%x\n", CbSSRec->num_blocks));
@@ -1134,7 +1176,9 @@ ParseInfoString (
   struct cb_string  *CbString;
 
   CbString = FindCbTag (Id);
-  if (CbString == NULL) {
+  if ((CbString == NULL) || (CbString->size <= sizeof (*CbString)) ||
+      (ScanMem8 (CbString->string, CbString->size - sizeof (*CbString), 0) == NULL))
+  {
     return NULL;
   }
 
@@ -1167,6 +1211,10 @@ ParseFirmwareInfo (
   Info = FindCbTag (CB_TAG_FW_INFO);
   if (Info == NULL) {
     return RETURN_NOT_FOUND;
+  }
+
+  if (Info->size < sizeof (*Info)) {
+    return RETURN_COMPROMISED_DATA;
   }
 
   Version      = ParseInfoString (CB_TAG_VERSION);
@@ -1250,6 +1298,10 @@ ParseTPMPPIInfo (
   CbTPPRec = FindCbTag (CB_TAG_TPM_PPI_HANDOFF);
   if (CbTPPRec == NULL) {
     return RETURN_NOT_FOUND;
+  }
+
+  if (CbTPPRec->size < sizeof (*CbTPPRec)) {
+    return RETURN_COMPROMISED_DATA;
   }
 
   VersionMajor = CbTPPRec->ppi_version >> 4;

@@ -56,7 +56,7 @@ SerialPortInitialize (
 
   // The coreboot table contains large structures as references
   CbMemRef = FindCbTag (CB_TAG_CBMEM_CONSOLE);
-  if (CbMemRef == NULL) {
+  if ((CbMemRef == NULL) || (CbMemRef->size < sizeof (*CbMemRef))) {
     return RETURN_DEVICE_ERROR;
   }
 
